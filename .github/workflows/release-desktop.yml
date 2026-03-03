@@ -1,0 +1,96 @@
+# Build desktop app (Tauri 2) and attach artifacts to a GitHub Release.
+# Trigger: push a tag v* (all platforms) or run manually (workflow_dispatch).
+# Manual run: choose "Single platform" to build only one OS (~8–10 min instead of ~20).
+# Set repo secret VITE_API_URL so the desktop app points to your API.
+
+name: Release desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build (single = faster for testing)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - linux
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-desktop:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Manual run with single platform = faster (~8–10 min). Tag push = all platforms.
+        include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target x86_64-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-22.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target x86_64-apple-darwin"},{"platform":"ubuntu-22.04","args":""}]') }}
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Require VITE_API_URL for desktop release
+        shell: bash
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::VITE_API_URL repository secret must be set (Settings -> Secrets -> Actions)."
+            exit 1
+          fi
+
+      - name: Build web UI
+        working-directory: apps/web
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: npm run build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      # Icons must be committed in apps/desktop/src-tauri/icons/ (see docs/desktop.md).
+
+      - name: Build Tauri and create release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: v__VERSION__
+          releaseName: 'Voxpery v__VERSION__'
+          releaseBody: 'Desktop release. Download the installer for your platform below.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

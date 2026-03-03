@@ -1,0 +1,86 @@
+# Voxpery — production-ready infra stack (Postgres + Redis + LiveKit SFU).
+# Run: docker compose up -d
+# Backend (Rust) and web (Node build + nginx) run on the host; see docs/hosting.md.
+# No "version" key: Compose V2 / Compose Specification no longer uses it.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: voxpery-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voxpery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
+      POSTGRES_DB: ${POSTGRES_DB:-voxpery}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U voxpery" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis is required by LiveKit; keep enabled in production.
+  redis:
+    image: redis:7-alpine
+    container_name: voxpery-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: voxpery-livekit
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    # LiveKit config is inlined below. For production, set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env
+    # or mount config from external file via: volumes: - ./livekit.yaml:/etc/livekit.yaml:ro
+    configs:
+      - source: livekit_config
+        target: /etc/livekit.yaml
+    command: ["--config", "/etc/livekit.yaml"]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+configs:
+  livekit_config:
+    content: |
+      port: 7880
+      log_level: debug
+
+      rtc:
+        port_range_start: 50000
+        port_range_end: 60000
+        udp_port: 7882
+        tcp_port: 7881
+        # For local development, disable external IP and use localhost
+        use_external_ip: false
+
+      redis:
+        address: redis:6379
+
+      keys:
+        # Production: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env file
+        # Note: Docker Compose inline config doesn't support ${VAR} substitution.
+        # For production, use external config file: volumes: - ./livekit.yaml:/etc/livekit.yaml:ro
+        devkey: devsecret_please_change_me_32_chars

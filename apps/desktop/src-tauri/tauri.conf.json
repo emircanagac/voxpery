@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Voxpery",
+  "version": "1.2.0",
+  "identifier": "com.voxpery",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Voxpery",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' tauri: asset:",
+        "connect-src": "ipc: http://ipc.localhost 'self' https://api.voxpery.com wss://api.voxpery.com https://livekit.voxpery.com wss://livekit.voxpery.com stun: turn: http://127.0.0.1:3001 ws://127.0.0.1:3001 http://localhost:3001 ws://localhost:3001 https://livekit.io https://*.livekit.io",
+        "img-src": "'self' asset: data: https: blob:",
+        "script-src": "'self' 'unsafe-inline' 'unsafe-eval' blob:",
+        "worker-src": "'self' 'unsafe-eval' blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "nsis",
+      "msi",
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_PUBLIC_KEY_AFTER_tauri_signer_generate",
+      "endpoints": [
+        "https://releases.example.com/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  }
+}

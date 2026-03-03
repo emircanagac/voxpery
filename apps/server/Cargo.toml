@@ -1,0 +1,43 @@
+[package]
+name = "voxpery-server"
+version = "0.1.0"
+edition = "2021"
+description = "Voxpery — Privacy-first communication server"
+license = "AGPL-3.0-only"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["ws", "multipart"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database (postgres only; default-features = false avoids pulling mysql/rsa)
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
+
+# Auth
+jsonwebtoken = "9"
+argon2 = "0.5"
+rand = "0.8"
+
+# Utils
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+futures = "0.3"
+dashmap = "6"
+redis = { version = "0.27", features = ["tokio-comp"] }
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+bytes = "1"

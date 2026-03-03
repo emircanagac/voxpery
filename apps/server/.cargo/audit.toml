@@ -1,0 +1,4 @@
+# sqlx 0.8 on crates.io pulls mysql (and rsa) as required deps; we use postgres only.
+# RUSTSEC-2023-0071 (rsa) is not used at runtime. See README or prior discussion.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]
