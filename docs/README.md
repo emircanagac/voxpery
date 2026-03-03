@@ -2,6 +2,8 @@
 
 This folder is the source of truth for architecture, development, deployment, and open-source contribution workflows.
 
+> Note: `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`, and `.github/SUPPORT.md` are lightweight pointers for GitHub Community Standards detection. Canonical content lives in this `docs/` folder.
+
 ## Start Here
 
 - **[../README.md](../README.md)** — Product overview and quick start

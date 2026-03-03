@@ -43,7 +43,7 @@ Community members who violate this code may face:
 This code of conduct applies to:
 - GitHub issues and pull requests
 - Discussions and forums
-- Community chats (Discord/Matrix)
+- Official project communication channels
 - Official events and meetups
 - Anywhere representing the Voxpery community
 
