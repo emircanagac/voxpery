@@ -38,6 +38,9 @@ interface AppState {
     dmUnread: Record<string, number>
     incrementDmUnread: (channelId: string) => void
     clearDmUnread: (channelId: string) => void
+    incomingRequestCount: number
+    setIncomingRequestCount: (count: number) => void
+    resetIncomingRequestCount: () => void
 
     // Voice presence (user_id -> channel_id | null)
     voiceStates: Record<string, string | null>
@@ -128,6 +131,9 @@ export const useAppStore = create<AppState>()(
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: (s.dmUnread[channelId] ?? 0) + 1 } })),
             clearDmUnread: (channelId) =>
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: 0 } })),
+            incomingRequestCount: 0,
+            setIncomingRequestCount: (count) => set({ incomingRequestCount: Math.max(0, count) }),
+            resetIncomingRequestCount: () => set({ incomingRequestCount: 0 }),
 
             // Voice presence
             voiceStates: {},

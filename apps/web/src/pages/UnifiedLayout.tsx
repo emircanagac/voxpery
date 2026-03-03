@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
@@ -22,7 +22,18 @@ export default function UnifiedLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, token } = useAuthStore()
-  const { activeServerId, setActiveServer, setShowCreateServer, setShowJoinServer, setOpenServerSettingsForServerId, dmUnread, servers } = useAppStore(
+  const {
+    activeServerId,
+    setActiveServer,
+    setShowCreateServer,
+    setShowJoinServer,
+    setOpenServerSettingsForServerId,
+    dmUnread,
+    servers,
+    incomingRequestCount,
+    setIncomingRequestCount,
+    resetIncomingRequestCount,
+  } = useAppStore(
     useShallow((s) => ({
       activeServerId: s.activeServerId,
       setActiveServer: s.setActiveServer,
@@ -31,9 +42,11 @@ export default function UnifiedLayout() {
       setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
       dmUnread: s.dmUnread,
       servers: s.servers,
+      incomingRequestCount: s.incomingRequestCount,
+      setIncomingRequestCount: s.setIncomingRequestCount,
+      resetIncomingRequestCount: s.resetIncomingRequestCount,
     }))
   )
-  const [incomingRequestCount, setIncomingRequestCount] = useState(0)
 
   const isFriendsOrDm =
     location.pathname === '/app/friends' ||
@@ -71,7 +84,7 @@ export default function UnifiedLayout() {
 
   useEffect(() => {
     if (!user) {
-      setIncomingRequestCount(0)
+      resetIncomingRequestCount()
       return
     }
     let cancelled = false
@@ -80,7 +93,7 @@ export default function UnifiedLayout() {
         const req = await friendApi.requests(token)
         if (!cancelled) setIncomingRequestCount(req.incoming.length)
       } catch {
-        if (!cancelled) setIncomingRequestCount(0)
+        if (!cancelled) resetIncomingRequestCount()
       }
     }
     void refresh()
@@ -91,7 +104,7 @@ export default function UnifiedLayout() {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [token, user])
+  }, [resetIncomingRequestCount, setIncomingRequestCount, token, user])
 
   const handleOpenServerSettings = (id: string) => {
     setOpenServerSettingsForServerId(id)

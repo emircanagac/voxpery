@@ -44,6 +44,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     activeDmChannelId,
     setActiveDmChannelId,
     setDmChannelIds,
+    setIncomingRequestCount,
     friends: storeFriends,
     dmChannels: storeDmChannels,
     setFriends: setStoreFriends,
@@ -59,6 +60,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       activeDmChannelId: s.activeDmChannelId,
       setActiveDmChannelId: s.setActiveDmChannelId,
       setDmChannelIds: s.setDmChannelIds,
+      setIncomingRequestCount: s.setIncomingRequestCount,
       friends: s.friends,
       dmChannels: s.dmChannels,
       setFriends: s.setFriends,
@@ -136,13 +138,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setServers(serverList)
     setStoreFriends(friendList)
     setIncomingRequests(req.incoming)
+    setIncomingRequestCount(req.incoming.length)
     setOutgoingRequests(req.outgoing)
     setStoreDmChannels(dms)
     setDmChannelIds(dms.map((d) => d.id))
     if (!activeDmChannelId && dms.length > 0) {
       setActiveDmChannelId(dms[0].id)
     }
-  }, [activeDmChannelId, setDmChannelIds, setServers, setActiveDmChannelId, setStoreFriends, setStoreDmChannels, token, user])
+  }, [activeDmChannelId, setDmChannelIds, setIncomingRequestCount, setServers, setActiveDmChannelId, setStoreFriends, setStoreDmChannels, token, user])
 
   useEffect(() => {
     try {
@@ -313,6 +316,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setAddFriendUsername('')
       const req = await friendApi.requests(token)
       setIncomingRequests(req.incoming)
+      setIncomingRequestCount(req.incoming.length)
       setOutgoingRequests(req.outgoing)
     } catch (err: unknown) {
       setAddFriendMessage((err as Error)?.message ?? 'Failed to send request')
@@ -330,6 +334,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     await friendApi.rejectRequest(requestId, token)
     const req = await friendApi.requests(token)
     setIncomingRequests(req.incoming)
+    setIncomingRequestCount(req.incoming.length)
     setOutgoingRequests(req.outgoing)
   }
 
