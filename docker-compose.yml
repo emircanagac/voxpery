@@ -38,23 +38,21 @@ services:
       retries: 5
 
   # LiveKit SFU: Handles WebRTC signaling and media routing
+  # Uses network_mode: host so LiveKit sees real network interfaces and public IP directly.
+  # This eliminates Docker NAT overhead and ensures correct ICE candidate advertisement.
   livekit:
     image: livekit/livekit-server:latest
     container_name: voxpery-livekit
     restart: unless-stopped
+    network_mode: host
     depends_on:
       redis:
         condition: service_healthy
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
-      # LiveKit requires keys in "key: secret" format (colon + space)
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET}"
-    ports:
-      - "7880:7880"                   # WebSocket signaling (Safe to proxy via Cloudflare)
-      - "7881:7881"                   # TCP fallback
-      - "7882:7882/udp"               # Primary UDP port
-      - "50000-50200:50000-50200/udp" # WebRTC media ports (~100 concurrent users capacity)
+    # LiveKit uses: 7880 (WS), 7881 (TCP), 7882 (UDP), 50000-50200 (media UDP)
     configs:
       - source: livekit_config
         target: /etc/livekit.yaml
@@ -79,8 +77,9 @@ configs:
         # Enables direct client-to-server UDP for media, bypassing reverse proxies (NAT Traversal)
         use_external_ip: true
 
+      # network_mode: host means Redis is on localhost, not Docker DNS
       redis:
-        address: redis:6379
+        address: localhost:6379
 
       # Security Note: API keys are securely loaded from the LIVEKIT_KEYS environment variable.
       # Do not hardcode credentials in this configuration block.
