@@ -1,7 +1,7 @@
-# Voxpery — production-ready infra stack (Postgres + Redis + LiveKit SFU).
-# Run: docker compose up -d
-# Backend (Rust) and web (Node build + nginx) run on the host; see docs/hosting.md.
-# No "version" key: Compose V2 / Compose Specification no longer uses it.
+# Voxpery — Production-ready infrastructure stack (Postgres + Redis + LiveKit SFU)
+# Usage: docker compose up -d
+# Note: Backend (Rust) and Web (Node + Nginx) are expected to run on the host.
+# See docs/hosting.md for detailed deployment instructions.
 
 services:
   postgres:
@@ -17,12 +17,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U voxpery" ]
+      test: ["CMD-SHELL", "pg_isready -U voxpery"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Redis is required by LiveKit; keep enabled in production.
+  # Redis is required by LiveKit for distributed state and room management
   redis:
     image: redis:7-alpine
     container_name: voxpery-redis
@@ -32,11 +32,12 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # LiveKit SFU: Handles WebRTC signaling and media routing
   livekit:
     image: livekit/livekit-server:latest
     container_name: voxpery-livekit
@@ -47,12 +48,13 @@ services:
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
+      # LiveKit requires keys in a combined format (key:secret) without spaces
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}:${LIVEKIT_API_SECRET}"
     ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
-    # LiveKit config is inlined below. For production, set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env
-    # or mount config from external file via: volumes: - ./livekit.yaml:/etc/livekit.yaml:ro
+      - "7880:7880"                   # WebSocket signaling (Safe to proxy via Cloudflare)
+      - "7881:7881"                   # TCP fallback
+      - "7882:7882/udp"               # Primary UDP port
+      - "50000-50200:50000-50200/udp" # WebRTC media ports (~100 concurrent users capacity)
     configs:
       - source: livekit_config
         target: /etc/livekit.yaml
@@ -66,21 +68,19 @@ configs:
   livekit_config:
     content: |
       port: 7880
-      log_level: debug
+      log_level: info
 
       rtc:
+        # UDP port range must match the exposed ports in the docker service definition
         port_range_start: 50000
-        port_range_end: 60000
+        port_range_end: 50200
         udp_port: 7882
         tcp_port: 7881
-        # For local development, disable external IP and use localhost
-        use_external_ip: false
+        # Enables direct client-to-server UDP for media, bypassing reverse proxies (NAT Traversal)
+        use_external_ip: true
 
       redis:
         address: redis:6379
 
-      keys:
-        # Production: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env file
-        # Note: Docker Compose inline config doesn't support ${VAR} substitution.
-        # For production, use external config file: volumes: - ./livekit.yaml:/etc/livekit.yaml:ro
-        devkey: devsecret_please_change_me_32_chars
+      # Security Note: API keys are securely loaded from the LIVEKIT_KEYS environment variable.
+      # Do not hardcode credentials in this configuration block.
