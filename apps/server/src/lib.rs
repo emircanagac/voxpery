@@ -4,9 +4,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
+    body::{to_bytes, Body},
     extract::{DefaultBodyLimit, State},
     http::{header, Method, StatusCode},
-    response::IntoResponse,
+    middleware::map_response,
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -76,6 +78,55 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     }
 }
 
+fn should_sanitize_client_error(body: &str) -> bool {
+    let text = body.to_ascii_lowercase();
+    let patterns = [
+        "uuid parsing failed",
+        "number too large to fit",
+        "failed to deserialize",
+        "failed to parse",
+        "invalid type",
+        "expected `",
+        "at line",
+        "at column",
+    ];
+    patterns.iter().any(|pattern| text.contains(pattern))
+}
+
+async fn sanitize_verbose_client_errors(response: Response) -> Response {
+    if response.status() != StatusCode::BAD_REQUEST
+        && response.status() != StatusCode::UNPROCESSABLE_ENTITY
+    {
+        return response;
+    }
+
+    let (parts, body) = response.into_parts();
+    let bytes = match to_bytes(body, 64 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Response::from_parts(parts, Body::from("Bad Request"));
+        }
+    };
+
+    let body_text = String::from_utf8_lossy(&bytes);
+    if should_sanitize_client_error(&body_text) {
+        tracing::warn!("Sanitized verbose client error response");
+        let mut sanitized = (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Invalid request" })),
+        )
+            .into_response();
+        if let Some(request_id) = parts.headers.get("x-request-id") {
+            sanitized
+                .headers_mut()
+                .insert("x-request-id", request_id.clone());
+        }
+        return sanitized;
+    }
+
+    Response::from_parts(parts, Body::from(bytes))
+}
+
 fn is_local_origin(origin: &str) -> bool {
     origin.starts_with("http://localhost")
         || origin.starts_with("https://localhost")
@@ -135,6 +186,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
+        .layer(map_response(sanitize_verbose_client_errors))
         .layer(cors)
         .with_state(state)
 }
@@ -176,5 +228,13 @@ mod tests {
         let origins = vec!["https://voxpery.com".to_string()];
         let result = validate_security_config(&origins, true);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detects_verbose_client_error_patterns() {
+        assert!(should_sanitize_client_error("UUID parsing failed: invalid length"));
+        assert!(should_sanitize_client_error("number too large to fit in target type"));
+        assert!(should_sanitize_client_error("failed to deserialize JSON body"));
+        assert!(!should_sanitize_client_error("Invalid credentials"));
     }
 }
