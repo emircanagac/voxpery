@@ -78,7 +78,7 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     }
 }
 
-fn should_sanitize_client_error(body: &str) -> bool {
+pub fn should_sanitize_client_error(body: &str) -> bool {
     let text = body.to_ascii_lowercase();
     let patterns = [
         "uuid parsing failed",
@@ -193,7 +193,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_security_config;
+    use super::{validate_security_config, should_sanitize_client_error};
 
     #[test]
     fn rejects_wildcard_cors() {

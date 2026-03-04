@@ -102,7 +102,8 @@ export function useWebrtcDiagnostics(options: {
             if (subscriberPc) candidates.push(subscriberPc)
             if (candidates.length === 0) return []
 
-            const samples: number[] = []
+            const iceSamples: number[] = []
+            const rtcpSamples: number[] = []
             for (const pc of candidates) {
                 try {
                     const stats = await pc.getStats()
@@ -130,7 +131,7 @@ export function useWebrtcDiagnostics(options: {
                         }
                         if (typeof rttSec === 'number') {
                             const normalized = normalizeRttToMs(rttSec)
-                            if (normalized != null) samples.push(normalized)
+                            if (normalized != null) iceSamples.push(normalized)
                         }
                     })
 
@@ -139,14 +140,15 @@ export function useWebrtcDiagnostics(options: {
                         const rtp = report as RTCStats & { roundTripTime?: number }
                         if (typeof rtp.roundTripTime !== 'number') return
                         const normalized = normalizeRttToMs(rtp.roundTripTime)
-                        if (normalized != null) samples.push(normalized)
+                        if (normalized != null) rtcpSamples.push(normalized)
                     })
                 } catch {
                     // ignore transient getStats failures
                 }
             }
 
-            return samples
+            // Prefer ICE candidate-pair RTT (accurate STUN probes) over RTCP RTT (less frequent, noisier)
+            return iceSamples.length > 0 ? iceSamples : rtcpSamples
         }
 
         const samplePing = async () => {
