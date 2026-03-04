@@ -48,8 +48,8 @@ services:
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
-      # LiveKit requires keys in a combined format (key:secret) without spaces
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}:${LIVEKIT_API_SECRET}"
+      # LiveKit requires keys in "key: secret" format (colon + space)
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET}"
     ports:
       - "7880:7880"                   # WebSocket signaling (Safe to proxy via Cloudflare)
       - "7881:7881"                   # TCP fallback
