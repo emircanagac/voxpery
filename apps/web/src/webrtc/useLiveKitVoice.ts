@@ -388,7 +388,7 @@ export function useLiveKitVoice() {
           // but do NOT call leaveVoice() — the WS resync effect handles re-join
         })
 
-      const connectPromise = room.connect(ws_url, lkToken)
+      const connectPromise = room.connect(ws_url, lkToken, { rtcConfig: { iceServers } })
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('LiveKit connection timeout after 15 seconds')), 15000)
       )
