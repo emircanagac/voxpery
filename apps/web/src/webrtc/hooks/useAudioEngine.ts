@@ -109,7 +109,7 @@ export function useAudioEngine() {
         rawMicTrackRef: React.MutableRefObject<MediaStreamTrack | null>,
         inputGainNodeRef: React.MutableRefObject<GainNode | null>,
         noiseSuppressionEnabled: boolean,
-    ): Promise<{ track: MediaStreamTrack; cancelGate: () => void }> => {
+    ): Promise<{ track: MediaStreamTrack; vadStream: MediaStream; cancelGate: () => void }> => {
         const rawTrack = sourceStream.getAudioTracks()[0]
         if (!rawTrack) throw new Error('No microphone track available')
 
@@ -117,7 +117,7 @@ export function useAudioEngine() {
         rawTrack.enabled = !muted
 
         const ctx = getAudioContext()
-        if (!ctx) return { track: rawTrack, cancelGate: () => {} }
+        if (!ctx) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
         if (ctx.state === 'suspended') {
             await ctx.resume()
         }
@@ -133,16 +133,21 @@ export function useAudioEngine() {
         volumeGainNode.gain.value = volumeFactor
         const destination = ctx.createMediaStreamDestination()
 
+        // VAD tap: post-RNNoise, pre-volume — speaking indicator reflects
+        // the denoised signal so background noise won't light up the ring.
+        const vadDestination = ctx.createMediaStreamDestination()
+
         source.connect(rnnoise.node)
         rnnoise.node.connect(volumeGainNode)
+        rnnoise.node.connect(vadDestination)   // branch for VAD analyser
         volumeGainNode.connect(destination)
 
         const processedTrack = destination.stream.getAudioTracks()[0]
-        if (!processedTrack) return { track: rawTrack, cancelGate: () => {} }
+        if (!processedTrack) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
 
         inputGainNodeRef.current = volumeGainNode
 
-        return { track: processedTrack, cancelGate: () => {} }
+        return { track: processedTrack, vadStream: vadDestination.stream, cancelGate: () => {} }
     }, [getAudioContext])
 
     /** Toggle RNNoise on/off without rebuilding the audio graph. */

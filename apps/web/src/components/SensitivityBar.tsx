@@ -3,9 +3,11 @@ import {
     SENSITIVITY_THRESHOLD_KEY,
     onThresholdFromSlider,
 } from '../webrtc/sensitivityThreshold'
+import { createRnnoiseNode, type RnnoiseNode } from '../webrtc/rnnoise'
 
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
+const NS_KEY = 'voxpery-settings-noise-suppression'
 
 /** Convert RMS (0–~0.5) to a 0–100 display percentage using a log (dB-like) scale. */
 function rmsToPercent(rms: number): number {
@@ -70,6 +72,8 @@ export default function SensitivityBar({
     // ── Mic monitoring ──
     useEffect(() => {
         let cancelled = false
+        let rnnoiseNode: RnnoiseNode | null = null
+        let settingsHandler: (() => void) | null = null
 
         const startMic = async () => {
             try {
@@ -94,12 +98,35 @@ export default function SensitivityBar({
                 if (ctx.state === 'suspended') void ctx.resume().catch(() => { })
 
                 const source = ctx.createMediaStreamSource(stream)
+
+                // Route through RNNoise when noise suppression is enabled,
+                // so the bar shows the same levels the speaking indicator sees.
+                const nsEnabled = localStorage.getItem(NS_KEY) !== '0'
+                rnnoiseNode = createRnnoiseNode(ctx, nsEnabled)
+
                 const analyser = ctx.createAnalyser()
                 analyser.fftSize = 256
                 analyser.smoothingTimeConstant = 0
-                source.connect(analyser)
+                source.connect(rnnoiseNode.node)
+                rnnoiseNode.node.connect(analyser)
+
+                // ScriptProcessorNode requires the graph to reach ctx.destination
+                // to fire onaudioprocess. Connect via a silent sink (gain=0).
+                const silentSink = ctx.createGain()
+                silentSink.gain.value = 0
+                analyser.connect(silentSink)
+                silentSink.connect(ctx.destination)
+
                 analyserRef.current = analyser
                 setMicActive(true)
+
+                // Live NS toggle: react to settings changes
+                const onSettingsChanged = () => {
+                    const nowEnabled = localStorage.getItem(NS_KEY) !== '0'
+                    rnnoiseNode?.setEnabled(nowEnabled)
+                }
+                settingsHandler = onSettingsChanged
+                window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
 
                 const bufLen = Math.max(128, analyser.frequencyBinCount, analyser.fftSize)
                 const data = new Float32Array(bufLen)
@@ -135,6 +162,8 @@ export default function SensitivityBar({
         return () => {
             cancelled = true
             if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+            if (settingsHandler) window.removeEventListener(SETTINGS_CHANGED_EVENT, settingsHandler)
+            rnnoiseNode?.destroy()
             streamRef.current?.getTracks().forEach((t) => t.stop())
             streamRef.current = null
             try {

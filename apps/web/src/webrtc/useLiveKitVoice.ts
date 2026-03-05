@@ -59,7 +59,7 @@ export function useLiveKitVoice() {
   const rawMicTrackRef = useRef<MediaStreamTrack | null>(null)
   const inputGainNodeRef = useRef<GainNode | null>(null)
   const gateCancelRef = useRef<(() => void) | null>(null)
-  const vadCloneTrackRef = useRef<MediaStreamTrack | null>(null)
+  const vadStreamRef = useRef<MediaStream | null>(null)
 
   const remoteStreamsRef = useRef<Map<PeerId, MediaStream>>(new Map())
   const remoteMonitorCleanupsRef = useRef<Map<PeerId, () => void>>(new Map())
@@ -258,7 +258,7 @@ export function useLiveKitVoice() {
       } catch { /* ignore unsupported constraints */ }
 
       // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
-      const { track: processedMicTrack } = await buildMicSendTrack(
+      const { track: processedMicTrack, vadStream } = await buildMicSendTrack(
         preflightStream,
         getInputVolumeFactor(),
         desiredMicMutedRef.current,
@@ -266,6 +266,9 @@ export function useLiveKitVoice() {
         inputGainNodeRef,
         noiseSuppressionEnabled,
       )
+
+      // Keep vadStream ref so we can pass it to the speaking monitor after room connect
+      vadStreamRef.current = vadStream
 
       const publishTrack = new LocalAudioTrack(processedMicTrack, undefined, true, audioContext)
 
@@ -420,14 +423,10 @@ export function useLiveKitVoice() {
       await setLocalMicMuted(desiredMicMutedRef.current)
 
       refreshLocalStreams()
-      // Clone the raw mic track for the VAD analyser. The gate disables
-      // rawMicTrack.enabled to stop audio flowing to the publisher,
-      // but the clone stays active so the analyser can still detect
-      // when the user starts speaking again.
-      const rawTrack = rawMicTrackRef.current!
-      const vadClone = rawTrack.clone()
-      vadCloneTrackRef.current = vadClone
-      startLocalSpeakingMonitor(new MediaStream([vadClone]))
+      // Feed the speaking monitor with the post-RNNoise signal so the
+      // indicator only lights up when actual voice passes through the
+      // denoiser — background noise (claps, keyboard, fan) won't trigger it.
+      startLocalSpeakingMonitor(vadStreamRef.current)
 
       if (voiceMode === 'push_to_talk') {
         await setLocalMicMuted(true)
@@ -471,8 +470,7 @@ export function useLiveKitVoice() {
     destroyRnnoise()
     rawMicTrackRef.current?.stop()
     rawMicTrackRef.current = null
-    vadCloneTrackRef.current?.stop()
-    vadCloneTrackRef.current = null
+    vadStreamRef.current = null
     inputGainNodeRef.current = null
     localCameraTrackRef.current = null
     localScreenTracksRef.current = []
