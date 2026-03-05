@@ -48,9 +48,7 @@ export function useVoiceActivity(options: {
     }, [getVoiceModeSettings, setLocalMicMuted, userId])
 
     // ── VAD gate: directly swap the RTCRtpSender's track ──
-    // LiveKit's track.mute()/unmute() is unreliable when a Krisp processor is
-    // attached because the processor pipeline manages its own output track.
-    // Instead we go straight to the WebRTC layer: save the sender's real track,
+    // We go straight to the WebRTC layer: save the sender's real track,
     // then swap it with a silent track when below threshold.
     const realSenderTrackRef = useRef<MediaStreamTrack | null>(null)
     const silentTrackRef = useRef<MediaStreamTrack | null>(null)
@@ -144,8 +142,8 @@ export function useVoiceActivity(options: {
                     const rms = Math.sqrt(sum / monData.length)
                     const { onThr, offThr } = getThresholdsFromStorage()
 
-                    // Krisp handles the actual noise filtering. We simply check if the remaining
-                    // valid audio (voice) is loud enough to pass the user's Sensitivity Threshold.
+                    // Check if the remaining audio (voice) is loud enough to pass
+                    // the user's Sensitivity Threshold.
                     if (rms >= onThr) {
                         monBelowCount = 0
                         smoothRms = smoothAlpha * smoothRms + (1 - smoothAlpha) * rms

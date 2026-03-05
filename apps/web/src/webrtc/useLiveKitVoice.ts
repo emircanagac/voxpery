@@ -53,7 +53,6 @@ export function useLiveKitVoice() {
 
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
-  const krispAudioTrackRef = useRef<LocalAudioTrack | null>(null)
   const localCameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const localScreenTracksRef = useRef<MediaStreamTrack[]>([])
 
@@ -88,7 +87,7 @@ export function useLiveKitVoice() {
 
   const remoteStreams = useMemo(() => new Map(remoteStreamsRef.current), [remoteStreamsVersion])
 
-  const { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack } = useAudioEngine()
+  const { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack, setRnnoiseEnabled, destroyRnnoise } = useAudioEngine()
   const { applyLocalMicSettings, getMicrophoneStream, getScreenStream, getScreenShareEncoding, getInputVolumeFactor, cleanupLocalMedia } = useLocalMedia()
 
   const updateRoomStats = useCallback(() => {
@@ -248,17 +247,27 @@ export function useLiveKitVoice() {
 
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
 
-      let publishTrack: LocalAudioTrack
-      if (noiseSuppressionEnabled) {
-        // Krisp requires LiveKit Cloud. For self-hosted, use browser's native suppression.
-        const audioTrack = new LocalAudioTrack(rawMicTrack, undefined, true, audioContext)
-        krispAudioTrackRef.current = null
-        publishTrack = audioTrack
-      } else {
-        const plainTrack = new LocalAudioTrack(rawMicTrack, undefined, true, audioContext)
-        krispAudioTrackRef.current = null
-        publishTrack = plainTrack
-      }
+      // Always keep echo cancellation & auto gain from browser; noise suppression
+      // is handled by RNNoise when enabled, so we leave browser NS off.
+      try {
+        await rawMicTrack.applyConstraints({
+          noiseSuppression: false,
+          echoCancellation: true,
+          autoGainControl: true,
+        })
+      } catch { /* ignore unsupported constraints */ }
+
+      // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
+      const { track: processedMicTrack } = await buildMicSendTrack(
+        preflightStream,
+        getInputVolumeFactor(),
+        desiredMicMutedRef.current,
+        rawMicTrackRef,
+        inputGainNodeRef,
+        noiseSuppressionEnabled,
+      )
+
+      const publishTrack = new LocalAudioTrack(processedMicTrack, undefined, true, audioContext)
 
       const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
 
@@ -403,9 +412,7 @@ export function useLiveKitVoice() {
       })
       updateRoomStats()
 
-      rawMicTrackRef.current = rawMicTrack
-
-      // Publish the track (Krisp-processed or plain) directly to LiveKit.
+      // Publish the track directly to LiveKit.
       await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
 
       micPublished = true
@@ -414,10 +421,11 @@ export function useLiveKitVoice() {
 
       refreshLocalStreams()
       // Clone the raw mic track for the VAD analyser. The gate disables
-      // rawMicTrack.enabled to stop audio flowing to Krisp/publisher,
+      // rawMicTrack.enabled to stop audio flowing to the publisher,
       // but the clone stays active so the analyser can still detect
       // when the user starts speaking again.
-      const vadClone = rawMicTrack.clone()
+      const rawTrack = rawMicTrackRef.current!
+      const vadClone = rawTrack.clone()
       vadCloneTrackRef.current = vadClone
       startLocalSpeakingMonitor(new MediaStream([vadClone]))
 
@@ -460,8 +468,7 @@ export function useLiveKitVoice() {
     roomRef.current = null
     localAudioTrackRef.current?.stop()
     localAudioTrackRef.current = null
-    krispAudioTrackRef.current?.stop()
-    krispAudioTrackRef.current = null
+    destroyRnnoise()
     rawMicTrackRef.current?.stop()
     rawMicTrackRef.current = null
     vadCloneTrackRef.current?.stop()
@@ -482,7 +489,7 @@ export function useLiveKitVoice() {
     setLocalStream(null)
     setScreenStream(null)
     setCameraStream(null)
-  }, [cleanupLocalMedia, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
+  }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
 
   const stopScreenShare = useCallback(() => {
     const room = roomRef.current
@@ -588,12 +595,12 @@ export function useLiveKitVoice() {
   }, [send, setLocalMicMuted])
 
   // Track the last known noise suppression setting so we only react to actual changes.
-  const lastKrispEnabledRef = useRef<boolean>(
+  const lastNsEnabledRef = useRef<boolean>(
     localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
   )
 
   useEffect(() => {
-    const onSettingsChanged = async () => {
+    const onSettingsChanged = () => {
       const rawTrack = rawMicTrackRef.current
       void applyLocalMicSettings(rawTrack)
       const gainNode = inputGainNodeRef.current
@@ -601,35 +608,27 @@ export function useLiveKitVoice() {
         gainNode.gain.value = getInputVolumeFactor()
       }
 
-      // ── Live Krisp hot-swap ──
+      // ── Live RNNoise hot-swap ──
       const track = localAudioTrackRef.current
       if (!track || !joinedChannelIdRef.current) return
 
       const nowEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
-      const wasEnabled = lastKrispEnabledRef.current
+      const wasEnabled = lastNsEnabledRef.current
       if (nowEnabled === wasEnabled) return
-      lastKrispEnabledRef.current = nowEnabled
+      lastNsEnabledRef.current = nowEnabled
 
-      try {
-        if (nowEnabled) {
-          // Krisp requires Cloud. We rely on the generic WebRTC noise suppression.
-        } else {
-          try { await track.stopProcessor() } catch (e) { }
-          krispAudioTrackRef.current = null
-        }
-      } catch (e) {
-        console.warn('[Voxpery] Live Krisp toggle failed:', e)
-      }
+      setRnnoiseEnabled(nowEnabled)
     }
     window.addEventListener('voxpery-voice-settings-changed', onSettingsChanged)
     return () => window.removeEventListener('voxpery-voice-settings-changed', onSettingsChanged)
-  }, [applyLocalMicSettings, getInputVolumeFactor])
+  }, [applyLocalMicSettings, getInputVolumeFactor, setRnnoiseEnabled])
 
   useEffect(() => {
     return () => {
+      destroyRnnoise()
       disconnectAudioContext()
     }
-  }, [disconnectAudioContext])
+  }, [destroyRnnoise, disconnectAudioContext])
 
   useEffect(() => {
     if (userId) return

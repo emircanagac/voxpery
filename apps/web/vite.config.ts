@@ -15,14 +15,14 @@ export default defineConfig({
             if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'
             if (id.includes('react-router')) return 'router'
             if (id.includes('livekit-client')) return 'livekit'
-            if (id.includes('krisp-noise-filter')) return 'krisp'
+            if (id.includes('rnnoise-wasm')) return 'rnnoise'
             if (id.includes('@tanstack')) return 'tanstack'
             return 'vendor'
           }
         },
       },
     },
-    // krisp async chunk ~5.9 MB; warn only above 6 MB
-    chunkSizeWarningLimit: 6144,
+    // rnnoise-wasm chunk ~4.8 MB (embedded WASM); warn above 5 MB
+    chunkSizeWarningLimit: 5120,
   },
 })

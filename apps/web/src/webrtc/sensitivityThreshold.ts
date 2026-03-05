@@ -12,7 +12,7 @@ export const DEFAULT_SENSITIVITY_SLIDER = 25
 /** Slider 0 → ~0.001 (-60dB), slider 100 → ~0.561 (-5dB). Exponential curve for natural feel. */
 export function onThresholdFromSlider(slider: number): number {
   const s = Math.min(100, Math.max(0, Number(slider)))
-  // Krisp keeps only clear voice. We use an exponential curve so sliders 10, 30, 60 
+  // Noise filtering keeps only clear voice. We use an exponential curve so sliders 10, 30, 60
   // map to functional volume thresholds rather than sitting at 2, 7, 15.
   // Formula: 0.001 + ( (slider/100)^2 * 0.56 )
   // At slider=100 → onThr ≈ 0.561 (-5dB), covering the full usable dB range.

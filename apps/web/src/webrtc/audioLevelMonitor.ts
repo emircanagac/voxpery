@@ -45,7 +45,7 @@ function releaseRemoteAudioContext(): void {
 
 function getRmsThresholdsFromSettings(forRemote: boolean): { on: number; off: number } {
   if (forRemote) {
-    // Remote audio is already Krisp-filtered by the sender, so it has lower RMS.
+    // Remote audio may have lower RMS due to noise filtering by the sender.
     // Use a low fixed threshold so normal-volume speech reliably lights the ring.
     const on = 0.005
     const off = Math.max(0.001, on * 0.35)

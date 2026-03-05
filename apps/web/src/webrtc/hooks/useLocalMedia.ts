@@ -57,7 +57,8 @@ export function useLocalMedia() {
         }
     }, [resolveScreenShareProfile])
 
-    // Krisp handles noise; browser noiseSuppression off to avoid double processing. Echo cancel stays on.
+    // Apply mic constraints (echo cancellation + auto gain).
+    // Noise suppression is handled by RNNoise in the audio pipeline.
     const applyLocalMicSettings = useCallback(async (audioTrack: MediaStreamTrack | null) => {
         if (!audioTrack || typeof audioTrack.applyConstraints !== 'function') return
         const constraintsBase: MediaTrackConstraints = {
@@ -80,7 +81,6 @@ export function useLocalMedia() {
             throw new Error('Microphone access is not supported in this browser')
         }
         try {
-            // Krisp handles noise; browser noiseSuppression off. Echo cancel on for duplex.
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     noiseSuppression: false,

@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react'
+import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 
@@ -98,13 +99,16 @@ export function useAudioEngine() {
         }
     }, [])
 
-    // Krisp already filters noise; we only apply input volume gain (no VAD gate).
+    // Build the mic send pipeline: source → [RNNoise] → volumeGain → destination.
+    const rnnoiseRef = useRef<RnnoiseNode | null>(null)
+
     const buildMicSendTrack = useCallback(async (
         sourceStream: MediaStream,
         volumeFactor: number,
         muted: boolean,
         rawMicTrackRef: React.MutableRefObject<MediaStreamTrack | null>,
-        inputGainNodeRef: React.MutableRefObject<GainNode | null>
+        inputGainNodeRef: React.MutableRefObject<GainNode | null>,
+        noiseSuppressionEnabled: boolean,
     ): Promise<{ track: MediaStreamTrack; cancelGate: () => void }> => {
         const rawTrack = sourceStream.getAudioTracks()[0]
         if (!rawTrack) throw new Error('No microphone track available')
@@ -119,10 +123,18 @@ export function useAudioEngine() {
         }
 
         const source = ctx.createMediaStreamSource(sourceStream)
+
+        // RNNoise ML denoiser (bypasses transparently when disabled)
+        rnnoiseRef.current?.destroy()
+        const rnnoise = createRnnoiseNode(ctx, noiseSuppressionEnabled)
+        rnnoiseRef.current = rnnoise
+
         const volumeGainNode = ctx.createGain()
         volumeGainNode.gain.value = volumeFactor
         const destination = ctx.createMediaStreamDestination()
-        source.connect(volumeGainNode)
+
+        source.connect(rnnoise.node)
+        rnnoise.node.connect(volumeGainNode)
         volumeGainNode.connect(destination)
 
         const processedTrack = destination.stream.getAudioTracks()[0]
@@ -133,5 +145,15 @@ export function useAudioEngine() {
         return { track: processedTrack, cancelGate: () => {} }
     }, [getAudioContext])
 
-    return { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack }
+    /** Toggle RNNoise on/off without rebuilding the audio graph. */
+    const setRnnoiseEnabled = useCallback((enabled: boolean) => {
+        rnnoiseRef.current?.setEnabled(enabled)
+    }, [])
+
+    const destroyRnnoise = useCallback(() => {
+        rnnoiseRef.current?.destroy()
+        rnnoiseRef.current = null
+    }, [])
+
+    return { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack, setRnnoiseEnabled, destroyRnnoise }
 }

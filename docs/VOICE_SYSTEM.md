@@ -47,9 +47,11 @@ Microphone → getUserMedia → AudioContext pipeline → LiveKit Room → SFU �
 ```
 Raw mic track
     ↓
-getUserMedia({ noiseSuppression: false })  ← Disabled (LiveKit Krisp handles it)
+getUserMedia({ noiseSuppression: false })  ← Browser NS disabled
     ↓
 AudioContext.createMediaStreamSource
+    ↓
+RNNoise ScriptProcessorNode (ML-based denoiser)
     ↓
 GainNode (input volume: 0.0–2.0 from settings)
     ↓
@@ -62,9 +64,16 @@ Room.localParticipant.publishTrack
 
 ### Noise Suppression
 
-- **Browser native**: Disabled (`noiseSuppression: false`) to avoid double processing
-- **LiveKit Krisp**: AI-powered noise removal (requires LiveKit Cloud or self-hosted with Krisp plugin)
-- Krisp processes before transmission → remote peers get clean audio
+- **RNNoise WASM**: ML-based denoiser (Mozilla-grade, open source)
+  - Implemented via `@shiguredo/rnnoise-wasm` v2025.1.5 (maintained by Shiguredo, Japanese Jitsi infrastructure company)
+  - Processes 480-sample frames (~10ms at 48kHz) with ring-buffer bridging to browser's 4096-sample callbacks
+  - Lazy-loaded on first enable (~4.8 MB WASM, 3.1 MB gzipped) → separate chunk in Vite build
+  - Removes keyboard clicks, fan noise, background hum while preserving voice clarity
+  - Toggle: Live on/off in Voice Settings (no voice channel re-join required)
+- **Why RNNoise?**
+  - Browser native `noiseSuppression` is too weak for noisy backgrounds
+  - Krisp required LiveKit Cloud (self-hosted setups can't use it)
+  - RNNoise is open-source, battle-tested (Jitsi, WebRTC-based apps), works self-hosted
 
 ### Voice Activity Detection (VAD)
 
@@ -78,12 +87,16 @@ Two modes:
 
 ### Sensitivity Threshold
 
-- **Range**: 0–100 (slider in settings)
+- **Range**: 0–100 (slider in Voice Settings)
+- **Presets**:
+  - `Quiet` (16): −36dB — sensitive but avoids false positives in quiet rooms
+  - `Normal` (25): −29dB — **default**, balanced for standard speaking volume
+  - `Noisy` (55): −15dB — only loud direct speech passes in noisy backgrounds
 - **Mapping**: Exponential curve to natural dB range
-  - `0` → `0.001` (-60 dB, very sensitive)
-  - `25` → `0.064` (-24 dB, normal)
-  - `100` → `0.561` (-5 dB, very loud)
-- **Hysteresis**: `offThreshold = onThreshold * 0.1` (10×) to prevent rapid on/off
+  - `0` → `0.001` (-60 dB, very sensitive to whispers)
+  - `25` → `0.064` (-29 dB, normal conversation)
+  - `100` → `0.561` (-5 dB, only loud speech)
+- **Hysteresis**: `offThreshold = onThreshold × 0.1` (10× lower) to prevent rapid on/off flicker during speech pauses
 
 ### Output Chain (Remote Audio)
 

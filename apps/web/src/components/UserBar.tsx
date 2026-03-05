@@ -37,8 +37,8 @@ function statusLabel(status?: string) {
 
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
 function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
-  if (preset === 'quiet') return 8     // −48dB: very sensitive, catches whispers
-  if (preset === 'noisy') return 55    // −16dB: only loud direct speech passes
+  if (preset === 'quiet') return 16    // −36dB: sensitive but avoids false positives
+  if (preset === 'noisy') return 55    // −15dB: only loud direct speech passes
   return 25    // −29dB: balanced for standard speaking volume
 }
 
@@ -449,46 +449,44 @@ export default function UserBar() {
                 <h3 className="user-settings-section-title">Voice</h3>
                 <div className="user-setting-row">
                   <div>
-                    <div className="user-setting-title">Input volume</div>
-                    <div className="user-setting-desc">Microphone send level ({inputVolume}%).</div>
+                    <div className="user-setting-title">Voice mode</div>
+                    <div className="user-setting-desc">How your mic is activated.</div>
                   </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={inputVolume}
-                    className="user-slider"
+                  <select
+                    className="user-select"
+                    value={voiceMode}
                     onChange={(e) => {
-                      const next = Number(e.target.value)
-                      setInputVolume(next)
-                      localStorage.setItem(INPUT_VOL_KEY, String(next))
+                      const next = e.target.value === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
+                      setVoiceMode(next)
+                      localStorage.setItem(VOICE_MODE_KEY, next)
                       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
                     }}
-                  />
+                  >
+                    <option value="voice_activity">Voice Activity</option>
+                    <option value="push_to_talk">Push to Talk</option>
+                  </select>
                 </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Output volume</div>
-                    <div className="user-setting-desc">Speaker/headphone level ({outputVolume}%).</div>
+                {voiceMode === 'push_to_talk' && (
+                  <div className="user-setting-row">
+                    <div>
+                      <div className="user-setting-title">Push-to-talk key</div>
+                      <div className="user-setting-desc">Current: {pttKey}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`user-toggle ${capturingPtt ? 'active' : ''}`}
+                      onClick={() => setCapturingPtt((v) => !v)}
+                    >
+                      {capturingPtt ? 'Press key...' : 'Rebind'}
+                    </button>
                   </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={outputVolume}
-                    className="user-slider"
-                    onChange={(e) => {
-                      const next = Number(e.target.value)
-                      setOutputVolume(next)
-                      localStorage.setItem(OUTPUT_VOL_KEY, String(next))
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  />
-                </div>
+                )}
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Noise suppression</div>
-                    <div className="user-setting-desc">AI noise removal. Rejoin voice to apply.</div>
+                    <div className="user-setting-desc">
+                      Removes background noise (keyboard, fan, etc.) from your mic signal in real time.
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -497,6 +495,7 @@ export default function UserBar() {
                       const next = !noiseSuppressionEnabled
                       setNoiseSuppressionEnabled(next)
                       localStorage.setItem(NOISE_SUPPRESSION_KEY, next ? '1' : '0')
+                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
                     }}
                   >
                     {noiseSuppressionEnabled ? 'On' : 'Off'}
@@ -504,8 +503,10 @@ export default function UserBar() {
                 </div>
                 <div className="user-setting-row">
                   <div>
-                    <div className="user-setting-title">Sensitivity preset</div>
-                    <div className="user-setting-desc">Noise gate for your environment.</div>
+                    <div className="user-setting-title">Input sensitivity</div>
+                    <div className="user-setting-desc">
+                      Your mic is only active when audio volume exceeds this threshold.
+                    </div>
                   </div>
                   <select
                     className="user-select"
@@ -542,38 +543,42 @@ export default function UserBar() {
                 </div>
                 <div className="user-setting-row">
                   <div>
-                    <div className="user-setting-title">Voice mode</div>
-                    <div className="user-setting-desc">How your mic is activated.</div>
+                    <div className="user-setting-title">Input volume</div>
+                    <div className="user-setting-desc">Microphone send level ({inputVolume}%).</div>
                   </div>
-                  <select
-                    className="user-select"
-                    value={voiceMode}
+                  <input
+                    type="range"
+                    min={1}
+                    max={100}
+                    value={inputVolume}
+                    className="user-slider"
                     onChange={(e) => {
-                      const next = e.target.value === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
-                      setVoiceMode(next)
-                      localStorage.setItem(VOICE_MODE_KEY, next)
+                      const next = Number(e.target.value)
+                      setInputVolume(next)
+                      localStorage.setItem(INPUT_VOL_KEY, String(next))
                       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
                     }}
-                  >
-                    <option value="voice_activity">Voice Activity</option>
-                    <option value="push_to_talk">Push to Talk</option>
-                  </select>
+                  />
                 </div>
-                {voiceMode === 'push_to_talk' && (
-                  <div className="user-setting-row">
-                    <div>
-                      <div className="user-setting-title">Push-to-talk key</div>
-                      <div className="user-setting-desc">Current: {pttKey}</div>
-                    </div>
-                    <button
-                      type="button"
-                      className={`user-toggle ${capturingPtt ? 'active' : ''}`}
-                      onClick={() => setCapturingPtt((v) => !v)}
-                    >
-                      {capturingPtt ? 'Press key...' : 'Rebind'}
-                    </button>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Output volume</div>
+                    <div className="user-setting-desc">Speaker/headphone level ({outputVolume}%).</div>
                   </div>
-                )}
+                  <input
+                    type="range"
+                    min={1}
+                    max={100}
+                    value={outputVolume}
+                    className="user-slider"
+                    onChange={(e) => {
+                      const next = Number(e.target.value)
+                      setOutputVolume(next)
+                      localStorage.setItem(OUTPUT_VOL_KEY, String(next))
+                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                    }}
+                  />
+                </div>
               </section>
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Account</h3>
