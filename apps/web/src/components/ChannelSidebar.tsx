@@ -302,12 +302,12 @@ export default function ChannelSidebar({
                                         <div className="voice-participants">
                                             {voiceMembers.map((vm) => {
                                                 const isSelf = user?.id === vm.user_id
-                                                const isSpeaking = isSelf ? voiceLocalSpeaking : voiceSpeakingUserIds.includes(vm.user_id)
                                                 const control = voiceControls[vm.user_id]
                                                 const isScreenSharing = !!control?.screenSharing
                                                 const isCameraOn = !!control?.cameraOn
                                                 const isDeafened = !!control?.deafened
-                                                const isMuted = !isDeafened && !!control?.muted
+                                                const isMuted = !!control?.muted
+                                                const isSpeaking = (isSelf ? voiceLocalSpeaking : voiceSpeakingUserIds.includes(vm.user_id)) && !isMuted && !isDeafened
                                                 return (
                                                     <div
                                                         key={vm.user_id}

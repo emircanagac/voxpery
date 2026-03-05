@@ -32,7 +32,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const navigate = useNavigate()
   const { state, joinVoice, leaveVoice, startScreenShare, stopScreenShare, startCamera, stopCamera, setVoiceControls, playVoiceCue } = useLiveKitVoice()
   const { user } = useAuthStore()
-  const { members, voiceStates, channels, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking } = useAppStore(
+  const { members, voiceStates, channels, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls } = useAppStore(
     useShallow((s) => ({
       members: s.members,
       voiceStates: s.voiceStates,
@@ -42,6 +42,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       setActiveChannel: s.setActiveChannel,
       voiceSpeakingUserIds: s.voiceSpeakingUserIds,
       voiceLocalSpeaking: s.voiceLocalSpeaking,
+      voiceControls: s.voiceControls,
     }))
   )
   const voiceLocation = useMemo(() => {
@@ -750,7 +751,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         >
           {channelParticipants.map((p) => (
             <div key={`participant-${p.user_id}`} className="voice-stage-tile">
-              <div className={`voice-stage-avatar${voiceSpeakingUserIds.includes(p.user_id) ? ' is-speaking' : ''}`}>
+              <div className={`voice-stage-avatar${voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened ? ' is-speaking' : ''}`}>
                 {p.avatar_url ? (
                   <img src={p.avatar_url} alt="" />
                 ) : (
@@ -766,7 +767,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           ))}
           {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
             <div key="participant-local-fallback" className="voice-stage-tile">
-              <div className={`voice-stage-avatar${voiceLocalSpeaking ? ' is-speaking' : ''}`}>
+              <div className={`voice-stage-avatar${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>
                 {user?.avatar_url ? (
                   <img src={user.avatar_url} alt="" />
                 ) : (

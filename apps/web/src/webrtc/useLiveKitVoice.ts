@@ -517,7 +517,8 @@ export function useLiveKitVoice() {
       }
       await room.localParticipant.publishTrack(track, {
         source,
-        videoEncoding: screenVideo
+        // Screen share tracks use screenShareEncoding (not videoEncoding)
+        screenShareEncoding: screenVideo
           ? { maxBitrate: screenVideo.maxBitrate, maxFramerate: screenVideo.maxFramerate }
           : undefined,
         simulcast: false,  // Screen share: full quality, no simulcast layers
