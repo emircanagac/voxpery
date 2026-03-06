@@ -379,7 +379,6 @@ export function useLiveKitVoice() {
           updateRoomStats()
         })
         .on(RoomEvent.Reconnected, () => {
-          console.log('[useLiveKitVoice] LiveKit Room reconnected')
           updateRoomStats()
           refreshLocalStreams()
           // Re-subscribe to all existing remote participants' tracks
@@ -643,7 +642,6 @@ export function useLiveKitVoice() {
       const room = roomRef.current
       if (!channelId || !room || room.state === 'disconnected') return
 
-      console.log('[useLiveKitVoice] WS reconnected — re-syncing voice state for channel', channelId)
       send('JoinVoice', { channel_id: channelId })
 
       // Re-send current control state

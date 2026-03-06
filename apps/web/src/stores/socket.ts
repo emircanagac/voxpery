@@ -40,12 +40,10 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         const ws = createWebSocket(token)
 
         ws.onopen = () => {
-            console.log('WS Connected')
             const wasConnected = (get() as SocketState & { _wasConnectedBefore?: boolean })._wasConnectedBefore
             set({ isConnected: true, socket: ws, _wasConnectedBefore: true } as Partial<SocketState>)
             // Fire reconnect listeners if this was a re-establishment (not first connect)
             if (wasConnected) {
-                console.log('[WS] Reconnected — notifying listeners')
                 get().reconnectListeners.forEach((cb) => {
                     try { cb() } catch (e) { console.error('[WS] reconnect listener error:', e) }
                 })
@@ -53,13 +51,11 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         }
 
         ws.onclose = () => {
-            console.log('WS Disconnected')
             set({ isConnected: false, socket: null })
 
             // Auto-reconnect if we still have a token
             const currentToken = get().token
             if (currentToken) {
-                console.log('Reconnecting in 3s...')
                 setTimeout(() => {
                     const latestToken = get().token
                     const currentSocket = get().socket

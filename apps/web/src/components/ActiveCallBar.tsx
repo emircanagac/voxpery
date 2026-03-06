@@ -160,7 +160,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         return
       }
       if (el.muted || deafenedRef.current) {
-        console.log('[ensureRemoteAudioPlayback] Skipping playback - muted:', el.muted, 'deafened:', deafenedRef.current)
         clearRetry()
         return
       }
@@ -170,7 +169,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         return
       }
 
-      console.log('[ensureRemoteAudioPlayback] Attempting to play audio for peer', peerId, 'readyState:', el.readyState, 'networkState:', el.networkState)
       const p = el.play()
       if (!p || typeof p.catch !== 'function') {
         console.warn('[ensureRemoteAudioPlayback] play() did not return a promise for peer', peerId)
@@ -178,7 +176,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         return
       }
       p.then(() => {
-        console.log('[ensureRemoteAudioPlayback] Successfully playing audio for peer', peerId)
         clearRetry()
       }).catch((err) => {
         console.warn('[ensureRemoteAudioPlayback] Failed to play for peer', peerId, ':', err.message)
@@ -328,7 +325,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       const currentTrackIds = stream.getTracks().map(t => t.id).sort().join(',')
       const prevTrackIds = (el as any).__voxpery_trackIds as string | undefined
       if (el.srcObject !== stream || currentTrackIds !== prevTrackIds) {
-        console.log('[ActiveCallBar] Updating srcObject for peer', peerId, 'tracks:', currentTrackIds)
         el.srcObject = new MediaStream(stream.getTracks())
           ; (el as any).__voxpery_trackIds = currentTrackIds
       }
@@ -960,11 +956,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   playsInline
                   ref={(el) => {
                     if (el) {
-                      console.log('[ActiveCallBar] Audio element for peer', peerId, 'created/updated')
                       remoteAudioRefsRef.current.set(peerId, el)
                       // Always ensure srcObject is set to the current stream
                       if (el.srcObject !== stream) {
-                        console.log('[ActiveCallBar] Setting srcObject for peer', peerId)
                         el.srcObject = stream
                       }
                       // Set volume
@@ -972,21 +966,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
                       try {
                         el.volume = vol
-                        console.log('[ActiveCallBar] Set volume for peer', peerId, 'to', vol)
                       } catch (e) {
                         console.warn('[ActiveCallBar] Failed to set volume:', e)
                       }
                       // Always unmute unless globally deafened
                       const shouldMute = deafenedRef.current
                       el.muted = shouldMute
-                      console.log('[ActiveCallBar] Set muted for peer', peerId, 'to', shouldMute)
                       // Try to play if not deafened
                       if (!shouldMute) {
-                        console.log('[ActiveCallBar] Attempting to play audio for peer', peerId)
                         ensureRemoteAudioPlayback(peerId, el)
                       }
                     } else {
-                      console.log('[ActiveCallBar] Cleaning up audio element for peer', peerId)
                       remoteAudioRefsRef.current.delete(peerId)
                       const t = remoteAudioRetryTimerRef.current.get(peerId)
                       if (t != null) {
