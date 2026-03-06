@@ -26,10 +26,10 @@
 | Feature | Voxpery | Discord | Slack | Mattermost |
 |---------|---------|---------|-------|-----------|
 | **Open Source** | ✅ AGPL-3.0 | ❌ Proprietary | ❌ Proprietary | ✅ |
-| **Self-hostable** | ✅ Full | ❌ No | ⚠️ Enterprise | ✅ |
+| **Self-hostable** | ✅ Full | ❌ No | ❌ No | ✅ |
 | **Privacy** | ✅ No tracking | ❌ Analytics | ❌ Analytics | ✅ |
-| **Voice calling** | ✅ LiveKit SFU | ✅ | ❌ | ⚠️ Limited |
-| **Lightweight desktop** | ✅ Tauri (50MB) | ❌ Electron (200MB) | ❌ Electron | ✅ |
+| **Voice calling** | ✅ LiveKit SFU | ✅ | ⚠️ Limited | ⚠️ Limited |
+| **Lightweight desktop** | ✅ Tauri (50MB) | ❌ Electron (200MB) | ❌ Electron | ❌ Electron |
 | **Free forever** | ✅ Yes | ⚠️ Freemium | ❌ Paid | ⚠️ OSS |
 | **Source code** | ✅ Public | ❌ Hidden | ❌ Hidden | ✅ Public |
 
