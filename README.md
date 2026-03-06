@@ -30,6 +30,8 @@
 | **Free forever** | ✅ Yes | ⚠️ Freemium | ❌ Paid | ⚠️ OSS |
 | **Source code** | ✅ Public | ❌ Hidden | ❌ Hidden | ✅ Public |
 
+![Voxpery Main UI](docs/images/voxpery.png)
+
 ---
 
 ## Features
