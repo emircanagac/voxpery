@@ -6,7 +6,6 @@ import { isTauri } from './secureStorage'
 export async function openExternalUrl(url: string): Promise<void> {
   const trimmed = url.trim()
   if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    window.open(trimmed, '_blank', 'noopener,noreferrer')
     return
   }
   if (isTauri()) {
