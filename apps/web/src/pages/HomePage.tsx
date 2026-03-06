@@ -871,6 +871,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 isDm
                 replyingTo={replyingToDm}
                 onCancelReply={() => setReplyingToDm(null)}
+                onReplyToMessage={(msg) => {
+                  const username = msg.author?.username ?? 'User'
+                  const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
+                  setReplyingToDm({ id: msg.id, username, contentSnippet: snippet })
+                }}
                 isViewActive={isMessagesView}
               />
             )

@@ -745,22 +745,25 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           className="screen-share-stage"
           style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
         >
-          {channelParticipants.map((p) => (
+          {channelParticipants.map((p) => {
+            const pSpeaking = voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
+            return (
             <div key={`participant-${p.user_id}`} className="voice-stage-tile">
-              <div className={`voice-stage-avatar${voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened ? ' is-speaking' : ''}`}>
+              <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
                 {p.avatar_url ? (
                   <img src={p.avatar_url} alt="" />
                 ) : (
                   (p.username.charAt(0) || '?').toUpperCase()
                 )}
               </div>
-              <div className="voice-stage-name">{p.username}</div>
+              <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`}>{p.username}</div>
               <div className="voice-stage-sub">
                 <Users size={12} />
                 In voice
               </div>
             </div>
-          ))}
+            )
+          })}
           {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
             <div key="participant-local-fallback" className="voice-stage-tile">
               <div className={`voice-stage-avatar${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>
@@ -770,7 +773,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   localInitial
                 )}
               </div>
-              <div className="voice-stage-name">{user?.username ?? 'You'}</div>
+              <div className={`voice-stage-name${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>{user?.username ?? 'You'}</div>
               <div className="voice-stage-sub">
                 <Users size={12} />
                 In voice
@@ -792,6 +795,27 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               />
               <div className="screen-share-info-overlay">
                 <span className="screen-share-info-text">Camera · You</span>
+              </div>
+              <div className="screen-share-controls-bar">
+                <div className="screen-share-controls-left" />
+                <div className="screen-share-controls-right">
+                  <button
+                    type="button"
+                    className="screen-share-controls-btn"
+                    title="Toggle fullscreen"
+                    onClick={(e) => {
+                      const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                      if (!tile) return
+                      if (document.fullscreenElement) {
+                        void document.exitFullscreen().catch(() => { })
+                      } else {
+                        void tile.requestFullscreen?.().catch(() => { })
+                      }
+                    }}
+                  >
+                    {document.fullscreenElement ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -991,78 +1015,74 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           </div>
 
           <div className="callbar-status">
-            <div className="callbar-status-left">
-              <button
-                type="button"
-                className="active-call-title active-call-title-btn"
-                onClick={goToVoiceChannel}
-                title={voiceLocation.full}
-              >
-                {voiceLocation.display}
-              </button>
-              <span className="callbar-connection-inline">
-                <span className={`active-call-subtitle active-call-subtitle-inline ${connectionStateClass}`} title={connectionTitle}>
-                  {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" aria-hidden="true" />}
-                  {connectionLabel}
-                </span>
-                <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip} aria-label={pingTooltip}>
-                  <Wifi size={14} />
-                </span>
-              </span>
-            </div>
+            <button
+              type="button"
+              className="active-call-title active-call-title-btn"
+              onClick={goToVoiceChannel}
+              title={voiceLocation.full}
+            >
+              {voiceLocation.display}
+            </button>
           </div>
 
-          <div className="callbar-controls">
-            <div className="callbar-controls-main">
-              <button
-                onClick={toggleMute}
-                disabled={!state.joinedChannelId || !state.localStream || deafened}
-                className={`callbar-control-btn ${muted ? 'is-off' : ''}`}
-                title={muted ? 'Unmute' : 'Mute'}
-                aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
-              >
-                {muted ? <MicOff size={16} /> : <Mic size={16} />}
-              </button>
-              <button
-                onClick={toggleDeafen}
-                disabled={!state.joinedChannelId}
-                className={`callbar-control-btn ${deafened ? 'is-off' : ''}`}
-                title={deafened ? 'Enable headphones' : 'Disable headphones'}
-                aria-label={deafened ? 'Enable headphones' : 'Disable headphones'}
-              >
-                {deafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              </button>
-              <button
-                onClick={handleCamera}
-                disabled={!state.joinedChannelId}
-                className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`}
-                title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
-                aria-label={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
-              >
-                {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
-              </button>
-              <button
-                onClick={handleScreenShare}
-                disabled={!state.joinedChannelId}
-                className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`}
-                title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}
-                aria-label={state.isScreenSharing ? 'Stop screen sharing' : 'Start screen sharing'}
-              >
-                <Monitor size={16} />
-              </button>
-            </div>
+          <div className="callbar-controls-center">
+            <button
+              onClick={toggleMute}
+              disabled={!state.joinedChannelId || !state.localStream || deafened}
+              className={`callbar-control-btn ${muted ? 'is-off' : ''}`}
+              title={muted ? 'Unmute' : 'Mute'}
+              aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+            >
+              {muted ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
+            <button
+              onClick={toggleDeafen}
+              disabled={!state.joinedChannelId}
+              className={`callbar-control-btn ${deafened ? 'is-off' : ''}`}
+              title={deafened ? 'Enable headphones' : 'Disable headphones'}
+              aria-label={deafened ? 'Enable headphones' : 'Disable headphones'}
+            >
+              {deafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <button
+              onClick={handleCamera}
+              disabled={!state.joinedChannelId}
+              className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`}
+              title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
+              aria-label={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
+            >
+              {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
+            </button>
+            <button
+              onClick={handleScreenShare}
+              disabled={!state.joinedChannelId}
+              className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`}
+              title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}
+              aria-label={state.isScreenSharing ? 'Stop screen sharing' : 'Start screen sharing'}
+            >
+              <Monitor size={16} />
+            </button>
+          </div>
 
-            <div className="callbar-controls-right">
-              <button
-                onClick={handleJoinLeave}
-                disabled={state.isJoining}
-                className={`callbar-control-btn callbar-control-btn-disconnect danger ${(isInThisChannel || state.joinedChannelId) ? 'is-live' : ''}`}
-                title={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
-                aria-label={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
-              >
-                {(isInThisChannel || state.joinedChannelId) ? <PhoneOff size={16} /> : <PhoneOff size={16} style={{ transform: 'rotate(135deg)' }} />}
-              </button>
-            </div>
+          <div className="callbar-controls-right">
+            <span className="callbar-connection-inline">
+              <span className={`active-call-subtitle active-call-subtitle-inline ${connectionStateClass}`} title={connectionTitle}>
+                {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" aria-hidden="true" />}
+                {connectionLabel}
+              </span>
+              <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip} aria-label={pingTooltip}>
+                <Wifi size={14} />
+              </span>
+            </span>
+            <button
+              onClick={handleJoinLeave}
+              disabled={state.isJoining}
+              className={`callbar-control-btn callbar-control-btn-disconnect danger ${(isInThisChannel || state.joinedChannelId) ? 'is-live' : ''}`}
+              title={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
+              aria-label={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
+            >
+              {(isInThisChannel || state.joinedChannelId) ? <PhoneOff size={16} /> : <PhoneOff size={16} style={{ transform: 'rotate(135deg)' }} />}
+            </button>
           </div>
 
           {livekitLabel && <div style={{ display: 'none' }}>{livekitLabel}</div>}

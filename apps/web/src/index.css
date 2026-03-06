@@ -858,8 +858,8 @@ body {
   border-right: var(--border-subtle);
   --status-badge-bg: var(--bg-surface);
   position: relative;
-  padding-bottom: 140px;
-  /* space for fixed Voice+User panel */
+  padding-bottom: 80px;
+  /* space for fixed User panel */
 }
 
 .channel-header {
@@ -937,7 +937,6 @@ body {
   margin: 1px 8px;
   border-radius: var(--border-radius-sm);
   cursor: pointer;
-  color: var(--text-secondary);
   gap: 6px;
   transition: all var(--transition-fast);
   font-size: 14px;
@@ -1068,6 +1067,12 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--transition-fast), text-shadow var(--transition-fast);
+}
+
+.voice-participant-name.is-speaking {
+  color: rgba(233, 69, 96, 0.95);
+  text-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
 }
 
 .voice-live-badge {
@@ -1941,12 +1946,6 @@ body {
   cursor: pointer;
 }
 
-.user-setting-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .user-toggle.active {
   border-color: rgba(114, 137, 218, 0.65);
   background: rgba(114, 137, 218, 0.18);
@@ -2161,6 +2160,7 @@ body {
   flex-direction: column;
   min-width: 0;
   background: var(--bg-chat);
+  padding-bottom: 60px; /* reserve space for callbar overlay */
 }
 
 .chat-header {
@@ -4375,7 +4375,7 @@ a.community-open-btn:hover {
   color: var(--text-secondary);
 }
 
-/* Left-bottom panel: Voice bar + User bar (Discord-like), same position in DM and Server views */
+/* Left-bottom panel: User bar only (callbar moved to chat overlay) */
 .left-bottom-panel {
   position: fixed;
   left: var(--server-bar-width);
@@ -4385,7 +4385,6 @@ a.community-open-btn:hover {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 8px;
   pointer-events: none;
   padding-bottom: 0;
   padding-left: 0;
@@ -4396,23 +4395,36 @@ a.community-open-btn:hover {
   pointer-events: auto;
 }
 
-.left-bottom-voice {
+/* ── Call bar overlay — fixed to bottom of chat content area, aligned with user-bar-wrap ── */
+.callbar-overlay {
+  position: fixed;
+  left: calc(var(--server-bar-width) + var(--channel-sidebar-width));
+  right: var(--member-sidebar-width);
+  bottom: 0;
+  height: 80px;              /* match user-bar-wrap height */
+  z-index: 85;
+  pointer-events: none;
+  padding: 0 12px;
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 0 10px;
+  align-items: center;
+  justify-content: center;
+  border-top: 2px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-surface);
 }
 
-/* When inside panel, callbar is not fixed so it stacks with user bar */
-.left-bottom-panel .callbar-wrap {
+.callbar-overlay > * {
+  pointer-events: auto;
+}
+
+.callbar-overlay .callbar-wrap {
   position: static;
-  left: auto;
-  bottom: auto;
   width: 100%;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+}
+
+.callbar-overlay .active-call-bar {
+  max-width: 600px;
+  margin: 0 auto;
 }
 
 /* Profile: anchored to bottom, clearly separated from content above */
@@ -4422,46 +4434,21 @@ a.community-open-btn:hover {
   border-radius: 0;
   border: none;
   border-top: 2px solid rgba(255, 255, 255, 0.12);
+  border-right: var(--border-subtle);
   padding: 10px 12px 12px;
   flex-shrink: 0;
   position: relative;
   --status-badge-bg: var(--bg-surface);
   width: 100%;
   box-sizing: border-box;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Same as channel-sidebar in Servers: full-height column, padding-bottom so content doesn't sit under Voice+User panel; border on the div so the line runs to the bottom */
+/* Same as channel-sidebar in Servers: full-height column, padding-bottom so content doesn't sit under User panel */
 .unified-content-friends .social-sidebar {
-  padding-bottom: 140px;
-  /* match channel-sidebar: space for fixed Voice+User panel */
+  padding-bottom: 80px;
+  /* match channel-sidebar: space for fixed User panel */
 }
 
-
-/* When on Social: callbar stays inside padded voice area */
-.shell-layout-social .left-bottom-panel .callbar-wrap {
-  width: 100%;
-  left: auto;
-  box-sizing: border-box;
-}
-
-.shell-layout-social .callbar-wrap .active-call-bar {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.shell-layout-social .callbar-status {
-  min-width: 0;
-}
-
-.shell-layout-social .active-call-subtitle-wrap {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.shell-layout-social .active-call-subtitle {
-  max-width: 100%;
-}
 
 .screen-share-stage {
   position: fixed;
@@ -4501,7 +4488,7 @@ a.community-open-btn:hover {
   background: #000;
 }
 
-.screen-share-preview.camera-preview video {
+.screen-share-preview camera-preview video {
   object-fit: cover;
 }
 
@@ -4586,7 +4573,7 @@ a.community-open-btn:hover {
   transition: width 0.2s ease, opacity 0.2s ease, margin-left 0.2s ease;
 }
 
-.screen-share-volume-container:hover .screen-share-volume-slider-wrap {
+.screen-share-container:hover .screen-share-volume-slider-wrap {
   width: 120px;
   margin-left: 8px;
   opacity: 1;
@@ -4758,6 +4745,12 @@ a.community-open-btn:hover {
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
+  transition: color var(--transition-fast), text-shadow var(--transition-fast);
+}
+
+.voice-stage-name.is-speaking {
+  color: rgba(233, 69, 96, 0.95);
+  text-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
 }
 
 .voice-stage-sub {
@@ -4773,13 +4766,12 @@ a.community-open-btn:hover {
 }
 
 .active-call-bar {
-  min-height: 60px;
+  min-height: 48px;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  padding: 6px 12px;
   border-radius: 12px;
   border: 1px solid rgba(67, 181, 129, 0.28);
   background: linear-gradient(180deg, rgba(20, 24, 42, 0.96) 0%, rgba(17, 21, 36, 0.98) 100%);
@@ -4796,6 +4788,7 @@ a.community-open-btn:hover {
   gap: 8px;
   min-height: 22px;
   min-width: 0;
+  flex: 1 1 0%;
   padding: 0;
   border-bottom: 0;
 }
@@ -5115,51 +5108,43 @@ a.community-open-btn:hover {
   min-width: 0;
 }
 
-.callbar-controls {
+/* Center zone — media controls */
+.callbar-controls-center {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: nowrap;
-  align-items: center;
-  padding: 0;
-  min-width: 0;
-}
-
-.callbar-controls-main {
-  display: inline-flex;
   gap: 6px;
   align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 4px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  flex-wrap: wrap;
   justify-content: center;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
+/* Right zone — connection status + disconnect button */
 .callbar-controls-right {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0;
-  flex: 0 0 auto;
-  padding-left: 2px;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 1 1 0%;
+  padding-left: 12px;
 }
 
 .callbar-control-btn {
-  height: 32px;
-  width: 32px;
-  min-width: 32px;
+  height: 36px;
+  width: 36px;
+  min-width: 36px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.18s ease;
   position: relative;
+  flex-shrink: 0;
 }
 
 .callbar-control-btn:disabled {
@@ -6004,7 +5989,7 @@ textarea {
     padding: 0 10px 14px;
   }
 
-  /* Voice+User panel: static instead of fixed */
+  /* User panel: static instead of fixed */
   .left-bottom-panel {
     position: static;
     left: auto;
@@ -6016,8 +6001,17 @@ textarea {
     border-radius: 0;
   }
 
-  .left-bottom-voice {
-    padding: 0;
+  /* Callbar overlay: full-width at bottom on mobile */
+  .callbar-overlay {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 8px 8px;
+  }
+
+  .callbar-overlay .active-call-bar {
+    max-width: 100%;
   }
 
   .user-bar-wrap {
@@ -6065,23 +6059,33 @@ textarea {
 
   /* Tighter message layout */
   .message {
-    gap: 12px;
+    gap: 10px;
   }
 
   .message-avatar {
-    width: 36px;
-    height: 36px;
-    font-size: 13px;
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
   }
 
-  /* Active call bar: ensure controls fit */
-  .callbar-controls {
-    flex-wrap: wrap;
+  /* Active call bar: stack vertically on narrow screens */
+  .callbar-controls-center {
     gap: 6px;
   }
 
   .active-call-bar {
+    flex-direction: column;
+    align-items: stretch;
     border-radius: 8px;
+  }
+
+  .callbar-controls-center {
+    justify-content: center;
+  }
+
+  .callbar-controls-right {
+    justify-content: center;
+    padding-left: 0;
   }
 
   /* Server folder — compact horizontal inside unified sidebar */
@@ -6235,7 +6239,7 @@ textarea {
     min-width: 32px;
   }
 
-  .callbar-controls-main {
+  .callbar-controls-center {
     gap: 4px;
     padding: 3px;
     border-radius: 8px;

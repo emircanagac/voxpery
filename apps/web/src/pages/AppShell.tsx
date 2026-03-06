@@ -314,14 +314,15 @@ export default function AppShell() {
       <main className="shell-content">
         <Outlet />
       </main>
-      {/* Single bottom panel for both Social and Server: voice bar + user profile (same position/source everywhere) */}
+      {/* Voice call bar — fixed to bottom of chat area, visible in both server and DM views */}
+      <div className="callbar-overlay">
+        <ActiveCallBar
+          selectedVoiceChannelId={selectedVoiceChannelId}
+          activeChannelId={showVoiceStage ? activeChannelId : null}
+        />
+      </div>
+      {/* User profile bar — stays in left sidebar */}
       <div className="left-bottom-panel">
-        <div className="left-bottom-voice">
-          <ActiveCallBar
-            selectedVoiceChannelId={selectedVoiceChannelId}
-            activeChannelId={showVoiceStage ? activeChannelId : null}
-          />
-        </div>
         <UserBar />
       </div>
     </div>

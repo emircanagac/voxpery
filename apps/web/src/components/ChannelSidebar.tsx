@@ -333,7 +333,7 @@ export default function ChannelSidebar({
                                                                 getInitial(vm.username)
                                                             )}
                                                         </div>
-                                                        <span className="voice-participant-name">{vm.username}</span>
+                                                        <span className={`voice-participant-name${isSpeaking ? ' is-speaking' : ''}`}>{vm.username}</span>
                                                         {(isScreenSharing || isCameraOn || isDeafened || isMuted) && (
                                                             <span className="voice-participant-icons">
                                                                 {isCameraOn && (
@@ -356,7 +356,7 @@ export default function ChannelSidebar({
                                                                         </span>
                                                                     </>
                                                                 )}
-                                                                {isMuted && (
+                                                                {isMuted && !isDeafened && (
                                                                     <span className="voice-participant-icon-badge" title="Muted">
                                                                         <MicOff size={11} />
                                                                     </span>

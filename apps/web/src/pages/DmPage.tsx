@@ -34,6 +34,7 @@ export default function DmPage() {
   const [peerLastReadMessageId, setPeerLastReadMessageId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
+  const [replyingTo, setReplyingTo] = useState<{ id: string; username: string; contentSnippet: string } | null>(null)
   const [forwardPickerMessageId, setForwardPickerMessageId] = useState<string | null>(null)
   const [deleteConfirmMessageId, setDeleteConfirmMessageId] = useState<string | null>(null)
   const [clickedLink, setClickedLink] = useState<string | null>(null)
@@ -160,7 +161,11 @@ export default function DmPage() {
   const handleSend = async (e?: FormEvent) => {
     e?.preventDefault()
     if (!user || !activeChannelId || (!input.trim() && attachments.length === 0)) return
-    const content = input.trim()
+    const bodyText = input.trim()
+    const content = replyingTo
+      ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
+      : bodyText
+    setReplyingTo(null)
     const sendAttachments = attachments
     const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const optimisticId = `local-${clientId}`
@@ -396,6 +401,17 @@ export default function DmPage() {
     return { forwardFrom: match[1].trim(), body: match[2] }
   }
 
+  const parseReplyContent = (content: string): { replyUsername: string; replyQuote: string; replyBody: string } | null => {
+    if (!content.startsWith('> @')) return null
+    const doubleNewline = content.indexOf('\n\n')
+    if (doubleNewline < 0) return null
+    const quotePart = content.slice(0, doubleNewline).trim()
+    const replyBody = content.slice(doubleNewline + 2).trim()
+    const match = quotePart.match(/^>\s*@([^:]+):\s*(.*)$/s)
+    if (!match) return null
+    return { replyUsername: match[1].trim(), replyQuote: match[2].trim(), replyBody }
+  }
+
   const renderMessageContent = (content: string) => {
     const forwarded = parseForwardedContent(content)
     if (forwarded) {
@@ -405,6 +421,18 @@ export default function DmPage() {
             <span className="message-forwarded-label">Forwarded from @{forwarded.forwardFrom}</span>
             {forwarded.body ? <div className="message-forwarded-body">{renderMessageWithMentions(forwarded.body)}</div> : null}
           </div>
+        </div>
+      )
+    }
+    const parsed = parseReplyContent(content)
+    if (parsed) {
+      return (
+        <div className="message-reply-block">
+          <div className="message-reply-quote">
+            <span className="message-reply-quote-label">Reply to @{parsed.replyUsername}</span>
+            <span className="message-reply-quote-text">{parsed.replyQuote}</span>
+          </div>
+          {parsed.replyBody ? <div className="message-reply-body">{renderMessageWithMentions(parsed.replyBody)}</div> : null}
         </div>
       )
     }
@@ -506,9 +534,14 @@ export default function DmPage() {
                           {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {msg.edited_at ? <span className="message-edited" title="Edited">(edited)</span> : null}
-                        {msg.author.user_id === user?.id && !msg.clientStatus && (
+                        {!msg.clientStatus && (
                           <div className="message-inline-actions dm-message-actions" ref={forwardPickerMessageId === msg.id ? forwardPickerRef : undefined}>
-                            <button type="button" className="message-inline-action-btn dm-msg-btn" title="Reply" aria-label="Reply" disabled>
+                            <button type="button" className="message-inline-action-btn dm-msg-btn" title="Reply" aria-label="Reply" onClick={(e) => {
+                              e.stopPropagation()
+                              const username = msg.author?.username ?? 'User'
+                              const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
+                              setReplyingTo({ id: msg.id, username, contentSnippet: snippet })
+                            }}>
                               <Reply size={14} />
                             </button>
                             {otherDmChannels.length > 0 && (
@@ -528,12 +561,16 @@ export default function DmPage() {
                                 )}
                               </>
                             )}
-                            <button type="button" className="message-inline-action-btn dm-msg-btn" title="Edit" aria-label="Edit" onClick={(e) => { e.stopPropagation(); startEdit(msg) }}>
-                              <Edit3 size={14} />
-                            </button>
-                            <button type="button" className="message-inline-action-btn dm-msg-btn danger" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); setDeleteConfirmMessageId(msg.id) }}>
-                              <Trash2 size={14} />
-                            </button>
+                            {msg.author.user_id === user?.id && (
+                              <>
+                                <button type="button" className="message-inline-action-btn dm-msg-btn" title="Edit" aria-label="Edit" onClick={(e) => { e.stopPropagation(); startEdit(msg) }}>
+                                  <Edit3 size={14} />
+                                </button>
+                                <button type="button" className="message-inline-action-btn dm-msg-btn danger" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); setDeleteConfirmMessageId(msg.id) }}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -597,6 +634,15 @@ export default function DmPage() {
           </div>
         </div>
         <form className="message-input-container" onSubmit={handleSend}>
+          {replyingTo && (
+            <div className="message-reply-bar">
+              <span className="message-reply-bar-label">Replying to @{replyingTo.username}</span>
+              <span className="message-reply-bar-snippet">{replyingTo.contentSnippet}</span>
+              <button type="button" className="message-reply-bar-cancel" onClick={() => setReplyingTo(null)} aria-label="Cancel reply">
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <div className="message-input-wrapper">
             <label className="dm-attach-btn" title="Attach files">
               <Paperclip size={16} />
