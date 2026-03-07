@@ -30,14 +30,16 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'
             if (id.includes('react-router')) return 'router'
             if (id.includes('livekit-client')) return 'livekit'
-            if (id.includes('rnnoise-wasm')) return 'rnnoise'
+            // Do NOT split rnnoise-wasm into a separate chunk: only the worklet uses it.
+            // If we split, the worklet would request that chunk; 404→index.html causes "unexpected token: keyword 'class'".
+            // Keep it inside the worklet chunk so one request loads everything.
             if (id.includes('@tanstack')) return 'tanstack'
             return 'vendor'
           }
         },
       },
     },
-    // rnnoise-wasm chunk ~4.8 MB (embedded WASM); warn above 5 MB
+    // Worklet chunk embeds rnnoise-wasm (~4.8 MB); warn above 5 MB
     chunkSizeWarningLimit: 5120,
   },
 }))
