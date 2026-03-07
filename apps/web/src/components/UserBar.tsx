@@ -1,5 +1,5 @@
-import { Settings, Eye, EyeOff, Lock, Circle, Star, BellOff, Ghost } from 'lucide-react'
-import { StatusIcon, type StatusValue } from './StatusIcon'
+import { Settings, Eye, EyeOff, Lock } from 'lucide-react'
+import type { StatusValue } from './StatusIcon'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
@@ -278,7 +278,7 @@ export default function UserBar() {
       <div className="user-panel">
         <button
           type="button"
-          className="user-avatar user-avatar-btn"
+          className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
           onClick={() => {
             setShowStatusMenu((v) => !v)
             setStatusError(null)
@@ -291,7 +291,6 @@ export default function UserBar() {
           ) : (
             user ? getInitial(user.username) : '?'
           )}
-          <StatusIcon status={(user?.status ?? 'online') as StatusValue} variant="badge" />
         </button>
         <button
           type="button"
@@ -325,28 +324,25 @@ export default function UserBar() {
             <div className="user-status-popover-error">{statusError}</div>
           )}
           <div className="user-status-list">
-            {(['online', 'idle', 'dnd', 'offline'] as const).map((status) => {
-              const Icon = status === 'online' ? Circle : status === 'idle' ? Star : status === 'dnd' ? BellOff : Ghost
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  className={`user-status-option user-status-option-${status} ${user?.status === status ? 'active' : ''}`}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => updateMyStatus(status)}
-                  disabled={statusSaving}
-                  aria-pressed={user?.status === status}
-                >
-                  <span className="user-status-option-icon" aria-hidden>
-                    <Icon size={16} strokeWidth={2} />
-                  </span>
-                  <span className="user-status-option-label">{statusLabel(status)}</span>
-                  {user?.status === status && (
-                    <span className="user-status-option-check" aria-hidden>✓</span>
-                  )}
-                </button>
-              )
-            })}
+            {(['online', 'dnd', 'offline'] as const).map((status) => (
+              <button
+                key={status}
+                type="button"
+                className={`user-status-option user-status-option-${status} ${user?.status === status ? 'active' : ''}`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => updateMyStatus(status)}
+                disabled={statusSaving}
+                aria-pressed={user?.status === status}
+              >
+                <span className="user-status-option-icon" aria-hidden>
+                  <span className={`user-status-option-dot ${status}`} />
+                </span>
+                <span className="user-status-option-label">{statusLabel(status)}</span>
+                {user?.status === status && (
+                  <span className="user-status-option-check" aria-hidden>✓</span>
+                )}
+              </button>
+            ))}
           </div>
           {statusSaving && (
             <div className="user-status-popover-saving">Updating…</div>

@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { friendApi, serverApi } from '../api'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToastStore } from '../stores/toast'
-import { StatusIcon, type StatusValue } from './StatusIcon'
+import type { StatusValue } from './StatusIcon'
 
 export default function MemberSidebar() {
     const { user, token } = useAuthStore()
@@ -149,13 +149,12 @@ export default function MemberSidebar() {
                 })
             }}
         >
-            <div className="member-avatar" title={statusLabel(member.status || 'offline')}>
+            <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
                 {member.avatar_url ? (
                     <img src={member.avatar_url} alt="" className="member-avatar-image" />
                 ) : (
                     getInitial(member.username)
                 )}
-                <StatusIcon status={status(member) as StatusValue} variant="badge" />
             </div>
             <span className={`member-name ${member.role}`}>
                 {member.username}

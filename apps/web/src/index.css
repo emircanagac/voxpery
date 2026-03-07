@@ -29,14 +29,14 @@
   --text-warning: #faa61a;
   --text-danger: #f04747;
 
-  /* Online Status */
-  --status-online: #43b581;
-  --status-idle: #faa61a;
-  --status-dnd: #f04747;
-  --status-offline: #747f8d;
+  /* Online Status (vivid for avatar dot and badges) */
+  --status-online: #22c55e;
+  --status-idle: #f59e0b;
+  --status-dnd: #ef4444;
+  --status-offline: #64748b;
   /* Status icon sizing (shared across profile, member list, DM/friends) */
-  --status-badge-size: 14px;
-  --status-badge-icon-size: 11px;
+  --status-badge-size: 10px;
+  --status-badge-icon-size: 8px;
   --status-inline-icon-size: 12px;
   /* Badge background matches the panel it sits in (overridden per panel) */
   --status-badge-bg: var(--bg-chat);
@@ -1072,8 +1072,8 @@ body {
 }
 
 .voice-participant-name.is-speaking {
-  color: rgba(233, 69, 96, 0.95);
-  text-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
+  color: rgba(59, 130, 246, 0.95);
+  text-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
 }
 
 .voice-live-badge {
@@ -1118,7 +1118,7 @@ body {
 }
 
 .voice-participant-avatar.is-speaking {
-  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
   transform: translateY(-1px);
 }
 
@@ -1134,16 +1134,16 @@ body {
 .voice-participant-avatar.is-speaking::before {
   top: -2px;
   left: -2px;
-  border-top: 2px solid rgba(233, 69, 96, 0.95);
-  border-left: 2px solid rgba(233, 69, 96, 0.95);
+  border-top: 2px solid rgba(59, 130, 246, 0.95);
+  border-left: 2px solid rgba(59, 130, 246, 0.95);
   border-radius: 4px 0 0 0;
 }
 
 .voice-participant-avatar.is-speaking::after {
   right: -2px;
   bottom: -2px;
-  border-right: 2px solid rgba(233, 69, 96, 0.95);
-  border-bottom: 2px solid rgba(233, 69, 96, 0.95);
+  border-right: 2px solid rgba(59, 130, 246, 0.95);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.95);
   border-radius: 0 0 4px 0;
 }
 
@@ -1277,15 +1277,85 @@ body {
 
 .status-icon-badge {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: var(--status-badge-size, 16px);
-  height: var(--status-badge-size, 16px);
+  bottom: 1px;
+  right: 1px;
+  width: var(--status-badge-size, 10px);
+  height: var(--status-badge-size, 10px);
   border-radius: 50%;
-  background: var(--status-badge-bg, var(--bg-chat));
+  border: 1.5px solid var(--bg-chat);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Badge as colored dot (no icon) for all statuses */
+.status-icon-badge-dot-online { background: var(--status-online, #43b581); }
+.status-icon-badge-dot-idle { background: var(--status-idle, #faa61a); }
+.status-icon-badge-dot-dnd { background: var(--status-dnd, #f04747); }
+.status-icon-badge-dot-offline { background: var(--status-offline, #747f8d); }
+
+/* Status as small corner dot on avatar (no ring). */
+.avatar-status-online,
+.avatar-status-idle,
+.avatar-status-dnd,
+.avatar-status-offline,
+.home-member-avatar.avatar-status-online,
+.home-member-avatar.avatar-status-idle,
+.home-member-avatar.avatar-status-dnd,
+.home-member-avatar.avatar-status-offline {
+  position: relative;
+  box-shadow: none;
+}
+.avatar-status-online::after,
+.home-member-avatar.avatar-status-online::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--status-online, #22c55e);
+  border: 2px solid var(--sidebar-bg, #1e1f22);
+  box-sizing: border-box;
+}
+.avatar-status-idle::after,
+.home-member-avatar.avatar-status-idle::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--status-idle, #f59e0b);
+  border: 2px solid var(--sidebar-bg, #1e1f22);
+  box-sizing: border-box;
+}
+.avatar-status-dnd::after,
+.home-member-avatar.avatar-status-dnd::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--status-dnd, #ef4444);
+  border: 2px solid var(--sidebar-bg, #1e1f22);
+  box-sizing: border-box;
+}
+.avatar-status-offline::after,
+.home-member-avatar.avatar-status-offline::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--status-offline, #64748b);
+  border: 2px solid var(--sidebar-bg, #1e1f22);
+  box-sizing: border-box;
 }
 
 .status-icon-inline {
@@ -1522,6 +1592,18 @@ body {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* Colored dot in status list (fits all statuses; no icon clipping) */
+.user-status-option-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.user-status-option-dot.online { background: var(--status-online, #43b581); }
+.user-status-option-dot.idle { background: var(--status-idle, #faa61a); }
+.user-status-option-dot.dnd { background: var(--status-dnd, #f04747); }
+.user-status-option-dot.offline { background: var(--status-offline, #747f8d); }
+
 .user-status-option-icon {
   display: inline-flex;
   flex-shrink: 0;
@@ -1576,6 +1658,7 @@ body {
 .user-status-popover-profile {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 8px 10px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1628,6 +1711,8 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 12px;
+  min-height: 32px;
+  line-height: 1;
 }
 
 .user-status-popover-profile-link {
@@ -5225,7 +5310,7 @@ a.community-open-btn:hover {
 }
 
 .voice-stage-avatar.is-speaking {
-  box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.6), 0 2px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6), 0 2px 6px rgba(0, 0, 0, 0.15);
   transition: box-shadow var(--transition-fast);
 }
 
@@ -5237,8 +5322,8 @@ a.community-open-btn:hover {
 }
 
 .voice-stage-name.is-speaking {
-  color: rgba(233, 69, 96, 0.95);
-  text-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
+  color: rgba(59, 130, 246, 0.95);
+  text-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
 }
 
 .voice-stage-sub {

@@ -453,7 +453,7 @@ export default function DmPage() {
               navigate('/app/social')
             }}
           >
-            <div className="dm-avatar">
+            <div className={`dm-avatar avatar-status-${['online', 'idle', 'dnd', 'offline'].includes((channel.peer_status ?? '').toLowerCase()) ? (channel.peer_status ?? 'offline').toLowerCase() : 'offline'}`}>
               {channel.peer_avatar_url ? (
                 <img src={channel.peer_avatar_url} alt="" />
               ) : (

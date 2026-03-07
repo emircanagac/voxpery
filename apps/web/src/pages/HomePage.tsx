@@ -11,7 +11,7 @@ import {
   type MessageWithAuthor,
 } from '../api'
 import ChatArea from '../components/ChatArea'
-import { StatusIcon, type StatusValue } from '../components/StatusIcon'
+import type { StatusValue } from '../components/StatusIcon'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -712,13 +712,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 if (location.pathname !== '/app/social') navigate('/app/social')
               }}
             >
-              <div className="home-member-avatar">
+              <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
                 {channel.peer_avatar_url ? (
                   <img src={channel.peer_avatar_url} alt="" />
                 ) : (
                   channel.peer_username.charAt(0).toUpperCase()
                 )}
-                <StatusIcon status={(channel.peer_status ?? 'offline') as StatusValue} variant="badge" />
               </div>
               <div className="home-member-meta">
                 <div>{channel.peer_username}</div>
@@ -884,13 +883,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         className="home-member-row is-clickable"
                         onClick={() => openMessageForFriend(friend.id)}
                       >
-                        <div className={`home-member-avatar ${isSpeaking ? 'is-speaking' : ''}`}>
+                        <div className={`home-member-avatar avatar-status-${['online', 'idle', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'} ${isSpeaking ? 'is-speaking' : ''}`}>
                           {friend.avatar_url ? (
                             <img src={friend.avatar_url} alt="" />
                           ) : (
                             friend.username.charAt(0).toUpperCase()
                           )}
-                          <StatusIcon status={(friend.status ?? 'offline') as StatusValue} variant="badge" />
                         </div>
                         <div className="home-member-meta">
                           <div>{friend.username}</div>

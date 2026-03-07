@@ -762,7 +762,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
         >
           {channelParticipants.map((p) => {
-            const pSpeaking = voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
+            const isLocal = p.user_id === user?.id
+            const pSpeaking = isLocal
+              ? voiceLocalSpeaking && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
+              : voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
             return (
             <div key={`participant-${p.user_id}`} className="voice-stage-tile">
               <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
