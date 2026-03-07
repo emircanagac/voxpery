@@ -2668,10 +2668,11 @@ body {
 
 .member-sidebar {
   width: var(--member-sidebar-width);
+  max-height: calc(100% - 80px); /* scrollbar ends where bottom overlay starts; no gap = no color strip */
   background: var(--bg-surface);
   border-left: var(--border-subtle);
   overflow-y: auto;
-  padding: 16px 8px 96px; /* increased from 80px to prevent overlap with the 80px bottom line */
+  padding: 16px 8px 8px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
