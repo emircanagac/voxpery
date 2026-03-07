@@ -238,6 +238,7 @@ docker compose exec postgres pg_dump -U voxpery voxpery > /var/backups/voxpery-$
 
 - Verify `LIVEKIT_WS_URL` is reachable from clients
 - Verify `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` match server config
+- Deploy the full `apps/web/dist` (including `dist/assets/`). If the browser requests a worklet script under `/assets/*` and the server returns `index.html` (SPA fallback), voice will fail with errors like "unexpected token: keyword 'class'". Ensure Nginx (or your host) serves real files from `dist` so `/assets/*.js` are the built JS chunks, not the SPA shell.
 
 ---
 

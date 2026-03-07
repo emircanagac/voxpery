@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => ({
     },
     rollupOptions: {
       output: {
+        // Worklet and other JS chunks must be .js (default). Production server must serve
+        // /assets/* as static files only — do not serve index.html for /assets/* (no SPA fallback),
+        // or addModule() will get HTML and throw "unexpected token: keyword 'class'".
+        chunkFileNames: 'assets/[name]-[hash].js',
         // Emit worklet as .js so servers don't serve it as video/mp2t (MIME for .ts)
         assetFileNames: (assetInfo) => {
           const name = assetInfo.name ?? ''
