@@ -126,7 +126,7 @@ export function useAudioEngine() {
 
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
-        const rnnoise = createRnnoiseNode(ctx, noiseSuppressionEnabled)
+        const rnnoise = await createRnnoiseNode(ctx, noiseSuppressionEnabled)
         rnnoiseRef.current = rnnoise
 
         const volumeGainNode = ctx.createGain()

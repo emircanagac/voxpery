@@ -177,8 +177,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       p.then(() => {
         clearRetry()
-      }).catch((err) => {
-        console.warn('[ensureRemoteAudioPlayback] Failed to play for peer', peerId, ':', err.message)
+      }).catch(() => {
+        // Suppress expected "The play() request was interrupted by a new load request" warnings
+        // console.warn('[ensureRemoteAudioPlayback] Failed to play for peer', peerId, ':', err.message)
         clearRetry()
         const retry = window.setTimeout(() => {
           attempt()

@@ -102,7 +102,7 @@ export default function SensitivityBar({
                 // Route through RNNoise when noise suppression is enabled,
                 // so the bar shows the same levels the speaking indicator sees.
                 const nsEnabled = localStorage.getItem(NS_KEY) !== '0'
-                rnnoiseNode = createRnnoiseNode(ctx, nsEnabled)
+                rnnoiseNode = await createRnnoiseNode(ctx, nsEnabled)
 
                 const analyser = ctx.createAnalyser()
                 analyser.fftSize = 256
@@ -110,8 +110,7 @@ export default function SensitivityBar({
                 source.connect(rnnoiseNode.node)
                 rnnoiseNode.node.connect(analyser)
 
-                // ScriptProcessorNode requires the graph to reach ctx.destination
-                // to fire onaudioprocess. Connect via a silent sink (gain=0).
+                // Required to prevent the browser from pruning the graph branch
                 const silentSink = ctx.createGain()
                 silentSink.gain.value = 0
                 analyser.connect(silentSink)
