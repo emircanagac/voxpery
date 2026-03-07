@@ -204,25 +204,9 @@ export default function ChannelSidebar({
                                                         try {
                                                             stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                                                             await joinFn(ch.id, stream)
-                                                        } catch (err) {
+                                                        } catch {
                                                             stream?.getTracks().forEach((t) => t.stop())
-                                                            const errObj = err as Error
-                                                            const name = errObj.name ?? ''
-                                                            let message = errObj.message || 'Unable to access microphone. Check your device and try again.'
-                                                            if (message === 'Failed to fetch') {
-                                                                message = 'Connection error. Check your internet connection.'
-                                                            } else if (name === 'NotAllowedError' || name === 'SecurityError') {
-                                                                message = 'Permission was blocked. Allow microphone access in browser settings and try again.'
-                                                            } else if (name === 'NotFoundError') {
-                                                                message = 'No microphone device detected. Connect a microphone and retry.'
-                                                            } else if (name === 'NotReadableError') {
-                                                                message = 'Microphone is in use by another app. Close it and retry.'
-                                                            }
-                                                            pushToast({
-                                                                level: 'error',
-                                                                title: 'Voice action failed',
-                                                                message,
-                                                            })
+                                                            // Toast shown once via state.lastError in ActiveCallBar.
                                                         }
                                                     })()
                                                 }
@@ -241,25 +225,9 @@ export default function ChannelSidebar({
                                                         try {
                                                             stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                                                             await joinFn(ch.id, stream)
-                                                        } catch (err) {
+                                                        } catch {
                                                             stream?.getTracks().forEach((t) => t.stop())
-                                                            const errObj = err as Error
-                                                            const name = errObj.name ?? ''
-                                                            let message = errObj.message || 'Unable to access microphone. Check your device and try again.'
-                                                            if (message === 'Failed to fetch') {
-                                                                message = 'Connection error. Check your internet connection.'
-                                                            } else if (name === 'NotAllowedError' || name === 'SecurityError') {
-                                                                message = 'Permission was blocked. Allow microphone access in browser settings and try again.'
-                                                            } else if (name === 'NotFoundError') {
-                                                                message = 'No microphone device detected. Connect a microphone and retry.'
-                                                            } else if (name === 'NotReadableError') {
-                                                                message = 'Microphone is in use by another app. Close it and retry.'
-                                                            }
-                                                            pushToast({
-                                                                level: 'error',
-                                                                title: 'Voice action failed',
-                                                                message,
-                                                            })
+                                                            // Toast shown once via state.lastError in ActiveCallBar.
                                                         }
                                                     })()
                                                 }

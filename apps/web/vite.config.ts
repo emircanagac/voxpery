@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => ({
       drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     rollupOptions: {
+      // Worklet as explicit entry so it bundles rnnoise-wasm in one file (no second request → no 404→index.html).
+      input: {
+        main: 'index.html',
+        'rnnoise-worklet-processor': 'src/webrtc/rnnoise-worklet-processor.ts',
+      },
       output: {
         // Worklet and other JS chunks must be .js (default). Production server must serve
         // /assets/* as static files only — do not serve index.html for /assets/* (no SPA fallback),

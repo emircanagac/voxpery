@@ -482,25 +482,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       await joinVoice(channelId, { preflightStream: stream })
-    } catch (err) {
+    } catch {
       stream?.getTracks().forEach((t) => t.stop())
-      const errObj = err as Error
-      const name = errObj.name ?? ''
-      let message = errObj.message || 'Unable to access microphone. Check your device and try again.'
-      if (message === 'Failed to fetch') {
-        message = 'Connection error. Check your internet connection.'
-      } else if (name === 'NotAllowedError' || name === 'SecurityError') {
-        message = 'Permission was blocked. Allow microphone access in browser settings and try again.'
-      } else if (name === 'NotFoundError') {
-        message = 'No microphone device detected. Connect a microphone and retry.'
-      } else if (name === 'NotReadableError') {
-        message = 'Microphone is in use by another app. Close it and retry.'
-      }
-      pushToast({
-        level: 'error',
-        title: 'Voice action failed',
-        message,
-      })
+      // Toast is shown once by the useEffect that reacts to state.lastError (set by joinVoice).
     }
   }
 
