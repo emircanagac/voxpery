@@ -65,6 +65,9 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         livekit_ws_url: None,
         livekit_api_key: None,
         livekit_api_secret: None,
+        google_client_id: None,
+        google_client_secret: None,
+        public_api_url: None,
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
