@@ -26,7 +26,7 @@ export default function UnifiedSidebar({
   )
   const isServerRoute = location.pathname === '/app/servers'
   const displayActiveServerId = isServerRoute ? activeServerId : null
-  const isSocialRoute = location.pathname === '/app/social' || location.pathname.startsWith('/app/social/dm')
+  const isSocialRoute = location.pathname === '/app/social'
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
   const socialHref = '/app/social'

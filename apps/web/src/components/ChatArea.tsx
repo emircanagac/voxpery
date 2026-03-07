@@ -162,6 +162,22 @@ export default function ChatArea({
         overscan: 8,
     })
 
+    /* Scroll to bottom using native scrollTop so we don't depend on virtualizer scrollToIndex (avoids "Failed to scroll to index after 10 attempts" when panel is not yet laid out, e.g. Social DM on first paint). */
+    const scrollToBottomOnceReady = useCallback(() => {
+        let attempts = 0
+        const maxAttempts = 20
+        const tryScroll = () => {
+            const el = messagesScrollRef.current
+            if (el && el.clientHeight > 0) {
+                el.scrollTop = el.scrollHeight - el.clientHeight
+                return
+            }
+            attempts += 1
+            if (attempts < maxAttempts) requestAnimationFrame(tryScroll)
+        }
+        requestAnimationFrame(tryScroll)
+    }, [])
+
     /* When switching channel/DM, reset auto-scroll and scroll to bottom so user sees latest messages */
     useEffect(() => {
         shouldAutoScrollRef.current = true
@@ -171,13 +187,10 @@ export default function ChatArea({
     useEffect(() => {
         if (messages.length === 0) return
         if (!shouldAutoScrollRef.current) return
-        /* Short delay so virtualizer has laid out after async message load (e.g. DM from Messages) */
-        const t = setTimeout(() => {
-            rowVirtualizer.scrollToIndex(messages.length - 1, { align: 'end' })
-        }, 50)
+        const t = setTimeout(scrollToBottomOnceReady, 50)
         return () => clearTimeout(t)
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only scroll when channel or message count changes
-    }, [activeChannel?.id, messages.length])
+    }, [activeChannel?.id, messages.length, scrollToBottomOnceReady])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
     useEffect(() => {
@@ -185,12 +198,10 @@ export default function ChatArea({
         prevViewActiveRef.current = isViewActive ?? true
         if (!becameVisible || messages.length === 0) return
         shouldAutoScrollRef.current = true
-        const t = setTimeout(() => {
-            rowVirtualizer.scrollToIndex(messages.length - 1, { align: 'end' })
-        }, 50)
+        const t = setTimeout(scrollToBottomOnceReady, 80)
         return () => clearTimeout(t)
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only when view becomes visible
-    }, [isViewActive, messages.length])
+    }, [isViewActive, messages.length, scrollToBottomOnceReady])
 
     /* When replying to a message, scroll so the replied-to message stays visible above the reply bar */
     useEffect(() => {

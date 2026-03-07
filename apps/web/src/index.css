@@ -2490,8 +2490,10 @@ body {
   gap: 4px;
 }
 
+/* Virtual list updates transform on scroll (scroll-linked). Firefox warns; containment limits scope. */
 .chat-messages-virtual {
   display: block;
+  contain: paint;
 }
 
 .chat-load-older {

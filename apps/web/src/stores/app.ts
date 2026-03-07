@@ -192,7 +192,7 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'voxpery-app-storage',
-            // Persist activeDmChannelId so /app/social/dm restores the open DM on F5. Do not persist dmUnread (stale badge).
+            // Persist activeDmChannelId so Social tab restores the open DM (single path /app/social). Do not persist dmUnread (stale badge).
             partialize: (s) => ({ activeDmChannelId: s.activeDmChannelId }),
         },
     ),

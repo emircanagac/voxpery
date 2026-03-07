@@ -340,7 +340,7 @@ export default function DmPage() {
     setForwardPickerMessageId(null)
     if (targetChannelId !== activeChannelId && targetChannel) {
       setActiveChannelId(targetChannelId)
-      navigate('/app/social/dm')
+      navigate('/app/social')
     }
     try {
       const sent = await dmApi.sendMessage(targetChannelId, content, [], token)
@@ -450,7 +450,7 @@ export default function DmPage() {
             className={`dm-item ${activeChannelId === channel.id ? 'active' : ''}`}
             onClick={() => {
               setActiveChannelId(channel.id)
-              navigate('/app/social/dm')
+              navigate('/app/social')
             }}
           >
             <div className="dm-avatar">

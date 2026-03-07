@@ -15,7 +15,7 @@ const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
 
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
-  return <Navigate to={userId ? `/app/social/dm/${userId}` : '/app/social/dm'} replace />
+  return <Navigate to="/app/social" state={userId ? { openDmUserId: userId } : undefined} replace />
 }
 
 function App() {
@@ -139,8 +139,6 @@ function App() {
           <Routes>
             <Route path="/app" element={<AppShell />}>
               <Route path="social" element={<UnifiedLayout />} />
-              <Route path="social/dm" element={<UnifiedLayout />} />
-              <Route path="social/dm/:userId" element={<UnifiedLayout />} />
               <Route path="dm" element={<RedirectDmToSocial />} />
               <Route path="dm/:userId" element={<RedirectDmToSocial />} />
               <Route path="servers" element={<UnifiedLayout />} />

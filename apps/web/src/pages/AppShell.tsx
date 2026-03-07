@@ -189,7 +189,7 @@ export default function AppShell() {
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
           const authorId = incomingMessage?.author?.user_id
-          const isDmRoute = location.pathname === '/app/social/dm' || location.pathname.startsWith('/app/social/dm/')
+          const isSocialWithDm = location.pathname === '/app/social'
           if (!channelId || channelType !== 'dm') return
           if (authorId && authorId === user?.id) return
 
@@ -232,12 +232,12 @@ export default function AppShell() {
             setDmChannels(nextChannels)
             setDmChannelIds(nextChannels.map((c) => c.id))
 
-            if (isDmRoute && activeDmChannelId === channel.id) {
+            if (isSocialWithDm && activeDmChannelId === channel.id) {
               clearDmUnread(channel.id)
               return
             }
 
-            if (!isDmRoute || activeDmChannelId !== channel.id) {
+            if (!isSocialWithDm || activeDmChannelId !== channel.id) {
               incrementDmUnread(channel.id)
               if (shouldPlayNotificationSound(myStatus)) {
                 playMessageNotificationSound()
@@ -263,10 +263,7 @@ export default function AppShell() {
     joinedVoiceChannelId ??
     null
   const isFriendsOrDm =
-    location.pathname === '/app/social' ||
-    location.pathname === '/app' ||
-    location.pathname === '/app/social/dm' ||
-    location.pathname.startsWith('/app/social/dm/')
+    location.pathname === '/app/social' || location.pathname === '/app'
   const isServerView = !!activeServerId && location.pathname.startsWith('/app/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
 
@@ -290,7 +287,7 @@ export default function AppShell() {
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
         <div className="shell-left">
-          <button type="button" className="shell-brand" onClick={() => navigate('/app/social', { state: { tab: 'friends' } })}>
+          <button type="button" className="shell-brand" onClick={() => navigate('/app/social')}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
             <span className="shell-brand-beta" title="Preview build">Beta</span>

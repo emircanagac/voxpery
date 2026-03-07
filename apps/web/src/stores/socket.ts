@@ -91,7 +91,10 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type, data }))
         } else {
-            console.warn('Cannot send message, socket not open', type)
+            // Unsubscribe during teardown/navigation is normal; avoid noisy warn
+            if (type !== 'Unsubscribe') {
+                console.warn('Cannot send message, socket not open', type)
+            }
         }
     },
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Activity, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   dmApi,
@@ -24,6 +24,30 @@ type SocialView = 'friends' | 'dm'
 type FriendsFilter = 'all' | 'online' | 'requests'
 
 const HIDDEN_DM_PEERS_KEY = 'voxpery-hidden-dm-peers'
+const SOCIAL_VIEW_KEY = 'voxpery-social-view'
+
+function getPersistedSocialView(): SocialView | null {
+  try {
+    const v = sessionStorage.getItem(SOCIAL_VIEW_KEY)
+    if (v === 'friends' || v === 'dm') return v
+    return null
+  } catch {
+    return null
+  }
+}
+
+function setPersistedSocialView(view: SocialView) {
+  try {
+    sessionStorage.setItem(SOCIAL_VIEW_KEY, view)
+  } catch {
+    /* ignore */
+  }
+}
+
+function isDmAccessForbidden(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('No access') || msg.includes('403') || msg.includes('Forbidden')
+}
 
 type UiDmMessage = MessageWithAuthor & {
   clientId?: string
@@ -69,19 +93,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
   const navigate = useNavigate()
   const location = useLocation()
-  const { userId: urlSlug } = useParams<{ userId: string }>()
   const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
 
   const [view, setView] = useState<SocialView>('friends')
-
-  // Sync view with URL: exact /app/social => friends; /app/social/dm => dm (F5 keeps DM when activeDmChannelId persisted)
-  useEffect(() => {
-    if (location.pathname === '/app/social') {
-      setView('friends')
-    } else if (location.pathname.startsWith('/app/social/dm')) {
-      setView('dm')
-    }
-  }, [location.pathname])
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
@@ -108,6 +122,31 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       ),
     [dmUnread, hiddenDmPeerIds, storeDmChannels]
   )
+
+  // Single path /app/social: restore the tab that was open when user left (Friends vs DM).
+  useEffect(() => {
+    if (location.pathname !== '/app/social') return
+    const openDmUserId = (location.state as { openDmUserId?: string } | null)?.openDmUserId
+    if (openDmUserId && dmChannels.length > 0) {
+      const channel = isUuid(openDmUserId)
+        ? dmChannels.find((c) => c.peer_id === openDmUserId)
+        : dmChannels.find((c) => c.peer_username === decodeURIComponent(openDmUserId))
+      if (channel) {
+        setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
+        setActiveDmChannelId(channel.id)
+        setView('dm')
+        setPersistedSocialView('dm')
+        clearDmUnread(channel.id)
+        navigate('/app/social', { replace: true, state: {} })
+      }
+      return
+    }
+    const saved = getPersistedSocialView()
+    if (saved === 'friends') setView('friends')
+    else if (saved === 'dm' && activeDmChannelId) setView('dm')
+    else setView('friends')
+  }, [location.pathname, location.state, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
+
   const voxperyServer = useMemo(
     () => storeServers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') ?? null,
     [storeServers],
@@ -169,36 +208,30 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     refreshServersAndFriends().catch(console.error)
   }, [refreshServersAndFriends, user])
 
-  // Open DM from URL /app/social/dm/:userId (legacy slug; normalize to /app/social/dm after resolving)
-  useEffect(() => {
-    if (!urlSlug || dmChannels.length === 0) return
-    const channel = isUuid(urlSlug)
-      ? dmChannels.find((c) => c.peer_id === urlSlug)
-      : dmChannels.find((c) => c.peer_username === decodeURIComponent(urlSlug))
-    if (channel && channel.id !== activeDmChannelId) {
-      setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
-      setActiveDmChannelId(channel.id)
-      setView('dm')
-      clearDmUnread(channel.id)
-      navigate('/app/social/dm', { replace: true })
-    }
-  }, [urlSlug, dmChannels, activeDmChannelId, setActiveDmChannelId, clearDmUnread, navigate])
-
   const onlineFriends = friends.filter((f) => f.status !== 'offline')
   const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
   useEffect(() => {
     if (!user || !activeDmChannelId) return
-    const cached = dmMessagesByChannelRef.current[activeDmChannelId]
+    const channelId = activeDmChannelId
+    const cached = dmMessagesByChannelRef.current[channelId]
     setDmMessages(cached ?? [])
     dmApi
-      .listMessages(activeDmChannelId, token)
+      .listMessages(channelId, token)
       .then((rows) => {
         const ui = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
-        dmMessagesByChannelRef.current[activeDmChannelId] = ui
+        dmMessagesByChannelRef.current[channelId] = ui
         setDmMessages(ui)
       })
-      .catch(console.error)
-  }, [activeDmChannelId, token, user])
+      .catch((err) => {
+        if (isDmAccessForbidden(err)) {
+          setActiveDmChannelId(null)
+          setView('friends')
+          setPersistedSocialView('friends')
+        } else {
+          console.error(err)
+        }
+      })
+  }, [activeDmChannelId, token, user, setActiveDmChannelId, setView])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
@@ -217,8 +250,19 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
-    dmApi.listPins(activeDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
-  }, [activeDmChannelId, token, user])
+    const channelId = activeDmChannelId
+    dmApi
+      .listPins(channelId, token)
+      .then(setDmPins)
+      .catch((err) => {
+        if (isDmAccessForbidden(err)) {
+          setActiveDmChannelId(null)
+          setView('friends')
+          setPersistedSocialView('friends')
+        }
+        setDmPins([])
+      })
+  }, [activeDmChannelId, token, user, setActiveDmChannelId, setView])
 
   const refreshDmPins = useCallback(() => {
     if (!activeDmChannelId) return
@@ -338,13 +382,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const channel = await dmApi.getOrCreateChannel(friendId, token)
     setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
     setView('dm')
+    setPersistedSocialView('dm')
     setActiveDmChannelId(channel.id)
     clearDmUnread(channel.id)
     const prev = useAppStore.getState().dmChannels
     if (!prev.some((c) => c.id === channel.id)) {
       setStoreDmChannels([channel, ...prev])
     }
-    navigate('/app/social/dm')
+    navigate('/app/social')
   }
 
   const sendFriendRequest = async () => {
@@ -553,7 +598,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (targetChannelId !== activeDmChannelId) {
       setActiveDmChannelId(targetChannelId)
       setView('dm')
-      if (peer) navigate('/app/social/dm')
+      setPersistedSocialView('dm')
+      if (peer) navigate('/app/social')
     }
     try {
       const sent = await dmApi.sendMessage(targetChannelId, content, [], token)
@@ -637,9 +683,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           className={`social-nav-item ${view === 'friends' ? 'active' : ''}`}
           onClick={() => {
             setView('friends')
-            if (location.pathname !== '/app/social') {
-              navigate('/app/social')
-            }
+            setPersistedSocialView('friends')
+            if (location.pathname !== '/app/social') navigate('/app/social')
           }}
         >
           <Users size={14} />
@@ -662,8 +707,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
                 setView('dm')
                 setActiveDmChannelId(channel.id)
+                setPersistedSocialView('dm')
                 clearDmUnread(channel.id)
-                navigate('/app/social/dm')
+                if (location.pathname !== '/app/social') navigate('/app/social')
               }}
             >
               <div className="home-member-avatar">
@@ -694,6 +740,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     if (activeDmChannelId === channel.id) {
                       setView('friends')
                       setActiveDmChannelId(null)
+                      setPersistedSocialView('friends')
                       navigate('/app/social')
                     }
                   }}
@@ -708,6 +755,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       if (activeDmChannelId === channel.id) {
                         setView('friends')
                         setActiveDmChannelId(null)
+                        setPersistedSocialView('friends')
                         navigate('/app/social')
                       }
                     }

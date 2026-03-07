@@ -7,6 +7,10 @@
  * so no audio is lost or sped up.
  *
  * Adds ~10 ms latency — imperceptible for voice chat.
+ *
+ * Note: ScriptProcessorNode is deprecated; browsers recommend AudioWorklet.
+ * Migrating would require an AudioWorkletProcessor and possibly moving
+ * WASM processing to the worklet. Until then the deprecation warning is expected.
  */
 
 import type { Rnnoise, DenoiseState } from '@shiguredo/rnnoise-wasm'

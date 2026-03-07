@@ -49,9 +49,7 @@ export default function UnifiedLayout() {
   )
 
   const isFriendsOrDm =
-    location.pathname === '/app/social' ||
-    location.pathname === '/app' ||
-    location.pathname.startsWith('/app/social/dm')
+    location.pathname === '/app/social' || location.pathname === '/app'
   const isServerView = location.pathname === '/app/servers'
 
   // When on /app/servers with no active server, set first server (or restore from sessionStorage)
