@@ -297,16 +297,16 @@ export default function UserBar() {
           <div className="user-name">{user?.username || 'User'}</div>
           <div className="user-status">{statusLabel(user?.status)}</div>
         </button>
-        <button
-          type="button"
-          className="user-panel-icon-btn"
-          onClick={() => setShowSettingsPanel(true)}
-          title="User settings"
-          aria-label="Settings"
-        >
-          <Settings size={18} />
-        </button>
       </div>
+      <button
+        type="button"
+        className="user-panel-icon-btn"
+        onClick={() => setShowSettingsPanel(true)}
+        title="User settings"
+        aria-label="Settings"
+      >
+        <Settings size={18} />
+      </button>
       {showStatusMenu && (
         <div ref={statusMenuRef} className="user-status-popover" role="dialog" aria-label="SET YOUR STATUS">
           <div className="user-status-popover-header">

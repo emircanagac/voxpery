@@ -1153,7 +1153,6 @@ body {
   display: flex;
   align-items: center;
   padding: 0 6px;
-  gap: 10px;
   gap: 8px;
 }
 
@@ -1892,22 +1891,7 @@ body {
   font-size: 12px;
 }
 
-.btn-secondary {
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
 
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-}
 
 .user-setting-row {
   display: flex;
@@ -2687,8 +2671,10 @@ body {
   background: var(--bg-surface);
   border-left: var(--border-subtle);
   overflow-y: auto;
-  padding: 16px 8px;
+  padding: 16px 8px 96px; /* increased from 80px to prevent overlap with the 80px bottom line */
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   --status-badge-bg: var(--bg-surface);
 }
 
@@ -3930,13 +3916,16 @@ body {
   border-left: var(--border-subtle);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 8px;
+  padding: 16px 8px 96px; /* increased from 80px to prevent overlap with the 80px bottom line */
   display: flex;
   flex-direction: column;
   gap: 12px;
+  justify-content: space-between;
   position: relative;
   z-index: 1;
 }
+
+
 
 .community-card,
 .community-note {
@@ -4409,9 +4398,25 @@ a.community-open-btn:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-top: 2px solid rgba(255, 255, 255, 0.12);
+  border-top: var(--border-subtle);
   background: var(--bg-surface);
 }
+
+/* Bottom right empty corner block overlay */
+.callbar-overlay::after {
+  content: '';
+  position: absolute;
+  top: -1px; /* Pull up to perfectly cover the 1px border-top */
+  right: calc(-1 * var(--member-sidebar-width));
+  width: var(--member-sidebar-width);
+  height: 80px;
+  background: var(--bg-surface);
+  border-top: var(--border-subtle);
+  border-left: var(--border-subtle);
+  pointer-events: none;
+}
+
+
 
 .callbar-overlay > * {
   pointer-events: auto;
@@ -4429,16 +4434,20 @@ a.community-open-btn:hover {
 
 /* Profile: anchored to bottom, clearly separated from content above */
 .user-bar-wrap {
-  min-height: 58px;
+  height: 80px; /* Force consistent height */
+  min-height: 80px;
   background: var(--bg-surface);
   border-radius: 0;
   border: none;
-  border-top: 2px solid rgba(255, 255, 255, 0.12);
+  border-top: var(--border-subtle);
   border-right: var(--border-subtle);
   padding: 10px 12px 12px;
   flex-shrink: 0;
   position: relative;
   --status-badge-bg: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* This pushes the settings icon to the far right */
   width: 100%;
   box-sizing: border-box;
 }
@@ -5746,23 +5755,10 @@ a.community-open-btn:hover {
 }
 
 /* ============================================
-   Responsive Layout
+   Responsive Layout — Discord-like minimal
+   Only 1024px breakpoint (hide member sidebar)
+   Mobile users should use the Tauri desktop app
    ============================================ */
-
-/* ── Global responsive helpers ── */
-
-/* Safer truncation on all viewports */
-.shell-user>span,
-.social-sidebar-header,
-.home-member-meta>div,
-.dm-meta>div,
-.community-card h2,
-.home-list-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Remove 300ms tap delay on touch devices */
 button,
@@ -5785,42 +5781,37 @@ textarea {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
-/* ── Desktop shrink (small laptops) ── */
-@media (max-width: 1280px) {
-  :root {
-    --channel-sidebar-width: 220px;
-    --member-sidebar-width: 200px;
-  }
-
-  .shell-user>span {
-    max-width: 150px;
-  }
-
-  .home-side {
-    width: 220px;
-  }
-}
-
-/* ── Tablet landscape ── */
+/* ── Tablet landscape (≤1024px) ── */
 @media (max-width: 1024px) {
   :root {
-    --channel-sidebar-width: 200px;
     --member-sidebar-width: 0px;
   }
 
+  /* Hide member sidebar and right panel */
   .member-sidebar,
-  .home-side,
+  .home-side {
+    display: none;
+  }
+
+  /* Hide right background strip on Friends page */
   .unified-content-friends::after {
     display: none;
   }
 
+  /* Update left background strip width */
   .unified-content-friends::before {
     width: var(--channel-sidebar-width);
   }
 
+  /* Screen share stage: no member sidebar on right */
   .screen-share-stage {
     right: 16px;
-    left: calc(var(--server-bar-width) + var(--channel-sidebar-width) + 12px);
+  }
+
+  /* Topbar: truncate username */
+  .shell-user > span {
+    max-width: 120px;
+    font-size: 12px;
   }
 
   .shell-user {
@@ -5831,515 +5822,16 @@ textarea {
     gap: 6px;
   }
 
-  .shell-user>span {
-    max-width: 120px;
-    font-size: 12px;
-  }
-
-  /* Collapse 3-column grids to 2 */
-  .core-pillars {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+  /* 3-column grid → 2-column */
+  .core-pillars,
   .voice-focus-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* Tighter add-friend row */
+  /* Friends page: tighter "Add Friend" row */
   .home-add-row {
     padding: 10px;
     gap: 8px;
-  }
-}
-
-/* ── Tablet portrait / large phones ── */
-@media (max-width: 768px) {
-  :root {
-    --server-bar-width: 64px;
-    --channel-sidebar-width: 100%;
-  }
-
-  .shell-layout {
-    height: 100dvh;
-    width: 100%;
-  }
-
-  .shell-topbar {
-    padding: 0 8px;
-    gap: 8px;
-  }
-
-  .shell-brand {
-    font-size: 14px;
-    gap: 6px;
-  }
-
-  .shell-brand span,
-  .shell-user>span {
-    display: none;
-  }
-
-  .shell-brand-beta {
-    height: 16px;
-    padding: 0 6px;
-    font-size: 9px;
-  }
-
-  .shell-update-btn,
-  .shell-logout-btn {
-    padding: 5px 6px;
-    font-size: 11px;
-  }
-
-  .shell-topbar-right {
-    margin-left: auto;
-  }
-
-  .unified-layout {
-    flex-direction: column;
-  }
-
-  .unified-sidebar {
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 8px;
-    gap: 8px;
-    border-right: none;
-    border-bottom: var(--border-subtle);
-    overflow-x: auto;
-    overflow-y: hidden;
-    flex-shrink: 0;
-  }
-
-  .unified-sidebar-dm-section {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 0;
-  }
-
-  .unified-sidebar-section-label {
-    display: none;
-  }
-
-  .unified-sidebar-separator {
-    width: 2px;
-    height: 30px;
-    flex-shrink: 0;
-  }
-
-  .unified-sidebar .server-sidebar {
-    width: auto;
-    flex: 1;
-    flex-direction: row;
-    align-items: center;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0;
-    gap: 8px;
-    border-right: none;
-    background: transparent;
-  }
-
-  .server-sidebar {
-    padding: 8px 6px;
-  }
-
-  /* Stack layouts vertically */
-  .app-layout,
-  .home-page,
-  .dm-page {
-    flex-direction: column;
-    display: flex;
-    min-height: 0;
-  }
-
-  /* Sidebars become horizontal strips */
-  .channel-sidebar,
-  .social-sidebar,
-  .dm-sidebar {
-    width: 100%;
-    min-width: 0;
-    max-height: 36vh;
-    border-right: none;
-    border-bottom: var(--border-subtle);
-    /* Override the 140px padding-bottom meant for fixed left-bottom-panel (now static) */
-    padding-bottom: 8px;
-  }
-
-  .unified-content-friends::before,
-  .unified-content-friends::after {
-    display: none;
-  }
-
-  .home-main {
-    border-right: none;
-  }
-
-  .social-content,
-  .chat-messages,
-  .dm-messages {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-
-  .message-input-container {
-    padding: 0 10px 14px;
-  }
-
-  /* User panel: static instead of fixed */
-  .left-bottom-panel {
-    position: static;
-    left: auto;
-    width: 100%;
-    padding: 8px;
-    gap: 8px;
-    border-top: var(--border-subtle);
-    background: var(--bg-surface);
-    border-radius: 0;
-  }
-
-  /* Callbar overlay: full-width at bottom on mobile */
-  .callbar-overlay {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 0 8px 8px;
-  }
-
-  .callbar-overlay .active-call-bar {
-    max-width: 100%;
-  }
-
-  .user-bar-wrap {
-    box-shadow: none;
-    border-top: var(--border-subtle);
-    padding: 8px;
-  }
-
-  /* Collapse grids to single column */
-  .core-pillars {
-    grid-template-columns: 1fr;
-  }
-
-  .voice-focus-grid {
-    grid-template-columns: 1fr;
-  }
-
-  /* Responsive modals */
-  .modal-server-settings {
-    max-width: calc(100vw - 16px);
-    max-height: 85vh;
-  }
-
-  .modal.user-settings-modal {
-    max-width: calc(100vw - 16px);
-    max-height: 80vh;
-  }
-
-  .user-settings-modal .user-select {
-    width: 170px;
-    min-width: 170px;
-  }
-
-  .confirm-modal {
-    max-width: calc(100vw - 16px);
-  }
-
-  /* Screen share stage */
-  .screen-share-stage {
-    left: 8px;
-    right: 8px;
-    top: calc(var(--header-height) + 8px);
-    bottom: 120px;
-  }
-
-  /* Tighter message layout */
-  .message {
-    gap: 10px;
-  }
-
-  .message-avatar {
-    width: 32px;
-    height: 32px;
-    font-size: 12px;
-  }
-
-  /* Active call bar: stack vertically on narrow screens */
-  .callbar-controls-center {
-    gap: 6px;
-  }
-
-  .active-call-bar {
-    flex-direction: column;
-    align-items: stretch;
-    border-radius: 8px;
-  }
-
-  .callbar-controls-center {
-    justify-content: center;
-  }
-
-  .callbar-controls-right {
-    justify-content: center;
-    padding-left: 0;
-  }
-
-  /* Server folder — compact horizontal inside unified sidebar */
-  .unified-sidebar .server-folder-wrap {
-    flex-direction: row;
-    align-items: center;
-    width: auto;
-    gap: 4px;
-    padding-right: 0;
-  }
-
-  .unified-sidebar .server-folder-children {
-    flex-direction: row;
-    align-items: center;
-    width: auto;
-    gap: 4px;
-    padding-left: 0;
-    padding-right: 0;
-    overflow-x: visible;
-  }
-
-  .unified-sidebar .server-folder-children::before {
-    display: none;
-  }
-
-  .unified-sidebar .server-icon-nested {
-    margin-left: 0;
-  }
-
-  /* Hide "CREATE" / "JOIN" labels on mobile */
-  .unified-sidebar .server-action-label {
-    display: none;
-  }
-
-  /* Hide vertical separator in horizontal bar */
-  .unified-sidebar .server-separator {
-    width: 2px;
-    height: 30px;
-    flex-shrink: 0;
-  }
-}
-
-/* ── Small phones ── */
-@media (max-width: 480px) {
-  .shell-topbar {
-    height: 44px;
-  }
-
-
-  .server-icon,
-  .unified-dm-entry {
-    width: 38px;
-    height: 38px;
-    min-width: 38px;
-    min-height: 38px;
-    border-radius: 12px;
-    font-size: 15px;
-  }
-
-  .unified-sidebar {
-    padding: 6px;
-    gap: 6px;
-  }
-
-  .unified-sidebar-separator {
-    height: 24px;
-  }
-
-  .channel-header,
-  .social-sidebar-header,
-  .dm-chat-header {
-    height: 40px;
-    padding: 0 10px;
-    font-size: 13px;
-  }
-
-  .chat-header {
-    height: 40px;
-    padding: 0 10px;
-  }
-
-  .chat-header .channel-title {
-    font-size: 14px;
-  }
-
-  .home-chip-row {
-    flex-wrap: wrap;
-  }
-
-  .home-add-row {
-    grid-template-columns: 1fr;
-    padding: 8px;
-    gap: 8px;
-  }
-
-  .home-add-row .community-open-btn {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .community-open-btn {
-    white-space: normal;
-    text-align: center;
-  }
-
-  .modal {
-    max-width: calc(100vw - 16px);
-    padding: 16px;
-    border-radius: var(--border-radius-md);
-  }
-
-  .modal h2 {
-    font-size: 17px;
-  }
-
-  .modal-server-settings {
-    max-width: calc(100vw - 12px);
-    max-height: 80vh;
-  }
-
-  /* Tighter messages */
-  .message {
-    gap: 10px;
-  }
-
-  .message-avatar {
-    width: 32px;
-    height: 32px;
-    font-size: 12px;
-  }
-
-  .message-author {
-    font-size: 13px;
-  }
-
-  .chat-messages {
-    padding: 10px 8px;
-    gap: 2px;
-  }
-
-  /* Smaller voice controls */
-  .callbar-control-btn {
-    height: 28px;
-    width: 28px;
-    min-width: 28px;
-    border-radius: 6px;
-  }
-
-  .callbar-control-btn.danger {
-    width: 32px;
-    min-width: 32px;
-  }
-
-  .callbar-controls-center {
-    gap: 4px;
-    padding: 3px;
-    border-radius: 8px;
-  }
-
-  .active-call-bar {
-    padding: 6px;
-    gap: 4px;
-    border-radius: 6px;
-    min-height: 50px;
-  }
-
-  .active-call-title {
-    font-size: 11px;
-  }
-
-  /* User panel compact */
-  .user-panel {
-    height: 48px;
-    padding: 0 4px;
-    gap: 6px;
-  }
-
-  .user-panel .user-avatar {
-    width: 28px;
-    height: 28px;
-    font-size: 11px;
-  }
-
-  .user-panel .user-name {
-    font-size: 13px;
-  }
-
-  .user-panel .user-status {
-    font-size: 11px;
-  }
-
-  .user-panel-icon-btn {
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    min-height: 28px;
-  }
-
-  /* Toast responsive */
-  .toast-viewport {
-    right: 8px;
-    width: min(320px, calc(100vw - 16px));
-  }
-
-  /* Status popover full width */
-  .user-status-popover {
-    bottom: 72px;
-  }
-
-  /* Server settings compact */
-  .server-settings-header {
-    padding: 14px 14px 10px;
-  }
-
-  .server-settings-body {
-    padding: 12px 14px;
-  }
-
-  .server-settings-footer {
-    padding: 10px 14px 14px;
-  }
-
-  .server-settings-header__icon {
-    width: 40px;
-    height: 40px;
-  }
-
-  .server-settings-header__text h2 {
-    font-size: 1.1rem;
-  }
-
-  /* Welcome screen compact */
-  .welcome-screen {
-    padding: 16px;
-    gap: 12px;
-  }
-
-  .welcome-screen h2 {
-    font-size: 20px;
-  }
-
-  .welcome-screen .welcome-icon {
-    width: 64px;
-    height: 64px;
-    font-size: 28px;
-  }
-
-  .core-landing {
-    padding: 16px;
-    gap: 10px;
-  }
-
-  .core-landing h2 {
-    font-size: 22px;
   }
 }
 
