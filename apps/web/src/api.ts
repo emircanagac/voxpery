@@ -203,7 +203,7 @@ export const authApi = {
 
     /** token optional: web uses httpOnly cookie when null. */
     updateProfile: (
-        payload: { avatar_url?: string; clear_avatar?: boolean; dm_privacy?: 'everyone' | 'friends' | 'server_members' },
+        payload: { avatar_url?: string; clear_avatar?: boolean; dm_privacy?: 'everyone' | 'friends' },
         token: string | null,
     ) =>
         apiFetch<UserPublic>('/api/auth/profile', {

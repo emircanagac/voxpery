@@ -153,6 +153,65 @@ async fn list_dm_channels(
     Ok(Json(with_presence))
 }
 
+/// Ensures the sender is allowed to DM the peer according to the peer's dm_privacy setting.
+async fn check_can_dm_peer(
+    state: &AppState,
+    sender_id: Uuid,
+    peer_id: Uuid,
+) -> Result<(), AppError> {
+    let peer_dm_privacy = sqlx::query_scalar::<_, String>(
+        "SELECT dm_privacy FROM users WHERE id = $1",
+    )
+    .bind(peer_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("User not found".into()))?;
+
+    match peer_dm_privacy.as_str() {
+        "everyone" => {}
+        "friends" => {
+            let (a, b) = if sender_id < peer_id {
+                (sender_id, peer_id)
+            } else {
+                (peer_id, sender_id)
+            };
+            let are_friends = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
+            )
+            .bind(a)
+            .bind(b)
+            .fetch_one(&state.db)
+            .await?;
+            if are_friends == 0 {
+                return Err(AppError::Forbidden(
+                    "This user accepts DMs from friends only".into(),
+                ));
+            }
+        }
+        _ => {
+            // server_members no longer offered; treat any other value as friends-only
+            let (a, b) = if sender_id < peer_id {
+                (sender_id, peer_id)
+            } else {
+                (peer_id, sender_id)
+            };
+            let are_friends = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
+            )
+            .bind(a)
+            .bind(b)
+            .fetch_one(&state.db)
+            .await?;
+            if are_friends == 0 {
+                return Err(AppError::Forbidden(
+                    "This user accepts DMs from friends only".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn get_or_create_dm_channel(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -170,8 +229,9 @@ async fn get_or_create_dm_channel(
         "Too many DM channels created recently. Please slow down.",
     )?;
 
+    // Always enforce peer's DM privacy (open and create). So if they unfriend you, you can't open the channel either.
+    check_can_dm_peer(&state, claims.sub, peer_id).await?;
 
-    // If channel already exists, allow opening it.
     let existing = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT c.id
            FROM dm_channels c
@@ -183,76 +243,6 @@ async fn get_or_create_dm_channel(
     .bind(peer_id)
     .fetch_optional(&state.db)
     .await?;
-
-    if existing.is_none() {
-        let peer_dm_privacy = sqlx::query_scalar::<_, String>(
-            "SELECT dm_privacy FROM users WHERE id = $1",
-        )
-        .bind(peer_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("User not found".into()))?;
-
-        match peer_dm_privacy.as_str() {
-            "everyone" => {}
-            "friends" => {
-                let (a, b) = if claims.sub < peer_id {
-                    (claims.sub, peer_id)
-                } else {
-                    (peer_id, claims.sub)
-                };
-                let are_friends = sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
-                )
-                .bind(a)
-                .bind(b)
-                .fetch_one(&state.db)
-                .await?;
-                if are_friends == 0 {
-                    return Err(AppError::Forbidden(
-                        "This user accepts DMs from friends only".into(),
-                    ));
-                }
-            }
-            "server_members" => {
-                let shared_server_count = sqlx::query_scalar::<_, i64>(
-                    r#"SELECT COUNT(*)
-                       FROM server_members a
-                       INNER JOIN server_members b ON a.server_id = b.server_id
-                       WHERE a.user_id = $1 AND b.user_id = $2"#,
-                )
-                .bind(claims.sub)
-                .bind(peer_id)
-                .fetch_one(&state.db)
-                .await?;
-                if shared_server_count == 0 {
-                    return Err(AppError::Forbidden(
-                        "This user accepts DMs from server members only".into(),
-                    ));
-                }
-            }
-            _ => {
-                // Safe fallback: treat unknown values as friends-only.
-                let (a, b) = if claims.sub < peer_id {
-                    (claims.sub, peer_id)
-                } else {
-                    (peer_id, claims.sub)
-                };
-                let are_friends = sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
-                )
-                .bind(a)
-                .bind(b)
-                .fetch_one(&state.db)
-                .await?;
-                if are_friends == 0 {
-                    return Err(AppError::Forbidden(
-                        "This user accepts DMs from friends only".into(),
-                    ));
-                }
-            }
-        }
-    }
 
     let channel_id = if let Some(id) = existing {
         id
@@ -369,6 +359,17 @@ async fn send_dm_message(
     Json(body): Json<SendDmMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
+
+    let peer_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2 LIMIT 1",
+    )
+    .bind(channel_id)
+    .bind(claims.sub)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
+    check_can_dm_peer(&state, claims.sub, peer_id).await?;
+
     enforce_rate_limit(
         &state.rate_limits,
         format!("message:dm:{}:{}", channel_id, claims.sub),

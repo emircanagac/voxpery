@@ -471,9 +471,9 @@ async fn update_profile(
 
     if let Some(dm_privacy) = body.dm_privacy {
         let value = dm_privacy.trim().to_lowercase();
-        if !matches!(value.as_str(), "everyone" | "friends" | "server_members") {
+        if !matches!(value.as_str(), "everyone" | "friends") {
             return Err(AppError::Validation(
-                "DM privacy must be one of: everyone, friends, server_members".into(),
+                "DM privacy must be one of: everyone, friends".into(),
             ));
         }
         next_dm_privacy = value;

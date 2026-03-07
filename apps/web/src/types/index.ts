@@ -3,7 +3,7 @@ export interface User {
     username: string;
     avatar_url?: string;
     status: 'online' | 'idle' | 'dnd' | 'offline';
-    dm_privacy?: 'everyone' | 'friends' | 'server_members';
+    dm_privacy?: 'everyone' | 'friends';
 }
 
 export interface Server {

@@ -58,8 +58,8 @@ export default function UserBar() {
   const [pttKey, setPttKey] = useState('V')
   const [capturingPtt, setCapturingPtt] = useState(false)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
-  const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends' | 'server_members'>(
-    (user?.dm_privacy as 'everyone' | 'friends' | 'server_members') ?? 'friends'
+  const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
+    (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
   )
   const [speakingThreshold, setSpeakingThreshold] = useState(30)
   const [speakingPreset, setSpeakingPreset] = useState<'quiet' | 'normal' | 'noisy' | 'custom'>('normal')
@@ -135,7 +135,7 @@ export default function UserBar() {
   }, [capturingPtt])
 
   useEffect(() => {
-    setDmPrivacy((user?.dm_privacy as 'everyone' | 'friends' | 'server_members') ?? 'friends')
+    setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends')
   }, [user?.dm_privacy])
 
   const updateMyStatus = async (status: 'online' | 'idle' | 'dnd' | 'offline') => {
@@ -425,7 +425,7 @@ export default function UserBar() {
                     className="user-select"
                     value={dmPrivacy}
                     onChange={async (e) => {
-                      const next = e.target.value as 'everyone' | 'friends' | 'server_members'
+                      const next = e.target.value as 'everyone' | 'friends'
                       setDmPrivacy(next)
                       try {
                         const updated = await authApi.updateProfile({ dm_privacy: next }, token ?? null)
@@ -441,7 +441,6 @@ export default function UserBar() {
                   >
                     <option value="everyone">Everyone</option>
                     <option value="friends">Friends only</option>
-                    <option value="server_members">Server members only</option>
                   </select>
                 </div>
               </section>
