@@ -96,6 +96,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       return {}
     }
   })
+  const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const key = document.fullscreenElement?.getAttribute('data-fullscreen-key')
+      setFullscreenTileKey(typeof key === 'string' ? key : null)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
   const outputVolumeRef = useRef(outputVolume)
   const deafenedRef = useRef(deafened)
   const prevMutedBeforeDeafenRef = useRef(false)
@@ -136,9 +145,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return member?.user_id ?? peerId
   }, [members, peerVolumeByUserId])
 
+  const peerIdsWithScreenShareRef = useRef<Set<string>>(new Set())
   const getPeerVolumeFactor = useCallback((peerId: string) => {
     const volumeKey = resolvePeerVolumeKey(peerId)
-    const raw = peerVolumeByUserId[volumeKey]
+    const useScreenKey = peerIdsWithScreenShareRef.current.has(peerId)
+    const storageKey = useScreenKey ? `screen:${volumeKey}` : volumeKey
+    const raw = peerVolumeByUserId[storageKey]
     const bounded = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(200, Math.max(0, raw)) : 100
     return bounded / 100  // returns 0.0–2.0
   }, [peerVolumeByUserId, resolvePeerVolumeKey])
@@ -192,10 +204,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   const applyOutputVolumeToElements = useCallback((vol: number) => {
     const global = Math.min(1, Math.max(0, vol))
+    const isDeafened = deafenedRef.current
     for (const [peerId, el] of remoteAudioRefsRef.current.entries()) {
       try {
         const peerFactor = getPeerVolumeFactor(peerId)  // 0.0–2.0
-        const combined = global * peerFactor
+        const combined = isDeafened ? 0 : global * peerFactor
         if (peerFactor <= 1.0) {
           // Normal range: use plain audio.volume (0–1)
           el.volume = Math.min(1, Math.max(0, combined))
@@ -207,7 +220,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             perPeerAudioCtxRef.current.delete(peerId)
           }
         } else {
-          // Amplified range (>100%): route through a GainNode so audio.volume stays at 1.0
+          // Amplified range (>100%): route through a GainNode. When captured, el.muted is ignored
+          // by the browser, so we mute by setting gain.gain.value = 0 when deafened.
           let nodes = perPeerAudioCtxRef.current.get(peerId)
           if (!nodes) {
             try {
@@ -228,11 +242,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             }
           }
           if (nodes) {
-            nodes.gain.gain.value = Math.min(4, combined)  // cap at 4× (400%) for safety
+            nodes.gain.gain.value = Math.min(4, combined)  // 0 when deafened, else cap at 4×
             el.volume = 1
           }
         }
-        el.muted = deafenedRef.current
+        el.muted = isDeafened
       } catch {
         // ignore
       }
@@ -317,6 +331,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return entries
   }, [remoteEntries, state.remoteScreenTrackIds])
+  useEffect(() => {
+    peerIdsWithScreenShareRef.current = new Set(
+      remoteVideoTrackEntries.filter((e) => e.label === 'Screen share').map((e) => e.peerId)
+    )
+  }, [remoteVideoTrackEntries])
 
   useEffect(() => {
     for (const [peerId, stream] of state.remoteStreams.entries()) {
@@ -768,6 +787,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           {state.cameraStream && (
             <div
               className="screen-share-preview voice-stage-share-tile camera-preview"
+              data-fullscreen-key="camera"
               onMouseMove={handleTileMouseMove}
               onMouseLeave={handleTileMouseLeave}
             >
@@ -798,7 +818,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       }
                     }}
                   >
-                    {document.fullscreenElement ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    {fullscreenTileKey === 'camera' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                   </button>
                 </div>
               </div>
@@ -807,6 +827,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           {state.isScreenSharing && state.screenStream && (
             <div
               className="screen-share-preview voice-stage-share-tile"
+              data-fullscreen-key="screen"
               onMouseMove={handleTileMouseMove}
               onMouseLeave={handleTileMouseLeave}
             >
@@ -841,7 +862,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       }
                     }}
                   >
-                    {document.fullscreenElement ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    {fullscreenTileKey === 'screen' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                   </button>
                 </div>
               </div>
@@ -849,11 +870,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           )}
           {remoteVideoTrackEntries.map(({ peerId, track, label }) => {
             const volumeKey = resolvePeerVolumeKey(peerId)
-            const currentVol = peerVolumeByUserId[volumeKey] ?? 100
+            const screenVolumeKey = `screen:${volumeKey}`
+            const currentVol = label === 'Screen share' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
+            const tileKey = `${peerId}-${track.id}`
             return (
               <div
-                key={`${peerId}-${track.id}`}
+                key={tileKey}
                 className="screen-share-preview remote-screen-preview voice-stage-share-tile"
+                data-fullscreen-key={tileKey}
                 onMouseMove={handleTileMouseMove}
                 onMouseLeave={handleTileMouseLeave}
               >
@@ -878,54 +902,57 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <span className="screen-share-info-text">{label} · {remoteShareOwner(peerId)}</span>
                 </div>
 
-                {/* YouTube-style hover control bar */}
+                {/* YouTube-style hover control bar. Volume only for screen share (camera has no audio). */}
                 <div className="screen-share-controls-bar">
                   <div className="screen-share-controls-left">
-                    <div className="screen-share-volume-container">
-                      <button
-                        type="button"
-                        className="screen-share-volume-btn"
-                        onClick={() => {
-                          const isMuted = currentVol === 0
-                          const prevVolumeKey = `${volumeKey}_prev`
+                    {label === 'Screen share' && (
+                      <div className="screen-share-volume-container">
+                        <button
+                          type="button"
+                          className="screen-share-volume-btn"
+                          title={currentVol === 0 ? 'Unmute (hover for volume)' : 'Mute (hover for volume)'}
+                          onClick={() => {
+                            const isMuted = currentVol === 0
+                            const prevVolumeKey = `${screenVolumeKey}_prev`
 
-                          let newVal: number
-                          if (isMuted) {
-                            const savedStr = localStorage.getItem(prevVolumeKey)
-                            const savedVal = savedStr ? Number(savedStr) : 100
-                            newVal = savedVal > 0 ? savedVal : 100
-                          } else {
-                            localStorage.setItem(prevVolumeKey, String(currentVol))
-                            newVal = 0
-                          }
+                            let newVal: number
+                            if (isMuted) {
+                              const savedStr = localStorage.getItem(prevVolumeKey)
+                              const savedVal = savedStr ? Number(savedStr) : 100
+                              newVal = savedVal > 0 ? savedVal : 100
+                            } else {
+                              localStorage.setItem(prevVolumeKey, String(currentVol))
+                              newVal = 0
+                            }
 
-                          const next = { ...peerVolumeByUserId, [volumeKey]: newVal }
-                          setPeerVolumeByUserId(next)
-                          localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
-                          applyOutputVolumeToElements(outputVolumeRef.current / 100)
-                        }}
-                      >
-                        {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                      </button>
-                      <div className="screen-share-volume-slider-wrap">
-                        <input
-                          type="range"
-                          min={0}
-                          max={200}
-                          value={currentVol}
-                          className="screen-share-volume-slider"
-                          title={`Volume: ${currentVol}%`}
-                          onChange={(e) => {
-                            const val = Number(e.target.value)
-                            const next = { ...peerVolumeByUserId, [volumeKey]: val }
+                            const next = { ...peerVolumeByUserId, [screenVolumeKey]: newVal }
                             setPeerVolumeByUserId(next)
                             localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
                             applyOutputVolumeToElements(outputVolumeRef.current / 100)
                           }}
-                        />
-                        <span className="screen-share-volume-value">{currentVol}%</span>
+                        >
+                          {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                        </button>
+                        <div className="screen-share-volume-slider-wrap">
+                          <input
+                            type="range"
+                            min={0}
+                            max={200}
+                            value={currentVol}
+                            className="screen-share-volume-slider"
+                            title={`Volume: ${currentVol}%`}
+                            onChange={(e) => {
+                              const val = Number(e.target.value)
+                              const next = { ...peerVolumeByUserId, [screenVolumeKey]: val }
+                              setPeerVolumeByUserId(next)
+                              localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
+                              applyOutputVolumeToElements(outputVolumeRef.current / 100)
+                            }}
+                          />
+                          <span className="screen-share-volume-value">{currentVol}%</span>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                   <div className="screen-share-controls-right">
                     <button
@@ -942,7 +969,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         }
                       }}
                     >
-                      {document.fullscreenElement ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                      {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                     </button>
                   </div>
                 </div>
