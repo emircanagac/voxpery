@@ -30,6 +30,11 @@ pub struct Config {
     pub livekit_ws_url: Option<String>,
     pub livekit_api_key: Option<String>,
     pub livekit_api_secret: Option<String>,
+    /// Google OAuth: client ID and secret. If both set, "Sign in with Google" is enabled.
+    pub google_client_id: Option<String>,
+    pub google_client_secret: Option<String>,
+    /// Public base URL of this API (for OAuth redirect_uri). e.g. http://localhost:3001 or https://api.voxpery.com
+    pub public_api_url: Option<String>,
 }
 
 impl Config {
@@ -106,6 +111,9 @@ impl Config {
             livekit_ws_url: std::env::var("LIVEKIT_WS_URL").ok().filter(|s| !s.is_empty()),
             livekit_api_key: std::env::var("LIVEKIT_API_KEY").ok().filter(|s| !s.is_empty()),
             livekit_api_secret: std::env::var("LIVEKIT_API_SECRET").ok().filter(|s| !s.is_empty()),
+            google_client_id: std::env::var("GOOGLE_CLIENT_ID").ok().filter(|s| !s.is_empty()),
+            google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
+            public_api_url: std::env::var("PUBLIC_API_URL").ok().filter(|s| !s.is_empty()),
         }
     }
 }

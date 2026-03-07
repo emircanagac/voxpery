@@ -22,14 +22,19 @@ interface StatusIconProps {
 export function StatusIcon({ status, variant, size, className = '', ariaHidden = true }: StatusIconProps) {
   const Icon = STATUS_ICONS[status]
   const iconSize = size ?? (variant === 'badge' ? 'var(--status-badge-icon-size)' : 'var(--status-inline-icon-size)')
+  const isCssVar = typeof iconSize === 'string' && iconSize.startsWith('var(')
+  const wrapperStyle = isCssVar ? { width: iconSize, height: iconSize, display: 'inline-flex' as const, alignItems: 'center', justifyContent: 'center' } : undefined
+
+  const iconEl = <Icon size={isCssVar ? '100%' : iconSize} strokeWidth={2.5} style={isCssVar ? { width: '100%', height: '100%' } : undefined} />
 
   if (variant === 'inline') {
     return (
       <span
         className={`status-icon status-icon-inline status-icon-${status} ${className}`.trim()}
         aria-hidden={ariaHidden}
+        style={wrapperStyle}
       >
-        <Icon size={iconSize} strokeWidth={2.5} />
+        {iconEl}
       </span>
     )
   }
@@ -38,8 +43,9 @@ export function StatusIcon({ status, variant, size, className = '', ariaHidden =
     <span
       className={`status-icon status-icon-badge status-icon-${status} ${className}`.trim()}
       aria-hidden={ariaHidden}
+      style={wrapperStyle}
     >
-      <Icon size={iconSize} strokeWidth={2.5} />
+      {iconEl}
     </span>
   )
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, isAuthError } from './api'
 import { isTauri } from './secureStorage'
@@ -12,6 +12,11 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
+
+function RedirectDmToSocial() {
+  const { userId } = useParams<{ userId?: string }>()
+  return <Navigate to={userId ? `/app/social/dm/${userId}` : '/app/social/dm'} replace />
+}
 
 function App() {
   const token = useAuthStore((s) => s.token)
@@ -31,10 +36,37 @@ function App() {
     }
   }, [])
 
+  // Web: after Google OAuth we get token in hash #token=... (cookie may not be sent). Restore session from it first.
+  useEffect(() => {
+    if (restoring || isTauri()) return
+    if (user != null) return
+    const hash = window.location.hash
+    const tokenMatch = hash && /#token=([^&]+)/.exec(hash)
+    if (tokenMatch) {
+      const tokenFromHash = decodeURIComponent(tokenMatch[1])
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      authApi
+        .getMe(tokenFromHash)
+        .then((freshUser) => {
+          useAuthStore.getState().setAuth(tokenFromHash, freshUser)
+        })
+        .catch(() => {})
+      return
+    }
+    validatedSessionRef.current = true
+    authApi
+      .getMe(null)
+      .then((freshUser) => {
+        useAuthStore.getState().setUser(freshUser)
+      })
+      .catch(() => {})
+  }, [restoring, user])
+
   // Validate session once on mount (both desktop and web)
   useEffect(() => {
     if (restoring) return
     if (!user || !token) {
+      if (!isTauri()) return
       validatedSessionRef.current = false
       return
     }
@@ -105,15 +137,17 @@ function App() {
         <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>Loading…</div>}>
           <Routes>
             <Route path="/app" element={<AppShell />}>
-              <Route path="friends" element={<UnifiedLayout />} />
-              <Route path="dm" element={<UnifiedLayout />} />
-              <Route path="dm/:userId" element={<UnifiedLayout />} />
+              <Route path="social" element={<UnifiedLayout />} />
+              <Route path="social/dm" element={<UnifiedLayout />} />
+              <Route path="social/dm/:userId" element={<UnifiedLayout />} />
+              <Route path="dm" element={<RedirectDmToSocial />} />
+              <Route path="dm/:userId" element={<RedirectDmToSocial />} />
               <Route path="servers" element={<UnifiedLayout />} />
               <Route path="servers/*" element={<Navigate to="/app/servers" replace />} />
-              <Route index element={<Navigate to="/app/friends" replace />} />
+              <Route index element={<Navigate to="/app/social" replace />} />
             </Route>
             <Route path="/invite/:code" element={<InvitePage />} />
-            <Route path="*" element={<Navigate to="/app/friends" replace />} />
+            <Route path="*" element={<Navigate to="/app/social" replace />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

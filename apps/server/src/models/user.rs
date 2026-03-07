@@ -14,6 +14,8 @@ pub struct User {
     pub status: String,
     pub dm_privacy: String,
     pub created_at: DateTime<Utc>,
+    pub google_id: Option<String>,
+    pub username_changed_at: Option<DateTime<Utc>>,
 }
 
 /// Public user info (no password hash, no email).
@@ -24,6 +26,8 @@ pub struct UserPublic {
     pub avatar_url: Option<String>,
     pub status: String,
     pub dm_privacy: String,
+    /// When the user last changed their username (for 30-day change limit). Frontend uses this to show "next change allowed" before save.
+    pub username_changed_at: Option<DateTime<Utc>>,
 }
 
 impl From<User> for UserPublic {
@@ -34,6 +38,7 @@ impl From<User> for UserPublic {
             avatar_url: u.avatar_url,
             status: u.status,
             dm_privacy: u.dm_privacy,
+            username_changed_at: u.username_changed_at,
         }
     }
 }

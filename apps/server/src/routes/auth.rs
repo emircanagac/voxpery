@@ -1,11 +1,12 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, patch, post},
     Extension, Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -59,6 +60,7 @@ struct UpdateProfileRequest {
     avatar_url: Option<String>,
     clear_avatar: Option<bool>,
     dm_privacy: Option<String>,
+    username: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -72,6 +74,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/me", get(get_me))
         .route("/status", patch(update_status))
         .route("/profile", patch(update_profile))
+        .route("/check-username", get(check_username))
         .route("/change-password", post(change_password))
         .route_layer(middleware::from_fn_with_state(state, require_auth));
 
@@ -79,6 +82,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/google", get(google_oauth_start))
+        .route("/google/callback", get(google_oauth_callback))
         .merge(protected)
 }
 
@@ -381,6 +386,297 @@ async fn logout(
     (StatusCode::OK, headers, Json(serde_json::json!({})))
 }
 
+/// Query for GET /api/auth/google
+#[derive(Debug, serde::Deserialize)]
+struct GoogleOAuthStartQuery {
+    /// Frontend path to redirect after login (e.g. /app/friends)
+    redirect: Option<String>,
+    /// Frontend origin (e.g. http://localhost:5173) for redirect after callback
+    origin: Option<String>,
+}
+
+/// GET /api/auth/google — redirect to Google OAuth. Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_API_URL.
+async fn google_oauth_start(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<GoogleOAuthStartQuery>,
+) -> impl IntoResponse {
+    let (client_id, _secret) = match (state.google_client_id.as_ref(), state.google_client_secret.as_ref()) {
+        (Some(id), Some(sec)) if !id.is_empty() && !sec.is_empty() => (id.as_str(), sec.as_str()),
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "Google sign-in is not configured" })),
+            )
+                .into_response()
+        }
+    };
+    let public_url = state
+        .public_api_url
+        .as_deref()
+        .unwrap_or("http://localhost:3001")
+        .trim_end_matches('/');
+    let redirect_uri = format!("{}/api/auth/google/callback", public_url);
+    let redirect_path = q.redirect.as_deref().unwrap_or("/app/friends").trim();
+    let redirect_path = if redirect_path.starts_with('/') {
+        redirect_path
+    } else {
+        "/app/friends"
+    };
+    let origin = q.origin.as_deref().unwrap_or("http://localhost:5173").trim();
+    let state_param = BASE64.encode(format!("{}\n{}", origin, redirect_path));
+    let scope = "openid email profile";
+    let url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}&access_type=offline&prompt=consent",
+        urlencoding::encode(client_id),
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode(scope),
+        urlencoding::encode(&state_param),
+    );
+    Redirect::temporary(&url).into_response()
+}
+
+/// Query for GET /api/auth/google/callback
+#[derive(Debug, serde::Deserialize)]
+struct GoogleOAuthCallbackQuery {
+    code: String,
+    state: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GoogleTokenResponse {
+    access_token: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GoogleUserInfo {
+    id: String,
+    email: Option<String>,
+    name: Option<String>,
+    #[serde(rename = "given_name")]
+    given_name: Option<String>,
+}
+
+/// GET /api/auth/google/callback — exchange code for token, get user, create or login, set cookie, redirect to frontend.
+async fn google_oauth_callback(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<GoogleOAuthCallbackQuery>,
+) -> impl IntoResponse {
+    let (client_id, client_secret) = match (state.google_client_id.as_ref(), state.google_client_secret.as_ref()) {
+        (Some(id), Some(sec)) if !id.is_empty() && !sec.is_empty() => (id.clone(), sec.clone()),
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "Google sign-in is not configured" })),
+            )
+                .into_response()
+        }
+    };
+    let public_url = state
+        .public_api_url
+        .as_deref()
+        .unwrap_or("http://localhost:3001")
+        .trim_end_matches('/');
+    let redirect_uri = format!("{}/api/auth/google/callback", public_url);
+
+    let (origin, redirect_path) = q
+        .state
+        .as_ref()
+        .and_then(|s| BASE64.decode(s.as_bytes()).ok())
+        .and_then(|b| String::from_utf8(b).ok())
+        .and_then(|s| {
+            let mut parts = s.splitn(2, '\n');
+            let o = parts.next()?.trim().to_string();
+            let r = parts.next()?.trim().to_string();
+            if o.is_empty() || !r.starts_with('/') {
+                return None;
+            }
+            Some((o, r))
+        })
+        .unwrap_or_else(|| ("http://localhost:5173".to_string(), "/app/friends".to_string()));
+
+    let token_url = "https://oauth2.googleapis.com/token";
+    let body = [
+        ("code", q.code.as_str()),
+        ("client_id", &client_id),
+        ("client_secret", &client_secret),
+        ("redirect_uri", &redirect_uri),
+        ("grant_type", "authorization_code"),
+    ];
+    let client = reqwest::Client::new();
+    let token_res = match client
+        .post(token_url)
+        .form(&body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Google token exchange failed: {}", e);
+            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        }
+    };
+    if !token_res.status().is_success() {
+        let status = token_res.status();
+        let _body = token_res.text().await;
+        tracing::warn!("Google token response error: {} body={:?}", status, _body);
+        let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+        return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+    }
+    let token_data: GoogleTokenResponse = match token_res.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Google token parse failed: {}", e);
+            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        }
+    };
+
+    let userinfo_res = client
+        .get("https://www.googleapis.com/oauth2/v2/userinfo")
+        .bearer_auth(&token_data.access_token)
+        .send()
+        .await;
+    let userinfo: GoogleUserInfo = match userinfo_res {
+        Ok(r) if r.status().is_success() => match r.json().await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!("Google userinfo parse failed: {}", e);
+                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+                return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            }
+        },
+        _ => {
+            tracing::warn!("Google userinfo request failed");
+            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        }
+    };
+
+    let google_id = userinfo.id;
+    let email = userinfo
+        .email
+        .filter(|e| e.contains('@'))
+        .unwrap_or_else(|| format!("{}@oauth.local", google_id));
+    let email = email.trim().to_lowercase();
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)")
+        .bind(&google_id)
+        .bind(&email)
+        .fetch_optional(&state.db)
+        .await;
+
+    let user = match user {
+        Ok(Some(mut u)) => {
+            if u.google_id.is_none() {
+                let _ = sqlx::query("UPDATE users SET google_id = $1 WHERE id = $2")
+                    .bind(&google_id)
+                    .bind(u.id)
+                    .execute(&state.db)
+                    .await;
+                u.google_id = Some(google_id.clone());
+            }
+            u
+        }
+        Ok(None) => {
+            // New user: create account
+            let name = userinfo
+                .name
+                .or(userinfo.given_name)
+                .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string());
+            let base_username = name
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+                .collect::<String>();
+            let base_username = base_username.trim_matches('_');
+            let base_username: String = if base_username.len() >= 3 {
+                base_username.chars().take(32).collect()
+            } else {
+                email.split('@').next().unwrap_or("user").to_string()
+            };
+            let mut username = base_username.clone();
+            let mut n = 0u32;
+            while sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE username = $1")
+                .bind(&username)
+                .fetch_one(&state.db)
+                .await
+                .unwrap_or(1)
+                != 0
+            {
+                n += 1;
+                username = format!("{}{}", base_username, n);
+                username = username.chars().take(32).collect();
+            }
+            let password_hash = "oauth"; // not a valid Argon2 hash; OAuth-only users cannot password-login
+            let id = Uuid::new_v4();
+            if let Err(e) = sqlx::query(
+                r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, created_at)
+               VALUES ($1, $2, $3, $4, 'online', 'friends', $5, NOW())"#,
+            )
+            .bind(id)
+            .bind(&username)
+            .bind(&email)
+            .bind(password_hash)
+            .bind(&google_id)
+            .execute(&state.db)
+            .await
+            {
+                tracing::warn!("Google OAuth insert user failed: {}", e);
+                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+                return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            }
+            let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1")
+                .bind(&google_id)
+                .fetch_one(&state.db)
+                .await
+            {
+                Ok(u) => u,
+                Err(_) => {
+                    let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+                    return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+                }
+            };
+            if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
+                tracing::warn!("Default server join failed for OAuth user: {}", e);
+            }
+            user
+        }
+        Err(e) => {
+            tracing::warn!("Google OAuth db lookup failed: {}", e);
+            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        }
+    };
+
+    let token = match generate_token(
+        user.id,
+        &user.username,
+        &state.jwt_secret,
+        state.jwt_expiration,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("JWT generate failed: {}", e);
+            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        }
+    };
+
+    let cookie_headers = auth_cookie_header(&state, &token);
+    // Put token in fragment so frontend can restore session when cookie is not sent (e.g. cross-origin redirect).
+    let redirect_url = format!("{}{}#token={}", origin, redirect_path, urlencoding::encode(&token));
+    let mut response = Redirect::temporary(&redirect_url).into_response();
+    for (k, v) in cookie_headers.iter() {
+        if let Ok(v) = v.to_str() {
+            response.headers_mut().insert(
+                k.clone(),
+                HeaderValue::from_str(v).unwrap_or(HeaderValue::from_static("")),
+            );
+        }
+    }
+    response
+}
+
 /// GET /api/auth/me — current user from token (for desktop secure-storage restore).
 async fn get_me(
     State(state): State<Arc<AppState>>,
@@ -392,6 +688,47 @@ async fn get_me(
         .await?
         .ok_or(AppError::NotFound("User not found".into()))?;
     Ok(Json(UserPublic::from(user)))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CheckUsernameQuery {
+    username: Option<String>,
+}
+
+/// GET /api/auth/check-username?username=xxx — returns { "available": bool } (true if no other user has that username).
+/// Rate limited to prevent user enumeration (brute-force discovery of registered usernames).
+async fn check_username(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(q): Query<CheckUsernameQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    enforce_rate_limit(
+        &state.rate_limits,
+        format!("auth:check_username:{}", claims.sub),
+        10,
+        Duration::from_secs(60),
+        "Too many username checks. Please wait a moment.",
+    )?;
+    let username = q
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::Validation("Missing username query".into()))?;
+    if username.len() < 3 || username.len() > 32 {
+        return Ok(Json(serde_json::json!({ "available": false })));
+    }
+    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Ok(Json(serde_json::json!({ "available": false })));
+    }
+    let taken = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
+    )
+    .bind(username)
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(serde_json::json!({ "available": taken == 0 })))
 }
 
 /// PATCH /api/auth/status
@@ -448,6 +785,44 @@ async fn update_profile(
 
     let mut next_avatar = user.avatar_url.clone();
     let mut next_dm_privacy = user.dm_privacy.clone();
+    let mut next_username = user.username.clone();
+
+    if let Some(raw_username) = body.username {
+        let username = raw_username.trim();
+        if username.to_lowercase() != user.username.to_lowercase() {
+            // Enforce at most one username change per 30 days
+            if let Some(changed_at) = user.username_changed_at {
+                let since = chrono::Utc::now().signed_duration_since(changed_at);
+                if since.num_days() < 30 {
+                    return Err(AppError::Validation(
+                        "You can only change your username once every 30 days. Please try again later.".into(),
+                    ));
+                }
+            }
+            if username.len() < 3 || username.len() > 32 {
+                return Err(AppError::Validation(
+                    "Username must be 3–32 characters".into(),
+                ));
+            }
+            if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(AppError::Validation(
+                    "Username may only contain letters, numbers, and underscores".into(),
+                ));
+            }
+            let taken = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
+            )
+            .bind(username)
+            .bind(claims.sub)
+            .fetch_one(&state.db)
+            .await?;
+            if taken > 0 {
+                return Err(AppError::Validation("That username is already taken".into()));
+            }
+            next_username = username.to_string();
+        }
+    }
+
     if body.clear_avatar.unwrap_or(false) {
         next_avatar = None;
     } else if let Some(url) = body.avatar_url {
@@ -479,15 +854,19 @@ async fn update_profile(
         next_dm_privacy = value;
     }
 
+    let username_changed = next_username != user.username;
     let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
-            SET avatar_url = $1, dm_privacy = $2
-            WHERE id = $3
+            SET avatar_url = $1, dm_privacy = $2, username = $3,
+                username_changed_at = CASE WHEN $5 THEN NOW() ELSE username_changed_at END
+            WHERE id = $4
            RETURNING *"#,
     )
     .bind(next_avatar)
-        .bind(next_dm_privacy)
-        .bind(claims.sub)
+    .bind(next_dm_privacy)
+    .bind(&next_username)
+    .bind(claims.sub)
+    .bind(username_changed)
     .fetch_one(&state.db)
     .await?;
 

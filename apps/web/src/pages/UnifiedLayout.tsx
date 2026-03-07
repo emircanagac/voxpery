@@ -49,10 +49,9 @@ export default function UnifiedLayout() {
   )
 
   const isFriendsOrDm =
-    location.pathname === '/app/friends' ||
+    location.pathname === '/app/social' ||
     location.pathname === '/app' ||
-    location.pathname === '/app/dm' ||
-    location.pathname.startsWith('/app/dm/')
+    location.pathname.startsWith('/app/social/dm')
   const isServerView = location.pathname === '/app/servers'
 
   // When on /app/servers with no active server, set first server (or restore from sessionStorage)
@@ -69,7 +68,7 @@ export default function UnifiedLayout() {
     }
     const first = servers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') ?? servers[0]
     if (first) setActiveServer(first.id)
-    else navigate('/app/friends', { replace: true })
+    else navigate('/app/social', { replace: true })
   }, [isServerView, activeServerId, servers, setActiveServer, navigate])
 
   // When leaving servers view, clear server from store (optional: keep for "last server" next time)

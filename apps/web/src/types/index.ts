@@ -4,6 +4,8 @@ export interface User {
     avatar_url?: string;
     status: 'online' | 'idle' | 'dnd' | 'offline';
     dm_privacy?: 'everyone' | 'friends';
+    /** ISO date when user last changed username; used for 30-day change limit. */
+    username_changed_at?: string | null;
 }
 
 export interface Server {

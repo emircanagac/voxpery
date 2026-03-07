@@ -7,7 +7,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
-import { authApi } from '../api'
+import { authApi, getAuthErrorMessage } from '../api'
 import { useSocketStore } from '../stores/socket'
 import { SENSITIVITY_THRESHOLD_KEY } from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
@@ -43,7 +43,7 @@ function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
 }
 
 export default function UserBar() {
-  const { user, token, setUserStatus, setUser, logout } = useAuthStore()
+  const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
   const { disconnect } = useSocketStore()
   const navigate = useNavigate()
   const pushToast = useToastStore((s) => s.pushToast)
@@ -72,7 +72,15 @@ export default function UserBar() {
   const [pwShowOld, setPwShowOld] = useState(false)
   const [pwShowNew, setPwShowNew] = useState(false)
   const [showPwModal, setShowPwModal] = useState(false)
+  const [showUsernameModal, setShowUsernameModal] = useState(false)
+  const [usernameEdit, setUsernameEdit] = useState('')
+  const [usernameSaving, setUsernameSaving] = useState(false)
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null)
+  const [usernameChecking, setUsernameChecking] = useState(false)
+  const [usernameCheckFailed, setUsernameCheckFailed] = useState(false)
   const statusMenuRef = useRef<HTMLDivElement>(null)
+  const usernameCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusToggleRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -137,6 +145,7 @@ export default function UserBar() {
   useEffect(() => {
     setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends')
   }, [user?.dm_privacy])
+
 
   const updateMyStatus = async (status: 'online' | 'idle' | 'dnd' | 'offline') => {
     if (isTauri() && !token) return
@@ -583,6 +592,26 @@ export default function UserBar() {
                 <h3 className="user-settings-section-title">Account</h3>
                 <div className="user-setting-row">
                   <div>
+                    <div className="user-setting-title">Username</div>
+                    <div className="user-setting-desc">Your display name. Letters, numbers, and underscores.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="user-toggle"
+                    onClick={() => {
+                      setUsernameEdit(user?.username ?? '')
+                      setUsernameError(null)
+                      setUsernameAvailable(null)
+                      setUsernameChecking(false)
+                      setUsernameCheckFailed(false)
+                      setShowUsernameModal(true)
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
                     <div className="user-setting-title">Password</div>
                     <div className="user-setting-desc">Update your account password.</div>
                   </div>
@@ -608,6 +637,159 @@ export default function UserBar() {
           </div>
         </div>
       )}
+      {showUsernameModal && (() => {
+        const changedAt = user?.username_changed_at ? new Date(user.username_changed_at).getTime() : null
+        const nextAllowedMs = changedAt ? changedAt + 30 * 24 * 60 * 60 * 1000 : null
+        const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
+        const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
+        return (
+        <div className="modal-overlay" onClick={() => setShowUsernameModal(false)}>
+          <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pw-modal-header">
+              <h2>Change username</h2>
+              <p className="pw-modal-subtitle">3–32 characters, letters, numbers, and underscores.</p>
+              <p className="pw-modal-subtitle" style={{ marginTop: 4, fontSize: 13 }}>
+                You can only change your username once every 30 days.
+                {cannotChangeYet && nextAllowedDate && (
+                  <> Next change allowed: <strong>{nextAllowedDate.toLocaleDateString('en-US', { dateStyle: 'long' })}</strong>.</>
+                )}
+              </p>
+            </header>
+            <div className="pw-change-form">
+              <div className="pw-field-wrap">
+                <label className="user-setting-title" htmlFor="username-new">New username</label>
+                <div className="pw-input-wrap">
+                  <input
+                    id="username-new"
+                    type="text"
+                    className="pw-input"
+                    placeholder="e.g. myname"
+                    value={usernameEdit}
+                    disabled={cannotChangeYet}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setUsernameEdit(v)
+                      setUsernameError(null)
+                      if (v.trim().toLowerCase() === user?.username?.toLowerCase()) {
+                        setUsernameAvailable(true)
+                        return
+                      }
+                      if (v.trim().length < 3 || !/^[a-zA-Z0-9_]+$/.test(v.trim())) {
+                        setUsernameAvailable(null)
+                        setUsernameChecking(false)
+                        setUsernameCheckFailed(false)
+                        return
+                      }
+                      setUsernameCheckFailed(false)
+                      if (usernameCheckTimeoutRef.current) clearTimeout(usernameCheckTimeoutRef.current)
+                      usernameCheckTimeoutRef.current = setTimeout(() => {
+                        usernameCheckTimeoutRef.current = null
+                        setUsernameChecking(true)
+                        authApi.checkUsername(v.trim(), token ?? null)
+                          .then((r) => {
+                            setUsernameAvailable(r.available)
+                            setUsernameCheckFailed(false)
+                          })
+                          .catch(() => {
+                            setUsernameAvailable(true)
+                            setUsernameCheckFailed(true)
+                          })
+                          .finally(() => setUsernameChecking(false))
+                      }, 300)
+                    }}
+                    onBlur={() => {
+                      const v = usernameEdit.trim()
+                      if (v.length >= 3 && /^[a-zA-Z0-9_]+$/.test(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
+                        setUsernameChecking(true)
+                        setUsernameCheckFailed(false)
+                        authApi.checkUsername(v, token ?? null)
+                          .then((r) => {
+                            setUsernameAvailable(r.available)
+                            setUsernameCheckFailed(false)
+                          })
+                          .catch(() => {
+                            setUsernameAvailable(true)
+                            setUsernameCheckFailed(true)
+                          })
+                          .finally(() => setUsernameChecking(false))
+                      }
+                    }}
+                    minLength={3}
+                    maxLength={32}
+                    autoComplete="username"
+                  />
+                </div>
+                {usernameEdit.length > 0 && usernameEdit.length < 3 && (
+                  <div className="pw-hint pw-hint-warn">At least 3 characters</div>
+                )}
+                {usernameEdit.length >= 3 && !/^[a-zA-Z0-9_]+$/.test(usernameEdit) && (
+                  <div className="pw-hint pw-hint-warn">Only letters, numbers, and underscores</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && usernameChecking && (
+                  <div className="pw-hint">Checking availability…</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && !usernameChecking && usernameAvailable === false && (
+                  <div className="pw-hint pw-hint-warn">Username already taken</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
+                  <div className="pw-hint pw-hint-ok">Available</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && usernameCheckFailed && (
+                  <div className="pw-hint pw-hint-warn">Could not verify. You can try Save.</div>
+                )}
+                {usernameError && <div className="pw-error">{usernameError}</div>}
+              </div>
+            </div>
+            <footer className="pw-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  if (usernameCheckTimeoutRef.current) {
+                    clearTimeout(usernameCheckTimeoutRef.current)
+                    usernameCheckTimeoutRef.current = null
+                  }
+                  setShowUsernameModal(false)
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={cannotChangeYet || usernameSaving || usernameEdit.trim().length < 3 || !/^[a-zA-Z0-9_]+$/.test(usernameEdit.trim()) || usernameEdit.trim().toLowerCase() === user?.username?.toLowerCase() || usernameAvailable !== true}
+                onClick={async () => {
+                  const v = usernameEdit.trim()
+                  if (v.toLowerCase() === user?.username?.toLowerCase() || v.length < 3) return
+                  setUsernameSaving(true)
+                  setUsernameError(null)
+                  try {
+                    const updated = await authApi.updateProfile({ username: v }, token ?? null)
+                    if (usernameCheckTimeoutRef.current) {
+                      clearTimeout(usernameCheckTimeoutRef.current)
+                      usernameCheckTimeoutRef.current = null
+                    }
+                    if (token) {
+                      setAuth(token, updated)
+                    } else {
+                      setUser(updated)
+                    }
+                    setShowUsernameModal(false)
+                  } catch (err: unknown) {
+                    const msg = getAuthErrorMessage(err).message || 'Could not update username'
+                    setUsernameError(msg)
+                    if (/already taken|taken/i.test(msg)) setUsernameAvailable(false)
+                  } finally {
+                    setUsernameSaving(false)
+                  }
+                }}
+              >
+                {usernameSaving ? 'Saving…' : 'Save'}
+              </button>
+            </footer>
+          </div>
+        </div>
+        ); })()}
       {showPwModal && (
         <div className="modal-overlay" onClick={() => setShowPwModal(false)}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>

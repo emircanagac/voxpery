@@ -624,7 +624,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 setDmChannelIds([dmChannel.id, ...dmChannels.map((c) => c.id)])
             }
             setActiveDmChannelId(dmChannel.id)
-            navigate('/app/dm')
+            navigate('/app/social/dm')
             await dmApi.sendMessage(dmChannel.id, content, [], token)
         } catch (err) {
             pushToast({

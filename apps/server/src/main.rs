@@ -76,6 +76,9 @@ async fn main() {
         livekit_ws_url: config.livekit_ws_url.clone(),
         livekit_api_key: config.livekit_api_key.clone(),
         livekit_api_secret: config.livekit_api_secret.clone(),
+        google_client_id: config.google_client_id.clone(),
+        google_client_secret: config.google_client_secret.clone(),
+        public_api_url: config.public_api_url.clone(),
     });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (

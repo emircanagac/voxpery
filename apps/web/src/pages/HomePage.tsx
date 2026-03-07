@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Activity, Check, Coffee, Compass, Github, MessageSquarePlus, UserMinus, Users, X } from 'lucide-react'
+import { Activity, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   dmApi,
   friendApi,
@@ -20,8 +20,8 @@ import { useToastStore } from '../stores/toast'
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
-type SocialView = 'friends' | 'add' | 'dm'
-type FriendsFilter = 'all' | 'online'
+type SocialView = 'friends' | 'dm'
+type FriendsFilter = 'all' | 'online' | 'requests'
 
 const HIDDEN_DM_PEERS_KEY = 'voxpery-hidden-dm-peers'
 
@@ -74,9 +74,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const [view, setView] = useState<SocialView>('friends')
 
-  // When navigating to /app/friends with tab=friends (e.g. Voxpery logo click), show Friends tab
+  // When navigating to /app/social with tab=friends (e.g. Voxpery logo click), show Friends tab
   useEffect(() => {
-    if (location.pathname === '/app/friends' && (location.state as { tab?: string } | null)?.tab === 'friends') {
+    if (location.pathname === '/app/social' && (location.state as { tab?: string } | null)?.tab === 'friends') {
       setView('friends')
     }
   }, [location.pathname, location.state])
@@ -166,7 +166,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     refreshServersAndFriends().catch(console.error)
   }, [refreshServersAndFriends, user])
 
-  // Open DM from URL /app/dm/:slug (slug = legacy; normalize to /app/dm after resolving)
+  // Open DM from URL /app/social/dm/:userId (legacy slug; normalize to /app/social/dm after resolving)
   useEffect(() => {
     if (!urlSlug || dmChannels.length === 0) return
     const channel = isUuid(urlSlug)
@@ -177,7 +177,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setActiveDmChannelId(channel.id)
       setView('dm')
       clearDmUnread(channel.id)
-      navigate('/app/dm', { replace: true })
+      navigate('/app/social/dm', { replace: true })
     }
   }, [urlSlug, dmChannels, activeDmChannelId, setActiveDmChannelId, clearDmUnread, navigate])
 
@@ -304,7 +304,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!prev.some((c) => c.id === channel.id)) {
       setStoreDmChannels([channel, ...prev])
     }
-    navigate('/app/dm')
+    navigate('/app/social/dm')
   }
 
   const sendFriendRequest = async () => {
@@ -513,7 +513,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (targetChannelId !== activeDmChannelId) {
       setActiveDmChannelId(targetChannelId)
       setView('dm')
-      if (peer) navigate('/app/dm')
+      if (peer) navigate('/app/social/dm')
     }
     try {
       const sent = await dmApi.sendMessage(targetChannelId, content, [], token)
@@ -597,26 +597,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           className={`social-nav-item ${view === 'friends' ? 'active' : ''}`}
           onClick={() => {
             setView('friends')
-            if (location.pathname !== '/app/friends') {
-              navigate('/app/friends')
+            if (location.pathname !== '/app/social') {
+              navigate('/app/social')
             }
           }}
         >
           <Users size={14} />
           <span className="social-nav-item-label">Friends</span>
-        </button>
-        <button
-          type="button"
-          className={`social-nav-item ${view === 'add' ? 'active' : ''}`}
-          onClick={() => {
-            setView('add')
-            if (location.pathname !== '/app/friends') {
-              navigate('/app/friends')
-            }
-          }}
-        >
-          <MessageSquarePlus size={14} />
-          <span className="social-nav-item-label">Add Friend</span>
           {incomingRequests.length > 0 && <span className="notif-dot" />}
         </button>
 
@@ -636,7 +623,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 setView('dm')
                 setActiveDmChannelId(channel.id)
                 clearDmUnread(channel.id)
-                navigate('/app/dm')
+                navigate('/app/social/dm')
               }}
             >
               <div className="home-member-avatar">
@@ -667,7 +654,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     if (activeDmChannelId === channel.id) {
                       setView('friends')
                       setActiveDmChannelId(null)
-                      navigate('/app/friends')
+                      navigate('/app/social')
                     }
                   }}
                   onKeyDown={(e) => {
@@ -681,7 +668,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       if (activeDmChannelId === channel.id) {
                         setView('friends')
                         setActiveDmChannelId(null)
-                        navigate('/app/friends')
+                        navigate('/app/social')
                       }
                     }
                   }}
@@ -722,7 +709,76 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   <Users size={14} />
                   All
                 </button>
+                <button
+                  type="button"
+                  className={`home-chip ${friendsFilter === 'requests' ? 'active' : ''}`}
+                  onClick={() => setFriendsFilter('requests')}
+                >
+                  <MessageSquarePlus size={14} />
+                  Requests
+                  {incomingRequests.length > 0 && (
+                    <span className="home-chip-badge">{incomingRequests.length}</span>
+                  )}
+                </button>
               </div>
+              {friendsFilter === 'requests' ? (
+                <>
+                  <div className="home-list-group home-requests-add-card">
+                    <div className="home-list-title">Add a Friend</div>
+                    <div className="home-add-row">
+                      <input
+                        className="home-search"
+                        placeholder="Enter username"
+                        value={addFriendUsername}
+                        onChange={(e) => setAddFriendUsername(e.target.value)}
+                      />
+                      <button type="button" className="home-send-request-btn" onClick={sendFriendRequest}>
+                        Send Request
+                      </button>
+                    </div>
+                    {addFriendMessage && <div className="home-empty-row home-add-message">{addFriendMessage}</div>}
+                    <p className="home-requests-hint">Enter a username above to send a friend request.</p>
+                  </div>
+                  <div className="home-list-group">
+                    <div className="home-list-title home-list-title-with-icon">
+                      <Inbox size={16} />
+                      <span>Incoming</span>
+                      <span className="home-list-count">{incomingRequests.length}</span>
+                    </div>
+                    {incomingRequests.length === 0 ? (
+                      <div className="home-empty-row home-empty-muted">No incoming requests.</div>
+                    ) : (
+                      incomingRequests.map((r) => (
+                        <div key={r.id} className="home-request-row">
+                          <span>{r.requester_username}</span>
+                          <div className="home-request-actions">
+                            <button type="button" className="home-request-btn accept" onClick={() => acceptRequest(r.id)}>
+                              <Check size={14} />
+                            </button>
+                            <button type="button" className="home-request-btn reject" onClick={() => rejectRequest(r.id)}>
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div className="home-list-title home-list-title-with-icon home-list-title-secondary">
+                      <Send size={16} />
+                      <span>Outgoing</span>
+                      <span className="home-list-count">{outgoingRequests.length}</span>
+                    </div>
+                    {outgoingRequests.length === 0 ? (
+                      <div className="home-empty-row home-empty-muted">No outgoing requests.</div>
+                    ) : (
+                      outgoingRequests.map((r) => (
+                        <div key={`out-${r.id}`} className="home-request-row home-request-row-outgoing">
+                          <span>Pending to <strong>{r.receiver_username}</strong></span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              ) : (
               <div className="home-list-group">
                 <div className="home-list-title">
                   {friendsFilter === 'online'
@@ -730,7 +786,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     : `All Friends — ${friends.length}`}
                 </div>
                 {visibleFriends.length === 0 ? (
-                  <div className="home-empty-row">No friends found for this view.</div>
+                  <div className="home-empty-row">
+                    {friends.length === 0
+                      ? "You don't have any friends yet."
+                      : friendsFilter === 'online'
+                        ? "No one's online right now."
+                        : 'No friends found for this view.'}
+                  </div>
                 ) : (
                   visibleFriends.map((friend) => {
                     const isSpeaking = voiceSpeakingUserIds.includes(friend.id)
@@ -767,53 +829,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   })
                 )}
               </div>
+              )}
             </>
-          )}
-
-          {view === 'add' && (
-            <div className="home-list-group">
-              <div className="home-list-title">Add a Friend by username</div>
-              <div className="home-add-row">
-                <input
-                  className="home-search"
-                  placeholder="username"
-                  value={addFriendUsername}
-                  onChange={(e) => setAddFriendUsername(e.target.value)}
-                />
-                <button type="button" className="community-open-btn" onClick={sendFriendRequest}>
-                  Send Request
-                </button>
-              </div>
-              {addFriendMessage && <div className="home-empty-row">{addFriendMessage}</div>}
-              <div className="home-list-title">Incoming Requests — {incomingRequests.length}</div>
-              {incomingRequests.length === 0 ? (
-                <div className="home-empty-row">No incoming requests.</div>
-              ) : (
-                incomingRequests.map((r) => (
-                  <div key={r.id} className="home-request-row">
-                    <span>{r.requester_username}</span>
-                    <div className="home-request-actions">
-                      <button type="button" className="home-request-btn accept" onClick={() => acceptRequest(r.id)}>
-                        <Check size={14} />
-                      </button>
-                      <button type="button" className="home-request-btn reject" onClick={() => rejectRequest(r.id)}>
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-              <div className="home-list-title">Outgoing Requests — {outgoingRequests.length}</div>
-              {outgoingRequests.length === 0 ? (
-                <div className="home-empty-row">No outgoing requests.</div>
-              ) : (
-                outgoingRequests.map((r) => (
-                  <div key={`out-${r.id}`} className="home-empty-row">
-                    Pending to <strong>{r.receiver_username}</strong>
-                  </div>
-                ))
-              )}
-            </div>
           )}
 
           {view === 'dm' && (() => {

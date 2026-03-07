@@ -6,11 +6,31 @@ export type { User, Server, Channel, Message, SignalingMessage, WsEvent }
 // Re-export User as UserPublic for compat
 export type UserPublic = User
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001'
+// Prefer localhost so cookie is sent after Google OAuth when frontend is at localhost:5173 (same host).
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+/** In browser, if page is on localhost but API_BASE uses 127.0.0.1, return API base with localhost so the auth cookie is sent. */
+function effectiveApiBase(): string {
+    if (typeof window === 'undefined') return API_BASE
+    if (window.location.hostname === 'localhost' && API_BASE.includes('127.0.0.1')) {
+        return API_BASE.replace(/127\.0\.0\.1/g, 'localhost')
+    }
+    return API_BASE
+}
 
 /** Exposed so UI can show which API the app is using (e.g. in connection errors). */
 export function getApiBase(): string {
-    return API_BASE
+    return effectiveApiBase()
+}
+
+/** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
+export function getGoogleAuthUrl(redirectPath: string = '/app/social'): string {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+    const params = new URLSearchParams({
+        redirect: redirectPath,
+        origin,
+    })
+    return `${effectiveApiBase()}/api/auth/google?${params.toString()}`
 }
 
 /** Ping backend /health endpoint. Returns true if server is reachable and healthy. */
@@ -18,7 +38,7 @@ export async function checkHealth(): Promise<boolean> {
     try {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), 5000)
-        const res = await fetch(`${API_BASE}/health`, {
+        const res = await fetch(`${effectiveApiBase()}/health`, {
             method: 'GET',
             signal: controller.signal,
         })
@@ -33,7 +53,7 @@ export async function checkHealth(): Promise<boolean> {
 export function isCrossOrigin(): boolean {
     if (typeof window === 'undefined') return false
     try {
-        const apiOrigin = new URL(API_BASE).origin
+        const apiOrigin = new URL(getApiBase()).origin
         return window.location.origin !== apiOrigin
     } catch {
         return false
@@ -114,7 +134,7 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
         headers['Authorization'] = `Bearer ${token}`
     }
 
-    const url = `${API_BASE}${path}`
+    const url = `${effectiveApiBase()}${path}`
     const fetchOptions: RequestInit = {
         method,
         headers,
@@ -145,7 +165,7 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
             if (isTauri()) {
                 console.error('[Voxpery] Connection failed. URL:', url, 'Error:', detail, cause || '')
                 // Show API base in error so user can see if build had wrong VITE_API_URL
-                const apiHint = ` (API: ${API_BASE})`
+                const apiHint = ` (API: ${getApiBase()})`
                 throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${fullDetail}`)
             }
             throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${fullDetail}`)
@@ -201,9 +221,16 @@ export const authApi = {
     getMe: (token: string | null) =>
         apiFetch<UserPublic>('/api/auth/me', { token: token ?? undefined }),
 
+    /** GET /api/auth/check-username?username=xxx — returns { available: boolean }. */
+    checkUsername: (username: string, token: string | null) =>
+        apiFetch<{ available: boolean }>(
+            `/api/auth/check-username?username=${encodeURIComponent(username.trim())}`,
+            { token: token ?? undefined },
+        ),
+
     /** token optional: web uses httpOnly cookie when null. */
     updateProfile: (
-        payload: { avatar_url?: string; clear_avatar?: boolean; dm_privacy?: 'everyone' | 'friends' },
+        payload: { avatar_url?: string; clear_avatar?: boolean; dm_privacy?: 'everyone' | 'friends'; username?: string },
         token: string | null,
     ) =>
         apiFetch<UserPublic>('/api/auth/profile', {
@@ -485,7 +512,7 @@ export const webrtcApi = {
 
 /** token required for desktop (Bearer not sent on WS); web uses cookie so token can be null. */
 export function createWebSocket(token: string | null): WebSocket {
-    const wsBase = API_BASE.replace(/^http/, 'ws')
+    const wsBase = effectiveApiBase().replace(/^http/, 'ws')
     const url = `${wsBase}/ws`
     if (token) {
         return new WebSocket(url, ['voxpery.auth', token])

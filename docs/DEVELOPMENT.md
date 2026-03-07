@@ -88,6 +88,13 @@ TURN_URLS=turn:turn.example.com:3478
 TURN_SHARED_SECRET=your-turn-secret
 TURN_CREDENTIAL_TTL_SECS=3600
 
+# Optional: Google OAuth (Sign in with Google). If unset, the button is shown but returns 503.
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+# Public base URL of this API (for OAuth redirect_uri). Use same host as frontend in dev so the auth cookie is sent:
+# if frontend is http://localhost:5173, set PUBLIC_API_URL=http://localhost:3001 (not 127.0.0.1).
+PUBLIC_API_URL=http://localhost:3001
+
 # Frontend
 VITE_API_URL=http://127.0.0.1:3001
 ```

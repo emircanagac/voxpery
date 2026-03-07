@@ -2,10 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   envDir: '../../',
   plugins: [react()],
   build: {
+    // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output
+    minify: 'esbuild',
+    esbuild: {
+      drop: mode === 'production' ? ['console', 'debugger'] : [],
+    },
     rollupOptions: {
       output: {
         manualChunks: (id) => {
@@ -25,4 +30,4 @@ export default defineConfig({
     // rnnoise-wasm chunk ~4.8 MB (embedded WASM); warn above 5 MB
     chunkSizeWarningLimit: 5120,
   },
-})
+}))

@@ -24,6 +24,7 @@ export default function UnifiedSidebar({
   const { activeServerId, setActiveServer } = useAppStore(useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer })))
   const isServerRoute = location.pathname === '/app/servers'
   const displayActiveServerId = isServerRoute ? activeServerId : null
+  const isSocialRoute = location.pathname === '/app/social' || location.pathname.startsWith('/app/social/dm')
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
 
@@ -39,9 +40,9 @@ export default function UnifiedSidebar({
           Messages
         </span>
         <NavLink
-          to="/app/friends"
-          className={({ isActive }) =>
-            `unified-dm-entry ${isActive ? 'active' : ''} ${hasMessagesNotify ? 'has-notify' : ''}`
+          to="/app/social"
+          className={() =>
+            `unified-dm-entry ${isSocialRoute ? 'active' : ''} ${hasMessagesNotify ? 'has-notify' : ''}`
           }
           title="Direct Messages — friends & private chats"
           aria-label="Direct Messages"

@@ -54,6 +54,9 @@ pub struct AppState {
     pub livekit_ws_url: Option<String>,
     pub livekit_api_key: Option<String>,
     pub livekit_api_secret: Option<String>,
+    pub google_client_id: Option<String>,
+    pub google_client_secret: Option<String>,
+    pub public_api_url: Option<String>,
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.
@@ -164,12 +167,19 @@ pub async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), sqlx::migrate::Mi
 pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
     let origins: Vec<header::HeaderValue> = cors_origins
         .iter()
-        .filter_map(|o| o.parse::<header::HeaderValue>().ok())
+        .filter_map(|o| o.trim().parse::<header::HeaderValue>().ok())
         .collect();
     let allow_origin = AllowOrigin::list(origins);
     let cors = CorsLayer::new()
         .allow_origin(allow_origin)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
         .allow_credentials(true);
 
