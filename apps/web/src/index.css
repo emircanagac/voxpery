@@ -5050,17 +5050,17 @@ a.community-open-btn:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 0;
-  margin-left: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: width 0.2s ease, opacity 0.2s ease, margin-left 0.2s ease;
+  width: 100px;
+  margin-left: 6px;
+  min-width: 0;
+  transition: width 0.2s ease, margin-left 0.2s ease;
 }
 
-.screen-share-container:hover .screen-share-volume-slider-wrap {
-  width: 120px;
-  margin-left: 8px;
-  opacity: 1;
+/* Slider visible when control bar is shown (hover/fullscreen hover) */
+.screen-share-preview:hover .screen-share-volume-slider-wrap,
+.screen-share-preview:fullscreen:hover .screen-share-volume-slider-wrap {
+  width: 100px;
+  margin-left: 6px;
 }
 
 .screen-share-controls-right {

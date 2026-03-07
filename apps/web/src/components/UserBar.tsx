@@ -716,7 +716,7 @@ export default function UserBar() {
                     }}
                     minLength={3}
                     maxLength={32}
-                    autoComplete="username"
+                    autoComplete="off"
                   />
                 </div>
                 {usernameEdit.length > 0 && usernameEdit.length < 3 && (
