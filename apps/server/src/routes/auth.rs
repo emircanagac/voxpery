@@ -342,11 +342,16 @@ async fn login(
         return Err(AppError::InvalidCredentials);
     }
 
-    // Update status
-    sqlx::query("UPDATE users SET status = 'online' WHERE id = $1")
-        .bind(user.id)
-        .execute(&state.db)
-        .await?;
+    // Set status to 'online' on login only if user did not explicitly choose 'offline' (respect last choice).
+    let status_after_login = if user.status.eq_ignore_ascii_case("offline") {
+        user.status.clone()
+    } else {
+        sqlx::query("UPDATE users SET status = 'online' WHERE id = $1")
+            .bind(user.id)
+            .execute(&state.db)
+            .await?;
+        "online".to_string()
+    };
 
     // Ensure user is in official Voxpery community on login as well
     ensure_default_server_join(&state.db, user.id).await?;
@@ -355,9 +360,17 @@ async fn login(
     let token = generate_token(user.id, &user.username, &state.jwt_secret, state.jwt_expiration)?;
 
     let headers = auth_cookie_header(&state, &token);
+    let user_public = UserPublic {
+        id: user.id,
+        username: user.username.clone(),
+        avatar_url: user.avatar_url.clone(),
+        status: status_after_login,
+        dm_privacy: user.dm_privacy.clone(),
+        username_changed_at: user.username_changed_at,
+    };
     Ok((headers, Json(AuthResponse {
         token,
-        user: UserPublic::from(user),
+        user: user_public,
     })))
 }
 
