@@ -6,6 +6,7 @@ import { isTauri } from './secureStorage'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
+import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -135,6 +136,7 @@ function App() {
   return (
     <ConnectionGate>
       <ErrorBoundary>
+        <RnnoisePreloadOnInteraction />
         <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>Loading…</div>}>
           <Routes>
             <Route path="/app" element={<AppShell />}>
@@ -153,6 +155,28 @@ function App() {
       <ToastViewport />
     </ConnectionGate>
   )
+}
+
+/** Preload RNNoise worklet on first user interaction to shorten first voice join. */
+function RnnoisePreloadOnInteraction() {
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current) return
+    const run = () => {
+      if (done.current) return
+      done.current = true
+      preloadRnnoiseWorklet()
+      document.removeEventListener('click', run)
+      document.removeEventListener('keydown', run)
+    }
+    document.addEventListener('click', run, { once: true, capture: true })
+    document.addEventListener('keydown', run, { once: true, capture: true })
+    return () => {
+      document.removeEventListener('click', run)
+      document.removeEventListener('keydown', run)
+    }
+  }, [])
+  return null
 }
 
 export default App

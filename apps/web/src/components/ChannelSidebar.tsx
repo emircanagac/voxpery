@@ -6,6 +6,7 @@ import { useAppStore } from '../stores/app'
 import { friendApi } from '../api'
 import type { Channel } from '../api'
 import { useToastStore } from '../stores/toast'
+import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
 interface ChannelSidebarProps {
     onOpenServerSettings: () => void
@@ -189,6 +190,7 @@ export default function ChannelSidebar({
                                 <div key={ch.id}>
                                     <div
                                         className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''}`}
+                                        onMouseEnter={() => { if (ch.channel_type === 'voice') preloadRnnoiseWorklet() }}
                                         onClick={() => {
                                             // If user re-clicks the same voice channel they're already viewing,
                                             // just trigger the join without resetting activeChannel (which caused the Welcome screen flash).

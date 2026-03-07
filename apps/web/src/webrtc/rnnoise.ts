@@ -32,6 +32,25 @@ async function ensureWorkletRegistered(ctx: AudioContext): Promise<void> {
   registeredContexts.add(ctx)
 }
 
+let preloadStarted = false
+
+/**
+ * Preload the worklet script (fetch + parse) so the first voice join is faster.
+ * Call after a user gesture (e.g. first click) or on voice channel hover. Uses a temporary
+ * AudioContext then closes it; the script is cached so the real join only pays parse/compile cost.
+ * Idempotent: only runs once per page load.
+ */
+export function preloadRnnoiseWorklet(): void {
+  if (preloadStarted) return
+  preloadStarted = true
+  const AudioCtor = typeof window !== 'undefined' && (window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+  if (!AudioCtor) return
+  const ctx = new AudioCtor()
+  ensureWorkletRegistered(ctx)
+    .then(() => ctx.close())
+    .catch(() => ctx.close())
+}
+
 /* ── public interface ───────────────────────────────────────────── */
 
 export interface RnnoiseNode {
