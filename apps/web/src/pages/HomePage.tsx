@@ -74,14 +74,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const [view, setView] = useState<SocialView>('friends')
 
-  // Sync view with URL so F5 on /app/social/dm keeps DM view (activeDmChannelId is persisted)
+  // Sync view with URL: exact /app/social => friends; /app/social/dm => dm (F5 keeps DM when activeDmChannelId persisted)
   useEffect(() => {
-    if (location.pathname === '/app/social' && (location.state as { tab?: string } | null)?.tab === 'friends') {
+    if (location.pathname === '/app/social') {
       setView('friends')
     } else if (location.pathname.startsWith('/app/social/dm')) {
       setView('dm')
     }
-  }, [location.pathname, location.state])
+  }, [location.pathname])
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])

@@ -21,15 +21,15 @@ export default function UnifiedSidebar({
 }: UnifiedSidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { activeServerId, setActiveServer, activeDmChannelId } = useAppStore(
-    useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer, activeDmChannelId: s.activeDmChannelId }))
+  const { activeServerId, setActiveServer } = useAppStore(
+    useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer }))
   )
   const isServerRoute = location.pathname === '/app/servers'
   const displayActiveServerId = isServerRoute ? activeServerId : null
   const isSocialRoute = location.pathname === '/app/social' || location.pathname.startsWith('/app/social/dm')
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
-  const socialHref = activeDmChannelId ? '/app/social/dm' : '/app/social'
+  const socialHref = '/app/social'
 
   const handleSelectServer = (serverId: string) => {
     setActiveServer(serverId)
