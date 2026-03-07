@@ -450,6 +450,22 @@ export const dmApi = {
 
     readState: (channelId: string, token: AuthToken) =>
         apiFetch<DmReadState>(`/api/dm/channels/${channelId}/read-state`, { token }),
+
+    listPins: (channelId: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor[]>(`/api/dm/channels/${channelId}/pins`, { token }),
+
+    pinMessage: (channelId: string, messageId: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(`/api/dm/channels/${channelId}/pins`, {
+            method: 'POST',
+            body: { message_id: messageId },
+            token,
+        }),
+
+    unpinMessage: (channelId: string, messageId: string, token: AuthToken) =>
+        apiFetch<unknown>(`/api/dm/channels/${channelId}/pins/${messageId}`, {
+            method: 'DELETE',
+            token,
+        }),
 }
 
 // ─── Messages ───────────────────────────
@@ -461,6 +477,12 @@ export const messageApi = {
         apiFetch<MessageWithAuthor[]>(
             `/api/messages/${channelId}?limit=${limit}${before ? `&before=${before}` : ''}`,
             { token }
+        ),
+
+    search: (channelId: string, q: string, token: AuthToken, limit = 100) =>
+        apiFetch<MessageWithAuthor[]>(
+            `/api/messages/${channelId}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+            { token },
         ),
 
     send: (channelId: string, content: string, attachments: unknown, token: AuthToken) =>
@@ -480,6 +502,22 @@ export const messageApi = {
         apiFetch<MessageWithAuthor>(`/api/messages/item/${messageId}`, {
             method: 'PATCH',
             body: { content },
+            token,
+        }),
+
+    listPins: (channelId: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor[]>(`/api/messages/${channelId}/pins`, { token }),
+
+    pinMessage: (channelId: string, messageId: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(`/api/messages/${channelId}/pins`, {
+            method: 'POST',
+            body: { message_id: messageId },
+            token,
+        }),
+
+    unpinMessage: (channelId: string, messageId: string, token: AuthToken) =>
+        apiFetch<unknown>(`/api/messages/${channelId}/pins/${messageId}`, {
+            method: 'DELETE',
             token,
         }),
 }

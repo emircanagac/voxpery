@@ -21,12 +21,15 @@ export default function UnifiedSidebar({
 }: UnifiedSidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { activeServerId, setActiveServer } = useAppStore(useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer })))
+  const { activeServerId, setActiveServer, activeDmChannelId } = useAppStore(
+    useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer, activeDmChannelId: s.activeDmChannelId }))
+  )
   const isServerRoute = location.pathname === '/app/servers'
   const displayActiveServerId = isServerRoute ? activeServerId : null
   const isSocialRoute = location.pathname === '/app/social' || location.pathname.startsWith('/app/social/dm')
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
+  const socialHref = activeDmChannelId ? '/app/social/dm' : '/app/social'
 
   const handleSelectServer = (serverId: string) => {
     setActiveServer(serverId)
@@ -36,16 +39,16 @@ export default function UnifiedSidebar({
   return (
     <div className="unified-sidebar">
       <div className="unified-sidebar-dm-section">
-        <span className="unified-sidebar-section-label" title="Friends & private chats">
-          Messages
+        <span className="unified-sidebar-section-label" title="Friends, requests, and direct messages">
+          Social
         </span>
         <NavLink
-          to="/app/social"
+          to={socialHref}
           className={() =>
             `unified-dm-entry ${isSocialRoute ? 'active' : ''} ${hasMessagesNotify ? 'has-notify' : ''}`
           }
-          title="Direct Messages — friends & private chats"
-          aria-label="Direct Messages"
+          title="Friends, requests, and direct messages"
+          aria-label="Social"
         >
           <MessageCircle size={22} />
           {totalSocialUnread > 0 && (
@@ -55,7 +58,7 @@ export default function UnifiedSidebar({
       </div>
       <div className="unified-sidebar-separator" aria-hidden />
       <div className="unified-sidebar-server-block">
-        <span className="unified-sidebar-section-label" title="Community servers">
+        <span className="unified-sidebar-section-label" title="Community servers and channels">
           Servers
         </span>
         <ServerSidebar

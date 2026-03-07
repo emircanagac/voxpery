@@ -111,6 +111,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [copiedInvite, setCopiedInvite] = useState<'link' | 'code' | null>(null)
     const [hasMoreOlder, setHasMoreOlder] = useState(true)
     const [loadingOlder, setLoadingOlder] = useState(false)
+    const [channelSearch, setChannelSearch] = useState('')
+    const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
+    const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const pushToast = useToastStore((s) => s.pushToast)
     const { connect, send, subscribe, isConnected } = useSocketStore()
@@ -193,6 +196,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
+        setChannelSearch('')
+        setChannelSearchResults(null)
         setHasMoreOlder(true)
         const cached = messagesByChannelRef.current[activeChannelId]
         setMessages(cached ?? [])
@@ -203,6 +208,51 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
         }).catch(console.error)
     }, [activeChannelId, isLoggedIn, token])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn) return
+        const q = channelSearch.trim()
+        if (!q) {
+            setChannelSearchResults(null)
+            return
+        }
+        const id = window.setTimeout(() => {
+            messageApi.search(activeChannelId, q, token)
+                .then((rows) => setChannelSearchResults(rows))
+                .catch(() => setChannelSearchResults([]))
+        }, 220)
+        return () => window.clearTimeout(id)
+    }, [activeChannelId, channelSearch, token, isLoggedIn])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn) return
+        messageApi.listPins(activeChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+    }, [activeChannelId, token, isLoggedIn])
+
+    const refreshChannelPins = useCallback(() => {
+        if (!activeChannelId) return
+        messageApi.listPins(activeChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+    }, [activeChannelId, token])
+
+    const handlePinChannelMessage = useCallback(async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn) return
+        try {
+            await messageApi.pinMessage(activeChannelId, messageId, token)
+            refreshChannelPins()
+        } catch (e) {
+            pushToast({ level: 'error', title: 'Pin failed', message: e instanceof Error ? e.message : 'Failed to pin' })
+        }
+    }, [activeChannelId, token, isLoggedIn, refreshChannelPins, pushToast])
+
+    const handleUnpinChannelMessage = useCallback(async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn) return
+        try {
+            await messageApi.unpinMessage(activeChannelId, messageId, token)
+            refreshChannelPins()
+        } catch (e) {
+            pushToast({ level: 'error', title: 'Unpin failed', message: e instanceof Error ? e.message : 'Failed to unpin' })
+        }
+    }, [activeChannelId, token, isLoggedIn, refreshChannelPins, pushToast])
 
     const loadOlderMessages = useCallback(async () => {
         if (!activeChannelId || !isLoggedIn || loadingOlder || !hasMoreOlder) return
@@ -1016,7 +1066,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             />
             <ChatArea
                 activeChannel={activeChannel}
-                messages={messages}
+                messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
                 draftAttachments={draftAttachments}
                 messageInput={messageInput}
                 onPickAttachments={handleAttachmentPick}
@@ -1050,10 +1100,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     avatar_url: member.avatar_url,
                 }))}
                 isViewActive={isViewActive}
-                hasMoreOlder={hasMoreOlder}
+                hasMoreOlder={!channelSearch.trim() && hasMoreOlder}
                 loadingOlder={loadingOlder}
                 onLoadOlder={loadOlderMessages}
                 onScrollRefReady={(ref) => { messagesScrollRef.current = ref }}
+                searchQuery={channelSearch}
+                onSearchChange={setChannelSearch}
+                pinnedMessages={channelPins}
+                onPinMessage={canManageChannels ? handlePinChannelMessage : undefined}
+                onUnpinMessage={canManageChannels ? handleUnpinChannelMessage : undefined}
             />
             <MemberSidebar />
 

@@ -112,8 +112,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
   const [dmInput, setDmInput] = useState('')
-  const [dmSearch] = useState('')
+  const [dmSearch, setDmSearch] = useState('')
   const [dmSearchResults, setDmSearchResults] = useState<MessageWithAuthor[] | null>(null)
+  const [dmPins, setDmPins] = useState<MessageWithAuthor[]>([])
   const [editingDmMessageId, setEditingDmMessageId] = useState<string | null>(null)
   const [editingDmContent, setEditingDmContent] = useState('')
   const [forwardDmPickerMessageId, setForwardDmPickerMessageId] = useState<string | null>(null)
@@ -212,12 +213,49 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     return () => window.clearTimeout(id)
   }, [activeDmChannelId, dmSearch, token, user])
 
+  useEffect(() => {
+    if (!user || !activeDmChannelId) return
+    dmApi.listPins(activeDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
+  }, [activeDmChannelId, token, user])
+
+  const refreshDmPins = useCallback(() => {
+    if (!activeDmChannelId) return
+    dmApi.listPins(activeDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
+  }, [activeDmChannelId, token])
+
+  const handlePinDmMessage = useCallback(async (messageId: string) => {
+    if (!user || !activeDmChannelId) return
+    try {
+      await dmApi.pinMessage(activeDmChannelId, messageId, token)
+      refreshDmPins()
+    } catch (e) {
+      pushToast({ level: 'error', title: 'Pin failed', message: e instanceof Error ? e.message : 'Failed to pin' })
+    }
+  }, [activeDmChannelId, token, user, refreshDmPins, pushToast])
+
+  const handleUnpinDmMessage = useCallback(async (messageId: string) => {
+    if (!user || !activeDmChannelId) return
+    try {
+      await dmApi.unpinMessage(activeDmChannelId, messageId, token)
+      refreshDmPins()
+    } catch (e) {
+      pushToast({ level: 'error', title: 'Unpin failed', message: e instanceof Error ? e.message : 'Failed to unpin' })
+    }
+  }, [activeDmChannelId, token, user, refreshDmPins, pushToast])
+
   /* When switching to DM: lock window scroll and blur so nothing triggers page shift */
   useEffect(() => {
     if (view !== 'dm') return
     window.scrollTo(0, 0)
       ; (document.activeElement as HTMLElement | null)?.blur()
   }, [view])
+
+  /* Mark DM as read whenever the conversation is visible (fixes badge when landing on /app/social with same DM still in state) */
+  useEffect(() => {
+    if (view === 'dm' && activeDmChannelId) {
+      clearDmUnread(activeDmChannelId)
+    }
+  }, [view, activeDmChannelId, clearDmUnread, location.pathname])
 
   useEffect(() => {
     if (!isConnected || dmChannels.length === 0) return
@@ -683,12 +721,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       </aside>
 
       <section className={`home-main${view === 'dm' ? ' home-main-dm' : ''}`}>
-        {view !== 'dm' && (
-          <div className="home-header">
-            <h1>Social</h1>
-            <p>Friends and direct messages in one focused workspace.</p>
-          </div>
-        )}
         <div className={`social-content${view === 'dm' ? ' social-content-dm' : ''}`}>
           {view === 'friends' && (
             <>
@@ -894,6 +926,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   setReplyingToDm({ id: msg.id, username, contentSnippet: snippet })
                 }}
                 isViewActive={isMessagesView}
+                searchQuery={dmSearch}
+                onSearchChange={setDmSearch}
+                pinnedMessages={dmPins}
+                onPinMessage={handlePinDmMessage}
+                onUnpinMessage={handleUnpinDmMessage}
               />
             )
           })()}

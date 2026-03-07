@@ -18,11 +18,32 @@ use crate::{
     AppState,
 };
 
+#[derive(Debug, serde::Deserialize)]
+struct PinMessageRequest {
+    message_id: Uuid,
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/item/{message_id}", delete(delete_message).patch(edit_message))
+        .route("/{channel_id}/search", get(search_messages))
+        .route("/{channel_id}/pins", get(list_channel_pins).post(pin_channel_message))
+        .route("/{channel_id}/pins/{message_id}", delete(unpin_channel_message))
         .route("/{channel_id}", get(get_messages).post(send_message))
         .route_layer(middleware::from_fn_with_state(state, require_auth))
+}
+
+fn escape_ilike_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MessageSearchQuery {
+    q: Option<String>,
+    limit: Option<i64>,
 }
 
 /// Intermediate row type for JOIN query result
@@ -105,6 +126,140 @@ async fn get_messages(
     let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
 
     Ok(Json(result))
+}
+
+/// GET /api/messages/:channel_id/search?q=...&limit=100 — search messages in a channel.
+async fn search_messages(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Query(query): Query<MessageSearchQuery>,
+) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
+    check_channel_access(&state, channel_id, claims.sub).await?;
+
+    let term = query.q.as_deref().unwrap_or("").trim();
+    if term.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let limit = query.limit.unwrap_or(100).min(200);
+    let escaped_term = escape_ilike_pattern(term);
+    let pattern = format!("%{}%", escaped_term);
+
+    let rows = sqlx::query_as::<_, MessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM messages m
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE m.channel_id = $1
+             AND m.content ILIKE $2 ESCAPE '\'
+           ORDER BY m.created_at DESC
+           LIMIT $3"#,
+    )
+    .bind(channel_id)
+    .bind(&pattern)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await?;
+
+    let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    Ok(Json(result))
+}
+
+/// GET /api/messages/:channel_id/pins — list pinned messages.
+async fn list_channel_pins(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
+    check_channel_access(&state, channel_id, claims.sub).await?;
+
+    let rows = sqlx::query_as::<_, MessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM channel_pins p
+           INNER JOIN messages m ON p.message_id = m.id
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE p.channel_id = $1
+           ORDER BY p.pinned_at DESC"#,
+    )
+    .bind(channel_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    Ok(Json(result))
+}
+
+/// POST /api/messages/:channel_id/pins — pin a message (server owner/moderator only).
+async fn pin_channel_message(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Json(body): Json<PinMessageRequest>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    check_channel_access(&state, channel_id, claims.sub).await?;
+    check_channel_moderator(&state, channel_id, claims.sub).await?;
+
+    let msg_channel: Option<Uuid> = sqlx::query_scalar(
+        "SELECT channel_id FROM messages WHERE id = $1",
+    )
+    .bind(body.message_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
+    if msg_channel != channel_id {
+        return Err(AppError::Forbidden("Message is not in this channel".into()));
+    }
+
+    sqlx::query(
+        r#"INSERT INTO channel_pins (channel_id, message_id, pinned_by_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (channel_id, message_id) DO NOTHING"#,
+    )
+    .bind(channel_id)
+    .bind(body.message_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
+
+    let row = sqlx::query_as::<_, MessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM messages m
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE m.id = $1"#,
+    )
+    .bind(body.message_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
+
+    Ok(Json(row.into()))
+}
+
+/// DELETE /api/messages/:channel_id/pins/:message_id — unpin a message (server owner/moderator only).
+async fn unpin_channel_message(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((channel_id, message_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_channel_access(&state, channel_id, claims.sub).await?;
+    check_channel_moderator(&state, channel_id, claims.sub).await?;
+
+    let deleted = sqlx::query(
+        "DELETE FROM channel_pins WHERE channel_id = $1 AND message_id = $2",
+    )
+    .bind(channel_id)
+    .bind(message_id)
+    .execute(&state.db)
+    .await?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound("Pinned message not found".into()));
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// POST /api/messages/:channel_id — send a message.
@@ -283,6 +438,32 @@ async fn edit_message(
     });
 
     Ok(Json(msg_with_author))
+}
+
+/// Check if a user is owner or moderator of the server that owns the channel.
+async fn check_channel_moderator(
+    state: &AppState,
+    channel_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let role: Option<String> = sqlx::query_scalar(
+        r#"SELECT sm.role FROM channels c
+           INNER JOIN server_members sm ON c.server_id = sm.server_id
+           WHERE c.id = $1 AND sm.user_id = $2"#,
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let can_mod = matches!(role.as_deref(), Some("owner") | Some("moderator"));
+    if !can_mod {
+        return Err(AppError::Forbidden(
+            "Only server owners and moderators can pin or unpin messages".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Check if a user has access to a channel (via server membership).

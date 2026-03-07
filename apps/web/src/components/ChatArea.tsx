@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Trash2, Reply, Edit3, Save, Share2 } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Trash2, Reply, Edit3, Save, Share2, Search, Pin, PinOff, ChevronRight } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
@@ -57,6 +57,13 @@ interface ChatAreaProps {
     loadingOlder?: boolean
     onLoadOlder?: () => void
     onScrollRefReady?: (el: HTMLDivElement | null) => void
+    /** When set, show search in header and filter/search is handled by parent (e.g. displayedMessages) */
+    searchQuery?: string
+    onSearchChange?: (value: string) => void
+    /** Pinned messages for this channel; shown in header dropdown */
+    pinnedMessages?: MessageWithAuthor[]
+    onPinMessage?: (messageId: string) => void
+    onUnpinMessage?: (messageId: string) => void
 }
 
 export default function ChatArea({
@@ -92,6 +99,11 @@ export default function ChatArea({
     loadingOlder = false,
     onLoadOlder,
     onScrollRefReady,
+    searchQuery = '',
+    onSearchChange,
+    pinnedMessages = [],
+    onPinMessage,
+    onUnpinMessage,
 }: ChatAreaProps) {
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const setMessagesScrollRef = useCallback(
@@ -105,12 +117,19 @@ export default function ChatArea({
     const prevViewActiveRef = useRef(isViewActive)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const [forwardPickerMessageId, setForwardPickerMessageId] = useState<string | null>(null)
+    const [pinnedOpen, setPinnedOpen] = useState(false)
+    const [searchOpen, setSearchOpen] = useState(false)
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+    const pinnedDropdownRef = useRef<HTMLDivElement | null>(null)
+    const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
     const [mentionOpen, setMentionOpen] = useState(false)
     const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null)
     const [mentionQuery, setMentionQuery] = useState('')
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
     const [clickedLink, setClickedLink] = useState<string | null>(null)
 
+    const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
     const textChannelsForForward = channelsForForward?.filter((c) => c.channel_type === 'text' && c.id !== activeChannel?.id) ?? []
     const mentionCandidates = useMemo(() => {
         const seen = new Set<string>()
@@ -199,6 +218,35 @@ export default function ChatArea({
         if (d.toDateString() === today.toDateString()) return `Today at ${formatTime(dateStr)}`
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + formatTime(dateStr)
     }
+
+    const formatPinnedDate = (dateStr: string) => {
+        const d = new Date(dateStr)
+        const today = new Date()
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const time = formatTime(dateStr)
+        if (d.toDateString() === today.toDateString()) return `Today, ${time}`
+        if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + time
+    }
+
+    const scrollToMessageId = useCallback((messageId: string) => {
+        const index = messages.findIndex((m) => m.id === messageId)
+        if (index >= 0) {
+            rowVirtualizer.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
+            if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+            setHighlightedMessageId(messageId)
+            highlightTimeoutRef.current = setTimeout(() => {
+                setHighlightedMessageId(null)
+                highlightTimeoutRef.current = null
+            }, 2500)
+        }
+        setPinnedOpen(false)
+    }, [messages, rowVirtualizer])
+
+    useEffect(() => () => {
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+    }, [])
 
     const closeMentionMenu = () => {
         setMentionOpen(false)
@@ -296,6 +344,16 @@ export default function ChatArea({
     useEffect(() => {
         closeMentionMenu()
     }, [activeChannel?.id])
+
+    useEffect(() => {
+        if (!pinnedOpen) return
+        const close = (e: MouseEvent) => {
+            if (pinnedDropdownRef.current?.contains(e.target as Node)) return
+            setPinnedOpen(false)
+        }
+        document.addEventListener('click', close)
+        return () => document.removeEventListener('click', close)
+    }, [pinnedOpen])
 
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         const dt = e.clipboardData
@@ -453,6 +511,110 @@ export default function ChatArea({
                     <Hash size={20} />
                 </span>
                 <span className="channel-title">{activeChannel.name}</span>
+                <div className="chat-header-right">
+                    {onSearchChange && (
+                        <div className={`chat-header-search ${searchOpen ? 'chat-header-search-expanded' : ''}`}>
+                            {!searchOpen ? (
+                                <button
+                                    type="button"
+                                    className="chat-header-search-trigger"
+                                    onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0) }}
+                                    title="Search in conversation"
+                                    aria-label="Search in conversation"
+                                >
+                                    <Search size={18} aria-hidden />
+                                </button>
+                            ) : (
+                                <>
+                                    <Search size={16} className="chat-header-search-icon" aria-hidden />
+                                    <input
+                                        ref={searchInputRef}
+                                        type="search"
+                                        className="chat-header-search-input"
+                                        placeholder="Search in conversation"
+                                        value={searchQuery}
+                                        onChange={(e) => onSearchChange(e.target.value)}
+                                        aria-label="Search messages"
+                                    />
+                                    <button
+                                        type="button"
+                                        className="chat-header-search-close"
+                                        onClick={() => { onSearchChange(''); setSearchOpen(false) }}
+                                        title="Close search"
+                                        aria-label="Close search"
+                                    >
+                                        <X size={14} aria-hidden />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    {(onSearchChange != null || onPinMessage != null || (pinnedMessages?.length ?? 0) > 0) && (
+                    <div className="chat-header-pinned-wrap" ref={pinnedDropdownRef}>
+                        <button
+                            type="button"
+                            className="chat-header-pinned-btn"
+                            onClick={() => setPinnedOpen((o) => !o)}
+                            title="Pinned messages"
+                            aria-label="Pinned messages"
+                            aria-expanded={pinnedOpen}
+                        >
+                            <Pin size={18} />
+                        </button>
+                        {pinnedOpen && (
+                            <div className="chat-header-pinned-dropdown">
+                                <div className="chat-header-pinned-title">Pinned messages</div>
+                                {pinnedMessages.length === 0 ? (
+                                    <div className="chat-header-pinned-empty">No pinned messages</div>
+                                ) : (
+                                    <ul className="chat-header-pinned-list">
+                                        {pinnedMessages.map((m) => (
+                                            <li key={m.id} className="chat-header-pinned-item">
+                                                <div className="chat-header-pinned-item-meta">
+                                                    <div className="chat-header-pinned-item-head">
+                                                        <span className="chat-header-pinned-item-author-group">
+                                                            <span className="chat-header-pinned-item-author-label">From</span>
+                                                            <span className="chat-header-pinned-item-author">{m.author?.username}</span>
+                                                        </span>
+                                                        {m.created_at && (
+                                                            <span className="chat-header-pinned-item-date">{formatPinnedDate(m.created_at)}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="chat-header-pinned-item-content-wrap">
+                                                        <span className="chat-header-pinned-item-content-label">Message</span>
+                                                        <span className="chat-header-pinned-item-content">{m.content.slice(0, 200)}{m.content.length > 200 ? '…' : ''}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="chat-header-pinned-item-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="chat-header-pinned-goto"
+                                                        title="Go to message"
+                                                        aria-label="Go to message"
+                                                        onClick={() => scrollToMessageId(m.id)}
+                                                    >
+                                                        <ChevronRight size={18} aria-hidden />
+                                                    </button>
+                                                    {onUnpinMessage && (
+                                                        <button
+                                                            type="button"
+                                                            className="chat-header-pinned-unpin"
+                                                            title="Unpin"
+                                                            onClick={() => onUnpinMessage(m.id)}
+                                                        >
+                                                            <PinOff size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    )}
+                </div>
             </div>
 
             <div
@@ -500,7 +662,7 @@ export default function ChatArea({
                                     className="virtual-list-item"
                                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                                 >
-                                    <div className="message">
+                                    <div className={`message${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
                                         <div className="message-avatar">
                                             {getAuthorAvatarUrl(msg.author || {}) ? (
                                                 <img src={getAuthorAvatarUrl(msg.author || {})} alt="" />
@@ -513,8 +675,18 @@ export default function ChatArea({
                                                 <span className="message-author">{msg.author.username}</span>
                                                 <span className="message-timestamp">{formatDate(msg.created_at)}</span>
                                                 {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
-                                                {(onReplyToMessage || onForwardMessage || onDeleteMessage || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (
+                                                {(onReplyToMessage || onForwardMessage || onDeleteMessage || onPinMessage || onUnpinMessage || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (
                                                     <div className="message-inline-actions">
+                                                        {onPinMessage && !pinnedMessageIds.has(msg.id) && (
+                                                            <button type="button" className="message-inline-action-btn" title="Pin message" aria-label="Pin" onClick={(e) => { e.stopPropagation(); onPinMessage(msg.id) }}>
+                                                                <Pin size={14} />
+                                                            </button>
+                                                        )}
+                                                        {onUnpinMessage && pinnedMessageIds.has(msg.id) && (
+                                                            <button type="button" className="message-inline-action-btn" title="Unpin message" aria-label="Unpin" onClick={(e) => { e.stopPropagation(); onUnpinMessage(msg.id) }}>
+                                                                <PinOff size={14} />
+                                                            </button>
+                                                        )}
                                                         {onReplyToMessage && (
                                                             <button type="button" className="message-inline-action-btn" title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); onReplyToMessage(msg); setTimeout(() => textareaRef.current?.focus(), 0) }}>
                                                                 <Reply size={14} />

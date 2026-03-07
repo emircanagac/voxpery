@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     middleware,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
 use std::sync::Arc;
@@ -57,6 +57,11 @@ pub struct EditDmMessageRequest {
     pub content: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct PinDmMessageRequest {
+    pub message_id: Uuid,
+}
+
 #[derive(sqlx::FromRow)]
 struct DmMessageRow {
     id: Uuid,
@@ -93,6 +98,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
         .route("/channels/{channel_id}/read-state", get(get_dm_read_state))
+        .route("/channels/{channel_id}/pins", get(list_dm_pins).post(pin_dm_message))
+        .route("/channels/{channel_id}/pins/{message_id}", delete(unpin_dm_message))
         .route("/messages/{channel_id}", get(get_dm_messages).post(send_dm_message))
         .route("/messages/{channel_id}/search", get(search_dm_messages))
         .route("/messages/item/{message_id}", patch(edit_dm_message).delete(delete_dm_message))
@@ -497,7 +504,7 @@ async fn search_dm_messages(
            FROM dm_messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.channel_id = $1
-                         AND m.content ILIKE $2 ESCAPE '\\'
+                         AND m.content ILIKE $2 ESCAPE '\'
            ORDER BY m.created_at DESC
            LIMIT $3"#,
     )
@@ -509,6 +516,98 @@ async fn search_dm_messages(
 
     let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     Ok(Json(result))
+}
+
+async fn list_dm_pins(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    let rows = sqlx::query_as::<_, DmMessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM dm_channel_pins p
+           INNER JOIN dm_messages m ON p.dm_message_id = m.id
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE p.dm_channel_id = $1
+           ORDER BY p.pinned_at DESC"#,
+    )
+    .bind(channel_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    Ok(Json(result))
+}
+
+async fn pin_dm_message(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Json(body): Json<PinDmMessageRequest>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    let msg_channel: Option<Uuid> = sqlx::query_scalar(
+        "SELECT channel_id FROM dm_messages WHERE id = $1",
+    )
+    .bind(body.message_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
+    if msg_channel != channel_id {
+        return Err(AppError::Forbidden("Message is not in this channel".into()));
+    }
+
+    sqlx::query(
+        r#"INSERT INTO dm_channel_pins (dm_channel_id, dm_message_id, pinned_by_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (dm_channel_id, dm_message_id) DO NOTHING"#,
+    )
+    .bind(channel_id)
+    .bind(body.message_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
+
+    let row = sqlx::query_as::<_, DmMessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM dm_messages m
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE m.id = $1"#,
+    )
+    .bind(body.message_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
+
+    Ok(Json(row.into()))
+}
+
+async fn unpin_dm_message(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((channel_id, message_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    let deleted = sqlx::query(
+        "DELETE FROM dm_channel_pins WHERE dm_channel_id = $1 AND dm_message_id = $2",
+    )
+    .bind(channel_id)
+    .bind(message_id)
+    .execute(&state.db)
+    .await?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound("Pinned message not found".into()));
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 async fn edit_dm_message(
