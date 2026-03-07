@@ -393,7 +393,9 @@ export function useLiveKitVoice() {
           }
         })
         .on(RoomEvent.Disconnected, (reason) => {
-          console.warn('[useLiveKitVoice] LiveKit Room disconnected, reason:', reason)
+          if (!import.meta.env.PROD) {
+            console.warn('[useLiveKitVoice] LiveKit Room disconnected, reason:', reason)
+          }
           updateRoomStats()
           // If the room disconnects unexpectedly, clean up local state
           // but do NOT call leaveVoice() — the WS resync effect handles re-join
