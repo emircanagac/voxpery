@@ -13,6 +13,12 @@ export default defineConfig(({ mode }) => ({
     },
     rollupOptions: {
       output: {
+        // Emit worklet as .js so servers don't serve it as video/mp2t (MIME for .ts)
+        assetFileNames: (assetInfo) => {
+          const name = assetInfo.name ?? ''
+          if (name.endsWith('.ts')) return 'assets/[name]-[hash].js'
+          return 'assets/[name]-[hash][extname]'
+        },
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
             if (id.includes('lucide-react')) return 'lucide'
