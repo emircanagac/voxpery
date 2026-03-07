@@ -224,6 +224,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           // by the browser, so we mute by setting gain.gain.value = 0 when deafened.
           let nodes = perPeerAudioCtxRef.current.get(peerId)
           if (!nodes) {
+            // When deafened (combined === 0), avoid createMediaElementSource so Firefox doesn't warn
+            // about captured MediaElement (volume/mute not supported after capture)
+            if (combined === 0) {
+              el.volume = 0
+              el.muted = true
+              continue
+            }
             try {
               const AudioCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
               if (AudioCtor) {
@@ -243,10 +250,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           }
           if (nodes) {
             nodes.gain.gain.value = Math.min(4, combined)  // 0 when deafened, else cap at 4×
-            el.volume = 1
+            // Do not set el.volume/el.muted: element is captured by Web Audio, Firefox warns and it has no effect
           }
         }
-        el.muted = isDeafened
+        // Only set el.muted when not using GainNode (captured element ignores it; mute is via gain.gain.value)
+        if (!perPeerAudioCtxRef.current.has(peerId)) {
+          el.muted = isDeafened
+        }
       } catch {
         // ignore
       }
@@ -348,7 +358,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         el.srcObject = new MediaStream(stream.getTracks())
           ; (el as any).__voxpery_trackIds = currentTrackIds
       }
-      el.muted = deafenedRef.current
+      if (!perPeerAudioCtxRef.current.has(peerId)) {
+        el.muted = deafenedRef.current
+      }
       if (!deafenedRef.current) ensureRemoteAudioPlayback(peerId, el)
     }
   }, [stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
@@ -997,17 +1009,19 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       if (el.srcObject !== stream) {
                         el.srcObject = stream
                       }
-                      // Set volume
-                      const peerFactor = getPeerVolumeFactor(peerId)
-                      const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
-                      try {
-                        el.volume = vol
-                      } catch (e) {
-                        console.warn('[ActiveCallBar] Failed to set volume:', e)
-                      }
-                      // Always unmute unless globally deafened
+                      // Set volume and mute only when element is not captured by Web Audio (Firefox warns otherwise)
                       const shouldMute = deafenedRef.current
-                      el.muted = shouldMute
+                      const isCaptured = perPeerAudioCtxRef.current.has(peerId)
+                      if (!isCaptured) {
+                        const peerFactor = getPeerVolumeFactor(peerId)
+                        const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
+                        try {
+                          el.volume = vol
+                        } catch (e) {
+                          console.warn('[ActiveCallBar] Failed to set volume:', e)
+                        }
+                        el.muted = shouldMute
+                      }
                       // Try to play if not deafened
                       if (!shouldMute) {
                         ensureRemoteAudioPlayback(peerId, el)
