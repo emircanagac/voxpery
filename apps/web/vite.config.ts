@@ -25,14 +25,14 @@ export default defineConfig(({ mode }) => ({
         },
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
+            // Keep rnnoise-wasm inside the worklet chunk (return undefined). Else it goes to vendor
+            // and the worklet's second request can 404→index.html → "unexpected token: keyword 'class'".
+            if (id.includes('rnnoise-wasm')) return undefined
             if (id.includes('lucide-react')) return 'lucide'
             if (id.includes('@tauri-apps')) return 'tauri'
             if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'
             if (id.includes('react-router')) return 'router'
             if (id.includes('livekit-client')) return 'livekit'
-            // Do NOT split rnnoise-wasm into a separate chunk: only the worklet uses it.
-            // If we split, the worklet would request that chunk; 404→index.html causes "unexpected token: keyword 'class'".
-            // Keep it inside the worklet chunk so one request loads everything.
             if (id.includes('@tanstack')) return 'tanstack'
             return 'vendor'
           }
