@@ -11,6 +11,8 @@ import {
 interface AuthState {
     token: string | null
     user: UserPublic | null
+    /** True while we're logging out (web); prevents App from restoring session from cookie. */
+    loggingOut: boolean
     setAuth: (token: string, user: UserPublic) => void
     setUser: (user: UserPublic) => void
     setUserStatus: (status: UserPublic['status']) => void
@@ -24,6 +26,7 @@ type SetState = (partial: Partial<AuthState> | ((s: AuthState) => Partial<AuthSt
 const authSlice = (set: SetState): AuthState => ({
     token: null,
     user: null,
+    loggingOut: false,
     setAuth: (token: string, user: UserPublic) => {
         if (isTauri()) {
             set({ token, user })
@@ -41,11 +44,16 @@ const authSlice = (set: SetState): AuthState => ({
     logout: () => {
         if (isTauri()) {
             removeSecureToken().catch(() => { })
+            set({ token: null, user: null })
         } else {
-            // Clear cookie on server for complete logout
-            authApi.logout().catch(() => { })
+            // Clear state immediately so UI shows login without delay. Set loggingOut so App
+            // skips restoring session from cookie. Clear cookie in background.
+            set({ loggingOut: true, token: null, user: null })
+            authApi
+                .logout()
+                .catch(() => {})
+                .finally(() => set({ loggingOut: false }))
         }
-        set({ token: null, user: null })
     },
 })
 

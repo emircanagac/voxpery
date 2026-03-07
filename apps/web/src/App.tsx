@@ -40,6 +40,7 @@ function App() {
   useEffect(() => {
     if (restoring || isTauri()) return
     if (user != null) return
+    if (useAuthStore.getState().loggingOut) return
     const hash = window.location.hash
     const tokenMatch = hash && /#token=([^&]+)/.exec(hash)
     if (tokenMatch) {
