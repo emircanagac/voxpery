@@ -74,10 +74,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const [view, setView] = useState<SocialView>('friends')
 
-  // When navigating to /app/social with tab=friends (e.g. Voxpery logo click), show Friends tab
+  // Sync view with URL so F5 on /app/social/dm keeps DM view (activeDmChannelId is persisted)
   useEffect(() => {
     if (location.pathname === '/app/social' && (location.state as { tab?: string } | null)?.tab === 'friends') {
       setView('friends')
+    } else if (location.pathname.startsWith('/app/social/dm')) {
+      setView('dm')
     }
   }, [location.pathname, location.state])
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')

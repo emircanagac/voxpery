@@ -192,8 +192,8 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'voxpery-app-storage',
-            // Do not persist dmUnread: it causes stale badge on desktop after restart (rehydration).
-            partialize: () => ({}),
+            // Persist activeDmChannelId so /app/social/dm restores the open DM on F5. Do not persist dmUnread (stale badge).
+            partialize: (s) => ({ activeDmChannelId: s.activeDmChannelId }),
         },
     ),
 )
