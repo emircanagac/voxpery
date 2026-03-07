@@ -7,7 +7,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import UserBar from '../components/UserBar'
-import { ActivityLog } from '../components/ActivityLog'
 import { useToastStore } from '../stores/toast'
 import { authApi, dmApi, friendApi, type DmChannel, type Friend } from '../api'
 import { checkForUpdates, downloadAndInstallUpdate, isTauri } from '../updater'
@@ -327,8 +326,6 @@ export default function AppShell() {
         <UserBar />
       </div>
 
-      {/* Global activity log widget (e.g. online, quick notifications) */}
-      <ActivityLog />
     </div>
   )
 }

@@ -17,7 +17,6 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
-import { ActivityLog } from '../components/ActivityLog'
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
@@ -1023,7 +1022,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           </div>,
           document.body
         )}
-      <ActivityLog />
     </div>
   )
 }

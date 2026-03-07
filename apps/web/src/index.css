@@ -38,7 +38,7 @@
   --status-badge-size: 14px;
   --status-badge-icon-size: 11px;
   --status-inline-icon-size: 12px;
-  /* Badge arka planı bulunduğu panel ile aynı olsun (panel içinde override edilir) */
+  /* Badge background matches the panel it sits in (overridden per panel) */
   --status-badge-bg: var(--bg-chat);
 
   /* Spacing */
