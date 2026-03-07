@@ -1,10 +1,29 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// In production, remove worklet path so main bundle has no dependency on it (no extra 5 kB chunk).
+function rnnoiseProdStripPlugin() {
+  return {
+    name: 'rnnoise-prod-strip',
+    transform(code: string, id: string) {
+      const normId = id.replace(/\\/g, '/')
+      if (!normId.includes('webrtc/rnnoise.ts') || normId.includes('worklet')) return null
+      if (!code.includes('rnnoise-worklet-processor')) return null
+      const newCode = code.replace(
+        /new URL\s*\(\s*['"]\.\/rnnoise-worklet-processor\.ts['"]\s*,\s*import\.meta\.url\s*\)\.href/g,
+        '__RNNOISE_PROCESSOR_URL__'
+      )
+      if (newCode === code) return null
+      return { code: newCode, map: null }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   envDir: '../../',
-  plugins: [react()],
+  plugins: [react(), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(Boolean),
+  define: mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify('/assets/rnnoise-worklet.js') } : {},
   build: {
     // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output
     minify: 'esbuild',
@@ -12,24 +31,24 @@ export default defineConfig(({ mode }) => ({
       drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     rollupOptions: {
+      // Worklet as separate entry → one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
+      input: {
+        main: 'index.html',
+        worklet: 'src/webrtc/rnnoise-worklet-processor.ts',
+      },
       output: {
-        // Worklet and other JS chunks must be .js (default). Production server must serve
-        // /assets/* as static files only — do not serve index.html for /assets/* (no SPA fallback),
-        // or addModule() will get HTML and throw "unexpected token: keyword 'class'".
+        entryFileNames: (entryInfo) =>
+          entryInfo.name === 'worklet' ? 'assets/rnnoise-worklet.js' : 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
-        // Emit worklet as .js so servers don't serve it as video/mp2t (MIME for .ts)
         assetFileNames: (assetInfo) => {
           const name = assetInfo.name ?? ''
           if (name.endsWith('.ts')) return 'assets/[name]-[hash].js'
           return 'assets/[name]-[hash][extname]'
         },
         manualChunks: (id) => {
-          // Single worklet chunk: processor + polyfill + rnnoise-wasm. ?url import must resolve to this
-          // one file only; otherwise the browser loads a small chunk that imports another → 404→index.html.
-          if (id.includes('rnnoise-worklet-processor') || id.includes('rnnoise-worklet-polyfill') || id.includes('rnnoise-wasm')) {
-            return 'rnnoise-worklet-processor'
-          }
           if (id.includes('node_modules')) {
+            // Keep in worklet entry chunk (do not split into vendor)
+            if (id.includes('rnnoise-wasm')) return undefined
             if (id.includes('lucide-react')) return 'lucide'
             if (id.includes('@tauri-apps')) return 'tauri'
             if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'

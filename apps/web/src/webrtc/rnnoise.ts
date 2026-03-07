@@ -11,8 +11,14 @@
 
 /* ── module-level worklet registration ──────────────────────────── */
 
-// Use ?url so Vite emits the worklet as a real .js chunk (not inlined); required for addModule() in production.
-import processorUrl from './rnnoise-worklet-processor.ts?url'
+// Prod: define injects URL so main bundle has no worklet dependency (no extra chunk). Dev: Vite serves from source.
+declare const __RNNOISE_PROCESSOR_URL__: string | undefined
+const processorUrl =
+  typeof __RNNOISE_PROCESSOR_URL__ !== 'undefined'
+    ? __RNNOISE_PROCESSOR_URL__
+    : (import.meta.env.DEV
+        ? new URL('./rnnoise-worklet-processor.ts', import.meta.url).href
+        : ((import.meta.env.BASE_URL ?? '/').replace(/\/$/, '') + '/assets/rnnoise-worklet.js'))
 
 /**
  * Tracks whether addModule has already been called for a given
