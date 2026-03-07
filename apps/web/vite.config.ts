@@ -12,11 +12,6 @@ export default defineConfig(({ mode }) => ({
       drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     rollupOptions: {
-      // Worklet as explicit entry so it bundles rnnoise-wasm in one file (no second request → no 404→index.html).
-      input: {
-        main: 'index.html',
-        'rnnoise-worklet-processor': 'src/webrtc/rnnoise-worklet-processor.ts',
-      },
       output: {
         // Worklet and other JS chunks must be .js (default). Production server must serve
         // /assets/* as static files only — do not serve index.html for /assets/* (no SPA fallback),
@@ -29,10 +24,12 @@ export default defineConfig(({ mode }) => ({
           return 'assets/[name]-[hash][extname]'
         },
         manualChunks: (id) => {
+          // Single worklet chunk: processor + polyfill + rnnoise-wasm. ?url import must resolve to this
+          // one file only; otherwise the browser loads a small chunk that imports another → 404→index.html.
+          if (id.includes('rnnoise-worklet-processor') || id.includes('rnnoise-worklet-polyfill') || id.includes('rnnoise-wasm')) {
+            return 'rnnoise-worklet-processor'
+          }
           if (id.includes('node_modules')) {
-            // Keep rnnoise-wasm inside the worklet chunk (return undefined). Else it goes to vendor
-            // and the worklet's second request can 404→index.html → "unexpected token: keyword 'class'".
-            if (id.includes('rnnoise-wasm')) return undefined
             if (id.includes('lucide-react')) return 'lucide'
             if (id.includes('@tauri-apps')) return 'tauri'
             if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'
