@@ -84,8 +84,6 @@ function App() {
           const raw = localStorage.getItem('voxpery-last-status')
           if (raw === 'online' || raw === 'dnd' || raw === 'offline') {
             last = raw
-          } else if (raw === 'idle') {
-            last = 'online'
           }
         } catch {
           // ignore

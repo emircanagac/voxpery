@@ -32,16 +32,11 @@ pub struct UserPublic {
 
 impl From<User> for UserPublic {
     fn from(u: User) -> Self {
-        let status = if u.status.eq_ignore_ascii_case("idle") {
-            "online".to_string()
-        } else {
-            u.status
-        };
         Self {
             id: u.id,
             username: u.username,
             avatar_url: u.avatar_url,
-            status,
+            status: u.status,
             dm_privacy: u.dm_privacy,
             username_changed_at: u.username_changed_at,
         }

@@ -883,7 +883,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         className="home-member-row is-clickable"
                         onClick={() => openMessageForFriend(friend.id)}
                       >
-                        <div className={`home-member-avatar avatar-status-${((): string => { const s = (friend.status ?? 'offline').toLowerCase(); return s === 'idle' ? 'online' : ['online', 'dnd', 'offline'].includes(s) ? s : 'offline'; })()} ${isSpeaking ? 'is-speaking' : ''}`}>
+                        <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'} ${isSpeaking ? 'is-speaking' : ''}`}>
                           {friend.avatar_url ? (
                             <img src={friend.avatar_url} alt="" />
                           ) : (

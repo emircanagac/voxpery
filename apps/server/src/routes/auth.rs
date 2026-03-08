@@ -751,7 +751,6 @@ async fn update_status(
     Json(body): Json<UpdateStatusRequest>,
 ) -> Result<Json<UserPublic>, AppError> {
     let status = body.status.trim().to_lowercase();
-    let status = if status == "idle" { "online".to_string() } else { status };
     if !matches!(status.as_str(), "online" | "dnd" | "offline") {
         return Err(AppError::Validation(
             "Status must be one of: online, dnd, offline".into(),

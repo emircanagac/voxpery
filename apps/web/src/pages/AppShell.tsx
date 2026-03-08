@@ -60,18 +60,17 @@ export default function AppShell() {
   useEffect(() => {
     if (!user || statusRestoredRef.current || !isConnected) return
     const last = localStorage.getItem(LAST_STATUS_KEY)
-    const raw = last === 'idle' ? 'online' : last
-    const valid = raw === 'online' || raw === 'dnd' || raw === 'offline'
+    const valid = last === 'online' || last === 'dnd' || last === 'offline'
     if (!valid) {
       statusRestoredRef.current = true
       return
     }
-    if (user.status === raw) {
+    if (user.status === last) {
       statusRestoredRef.current = true
       return
     }
     statusRestoredRef.current = true
-    authApi.updateStatus(raw as 'online' | 'dnd' | 'offline', token ?? null).then(
+    authApi.updateStatus(last as 'online' | 'dnd' | 'offline', token ?? null).then(
       (updated) => setUserStatus(updated.status),
       () => { },
     )

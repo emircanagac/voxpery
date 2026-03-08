@@ -38,7 +38,7 @@ export default function MemberSidebar() {
 
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
     const statusLabel = (s: string) =>
-        ({ online: 'Online', idle: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
+        ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
@@ -149,7 +149,7 @@ export default function MemberSidebar() {
                 })
             }}
         >
-            <div className={`member-avatar avatar-status-${(status(member) === 'idle' ? 'online' : status(member)) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
+            <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
                 {member.avatar_url ? (
                     <img src={member.avatar_url} alt="" className="member-avatar-image" />
                 ) : (
