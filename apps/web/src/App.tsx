@@ -25,6 +25,10 @@ function App() {
   const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
   const [restoring, setRestoring] = useState(true)
+  const [isGoogleRedirecting, setIsGoogleRedirecting] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return !!(window.location.hash && /#token=([^&]+)/.test(window.location.hash))
+  })
   const validatedSessionRef = useRef(false)
 
   // Desktop: restore from secure storage. Web: zustand persist handles restoration.
@@ -56,6 +60,9 @@ function App() {
         })
         .catch(() => {
             validatedSessionRef.current = false // reset on failure
+        })
+        .finally(() => {
+          setIsGoogleRedirecting(false)
         })
       return
     }
@@ -113,7 +120,7 @@ function App() {
       })
   }, [restoring, user, token, setUser, logout])
 
-  if (restoring) {
+  if (restoring || isGoogleRedirecting) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
         Loading…

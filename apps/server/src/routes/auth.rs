@@ -551,7 +551,7 @@ async fn google_oauth_callback(
 
     if !is_csrf_valid {
         if !state.cookie_secure && found_oauth_state.is_none() {
-            tracing::warn!("OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev.");
+            tracing::debug!("OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev.");
         } else {
             tracing::warn!("OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'", nonce, found_oauth_state);
             let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
