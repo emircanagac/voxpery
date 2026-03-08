@@ -643,6 +643,21 @@ export function useLiveKitVoice() {
     }
   }, [destroyRnnoise, disconnectAudioContext])
 
+  // F5/Reload handling: If we are in a voice channel, aggressively tell the backend we are leaving
+  // before the websocket is destroyed. This prevents ghost users from lingering in the UI.
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const channelId = joinedChannelIdRef.current
+      if (channelId) {
+        send('LeaveVoice', null)
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [send])
+
   useEffect(() => {
     if (userId) return
     leaveVoice()
