@@ -277,7 +277,7 @@ export default function UserBar() {
       <div className="user-panel">
         <button
           type="button"
-          className={`user-avatar user-avatar-btn avatar-status-${(user?.status === 'idle' ? 'online' : (user?.status ?? 'online')) as StatusValue}`}
+          className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
           onClick={() => {
             setShowStatusMenu((v) => !v)
             setStatusError(null)

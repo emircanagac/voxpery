@@ -1,5 +1,6 @@
 import { PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { useShallow } from 'zustand/react/shallow'
@@ -698,64 +699,68 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         ? 'is-connecting'
         : 'is-connected'
 
+  const screenShareModal = showScreenShareConfirm && (
+    <div className="modal-overlay" onClick={() => setShowScreenShareConfirm(false)}>
+      <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Share your screen</h3>
+        <p>
+          Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.
+        </p>
+        <div className="screen-share-quality-picker">
+          <label htmlFor="screen-share-quality-select">Screen share quality</label>
+          <select
+            id="screen-share-quality-select"
+            className="user-select"
+            value={screenShareQuality}
+            onChange={(e) => {
+              const raw = e.target.value
+              const next: ScreenShareQuality =
+                raw === 'presentation' || raw === 'video' || raw === 'gaming' ? raw : 'auto'
+              setScreenShareQuality(next)
+            }}
+          >
+            <option value="auto">Auto</option>
+            <option value="presentation">Presentation</option>
+            <option value="video">Video</option>
+            <option value="gaming">Gaming</option>
+          </select>
+          <div className="screen-share-quality-summary">{screenShareQualitySummary(screenShareQuality)}</div>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => setShowScreenShareConfirm(false)}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void confirmScreenShare()}>
+            Share screen
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const cameraModal = showCameraConfirm && (
+    <div className="modal-overlay" onClick={() => setShowCameraConfirm(false)}>
+      <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Turn on camera</h3>
+        <p>
+          Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => setShowCameraConfirm(false)}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void confirmCamera()}>
+            Turn on camera
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <>
-      {showScreenShareConfirm && (
-        <div className="modal-overlay" onClick={() => setShowScreenShareConfirm(false)}>
-          <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Share your screen</h3>
-            <p>
-              Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.
-            </p>
-            <div className="screen-share-quality-picker">
-              <label htmlFor="screen-share-quality-select">Screen share quality</label>
-              <select
-                id="screen-share-quality-select"
-                className="user-select"
-                value={screenShareQuality}
-                onChange={(e) => {
-                  const raw = e.target.value
-                  const next: ScreenShareQuality =
-                    raw === 'presentation' || raw === 'video' || raw === 'gaming' ? raw : 'auto'
-                  setScreenShareQuality(next)
-                }}
-              >
-                <option value="auto">Auto</option>
-                <option value="presentation">Presentation</option>
-                <option value="video">Video</option>
-                <option value="gaming">Gaming</option>
-              </select>
-              <div className="screen-share-quality-summary">{screenShareQualitySummary(screenShareQuality)}</div>
-            </div>
-            <div className="modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowScreenShareConfirm(false)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={() => void confirmScreenShare()}>
-                Share screen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {showCameraConfirm && (
-        <div className="modal-overlay" onClick={() => setShowCameraConfirm(false)}>
-          <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Turn on camera</h3>
-            <p>
-              Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowCameraConfirm(false)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={() => void confirmCamera()}>
-                Turn on camera
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {typeof document !== 'undefined' && createPortal(screenShareModal, document.body)}
+      {typeof document !== 'undefined' && createPortal(cameraModal, document.body)}
       {showVoiceStage && (
         <div
           className="screen-share-stage"
