@@ -47,12 +47,16 @@ function App() {
     if (tokenMatch) {
       const tokenFromHash = decodeURIComponent(tokenMatch[1])
       window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      // Prevent the second useEffect from firing immediately by setting validation ref
+      validatedSessionRef.current = true
       authApi
         .getMe(tokenFromHash)
         .then((freshUser) => {
           useAuthStore.getState().setAuth(tokenFromHash, freshUser)
         })
-        .catch(() => {})
+        .catch(() => {
+            validatedSessionRef.current = false // reset on failure
+        })
       return
     }
     validatedSessionRef.current = true

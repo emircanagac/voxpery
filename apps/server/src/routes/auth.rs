@@ -435,8 +435,14 @@ async fn google_oauth_start(
     } else {
         "/app/friends"
     };
-    let origin = q.origin.as_deref().unwrap_or("http://localhost:5173").trim();
-    let state_param = BASE64.encode(format!("{}\n{}", origin, redirect_path));
+    let mut origin = q.origin.as_deref().unwrap_or("http://localhost:5173").trim().to_string();
+    if !state.cors_origins.contains(&origin) {
+        tracing::warn!("Rejecting unapproved origin for Google OAuth: {}", origin);
+        origin = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
+    }
+    
+    let nonce = Uuid::new_v4().to_string();
+    let state_param = BASE64.encode(format!("{}\n{}\n{}", nonce, origin, redirect_path));
     let scope = "openid email profile";
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}&access_type=offline&prompt=consent",
@@ -445,7 +451,16 @@ async fn google_oauth_start(
         urlencoding::encode(scope),
         urlencoding::encode(&state_param),
     );
-    Redirect::temporary(&url).into_response()
+
+    let cookie = format!(
+        "oauth_state={}; HttpOnly; Path=/; Max-Age=600; SameSite=None; Secure",
+        nonce
+    );
+    let mut response = Redirect::temporary(&url).into_response();
+    if let Ok(v) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(header::SET_COOKIE, v);
+    }
+    response
 }
 
 /// Query for GET /api/auth/google/callback
@@ -464,6 +479,7 @@ struct GoogleTokenResponse {
 struct GoogleUserInfo {
     id: String,
     email: Option<String>,
+    verified_email: Option<bool>,
     name: Option<String>,
     #[serde(rename = "given_name")]
     given_name: Option<String>,
@@ -473,6 +489,7 @@ struct GoogleUserInfo {
 async fn google_oauth_callback(
     State(state): State<Arc<AppState>>,
     Query(q): Query<GoogleOAuthCallbackQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     let (client_id, client_secret) = match (state.google_client_id.as_ref(), state.google_client_secret.as_ref()) {
         (Some(id), Some(sec)) if !id.is_empty() && !sec.is_empty() => (id.clone(), sec.clone()),
@@ -491,21 +508,61 @@ async fn google_oauth_callback(
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
 
-    let (origin, redirect_path) = q
-        .state
-        .as_ref()
-        .and_then(|s| BASE64.decode(s.as_bytes()).ok())
-        .and_then(|b| String::from_utf8(b).ok())
-        .and_then(|s| {
-            let mut parts = s.splitn(2, '\n');
-            let o = parts.next()?.trim().to_string();
-            let r = parts.next()?.trim().to_string();
-            if o.is_empty() || !r.starts_with('/') {
-                return None;
+    let decoded_state = q.state.as_ref().and_then(|s| BASE64.decode(s.as_bytes()).ok());
+    let state_string = decoded_state.and_then(|b| String::from_utf8(b).ok());
+
+    let (nonce, origin, redirect_path) = match state_string {
+        Some(ref s) => {
+            let mut parts = s.splitn(3, '\n');
+            let n = parts.next().unwrap_or("").trim().to_string();
+            let o = parts.next().unwrap_or("").trim().to_string();
+            let r = parts.next().unwrap_or("").trim().to_string();
+            if n.is_empty() || o.is_empty() || !r.starts_with('/') {
+                tracing::warn!("OAuth state parsing failed. Parts: n='{}', o='{}', r='{}'", n, o, r);
+                ("".to_string(), "http://localhost:5173".to_string(), "/app/friends".to_string())
+            } else {
+                (n, o, r)
             }
-            Some((o, r))
-        })
-        .unwrap_or_else(|| ("http://localhost:5173".to_string(), "/app/friends".to_string()));
+        }
+        None => {
+            tracing::warn!("OAuth state was None or decoding failed.");
+            ("".to_string(), "http://localhost:5173".to_string(), "/app/friends".to_string())
+        }
+    };
+
+    let mut is_csrf_valid = false;
+    let mut found_oauth_state = None;
+    if let Some(cookie_header) = headers.get(header::COOKIE) {
+        if let Ok(cookie_str) = cookie_header.to_str() {
+            for part in cookie_str.split(';') {
+                let part = part.trim();
+                let prefix = "oauth_state=";
+                if part.starts_with(prefix) {
+                    let cookie_val = &part[prefix.len()..];
+                    found_oauth_state = Some(cookie_val.to_string());
+                    if !nonce.is_empty() && nonce == cookie_val {
+                        is_csrf_valid = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    if !is_csrf_valid {
+        if !state.cookie_secure && found_oauth_state.is_none() {
+            tracing::warn!("OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev.");
+        } else {
+            tracing::warn!("OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'", nonce, found_oauth_state);
+            let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
+            let clear_cookie = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
+            let mut response = Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            if let Ok(v) = HeaderValue::from_str(clear_cookie) {
+                response.headers_mut().insert(header::SET_COOKIE, v);
+            }
+            return response;
+        }
+    }
 
     let token_url = "https://oauth2.googleapis.com/token";
     let body = [
@@ -572,6 +629,12 @@ async fn google_oauth_callback(
         .filter(|e| e.contains('@'))
         .unwrap_or_else(|| format!("{}@oauth.local", google_id));
     let email = email.trim().to_lowercase();
+
+    if let Some(false) = userinfo.verified_email {
+        tracing::warn!("Google OAuth login rejected: unverified email ({})", email);
+        let redirect_error = format!("{}?error=oauth_unverified_email", redirect_path);
+        return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+    }
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)")
         .bind(&google_id)
@@ -679,6 +742,12 @@ async fn google_oauth_callback(
     // Put token in fragment so frontend can restore session when cookie is not sent (e.g. cross-origin redirect).
     let redirect_url = format!("{}{}#token={}", origin, redirect_path, urlencoding::encode(&token));
     let mut response = Redirect::temporary(&redirect_url).into_response();
+    
+    let clear_oauth_state = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
+    if let Ok(v) = HeaderValue::from_str(clear_oauth_state) {
+        response.headers_mut().insert(header::SET_COOKIE, v);
+    }
+    
     for (k, v) in cookie_headers.iter() {
         if let Ok(v) = v.to_str() {
             response.headers_mut().insert(
