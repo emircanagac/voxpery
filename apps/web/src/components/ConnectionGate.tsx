@@ -60,13 +60,11 @@ export default function ConnectionGate({ children }: Props) {
                 <div className="connection-gate-spinner" />
 
                 <h2 className="connection-gate-title">
-                    {isChecking ? 'Connecting…' : 'Unable to Connect'}
+                    {isChecking ? 'Loading…' : 'Unable to Connect'}
                 </h2>
 
                 <p className="connection-gate-desc">
-                    {isChecking
-                        ? 'Checking connection to the Voxpery server.'
-                        : 'The server is currently unreachable. Retrying automatically…'}
+                    {isChecking ? 'Please wait.' : 'The server is currently unreachable. Retrying automatically…'}
                 </p>
 
                 {!isChecking && (

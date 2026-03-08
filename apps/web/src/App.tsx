@@ -122,13 +122,13 @@ function App() {
   }, [restoring, user, token, setUser, logout])
 
   if (restoring || isGoogleRedirecting) {
-    return <GlobalLoading />
+    return <GlobalLoading label="Loading…" description="Please wait." />
   }
 
   if (!user) {
     return (
       <ConnectionGate>
-        <Suspense fallback={<GlobalLoading />}>
+        <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -145,7 +145,7 @@ function App() {
     <ConnectionGate>
       <ErrorBoundary>
         <RnnoisePreloadOnInteraction />
-        <Suspense fallback={<GlobalLoading />}>
+        <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
           <Routes>
             <Route path="/app" element={<AppShell />}>
               <Route path="social" element={<UnifiedLayout />} />
