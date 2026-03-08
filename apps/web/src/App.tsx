@@ -6,6 +6,7 @@ import { isTauri } from './secureStorage'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
+import GlobalLoading from './components/GlobalLoading'
 import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
@@ -121,17 +122,13 @@ function App() {
   }, [restoring, user, token, setUser, logout])
 
   if (restoring || isGoogleRedirecting) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        Loading…
-      </div>
-    )
+    return <GlobalLoading />
   }
 
   if (!user) {
     return (
       <ConnectionGate>
-        <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>Loading…</div>}>
+        <Suspense fallback={<GlobalLoading />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -148,7 +145,7 @@ function App() {
     <ConnectionGate>
       <ErrorBoundary>
         <RnnoisePreloadOnInteraction />
-        <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>Loading…</div>}>
+        <Suspense fallback={<GlobalLoading />}>
           <Routes>
             <Route path="/app" element={<AppShell />}>
               <Route path="social" element={<UnifiedLayout />} />
