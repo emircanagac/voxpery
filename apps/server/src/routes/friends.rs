@@ -79,12 +79,16 @@ async fn list_friends(
     .fetch_all(&state.db)
     .await?;
 
-    // Use live WebSocket sessions for online/offline; DB can be stale (tab close, crash, etc.)
+    // Use live WebSocket sessions for online/offline; DB can be stale (tab close, crash, etc.). Idle is treated as online.
     let with_presence: Vec<FriendUser> = rows
         .into_iter()
         .map(|r| {
             let status = if state.sessions.contains_key(&r.id) {
-                r.status
+                if r.status.eq_ignore_ascii_case("idle") {
+                    "online".to_string()
+                } else {
+                    r.status
+                }
             } else {
                 "offline".to_string()
             };

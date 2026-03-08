@@ -79,11 +79,13 @@ function App() {
       .getMe(token)
       .then(async (freshUser) => {
         // Try to restore last status
-        let last: 'online' | 'idle' | 'dnd' | 'offline' | null = null
+        let last: 'online' | 'dnd' | 'offline' | null = null
         try {
           const raw = localStorage.getItem('voxpery-last-status')
-          if (raw === 'online' || raw === 'idle' || raw === 'dnd' || raw === 'offline') {
+          if (raw === 'online' || raw === 'dnd' || raw === 'offline') {
             last = raw
+          } else if (raw === 'idle') {
+            last = 'online'
           }
         } catch {
           // ignore

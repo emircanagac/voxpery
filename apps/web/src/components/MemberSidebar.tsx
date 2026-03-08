@@ -38,7 +38,7 @@ export default function MemberSidebar() {
 
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
     const statusLabel = (s: string) =>
-        ({ online: 'Online', idle: 'Idle', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
+        ({ online: 'Online', idle: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
@@ -111,7 +111,7 @@ export default function MemberSidebar() {
 
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
     const isOnline = (m: { status?: string | null }) =>
-        status(m) === 'online' || status(m) === 'idle' || status(m) === 'dnd'
+        status(m) === 'online' || status(m) === 'dnd'
     const roleOrder = (r: string) => (r === 'owner' ? 0 : r === 'moderator' ? 1 : 2)
     const byRoleThenName = (a: (typeof members)[0], b: (typeof members)[0]) =>
         roleOrder(a.role) - roleOrder(b.role) || a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
@@ -149,7 +149,7 @@ export default function MemberSidebar() {
                 })
             }}
         >
-            <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
+            <div className={`member-avatar avatar-status-${(status(member) === 'idle' ? 'online' : status(member)) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
                 {member.avatar_url ? (
                     <img src={member.avatar_url} alt="" className="member-avatar-image" />
                 ) : (

@@ -4,7 +4,7 @@ let audioCtx: AudioContext | null = null
 
 export function shouldPlayNotificationSound(status: string | undefined): boolean {
   if (localStorage.getItem(SOUND_KEY) === '0') return false
-  return status === 'online' || status === 'idle'
+  return status === 'online'
 }
 
 export function playMessageNotificationSound(): void {

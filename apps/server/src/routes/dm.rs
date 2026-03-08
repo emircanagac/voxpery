@@ -144,12 +144,16 @@ async fn list_dm_channels(
     .fetch_all(&state.db)
     .await?;
 
-    // Use live WebSocket sessions for peer online/offline
+    // Use live WebSocket sessions for peer online/offline. Idle is treated as online.
     let with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
             let peer_status = if state.sessions.contains_key(&r.peer_id) {
-                r.peer_status
+                if r.peer_status.eq_ignore_ascii_case("idle") {
+                    "online".to_string()
+                } else {
+                    r.peer_status
+                }
             } else {
                 "offline".to_string()
             };
@@ -302,7 +306,11 @@ async fn get_or_create_dm_channel(
     .await?;
 
     let peer_status = if state.sessions.contains_key(&info.peer_id) {
-        info.peer_status.clone()
+        if info.peer_status.eq_ignore_ascii_case("idle") {
+            "online".to_string()
+        } else {
+            info.peer_status.clone()
+        }
     } else {
         "offline".to_string()
     };

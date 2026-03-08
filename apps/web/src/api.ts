@@ -211,7 +211,7 @@ export const authApi = {
         }),
 
     /** token optional: web uses httpOnly cookie when null. */
-    updateStatus: (status: 'online' | 'idle' | 'dnd' | 'offline', token: string | null) =>
+    updateStatus: (status: 'online' | 'dnd' | 'offline', token: string | null) =>
         apiFetch<UserPublic>('/api/auth/status', {
             method: 'PATCH',
             body: { status },

@@ -30,7 +30,6 @@ function getInitial(name: string) {
 
 function statusLabel(status?: string) {
   if (status === 'dnd') return 'Do Not Disturb'
-  if (status === 'idle') return 'Idle'
   if (status === 'offline') return 'Offline'
   return 'Online'
 }
@@ -147,7 +146,7 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
 
-  const updateMyStatus = async (status: 'online' | 'idle' | 'dnd' | 'offline') => {
+  const updateMyStatus = async (status: 'online' | 'dnd' | 'offline') => {
     if (isTauri() && !token) return
     flushSync(() => {
       setShowStatusMenu(false)
@@ -278,7 +277,7 @@ export default function UserBar() {
       <div className="user-panel">
         <button
           type="button"
-          className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
+          className={`user-avatar user-avatar-btn avatar-status-${(user?.status === 'idle' ? 'online' : (user?.status ?? 'online')) as StatusValue}`}
           onClick={() => {
             setShowStatusMenu((v) => !v)
             setStatusError(null)

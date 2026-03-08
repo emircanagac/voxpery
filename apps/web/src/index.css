@@ -31,7 +31,6 @@
 
   /* Online Status (vivid for avatar dot and badges) */
   --status-online: #22c55e;
-  --status-idle: #f59e0b;
   --status-dnd: #ef4444;
   --status-offline: #64748b;
   /* Status icon sizing (shared across profile, member list, DM/friends) */
@@ -1256,10 +1255,6 @@ body {
   background: var(--status-online);
 }
 
-.status-dot.idle {
-  background: var(--status-idle);
-}
-
 .status-dot.dnd {
   background: var(--status-dnd);
 }
@@ -1289,17 +1284,14 @@ body {
 }
 /* Badge as colored dot (no icon) for all statuses */
 .status-icon-badge-dot-online { background: var(--status-online, #43b581); }
-.status-icon-badge-dot-idle { background: var(--status-idle, #faa61a); }
 .status-icon-badge-dot-dnd { background: var(--status-dnd, #f04747); }
 .status-icon-badge-dot-offline { background: var(--status-offline, #747f8d); }
 
 /* Status as small corner dot on avatar (no ring). */
 .avatar-status-online,
-.avatar-status-idle,
 .avatar-status-dnd,
 .avatar-status-offline,
 .home-member-avatar.avatar-status-online,
-.home-member-avatar.avatar-status-idle,
 .home-member-avatar.avatar-status-dnd,
 .home-member-avatar.avatar-status-offline {
   position: relative;
@@ -1315,19 +1307,6 @@ body {
   height: 12px;
   border-radius: 50%;
   background: var(--status-online, #22c55e);
-  border: 2px solid var(--sidebar-bg, #1e1f22);
-  box-sizing: border-box;
-}
-.avatar-status-idle::after,
-.home-member-avatar.avatar-status-idle::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--status-idle, #f59e0b);
   border: 2px solid var(--sidebar-bg, #1e1f22);
   box-sizing: border-box;
 }
@@ -1369,15 +1348,6 @@ body {
 }
 
 .status-icon-online svg {
-  fill: currentColor;
-  stroke: none;
-}
-
-.status-icon-idle {
-  color: var(--status-idle, #f59e0b);
-}
-
-.status-icon-idle svg {
   fill: currentColor;
   stroke: none;
 }
@@ -1600,7 +1570,6 @@ body {
   flex-shrink: 0;
 }
 .user-status-option-dot.online { background: var(--status-online, #43b581); }
-.user-status-option-dot.idle { background: var(--status-idle, #faa61a); }
 .user-status-option-dot.dnd { background: var(--status-dnd, #f04747); }
 .user-status-option-dot.offline { background: var(--status-offline, #747f8d); }
 
@@ -1617,15 +1586,6 @@ body {
 }
 
 .user-status-option-online .user-status-option-icon svg {
-  fill: currentColor;
-  stroke: none;
-}
-
-.user-status-option-idle .user-status-option-icon {
-  color: var(--status-idle, #f59e0b);
-}
-
-.user-status-option-idle .user-status-option-icon svg {
   fill: currentColor;
   stroke: none;
 }
@@ -2215,10 +2175,6 @@ body {
 
 .user-status-indicator.online {
   background: var(--status-online);
-}
-
-.user-status-indicator.idle {
-  background: var(--status-idle);
 }
 
 .user-status-indicator.dnd {

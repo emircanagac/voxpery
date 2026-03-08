@@ -188,10 +188,12 @@ async fn get_server(
     .fetch_all(&state.db)
     .await?;
 
-    // Use live WebSocket sessions for online/offline (same as friends list)
+    // Use live WebSocket sessions for online/offline (same as friends list). Idle is treated as online.
     for m in &mut members {
         if !state.sessions.contains_key(&m.user_id) {
             m.status = "offline".to_string();
+        } else if m.status.eq_ignore_ascii_case("idle") {
+            m.status = "online".to_string();
         }
     }
 

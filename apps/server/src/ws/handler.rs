@@ -177,13 +177,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
 
     let sub_channels = subscribed_channels.clone();
 
-    // Do not overwrite persisted status on connect (online/idle/dnd/offline).
-    // Broadcast current DB status so all clients stay consistent after reload/reconnect.
+    // Do not overwrite persisted status on connect (online/dnd/offline). Idle is treated as online.
     let current_status = match sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_optional(&state.db)
         .await
     {
+        Ok(Some(s)) if s.eq_ignore_ascii_case("idle") => "online".to_string(),
         Ok(Some(status)) => status,
         Ok(None) => "online".to_string(),
         Err(e) => {
