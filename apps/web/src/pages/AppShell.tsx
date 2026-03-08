@@ -276,22 +276,6 @@ export default function AppShell() {
   const isServerView = !!activeServerId && location.pathname.startsWith('/app/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
 
-  const handleCheckUpdates = async () => {
-    if (!isTauri() || updating) return
-    setUpdating(true)
-    try {
-      const result = await checkForUpdates()
-      if (result.available) {
-        const ok = await downloadAndInstallUpdate()
-        if (!ok) pushToast({ level: 'error', title: 'Update failed', message: 'Could not install update.' })
-      }
-    } catch {
-      pushToast({ level: 'error', title: 'Update check failed', message: 'Could not check for updates.' })
-    } finally {
-      setUpdating(false)
-    }
-  }
-
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
@@ -301,20 +285,6 @@ export default function AppShell() {
             <span>Voxpery</span>
             <span className="shell-brand-beta" title="Preview build">Beta</span>
           </button>
-        </div>
-        <div className="shell-topbar-right">
-          {isTauri() && (
-            <button
-              type="button"
-              className="shell-update-btn"
-              onClick={handleCheckUpdates}
-              disabled={updating}
-              title="Check for updates"
-            >
-              <Download size={14} />
-              {updating ? 'Checking…' : 'Update'}
-            </button>
-          )}
         </div>
       </header>
       <main className="shell-content">
