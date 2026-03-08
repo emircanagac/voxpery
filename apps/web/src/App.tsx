@@ -2,7 +2,9 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, isAuthError } from './api'
-import { isTauri } from './secureStorage'
+import { isTauri, setSecureToken } from './secureStorage'
+import { onOpenUrl } from '@tauri-apps/plugin-deep-link'
+import { listen } from '@tauri-apps/api/event'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
@@ -36,6 +38,50 @@ function App() {
   useEffect(() => {
     if (isTauri()) {
       restoreSecureSession().finally(() => setRestoring(false))
+
+      // Listen for deep links (Google OAuth callback)
+      let unlisten: (() => void) | undefined
+      let unlistenCustom: (() => void) | undefined
+
+      const handleDeepLinkUrl = (url: string) => {
+        try {
+          const parsed = new URL(url)
+          const tokenMatch = parsed.hash && /#token=([^&]+)/.exec(parsed.hash)
+          if (tokenMatch) {
+            const tokenFromHash = decodeURIComponent(tokenMatch[1])
+            authApi
+              .getMe(tokenFromHash)
+              .then((freshUser) => {
+                useAuthStore.getState().setAuth(tokenFromHash, freshUser)
+                setSecureToken(tokenFromHash).catch(() => {})
+              })
+              .catch((err) => {
+                 console.error("Deep link auth error:", err)
+              })
+          }
+        } catch (err) {
+          console.error("Deep link URL parse error:", err)
+        }
+      }
+
+      onOpenUrl((urls) => {
+        for (const url of urls) {
+          handleDeepLinkUrl(url)
+        }
+      })
+        .then((fn) => { unlisten = fn })
+        .catch(console.error)
+
+      listen<string>('custom-deep-link', (event) => {
+        handleDeepLinkUrl(event.payload)
+      })
+        .then((fn) => { unlistenCustom = fn })
+        .catch(console.error)
+
+      return () => {
+        if (unlisten) unlisten()
+        if (unlistenCustom) unlistenCustom()
+      }
     } else {
       // Web: wait for zustand persist to rehydrate, then mark as ready
       queueMicrotask(() => setRestoring(false))

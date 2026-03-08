@@ -99,7 +99,12 @@ async fn main() {
 
     let app = build_app(state, config.cors_origins);
 
-    let addr = format!("{}:{}", config.server_host, config.server_port);
+    let host = if config.server_host == "0.0.0.0" {
+        "[::]"
+    } else {
+        &config.server_host
+    };
+    let addr = format!("{}:{}", host, config.server_port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("🚀 Voxpery server running on {}", addr);
 

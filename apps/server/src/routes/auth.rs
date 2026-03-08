@@ -2,7 +2,7 @@ use axum::{
     extract::{Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
-    response::{IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect},
     routing::{get, patch, post},
     Extension, Json, Router,
 };
@@ -741,13 +741,55 @@ async fn google_oauth_callback(
     let cookie_headers = auth_cookie_header(&state, &token);
     // Put token in fragment so frontend can restore session when cookie is not sent (e.g. cross-origin redirect).
     let redirect_url = format!("{}{}#token={}", origin, redirect_path, urlencoding::encode(&token));
-    let mut response = Redirect::temporary(&redirect_url).into_response();
-    
+
+    let mut response = if origin.starts_with("voxpery://") {
+        // Desktop UX: Return a nice HTML page that triggers the deep link and tells user to close tab.
+        let html = format!(
+            r#"<!DOCTYPE html>
+    <html>
+    <head>
+    <title>Authenticating...</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }}
+        .card {{ background: #313244; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 400px; }}
+        h1 {{ color: #89b4fa; margin-bottom: 1rem; }}
+        p {{ line-height: 1.5; color: #a6adc8; }}
+        .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; transition: opacity 0.2s; }}
+        .btn:hover {{ opacity: 0.9; }}
+    </style>
+    </head>
+    <body>
+    <div class="card">
+        <h1>Login Successful!</h1>
+        <p>You are being redirected to the Voxpery desktop app.</p>
+        <p>If the app doesn't open, you can click the button below or safely close this tab.</p>
+        <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
+            <a href="{}" class="btn" style="margin-top: 0;">Back to App</a>
+        </div>
+    </div>
+    <script>
+        // Try to redirect automatically
+        window.location.href = "{}";
+        // Close window after a delay (often blocked by browsers but worth a try)
+        setTimeout(() => {{
+            // Some browsers allow closing if opened via script, though OAuth is usually not the case.
+            // window.close();
+        }}, 3000);
+    </script>
+    </body>
+    </html>"#,
+            redirect_url, redirect_url
+        );
+        Html(html).into_response()
+    } else {
+        Redirect::temporary(&redirect_url).into_response()
+    };
+
     let clear_oauth_state = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
     if let Ok(v) = HeaderValue::from_str(clear_oauth_state) {
         response.headers_mut().insert(header::SET_COOKIE, v);
     }
-    
+
     for (k, v) in cookie_headers.iter() {
         if let Ok(v) = v.to_str() {
             response.headers_mut().insert(
@@ -757,8 +799,7 @@ async fn google_oauth_callback(
         }
     }
     response
-}
-
+    }
 /// GET /api/auth/me — current user from token (for desktop secure-storage restore).
 async fn get_me(
     State(state): State<Arc<AppState>>,

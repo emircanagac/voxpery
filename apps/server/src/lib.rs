@@ -137,6 +137,7 @@ fn is_local_origin(origin: &str) -> bool {
         || origin.starts_with("https://127.0.0.1")
         || origin.starts_with("tauri://localhost")
         || origin.starts_with("tauri://127.0.0.1")
+        || origin.starts_with("voxpery://auth")
 }
 
 /// Validates CORS and cookie security configuration (used at startup).

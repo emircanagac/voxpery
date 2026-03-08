@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi, getAuthErrorMessage, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { isTauri, setSecureToken } from '../secureStorage'
+import { openExternalUrl } from '../openExternalUrl'
 
 function GoogleLogoIcon() {
     return (
@@ -44,6 +45,14 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
     const navigate = useNavigate()
+
+    const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
+        if (isTauri()) {
+            e.preventDefault()
+            const url = getGoogleAuthUrl(redirectTo)
+            await openExternalUrl(url)
+        }
+    }
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault()
@@ -110,6 +119,7 @@ export default function LoginPage() {
                 <a
                     href={getGoogleAuthUrl(redirectTo)}
                     className="auth-btn-google"
+                    onClick={handleGoogleLogin}
                 >
                     <GoogleLogoIcon />
                     <span>Continue with Google</span>

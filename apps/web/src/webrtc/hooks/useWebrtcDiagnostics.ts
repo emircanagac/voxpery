@@ -168,19 +168,12 @@ export function useWebrtcDiagnostics(options: {
                     setRtcPingMs(Math.round(rttHint))
                 } else {
                     // Fallback HTTP Ping
-                    const apiBase = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001'
-                    const headers: Record<string, string> = {}
-                    if (token) headers.Authorization = `Bearer ${token}`
                     const startedAt = performance.now()
                     try {
-                        await fetch(`${apiBase}/api/auth/me`, {
-                            method: 'GET',
-                            headers,
-                            credentials: 'include',
-                            cache: 'no-store',
-                        })
+                        const { checkHealth } = await import('../../api')
+                        const ok = await checkHealth()
                         const elapsed = Math.round(performance.now() - startedAt)
-                        if (elapsed > 0 && Number.isFinite(elapsed)) {
+                        if (ok && elapsed > 0 && Number.isFinite(elapsed)) {
                             setRtcPingMs(elapsed)
                         } else if (roomState !== 'connected') {
                             setRtcPingMs(null)

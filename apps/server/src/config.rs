@@ -57,6 +57,7 @@ impl Config {
                     "http://127.0.0.1:5173".into(),
                     "tauri://localhost".into(),
                     "tauri://127.0.0.1".into(),
+                    "voxpery://auth".into(),
                     // "null" removed from default - add explicitly via CORS_ORIGINS if needed for Tauri
                 ]
             });

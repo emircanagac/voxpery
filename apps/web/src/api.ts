@@ -25,7 +25,7 @@ export function getApiBase(): string {
 
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
 export function getGoogleAuthUrl(redirectPath: string = '/app/social'): string {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+    const origin = isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
     const params = new URLSearchParams({
         redirect: redirectPath,
         origin,
@@ -36,14 +36,21 @@ export function getGoogleAuthUrl(redirectPath: string = '/app/social'): string {
 /** Ping backend /health endpoint. Returns true if server is reachable and healthy. */
 export async function checkHealth(): Promise<boolean> {
     try {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 5000)
-        const res = await fetch(`${effectiveApiBase()}/health`, {
-            method: 'GET',
-            signal: controller.signal,
-        })
-        clearTimeout(timer)
-        return res.ok
+        const url = `${effectiveApiBase()}/health`
+        if (isTauri()) {
+            const mod = await import('@tauri-apps/plugin-http')
+            const res = await mod.fetch(url, { method: 'GET', timeout: 5 } as RequestInit & { timeout?: number })
+            return res.ok
+        } else {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 5000)
+            const res = await fetch(url, {
+                method: 'GET',
+                signal: controller.signal,
+            })
+            clearTimeout(timer)
+            return res.ok
+        }
     } catch {
         return false
     }

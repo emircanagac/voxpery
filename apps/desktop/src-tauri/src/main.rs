@@ -10,7 +10,7 @@ fn main() {
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
-        use tauri::Manager;
+        use tauri::{Manager, Emitter};
         use tauri::menu::{Menu, MenuItem};
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
         use tauri::WindowEvent;
@@ -20,14 +20,21 @@ fn main() {
             .plugin(tauri_plugin_secure_storage::init())
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_process::init())
+            .plugin(tauri_plugin_deep_link::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
             let _ = app.handle().plugin(
-                tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                tauri_plugin_single_instance::init(|app, args, _cwd| {
                     if let Some(w) = app.get_webview_window("main") {
                         let _ = w.set_focus();
                         let _ = w.unminimize();
                         let _ = w.show();
+                        for arg in args {
+                            if arg.starts_with("voxpery://") {
+                                let _ = w.emit("custom-deep-link", arg);
+                                break;
+                            }
+                        }
                     }
                 }),
             );
