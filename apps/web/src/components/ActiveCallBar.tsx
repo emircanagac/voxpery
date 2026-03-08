@@ -8,6 +8,19 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 
+interface VoxperyTrack extends MediaStreamTrack {
+  __voxpery_isCamera?: boolean
+  __voxpery_isScreenShare?: boolean
+}
+
+interface VoxperyAudioElement extends HTMLAudioElement {
+  __voxpery_trackIds?: string
+}
+
+interface VoxperyHTMLDivElement extends HTMLDivElement {
+  _idleTimeout?: ReturnType<typeof setTimeout>
+}
+
 interface ActiveCallBarProps {
   selectedVoiceChannelId: string | null
   /** Only show the voice stage (participants grid) when user has this channel selected (e.g. clicked voice channel in sidebar). */
@@ -323,12 +336,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         .filter((track) => track.readyState === 'live' && !track.muted)
       for (const track of tracks) {
         // Prefer camera: if track was published as Camera, always show "Camera" (not "Screen share")
-        if ('__voxpery_isCamera' in track && (track as any).__voxpery_isCamera) {
+        if ('__voxpery_isCamera' in track && (track as VoxperyTrack).__voxpery_isCamera) {
           entries.push({ peerId, track, label: 'Camera' })
           continue
         }
         // Screen share: authoritative set from useLiveKitVoice or property set on subscribe
-        let isScreen = state.remoteScreenTrackIds.has(track.id) || !!(track as any).__voxpery_isScreenShare
+        let isScreen = state.remoteScreenTrackIds.has(track.id) || !!(track as VoxperyTrack).__voxpery_isScreenShare
         if (!isScreen) {
           const label = (track.label || '').toLowerCase()
           isScreen =
@@ -350,14 +363,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     for (const [peerId, stream] of state.remoteStreams.entries()) {
-      const el = remoteAudioRefsRef.current.get(peerId)
+      const el = remoteAudioRefsRef.current.get(peerId) as VoxperyAudioElement | undefined
       if (!el) continue
       // Force srcObject re-assignment when track count changes (e.g. screen share audio added)
       const currentTrackIds = stream.getTracks().map(t => t.id).sort().join(',')
-      const prevTrackIds = (el as any).__voxpery_trackIds as string | undefined
+      const prevTrackIds = el.__voxpery_trackIds
       if (el.srcObject !== stream || currentTrackIds !== prevTrackIds) {
         el.srcObject = new MediaStream(stream.getTracks())
-          ; (el as any).__voxpery_trackIds = currentTrackIds
+        el.__voxpery_trackIds = currentTrackIds
       }
       if (!perPeerAudioCtxRef.current.has(peerId)) {
         el.muted = deafenedRef.current
@@ -368,12 +381,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
+    const remoteVideoStreams = remoteVideoStreamByTrackIdRef.current
     return () => {
       for (const t of retryTimers.values()) {
         window.clearTimeout(t)
       }
       retryTimers.clear()
-      remoteVideoStreamByTrackIdRef.current.clear()
+      remoteVideoStreams.clear()
     }
   }, [])
 
@@ -428,7 +442,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
     }
     void tryAutoJoin()
-  }, [blockedAutoJoinChannelId, joinVoice, leaveVoice, selectedVoiceChannelId, state.joinedChannelId])
+  }, [blockedAutoJoinChannelId, joinVoice, leaveVoice, selectedVoiceChannelId, state.joinedChannelId, state.livekit])
 
   useEffect(() => {
     if (!state.livekit) return
@@ -458,7 +472,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
       }
     }
-  }, [joinVoice, leaveVoice, state.isJoining, state.joinedChannelId, state.livekit])
+    }, [joinVoice, leaveVoice, state.isJoining, state.joinedChannelId, state.livekit])
 
   // Unblock auto-join when user switches to another channel.
   useEffect(() => {
@@ -619,19 +633,19 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   // This prevents transient state desync from making controls disappear.
   if (!state.joinedChannelId && !state.localStream) return null
   const handleTileMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const tile = e.currentTarget
+    const tile = e.currentTarget as VoxperyHTMLDivElement
     tile.classList.remove('is-mouse-idle')
-    const to = (tile as any)._idleTimeout
+    const to = tile._idleTimeout
     if (to) clearTimeout(to)
-      ; (tile as any)._idleTimeout = setTimeout(() => {
-        tile.classList.add('is-mouse-idle')
-      }, 1000)
+    tile._idleTimeout = setTimeout(() => {
+      tile.classList.add('is-mouse-idle')
+    }, 1000)
   }
 
   const handleTileMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-    const tile = e.currentTarget
+    const tile = e.currentTarget as VoxperyHTMLDivElement
     tile.classList.remove('is-mouse-idle')
-    const to = (tile as any)._idleTimeout
+    const to = tile._idleTimeout
     if (to) clearTimeout(to)
   }
 

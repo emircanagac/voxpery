@@ -570,7 +570,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         })
       }
     },
-    [token, activeDmChannelId, dmMessages, user]
+    [token, activeDmChannelId, dmMessages, user, clearDmUnread]
   )
 
 

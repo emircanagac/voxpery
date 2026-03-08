@@ -85,7 +85,10 @@ export function useLiveKitVoice() {
   const [participantCount, setParticipantCount] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
 
-  const remoteStreams = useMemo(() => new Map(remoteStreamsRef.current), [remoteStreamsVersion])
+  const remoteStreams = useMemo(() => {
+    void remoteStreamsVersion
+    return new Map(remoteStreamsRef.current)
+  }, [remoteStreamsVersion])
 
   const { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack, setRnnoiseEnabled, destroyRnnoise } = useAudioEngine()
   const { applyLocalMicSettings, getMicrophoneStream, getScreenStream, getScreenShareEncoding, getInputVolumeFactor, cleanupLocalMedia } = useLocalMedia()
@@ -274,7 +277,7 @@ export function useLiveKitVoice() {
 
       const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
 
-      let iceServers: RTCIceServer[] = [
+      const iceServers: RTCIceServer[] = [
         { urls: ['stun:stun.l.google.com:19302'] },
         { urls: ['stun:stun1.l.google.com:19302'] },
       ]
@@ -447,9 +450,9 @@ export function useLiveKitVoice() {
     } finally {
       setIsJoining(false)
     }
-  }, [buildMicSendTrack, cleanupLocalMedia, closePeer, getMicrophoneStream, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
+    }, [buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
 
-  const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
+    const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
     if (joinedChannelIdRef.current && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
     send('LeaveVoice', null)
@@ -555,7 +558,7 @@ export function useLiveKitVoice() {
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
     send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: true, camera_on: !!control?.cameraOn })
-  }, [getScreenStream, refreshLocalStreams, send, stopScreenShare, userId])
+  }, [getScreenShareEncoding, getScreenStream, refreshLocalStreams, send, stopScreenShare, userId])
 
   const startCamera = useCallback(async () => {
     const room = roomRef.current

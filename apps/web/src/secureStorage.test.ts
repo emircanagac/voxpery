@@ -10,7 +10,7 @@ describe('secureStorage', () => {
     it('should detect Tauri from window properties', () => {
       // Mock Tauri v2 environment
       const originalWindow = global.window
-      ;(global as any).window = {
+      ;(global as unknown as { window: unknown }).window = {
         ...originalWindow,
         __TAURI_INTERNALS__: {},
       }
@@ -18,7 +18,7 @@ describe('secureStorage', () => {
       expect(isTauri()).toBe(true)
 
       // Restore
-      global.window = originalWindow
+      ;(global as unknown as { window: unknown }).window = originalWindow
     })
   })
 })

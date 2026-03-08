@@ -880,7 +880,7 @@ export function useWebRTCVoice() {
         }
         params.encodings[0].maxBitrate = 2500000 // 2.5 Mbps
         if ('networkPriority' in params.encodings[0]) {
-          (params.encodings[0] as any).networkPriority = 'high'
+          (params.encodings[0] as RTCRtpEncodingParameters & { networkPriority: string }).networkPriority = 'high'
         }
         await tx.sender.setParameters(params)
       } catch {

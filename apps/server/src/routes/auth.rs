@@ -537,8 +537,7 @@ async fn google_oauth_callback(
             for part in cookie_str.split(';') {
                 let part = part.trim();
                 let prefix = "oauth_state=";
-                if part.starts_with(prefix) {
-                    let cookie_val = &part[prefix.len()..];
+                if let Some(cookie_val) = part.strip_prefix(prefix) {
                     found_oauth_state = Some(cookie_val.to_string());
                     if !nonce.is_empty() && nonce == cookie_val {
                         is_csrf_valid = true;

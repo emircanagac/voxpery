@@ -78,11 +78,11 @@ class MockMediaStream {
   }
 
   getAudioTracks() {
-    return this.tracks.filter((t: any) => t.kind === 'audio')
+    return this.tracks.filter((t) => t.kind === 'audio')
   }
 
   getVideoTracks() {
-    return this.tracks.filter((t: any) => t.kind === 'video')
+    return this.tracks.filter((t) => t.kind === 'video')
   }
 
   addTrack(track: MediaStreamTrack) {
@@ -103,5 +103,5 @@ class MockMediaStream {
 }
 
 // Assign to globalThis
-globalThis.MediaStreamTrack = MockMediaStreamTrack as any
-globalThis.MediaStream = MockMediaStream as any
+Object.defineProperty(globalThis, 'MediaStreamTrack', { value: MockMediaStreamTrack })
+Object.defineProperty(globalThis, 'MediaStream', { value: MockMediaStream })

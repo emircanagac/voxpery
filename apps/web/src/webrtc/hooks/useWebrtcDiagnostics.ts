@@ -8,7 +8,7 @@ export function useWebrtcDiagnostics(options: {
     roomState: string
     remoteStreamsVersion: number
     token: string | null
-    send: (type: string, data: any) => void
+    send: (type: string, data: unknown) => void
     subscribe: (cb: (evt: unknown) => void) => () => void
 }) {
     const { joinedChannelId, isConnected, roomRef, roomState, remoteStreamsVersion, token, send, subscribe } = options

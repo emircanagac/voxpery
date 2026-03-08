@@ -8,7 +8,7 @@ import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
-import { authApi, dmApi, friendApi, type DmChannel, type Friend } from '../api'
+import { authApi, dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { checkForUpdates, downloadAndInstallUpdate, isTauri } from '../updater'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
@@ -113,7 +113,7 @@ export default function AppShell() {
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
       try {
-        const e = evt as { type?: string; data?: { user?: any; user_id?: string; channel_id?: string | null; server_id?: string | null; status?: string; muted?: boolean; deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
+        const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; status?: string; muted?: boolean; deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
         if (e?.type === 'VoiceStateUpdate') {
           const { user_id, channel_id, server_id } = e.data ?? {}
           if (user_id) {
@@ -138,7 +138,7 @@ export default function AppShell() {
           }
         }
         if (e?.type === 'UserUpdated') {
-          const updatedUser = e.data?.user as any
+          const updatedUser = e.data?.user
           if (!updatedUser || !updatedUser.id) return
 
           const store = useAppStore.getState()
@@ -148,7 +148,7 @@ export default function AppShell() {
           if (members.some((m) => m.user_id === updatedUser.id)) {
             store.setMembers(
               members.map((m) =>
-                m.user_id === updatedUser.id ? { ...m, username: updatedUser.username ?? m.username, avatar_url: updatedUser.avatar_url, status: updatedUser.status ?? m.status } : m
+                m.user_id === updatedUser.id ? { ...m, username: updatedUser.username ?? m.username, avatar_url: updatedUser.avatar_url ?? null, status: updatedUser.status ?? m.status } : m
               )
             )
           }
@@ -163,7 +163,7 @@ export default function AppShell() {
                   ? {
                     ...member,
                     username: updatedUser.username ?? member.username,
-                    avatar_url: updatedUser.avatar_url,
+                    avatar_url: updatedUser.avatar_url ?? null,
                     status: updatedUser.status ?? member.status,
                   }
                   : member,
@@ -174,7 +174,7 @@ export default function AppShell() {
           // Update in friends list
           const currentFriends = store.friends ?? []
           setFriends(
-            currentFriends.map((f: Friend) => (f.id === updatedUser.id ? { ...f, ...updatedUser } : f))
+            currentFriends.map((f: Friend) => (f.id === updatedUser.id ? { ...f, ...updatedUser, avatar_url: updatedUser.avatar_url ?? null } : f))
           )
 
           // Update in DM channels
@@ -185,7 +185,7 @@ export default function AppShell() {
                 return {
                   ...c,
                   peer_username: updatedUser.username ?? c.peer_username,
-                  peer_avatar_url: updatedUser.avatar_url,
+                  peer_avatar_url: updatedUser.avatar_url ?? null,
                 }
               }
               return c
@@ -259,7 +259,7 @@ export default function AppShell() {
       }
     })
     return () => unsub()
-  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setVoiceControl, setVoiceState, subscribe, token, user?.id])
+  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setVoiceControl, setVoiceState, subscribe, token, user?.id])
   const [updating, setUpdating] = useState(false)
   const channels = useAppStore((s) => s.channels)
   const activeChannelId = useAppStore((s) => s.activeChannelId)

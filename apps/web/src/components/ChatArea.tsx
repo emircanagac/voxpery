@@ -189,7 +189,7 @@ export default function ChatArea({
         if (!shouldAutoScrollRef.current) return
         const t = setTimeout(scrollToBottomOnceReady, 50)
         return () => clearTimeout(t)
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- only scroll when channel or message count changes
+         
     }, [activeChannel?.id, messages.length, scrollToBottomOnceReady])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
@@ -200,7 +200,7 @@ export default function ChatArea({
         shouldAutoScrollRef.current = true
         const t = setTimeout(scrollToBottomOnceReady, 80)
         return () => clearTimeout(t)
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- only when view becomes visible
+         
     }, [isViewActive, messages.length, scrollToBottomOnceReady])
 
     /* When replying to a message, scroll so the replied-to message stays visible above the reply bar */

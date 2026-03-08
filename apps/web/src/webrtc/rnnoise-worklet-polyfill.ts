@@ -3,8 +3,8 @@
 // Emscripten doesn't throw "not compiled for this environment" on load.
 
 if (typeof globalThis !== 'undefined') {
-  // @ts-ignore
+  // @ts-expect-error Spoof window for Emscripten
   globalThis.window = globalThis
-  // @ts-ignore
+  // @ts-expect-error Spoof WorkerGlobalScope for Emscripten
   globalThis.WorkerGlobalScope = globalThis
 }

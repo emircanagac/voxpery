@@ -881,8 +881,9 @@ export default function UserBar() {
                       logout()
                       navigate('/login', { replace: true })
                     }, 1500)
-                  } catch (err: any) {
-                    const msg = err?.response?.data?.message || err?.message || 'Password change failed'
+                  } catch (err: unknown) {
+                    const errorObj = err as Record<string, Record<string, Record<string, string>>>
+                    const msg = errorObj?.response?.data?.message || (err as Error)?.message || 'Password change failed'
                     setPwError(msg)
                   } finally {
                     setPwSaving(false)

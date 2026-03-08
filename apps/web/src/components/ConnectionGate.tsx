@@ -25,8 +25,14 @@ export default function ConnectionGate({ children }: Props) {
     // Initial check
     useEffect(() => {
         mountedRef.current = true
-        probe()
-        return () => { mountedRef.current = false }
+        // Delay probe slightly to avoid "set state in effect" warning during mount
+        const t = setTimeout(() => {
+            void probe()
+        }, 0)
+        return () => { 
+            mountedRef.current = false 
+            clearTimeout(t)
+        }
     }, [probe])
 
     // Auto-retry when offline

@@ -51,7 +51,7 @@ export default function DmPage() {
         setActiveChannelId(list[0].id)
       }
     }).catch(console.error)
-  }, [activeChannelId, token, userId])
+  }, [activeChannelId, token, userId, user])
 
   useEffect(() => {
     if (!user || !userId) return
@@ -63,14 +63,14 @@ export default function DmPage() {
         return [channel, ...prev]
       })
     }).catch(console.error)
-  }, [token, userId])
+  }, [token, userId, user])
 
   useEffect(() => {
     if (!user || !activeChannelId) return
     dmApi.listMessages(activeChannelId, token)
       .then((rows) => setMessages(rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))))
       .catch(console.error)
-  }, [activeChannelId, token])
+  }, [activeChannelId, token, user])
 
   useEffect(() => {
     if (!user || !activeChannelId) return
@@ -83,7 +83,7 @@ export default function DmPage() {
         .catch(() => { })
     }, 3000)
     return () => window.clearInterval(id)
-  }, [activeChannelId, token])
+  }, [activeChannelId, token, user])
 
   useEffect(() => {
     if (!activeChannelId || !isConnected) return

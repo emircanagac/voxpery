@@ -67,7 +67,7 @@ export default function MemberSidebar() {
                 console.error('Failed to update member role', e)
             }
         },
-        [activeServerId, isOwner, setMembers, token],
+        [activeServerId, isOwner, setMembers, token, user],
     )
 
     const handleAddFriend = useCallback(

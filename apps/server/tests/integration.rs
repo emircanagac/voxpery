@@ -148,7 +148,7 @@ async fn register_login_me_flow() {
     assert_eq!(status, StatusCode::OK);
     let me: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(me["username"], username);
-    assert_eq!(me["id"].as_str().is_some(), true);
+    assert!(me["id"].as_str().is_some());
 
     // Login
     let login_body = json!({

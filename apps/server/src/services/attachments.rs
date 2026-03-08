@@ -50,7 +50,7 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
     let lower = trimmed.to_lowercase();
 
     // data: URLs use a much larger limit to accommodate base64-encoded files.
-    if lower.starts_with("data:") {
+    if let Some(rest) = lower.strip_prefix("data:") {
         if trimmed.len() > MAX_DATA_URL_LEN {
             return Err(format!(
                 "Attachment file is too large (max {} MB)",
@@ -58,7 +58,6 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
             ));
         }
         // Extract the MIME type (the part between "data:" and ";" or ",")
-        let rest = &lower[5..];
         let mime = rest.split(';').next().unwrap_or("").split(',').next().unwrap_or("").trim();
 
         // Block dangerous MIME types that can execute scripts

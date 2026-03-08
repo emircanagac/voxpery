@@ -16,8 +16,12 @@ export default function InvitePage() {
 
     useEffect(() => {
         if (!user || !code?.trim()) return
-        setJoining(true)
-        setError(null)
+        
+        const t = setTimeout(() => {
+            setJoining(true)
+            setError(null)
+        }, 0)
+
         // Web: token is null, auth via cookie. Desktop: Bearer token.
         serverApi
             .join(code.trim(), token)
@@ -31,6 +35,8 @@ export default function InvitePage() {
                 setError(err instanceof Error ? err.message : 'Could not join server.')
                 setJoining(false)
             })
+
+        return () => clearTimeout(t)
     }, [user, token, code, setServers, setActiveServer, navigate])
 
     if (!user) {
