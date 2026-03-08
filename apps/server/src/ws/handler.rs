@@ -311,16 +311,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                 user_id: *other_uid,
                                                 server_id,
                                             });
-                                            let (muted, deafened, screen_sharing) = recv_state
+                                            let (muted, deafened, screen_sharing, camera_on) = recv_state
                                                 .voice_controls
                                                 .get(other_uid)
                                                 .map(|s| *s)
-                                                .unwrap_or((false, false, false));
+                                                .unwrap_or((false, false, false, false));
                                             let _ = client_tx.send(WsEvent::VoiceControlUpdate {
                                                 user_id: *other_uid,
                                                 muted,
                                                 deafened,
                                                 screen_sharing,
+                                                camera_on,
                                             });
                                         }
                                     }
@@ -365,7 +366,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                         let _ = recv_state.voice_sessions.insert(user_id, channel_id);
                                         let _ = recv_state
                                             .voice_controls
-                                            .insert(user_id, (false, false, false));
+                                            .insert(user_id, (false, false, false, false));
 
                                         // 2. Broadcast join to everyone
                                         let server_id = server_id_for_channel(&recv_state.db, channel_id).await;
@@ -379,6 +380,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                             muted: false,
                                             deafened: false,
                                             screen_sharing: false,
+                                            camera_on: false,
                                         });
 
                                         // 3. Send existing users in this channel to the joining user
@@ -390,16 +392,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                     user_id: *other_uid,
                                                     server_id,
                                                 });
-                                                let (muted, deafened, screen_sharing) = recv_state
+                                                let (muted, deafened, screen_sharing, camera_on) = recv_state
                                                     .voice_controls
                                                     .get(other_uid)
                                                     .map(|s| *s)
-                                                    .unwrap_or((false, false, false));
+                                                    .unwrap_or((false, false, false, false));
                                                 let _ = client_tx.send(WsEvent::VoiceControlUpdate {
                                                     user_id: *other_uid,
                                                     muted,
                                                     deafened,
                                                     screen_sharing,
+                                                    camera_on,
                                                 });
                                             }
                                         }
@@ -419,6 +422,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                         muted: false,
                                         deafened: false,
                                         screen_sharing: false,
+                                        camera_on: false,
                                     });
                                 }
                             }
@@ -426,16 +430,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 muted,
                                 deafened,
                                 screen_sharing,
+                                camera_on,
                             } => {
                                 if recv_state.voice_sessions.contains_key(&user_id) {
                                     let _ = recv_state
                                         .voice_controls
-                                        .insert(user_id, (muted, deafened, screen_sharing));
+                                        .insert(user_id, (muted, deafened, screen_sharing, camera_on));
                                     let _ = recv_state.tx.send(WsEvent::VoiceControlUpdate {
                                         user_id,
                                         muted,
                                         deafened,
                                         screen_sharing,
+                                        camera_on,
                                     });
                                 }
                             }
@@ -525,6 +531,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
             muted: false,
             deafened: false,
             screen_sharing: false,
+            camera_on: false,
         });
     }
 

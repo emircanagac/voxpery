@@ -107,7 +107,7 @@ export default function AppShell() {
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
       try {
-        const e = evt as { type?: string; data?: { user?: any; user_id?: string; channel_id?: string | null; server_id?: string | null; status?: string; muted?: boolean; deafened?: boolean; screen_sharing?: boolean; message?: { author?: { user_id?: string } } } }
+        const e = evt as { type?: string; data?: { user?: any; user_id?: string; channel_id?: string | null; server_id?: string | null; status?: string; muted?: boolean; deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
         if (e?.type === 'VoiceStateUpdate') {
           const { user_id, channel_id, server_id } = e.data ?? {}
           if (user_id) {
@@ -125,8 +125,11 @@ export default function AppShell() {
           )
         }
         if (e?.type === 'VoiceControlUpdate') {
-          const { user_id, muted, deafened, screen_sharing } = e.data ?? {}
-          if (user_id) setVoiceControl(user_id, !!muted, !!deafened, !!screen_sharing)
+          const { user_id, muted, deafened, screen_sharing, camera_on } = e.data ?? {}
+          if (user_id) {
+            setVoiceControl(user_id, !!muted, !!deafened, !!screen_sharing)
+            useAppStore.getState().setVoiceCamera(user_id, !!camera_on)
+          }
         }
         if (e?.type === 'UserUpdated') {
           const updatedUser = e.data?.user as any

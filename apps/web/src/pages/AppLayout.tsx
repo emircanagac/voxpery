@@ -440,9 +440,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const muted = d.muted
                     const deafened = d.deafened
                     const screen_sharing = d.screen_sharing
+                    const camera_on = d.camera_on
                     if (!user_id) break
                     const store = useAppStore.getState()
                     store.setVoiceControl(user_id, !!muted, !!deafened, !!screen_sharing)
+                    store.setVoiceCamera(user_id, !!camera_on)
                     break
                 }
             }

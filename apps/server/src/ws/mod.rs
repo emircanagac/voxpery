@@ -71,6 +71,7 @@ pub enum WsEvent {
         muted: bool,
         deafened: bool,
         screen_sharing: bool,
+        camera_on: bool,
     },
     /// User profile details updated (e.g. avatar, username).
     UserUpdated {
@@ -123,6 +124,7 @@ pub enum WsClientMessage {
         muted: bool,
         deafened: bool,
         screen_sharing: bool,
+        camera_on: bool,
     },
     /// WebRTC signaling message.
     Signal {

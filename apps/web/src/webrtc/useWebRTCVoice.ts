@@ -317,8 +317,10 @@ export function useWebRTCVoice() {
   }, [send])
 
   const setVoiceControls = useCallback((muted: boolean, deafened: boolean, screenSharing: boolean) => {
-    send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing })
-  }, [send])
+    const store = useAppStore.getState()
+    const cameraOn = userId ? store.voiceControls[userId]?.cameraOn ?? false : false
+    send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing, camera_on: cameraOn })
+  }, [send, userId])
 
   const getVoiceModeSettings = useCallback(() => {
     const modeRaw = localStorage.getItem(VOICE_MODE_KEY)

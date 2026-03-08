@@ -437,7 +437,7 @@ export function useLiveKitVoice() {
       send('JoinVoice', { channel_id: channelId })
       setJoinedChannelId(channelId)
       useAppStore.getState().setJoinedVoiceChannelId(channelId)
-      send('SetVoiceControl', { muted: desiredMicMutedRef.current, deafened: false, screen_sharing: false })
+      send('SetVoiceControl', { muted: desiredMicMutedRef.current, deafened: false, screen_sharing: false, camera_on: false })
       playVoiceCue('join')
     } catch (e: unknown) {
       const msg = (e as Error)?.message ?? 'Failed to join voice'
@@ -503,7 +503,7 @@ export function useLiveKitVoice() {
     localScreenTracksRef.current = []
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
-    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: false })
+    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: false, camera_on: !!control?.cameraOn })
   }, [refreshLocalStreams, send, userId])
 
   const startScreenShare = useCallback(async () => {
@@ -548,12 +548,13 @@ export function useLiveKitVoice() {
           muted: !!localControl?.muted,
           deafened: !!localControl?.deafened,
           screen_sharing: false,
+          camera_on: !!localControl?.cameraOn,
         })
       }
     }
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
-    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: true })
+    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: true, camera_on: !!control?.cameraOn })
   }, [getScreenStream, refreshLocalStreams, send, stopScreenShare, userId])
 
   const startCamera = useCallback(async () => {
@@ -570,8 +571,12 @@ export function useLiveKitVoice() {
       videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
     })
     refreshLocalStreams()
-    if (userId) useAppStore.getState().setVoiceCamera(userId, true)
-  }, [cameraStream, refreshLocalStreams, userId])
+    if (userId) {
+      useAppStore.getState().setVoiceCamera(userId, true)
+      const c = useAppStore.getState().voiceControls[userId]
+      send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: true })
+    }
+  }, [cameraStream, refreshLocalStreams, send, userId])
 
   const stopCamera = useCallback(() => {
     const room = roomRef.current
@@ -585,13 +590,19 @@ export function useLiveKitVoice() {
     localCameraTrackRef.current?.stop()
     localCameraTrackRef.current = null
     refreshLocalStreams()
-    if (userId) useAppStore.getState().setVoiceCamera(userId, false)
-  }, [refreshLocalStreams, userId])
+    if (userId) {
+      useAppStore.getState().setVoiceCamera(userId, false)
+      const c = useAppStore.getState().voiceControls[userId]
+      send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: false })
+    }
+  }, [refreshLocalStreams, send, userId])
 
-  const setVoiceControls = useCallback(async (muted: boolean, deafened: boolean, screenSharing: boolean) => {
-    send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing })
+  const setVoiceControls = useCallback(async (muted: boolean, deafened: boolean, screenSharing: boolean, cameraOn?: boolean) => {
+    const store = useAppStore.getState()
+    const camera = cameraOn ?? store.voiceControls[userId ?? '']?.cameraOn ?? false
+    send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing, camera_on: camera })
     await setLocalMicMuted(muted || deafened)
-  }, [send, setLocalMicMuted])
+  }, [send, setLocalMicMuted, userId])
 
   // Track the last known noise suppression setting so we only react to actual changes.
   const lastNsEnabledRef = useRef<boolean>(
@@ -652,6 +663,7 @@ export function useLiveKitVoice() {
         muted: !!control?.muted,
         deafened: !!control?.deafened,
         screen_sharing: !!control?.screenSharing,
+        camera_on: !!control?.cameraOn,
       })
     })
     return unsub
