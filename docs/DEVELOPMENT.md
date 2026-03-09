@@ -354,4 +354,4 @@ npm run build
 rsync -avz dist/ user@server:/var/www/voxpery/
 ```
 
-**Full guide**: See deployment-specific documentation (not included in core docs).
+**Full guide**: See [Deployment Guide](DEPLOYMENT.md).
