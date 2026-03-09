@@ -59,6 +59,10 @@ pub enum WsEvent {
         user_id: Uuid,
         role: String,
     },
+    /// Server roles (name/color/permissions/order) changed; clients should refresh derived UI.
+    ServerRolesUpdated {
+        server_id: Uuid,
+    },
     /// Voice channel state update.
     VoiceStateUpdate {
         channel_id: Option<Uuid>, // None if left voice

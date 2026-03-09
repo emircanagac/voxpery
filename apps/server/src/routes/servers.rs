@@ -19,13 +19,11 @@ use crate::{
     AppState,
 };
 
-// Permission bits (must stay in sync with services::permissions::Permissions).
-#[allow(dead_code)] // Used when wiring permission checks (e.g. owner has MANAGE_SERVER).
+// Permission bits (kept here for documentation; must stay in sync with services::permissions::Permissions).
+#[allow(dead_code)] // Used when wiring/tweaking permission checks.
 const PERM_MANAGE_SERVER: i64 = 1 << 1;
-const PERM_MANAGE_ROLES: i64 = 1 << 2;
 const PERM_MANAGE_CHANNELS: i64 = 1 << 3;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
-const PERM_VIEW_AUDIT_LOG: i64 = 1 << 6;
 const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -57,12 +55,17 @@ struct ServerRole {
 struct CreateRoleRequest {
     name: String,
     permissions: Option<i64>,
+    /// Optional display color (e.g. \"#ff0000\") used in member list.
+    color: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct UpdateRoleRequest {
     name: Option<String>,
     permissions: Option<i64>,
+    /// Optional display color. When omitted, color stays unchanged.
+    /// When provided (including null from JSON), color is updated.
+    color: Option<Option<String>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -197,11 +200,12 @@ async fn create_server(
     .await?;
 
     // Seed a default "Moderator" role for this server (no members yet).
+    // Can manage channels/messages and kick members, but cannot manage roles or audit log by default.
     let moderator_perms =
-        PERM_MANAGE_CHANNELS | PERM_KICK_MEMBERS | PERM_VIEW_AUDIT_LOG | PERM_MANAGE_MESSAGES | PERM_MANAGE_ROLES;
+        PERM_MANAGE_CHANNELS | PERM_MANAGE_MESSAGES | PERM_KICK_MEMBERS;
     sqlx::query(
         r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
-           VALUES ($1, $2, 'Moderator', NULL, 0, $3)
+           VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
            ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
     )
     .bind(Uuid::new_v4())
@@ -239,9 +243,24 @@ async fn get_server(
         .ok_or(AppError::NotFound("Server not found".into()))?;
 
     let mut members = sqlx::query_as::<_, MemberInfo>(
-        r#"SELECT sm.user_id, u.username, u.avatar_url, sm.role, u.status
+        r#"SELECT sm.user_id,
+                  u.username,
+                  u.avatar_url,
+                  sm.role,
+                  u.status,
+                  rc.color AS role_color
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
+           LEFT JOIN LATERAL (
+               SELECT sr.color
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND sr.color IS NOT NULL
+               ORDER BY sr.position ASC
+               LIMIT 1
+           ) rc ON TRUE
            WHERE sm.server_id = $1
            ORDER BY sm.role ASC, u.username ASC"#,
     )
@@ -256,7 +275,11 @@ async fn get_server(
         }
     }
 
-    Ok(Json(ServerDetail { server, members }))
+    // Compute effective permissions for the current user in this server.
+    let perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
+    let my_permissions = perms.bits();
+
+    Ok(Json(ServerDetail { server, my_permissions, members }))
 }
 
 /// GET /api/servers/:server_id/roles — list roles for a server (owner only for now).
@@ -306,15 +329,22 @@ async fn create_role(
     .await?;
 
     let permissions = body.permissions.unwrap_or(0);
+    let color_opt = body
+        .color
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     let role = sqlx::query_as::<_, ServerRole>(
         r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
-           VALUES ($1, $2, $3, NULL, $4, $5)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, name, color, position, permissions"#,
     )
     .bind(Uuid::new_v4())
     .bind(server_id)
     .bind(name)
+    .bind(color_opt)
     .bind(next_position)
     .bind(permissions)
     .fetch_one(&state.db)
@@ -328,6 +358,8 @@ async fn create_role(
         }
         _ => AppError::from(e),
     })?;
+
+    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(role))
 }
@@ -368,6 +400,8 @@ async fn reorder_roles(
     }
 
     tx.commit().await?;
+
+    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Roles reordered" })))
 }
@@ -416,11 +450,28 @@ async fn update_role(
     }
 
     let permissions_opt = body.permissions;
+    // Interpret color field:
+    // - None => leave unchanged
+    // - Some(None) (JSON null) => clear color
+    // - Some(Some(String)) => set to trimmed non-empty string, or clear if empty.
+    let color_update: Option<Option<String>> = match body.color {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(s)) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                Some(None)
+            } else {
+                Some(Some(trimmed.to_string()))
+            }
+        }
+    };
 
     let role = sqlx::query_as::<_, ServerRole>(
         r#"UPDATE server_roles
            SET name = COALESCE($3, name),
-               permissions = COALESCE($4, permissions)
+               permissions = COALESCE($4, permissions),
+               color = COALESCE($5, color)
            WHERE id = $1 AND server_id = $2
            RETURNING id, name, color, position, permissions"#,
     )
@@ -428,6 +479,7 @@ async fn update_role(
     .bind(server_id)
     .bind(new_name_opt)
     .bind(permissions_opt)
+    .bind(color_update.unwrap_or_else(|| None))
     .fetch_one(&state.db)
     .await
     .map_err(|e| match &e {
@@ -439,6 +491,8 @@ async fn update_role(
         }
         _ => AppError::from(e),
     })?;
+
+    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(role))
 }
@@ -473,6 +527,8 @@ async fn delete_role(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Role not found".into()));
     }
+
+    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -779,10 +835,10 @@ async fn update_member_roles(
         .fetch_optional(&state.db)
         .await?;
 
-    // Do not allow changing the owner's roles via this endpoint.
-    if owner_id == Some(user_id) {
-        return Err(AppError::Validation(
-            "Cannot change the owner's roles via this endpoint".into(),
+    // Only the server owner themselves may change the owner's roles.
+    if owner_id == Some(user_id) && owner_id != Some(claims.sub) {
+        return Err(AppError::Forbidden(
+            "Only the server owner can change their own roles".into(),
         ));
     }
 
@@ -797,6 +853,8 @@ async fn update_member_roles(
     if exists == 0 {
         return Err(AppError::NotFound("Member not found".into()));
     }
+
+    let is_owner = owner_id == Some(user_id);
 
     // Capture previous role_ids for audit.
     let old_role_ids: Vec<Uuid> = sqlx::query_scalar(
@@ -825,23 +883,9 @@ async fn update_member_roles(
         .await?;
     }
 
-    // TEMPORARY BRIDGE: keep legacy server_members.role ("member"/"moderator") in sync
-    // with the new granular roles, so existing permission checks and UI that rely on
-    // server_members.role keep working until everything is fully permission-based.
-    let effective_perms =
-        permissions::get_user_server_permissions(&state.db, server_id, user_id).await?;
-
-    let management_mask = Permissions::MANAGE_ROLES
-        | Permissions::MANAGE_CHANNELS
-        | Permissions::KICK_MEMBERS
-        | Permissions::VIEW_AUDIT_LOG
-        | Permissions::MANAGE_MESSAGES;
-
-    let new_legacy_role = if effective_perms.intersects(management_mask) {
-        "moderator"
-    } else {
-        "member"
-    };
+    // TEMPORARY BRIDGE: keep legacy server_members.role as a simple owner/member flag.
+    // All non-owner users are treated as "member"; fine-grained permissions come from roles.
+    let new_legacy_role = if is_owner { "owner" } else { "member" };
 
     sqlx::query(
         "UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3",
@@ -904,7 +948,7 @@ async fn update_member_role(
         ));
     }
 
-    if body.role != "moderator" && body.role != "member" {
+    if body.role != "admin" && body.role != "member" {
         return Err(AppError::Validation("Invalid role".into()));
     }
 
@@ -993,12 +1037,12 @@ async fn kick_member(
         return Err(AppError::Forbidden("Cannot kick the server owner".into()));
     }
 
-    // Only owner can kick users who have KICK_MEMBERS (moderators can't kick each other).
-    if target_role == "moderator" {
+    // Only owner can kick users who have admin (management) permissions.
+    if target_role == "admin" {
         let caller_perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
         if !caller_perms.contains(Permissions::MANAGE_SERVER) {
             return Err(AppError::Forbidden(
-                "Only the server owner can kick users with moderator permissions".into(),
+                "Only the server owner can kick users with admin permissions".into(),
             ));
         }
     }

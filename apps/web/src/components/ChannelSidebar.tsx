@@ -95,9 +95,6 @@ export default function ChannelSidebar({
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
-    const isServerOwner = !!(activeServer && user && activeServer.owner_id === user.id)
-    const myLegacyRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
-    const canOpenServerSettings = isServerOwner || myLegacyRole === 'moderator'
 
     // Group channels by category
     const channelsByCategory: Record<string, Channel[]> = {}
@@ -149,10 +146,7 @@ export default function ChannelSidebar({
 
     return (
         <div className="channel-sidebar" ref={sidebarRef}>
-            <div
-                className="channel-header"
-                onClick={activeServer && canOpenServerSettings ? onOpenServerSettings : undefined}
-            >
+            <div className="channel-header" onClick={activeServer ? onOpenServerSettings : undefined}>
                 {activeServer ? (
                     <>
                         <span style={{ flex: 1 }}>{activeServer.name}</span>

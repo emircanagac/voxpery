@@ -6,28 +6,40 @@ import { useCallback, useEffect, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
 
-const MemberItem = memo(function MemberItem({
-    member,
-    isOwner,
-    currentUserId,
-    isFriend,
-    canKickAsRole,
-    myRole,
-    onContextMenu
-}: {
-    member: any
+interface MemberItemProps {
+    member: { user_id: string; username: string; role: string; avatar_url?: string | null; status?: string | null; role_color?: string | null }
     isOwner: boolean
+    isServerOwner: boolean
     currentUserId?: string
     isFriend: boolean
     canKickAsRole: boolean
+    canManageRoles: boolean
     myRole: string
-    onContextMenu: (e: React.MouseEvent, member: any, canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean) => void
-}) {
-    const status = (m: any) => (m.status || 'offline').toLowerCase()
+    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean) => void
+}
+
+const MemberItem = memo(function MemberItem({
+    member,
+    isOwner,
+    isServerOwner,
+    currentUserId,
+    isFriend,
+    canKickAsRole,
+    canManageRoles,
+    myRole,
+    onContextMenu
+}: MemberItemProps) {
+    const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
+    const isOnline = status(member) === 'online' || status(member) === 'dnd'
     const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
+    // Role color or default. Offline = always muted vs online (same color, faded).
+    const nameClass = member.role_color
+        ? (isOnline ? 'member-name' : 'member-name member-name--offline')
+        : (isOnline ? 'member-name' : 'member-name member-name--default-offline')
 
-    const canMakeAdmin = isOwner && member.role !== 'owner'
+    const canMakeAdmin =
+        (isOwner && member.role !== 'owner') || (member.user_id === currentUserId && canManageRoles)
     const canAddFriend = member.user_id !== currentUserId && !isFriend
     const canKick =
         canKickAsRole &&
@@ -52,14 +64,28 @@ const MemberItem = memo(function MemberItem({
                     getInitial(member.username)
                 )}
             </div>
-            <span className={`member-name ${member.role}`}>
+            <span
+                className={nameClass}
+                style={member.role_color ? { color: member.role_color } : undefined}
+            >
                 {member.username}
+                {isServerOwner && (
+                    <span className="member-owner-badge" title="Server owner" aria-label="Server owner">
+                        {' 🦊'}
+                    </span>
+                )}
             </span>
         </div>
     )
 })
 
-export default function MemberSidebar() {
+export default function MemberSidebar({
+    canKickMembers,
+    canManageRolesFromPerms,
+}: {
+    canKickMembers: boolean
+    canManageRolesFromPerms: boolean
+}) {
     const { user, token } = useAuthStore()
     const { servers, activeServerId, members, setMembers, friends, setFriends } = useAppStore(
         useShallow((s) => ({ servers: s.servers, activeServerId: s.activeServerId, members: s.members, setMembers: s.setMembers, friends: s.friends, setFriends: s.setFriends }))
@@ -99,7 +125,7 @@ export default function MemberSidebar() {
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
-    const canKickAsRole = myRole === 'owner' || myRole === 'moderator'
+    const canKickAsRole = isOwner || canKickMembers
 
     useEffect(() => {
         if (!contextMenu) return
@@ -112,9 +138,11 @@ export default function MemberSidebar() {
         }
     }, [contextMenu])
 
+    const canManageRoles = isOwner || canManageRolesFromPerms
+
     const openRoleEditor = useCallback(
         async (memberUserId: string, username: string) => {
-            if (!user || !activeServerId || !isOwner) return
+            if (!user || !activeServerId || !canManageRoles) return
             setRoleEditor({
                 userId: memberUserId,
                 username,
@@ -150,7 +178,7 @@ export default function MemberSidebar() {
                 )
             }
         },
-        [activeServerId, isOwner, token, user],
+        [activeServerId, canManageRoles, token, user],
     )
 
     const handleAddFriend = useCallback(
@@ -192,7 +220,7 @@ export default function MemberSidebar() {
 
     const handleContextMenu = useCallback((
         e: React.MouseEvent,
-        member: any,
+        member: MemberItemProps['member'],
         canMakeAdmin: boolean,
         canAddFriend: boolean,
         canKick: boolean
@@ -216,7 +244,7 @@ export default function MemberSidebar() {
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
     const isOnline = (m: { status?: string | null }) =>
         status(m) === 'online' || status(m) === 'dnd'
-    const roleOrder = (r: string) => (r === 'owner' ? 0 : r === 'moderator' ? 1 : 2)
+    const roleOrder = (r: string) => (r === 'owner' ? 0 : r === 'admin' ? 1 : 2)
     const byRoleThenName = (a: (typeof members)[0], b: (typeof members)[0]) =>
         roleOrder(a.role) - roleOrder(b.role) || a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
     const onlineMembers = members.filter(isOnline).sort(byRoleThenName)
@@ -235,9 +263,11 @@ export default function MemberSidebar() {
                             key={member.user_id}
                             member={member}
                             isOwner={isOwner}
+                            isServerOwner={activeServer.owner_id === member.user_id}
                             currentUserId={user?.id}
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
+                            canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
                         />
@@ -255,9 +285,11 @@ export default function MemberSidebar() {
                             key={member.user_id}
                             member={member}
                             isOwner={isOwner}
+                            isServerOwner={activeServer.owner_id === member.user_id}
                             currentUserId={user?.id}
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
+                            canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
                         />
@@ -394,6 +426,8 @@ export default function MemberSidebar() {
                                             roleEditor.selectedRoleIds,
                                             token,
                                         )
+                                        const detail = await serverApi.get(activeServerId, token)
+                                        setMembers(detail.members)
                                         setRoleEditor(null)
                                     } catch (e) {
                                         console.error('Failed to update member roles', e)

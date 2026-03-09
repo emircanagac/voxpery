@@ -52,6 +52,8 @@ pub struct JoinServerRequest {
 pub struct ServerDetail {
     #[serde(flatten)]
     pub server: Server,
+    /// Effective permissions for the current user in this server (bitmask).
+    pub my_permissions: i64,
     pub members: Vec<MemberInfo>,
 }
 
@@ -62,4 +64,7 @@ pub struct MemberInfo {
     pub avatar_url: Option<String>,
     pub role: String,
     pub status: String,
+    /// Display color derived from the highest-positioned role with a color,
+    /// similar to Discord's member list behaviour.
+    pub role_color: Option<String>,
 }

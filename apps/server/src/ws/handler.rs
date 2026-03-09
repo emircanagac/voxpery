@@ -239,6 +239,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                         WsEvent::MemberJoined { .. } |
                         WsEvent::MemberLeft { .. } |
                         WsEvent::MemberRoleUpdated { .. } |
+                        WsEvent::ServerRolesUpdated { .. } |
                         WsEvent::VoiceStateUpdate { .. } |
                         WsEvent::VoiceControlUpdate { .. } => true,
                         WsEvent::Pong { .. } => false,

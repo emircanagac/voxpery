@@ -134,6 +134,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [draggingRoleId, setDraggingRoleId] = useState<string | null>(null)
     const [roleEditName, setRoleEditName] = useState('')
     const [roleEditPermissions, setRoleEditPermissions] = useState(0)
+    const [roleEditColor, setRoleEditColor] = useState<string | null>(null)
     const [deleteRoleConfirmId, setDeleteRoleConfirmId] = useState<string | null>(null)
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
@@ -212,6 +213,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         serverApi.get(serverId, token).then((detail) => {
             setMembers(detail.members)
             setMembersForServer(serverId, detail.members)
+            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
         }).catch(console.error)
     }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer, joinedVoiceChannelId])
 
@@ -409,6 +411,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                         if (activeServerIdRef.current === eventSid) {
                             store.setMembers(detail.members ?? [])
                         }
+                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
                     }).catch(console.error)
                     break
                 }
@@ -435,8 +438,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             const s = useAppStore.getState()
                             s.setMembers(detail.members ?? [])
                             s.setMembersForServer(sid, detail.members ?? [])
+                            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
                         }).catch(() => {})
                     }
+                    break
+                }
+                case 'ServerRolesUpdated': {
+                    const sid = d.server_id as string | undefined
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    serverApi.get(sid, t).then((detail) => {
+                        const store = useAppStore.getState()
+                        store.setMembersForServer(sid, detail.members ?? [])
+                        if (activeServerIdRef.current === sid) {
+                            store.setMembers(detail.members ?? [])
+                        }
+                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+                    }).catch(() => {})
                     break
                 }
                 case 'MemberLeft': {
@@ -803,10 +821,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
-    const myMember = members.find((m) => m.user_id === user?.id)
-    // Owner and moderator can create, rename, delete, reorder channels (backend enforces same).
-    const canManageChannels = myMember?.role === 'owner' || myMember?.role === 'moderator'
-    const canViewAuditLog = myMember?.role === 'owner' || myMember?.role === 'moderator'
+    const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
+    const activePerms = activeServerId ? myServerPermissions[activeServerId] ?? 0 : 0
+    // Permissions-based gating (backend enforces same).
+    const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
+    const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
     const settingsServer = servers.find((s) => s.id === serverSettingsServerId) ?? activeServer
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
     const trimmedServerSettingsName = serverSettingsName.trim()
@@ -1247,7 +1266,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onPinMessage={canManageChannels ? handlePinChannelMessage : undefined}
                 onUnpinMessage={canManageChannels ? handleUnpinChannelMessage : undefined}
             />
-            <MemberSidebar />
+            <MemberSidebar
+                canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
+                canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+            />
 
             {createPortal(
                 <>
@@ -1430,48 +1452,48 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 Overview
                                             </button>
                                             {isOwner && (
-                                                <>
-                                                    <button
-                                                        type="button"
-                                                        className={`server-settings-nav__item ${
-                                                            serverSettingsTab === 'roles' ? 'server-settings-nav__item--active' : ''
-                                                        }`}
-                                                        onClick={() => setServerSettingsTab('roles')}
-                                                    >
-                                                        Roles
-                                                    </button>
-                                                    {canViewAuditLog && (
-                                                        <button
-                                                            type="button"
-                                                            className={`server-settings-nav__item ${
-                                                                serverSettingsTab === 'audit'
-                                                                    ? 'server-settings-nav__item--active'
-                                                                    : ''
-                                                            }`}
-                                                            onClick={() => setServerSettingsTab('audit')}
-                                                        >
-                                                            Audit log
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        className={`server-settings-nav__item ${
-                                                            serverSettingsTab === 'invite' ? 'server-settings-nav__item--active' : ''
-                                                        }`}
-                                                        onClick={() => setServerSettingsTab('invite')}
-                                                    >
-                                                        Invite
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className={`server-settings-nav__item ${
-                                                            serverSettingsTab === 'danger' ? 'server-settings-nav__item--active' : ''
-                                                        }`}
-                                                        onClick={() => setServerSettingsTab('danger')}
-                                                    >
-                                                        Danger zone
-                                                    </button>
-                                                </>
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'roles' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('roles')}
+                                                >
+                                                    Roles
+                                                </button>
+                                            )}
+                                            {canViewAuditLog && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'audit'
+                                                            ? 'server-settings-nav__item--active'
+                                                            : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('audit')}
+                                                >
+                                                    Audit log
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                className={`server-settings-nav__item ${
+                                                    serverSettingsTab === 'invite' ? 'server-settings-nav__item--active' : ''
+                                                }`}
+                                                onClick={() => setServerSettingsTab('invite')}
+                                            >
+                                                Invite
+                                            </button>
+                                            {isOwner && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'danger' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('danger')}
+                                                >
+                                                    Danger zone
+                                                </button>
                                             )}
                                         </nav>
 
@@ -1550,7 +1572,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 </section>
                                             )}
 
-                                            {serverSettingsTab === 'invite' && isOwner && (
+                                            {serverSettingsTab === 'invite' && (
                                                 <section className="server-settings-card">
                                                     <h3 className="server-settings-card__title">Invite people</h3>
                                                     <div className="invite-unified-box">
@@ -1650,8 +1672,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                             {auditLogEntries.map((entry) => {
                                                                 const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown'
                                                                 const targetName = entry.resource_username ?? (entry.resource_id ? members.find((m) => m.user_id === entry.resource_id)?.username : null)
-                                                                const actionLine = targetName
-                                                                    ? `${actorName} — ${entry.action} → ${targetName}`
+                                                                const details = entry.details as Record<string, unknown> | null | undefined
+                                                                let channelDesc: string | null = null
+                                                                if (entry.resource_type === 'channel' && details) {
+                                                                    if ('name' in details && typeof details.name === 'string') {
+                                                                        channelDesc = `#${details.name}`
+                                                                    } else if (
+                                                                        'old_name' in details &&
+                                                                        'new_name' in details &&
+                                                                        typeof details.old_name === 'string' &&
+                                                                        typeof details.new_name === 'string'
+                                                                    ) {
+                                                                        channelDesc = `#${details.old_name} → #${details.new_name}`
+                                                                    }
+                                                                }
+                                                                const targetDesc = targetName ?? channelDesc
+                                                                const actionLine = targetDesc
+                                                                    ? `${actorName} — ${entry.action} → ${targetDesc}`
                                                                     : `${actorName} — ${entry.action}`
                                                                 return (
                                                                     <div
@@ -1730,6 +1767,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         setSelectedRoleId('new')
                                                                         setRoleEditName('')
                                                                         setRoleEditPermissions(0)
+                                                                        setRoleEditColor(null)
                                                                     }}
                                                                 >
                                                                     Create role
@@ -1808,6 +1846,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                                     setSelectedRoleId(role.id)
                                                                                     setRoleEditName(role.name)
                                                                                     setRoleEditPermissions(role.permissions)
+                                                                                    setRoleEditColor(role.color)
                                                                                 }
                                                                             }}
                                                                         >
@@ -1847,6 +1886,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             placeholder="Role name"
                                                                             style={{ fontSize: 13, padding: '4px 8px', width: '85%' }}
                                                                         />
+                                                                        <div style={{ marginTop: 10 }}>
+                                                                            <label
+                                                                                className="server-settings-card__title"
+                                                                                style={{ display: 'block', marginBottom: 6 }}
+                                                                            >
+                                                                                Role color
+                                                                            </label>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                                <input
+                                                                                    type="color"
+                                                                                    value={roleEditColor ?? '#ffffff'}
+                                                                                    onChange={(e) => setRoleEditColor(e.target.value)}
+                                                                                    style={{ width: 32, height: 18, padding: 0, border: 'none' }}
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-xs"
+                                                                                    style={{ fontSize: 11 }}
+                                                                                    onClick={() => setRoleEditColor(null)}
+                                                                                >
+                                                                                    Clear color
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
                                                                     <div>
                                                                         <div className="server-settings-card__title" style={{ marginBottom: 6 }}>
@@ -1952,26 +2015,27 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             onClick={async () => {
                                                                                 if (!settingsServer) return
                                                                                 try {
-                                                                                    let updated: ServerRole
                                                                                     const existing = selectedRoleId
                                                                                         ? serverRoles.find(
                                                                                               (r) => r.id === selectedRoleId,
                                                                                           )
                                                                                         : undefined
                                                                                     if (!existing) {
-                                                                                        updated = await serverApi.createRole(
+                                                                                        await serverApi.createRole(
                                                                                             settingsServer.id,
                                                                                             roleEditName.trim(),
                                                                                             roleEditPermissions,
                                                                                             token,
+                                                                                            roleEditColor,
                                                                                         )
                                                                                     } else {
-                                                                                        updated = await serverApi.updateRole(
+                                                                                        await serverApi.updateRole(
                                                                                             settingsServer.id,
                                                                                             selectedRoleId,
                                                                                             {
                                                                                                 name: roleEditName.trim(),
                                                                                                 permissions: roleEditPermissions,
+                                                                                                color: roleEditColor,
                                                                                             },
                                                                                             token,
                                                                                         )
@@ -1986,6 +2050,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                                     setSelectedRoleId(null)
                                                                                     setRoleEditName('')
                                                                                     setRoleEditPermissions(0)
+                                                                                    setRoleEditColor(null)
                                                                                 } catch (err) {
                                                                                     const message =
                                                                                         err instanceof Error

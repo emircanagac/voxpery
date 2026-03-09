@@ -275,6 +275,7 @@ export const authApi = {
 // ─── Servers ────────────────────────────
 
 export interface ServerDetail extends Server {
+    my_permissions: number
     members: MemberInfo[]
 }
 
@@ -284,6 +285,7 @@ export interface MemberInfo {
     avatar_url: string | null
     role: string
     status: string
+    role_color: string | null
 }
 
 export interface Friend {
@@ -364,17 +366,17 @@ export const serverApi = {
     listRoles: (serverId: string, token: AuthToken) =>
         apiFetch<ServerRole[]>(`/api/servers/${serverId}/roles`, { token }),
 
-    createRole: (serverId: string, name: string, permissions: number, token: AuthToken) =>
+    createRole: (serverId: string, name: string, permissions: number, token: AuthToken, color?: string | null) =>
         apiFetch<ServerRole>(`/api/servers/${serverId}/roles`, {
             method: 'POST',
-            body: { name, permissions },
+            body: { name, permissions, color: color ?? undefined },
             token,
         }),
 
     updateRole: (
         serverId: string,
         roleId: string,
-        payload: { name?: string; permissions?: number },
+        payload: { name?: string; permissions?: number; color?: string | null },
         token: AuthToken,
     ) =>
         apiFetch<ServerRole>(`/api/servers/${serverId}/roles/${roleId}`, {

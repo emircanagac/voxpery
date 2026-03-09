@@ -193,7 +193,7 @@ async fn list_channel_pins(
     Ok(Json(result))
 }
 
-/// POST /api/messages/:channel_id/pins — pin a message (server owner/moderator only).
+/// POST /api/messages/:channel_id/pins — pin a message (server owner/admin only).
 async fn pin_channel_message(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -258,7 +258,7 @@ async fn pin_channel_message(
     Ok(Json(row.into()))
 }
 
-/// DELETE /api/messages/:channel_id/pins/:message_id — unpin a message (server owner/moderator only).
+/// DELETE /api/messages/:channel_id/pins/:message_id — unpin a message (server owner/admin only).
 async fn unpin_channel_message(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -460,7 +460,7 @@ async fn edit_message(
     Ok(Json(msg_with_author))
 }
 
-/// Check if a user is owner or moderator of the server that owns the channel.
+/// Check if a user is owner or admin of the server that owns the channel.
 async fn check_channel_moderator(
     state: &AppState,
     channel_id: Uuid,
@@ -476,10 +476,10 @@ async fn check_channel_moderator(
     .fetch_optional(&state.db)
     .await?;
 
-    let can_mod = matches!(role.as_deref(), Some("owner") | Some("moderator"));
+    let can_mod = matches!(role.as_deref(), Some("owner") | Some("admin"));
     if !can_mod {
         return Err(AppError::Forbidden(
-            "Only server owners and moderators can pin or unpin messages".into(),
+            "Only server owners and admins can pin or unpin messages".into(),
         ));
     }
 

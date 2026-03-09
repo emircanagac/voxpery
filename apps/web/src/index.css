@@ -3127,13 +3127,20 @@ body {
   flex-shrink: 0;
 }
 
-.member-name.owner {
-  color: var(--accent-primary);
+/* Offline with role color: same color but faded vs online */
+.member-name--offline {
+  opacity: 0.75;
 }
 
-.member-name.admin,
-.member-name.moderator {
-  color: #7289da;
+/* No-role offline: muted gray so it's clear they're offline */
+.member-name--default-offline {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.member-owner-badge {
+  margin-left: 2px;
+  opacity: 0.95;
 }
 
 .member-role-btn {
