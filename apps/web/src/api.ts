@@ -3,6 +3,17 @@ import { isTauri } from './secureStorage'
 
 export type { User, Server, Channel, Message, SignalingMessage, WsEvent }
 
+export interface AuditLogEntry {
+    id: string
+    at: string
+    actor_id: string
+    server_id: string | null
+    action: string
+    resource_type: string
+    resource_id: string | null
+    details: unknown | null
+}
+
 // Re-export User as UserPublic for compat
 export type UserPublic = User
 
@@ -308,6 +319,14 @@ export interface DmReadState {
     peer_last_read_message_id: string | null
 }
 
+export interface ServerRole {
+    id: string
+    name: string
+    color: string | null
+    position: number
+    permissions: number
+}
+
 export const serverApi = {
     list: (token: AuthToken) =>
         apiFetch<Server[]>('/api/servers', { token }),
@@ -334,13 +353,53 @@ export const serverApi = {
     delete: (serverId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}`, { method: 'DELETE', token }),
 
+    auditLog: (serverId: string, token: AuthToken) =>
+        apiFetch<AuditLogEntry[]>(`/api/servers/${serverId}/audit-log`, { token }),
+
     channels: (serverId: string, token: AuthToken) =>
         apiFetch<Channel[]>(`/api/servers/${serverId}/channels`, { token }),
 
-    setMemberRole: (serverId: string, userId: string, role: 'moderator' | 'member', token: AuthToken) =>
-        apiFetch<void>(`/api/servers/${serverId}/members/${userId}/role`, {
+    listRoles: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerRole[]>(`/api/servers/${serverId}/roles`, { token }),
+
+    createRole: (serverId: string, name: string, permissions: number, token: AuthToken) =>
+        apiFetch<ServerRole>(`/api/servers/${serverId}/roles`, {
+            method: 'POST',
+            body: { name, permissions },
+            token,
+        }),
+
+    updateRole: (
+        serverId: string,
+        roleId: string,
+        payload: { name?: string; permissions?: number },
+        token: AuthToken,
+    ) =>
+        apiFetch<ServerRole>(`/api/servers/${serverId}/roles/${roleId}`, {
             method: 'PATCH',
-            body: { role },
+            body: payload,
+            token,
+        }),
+
+    deleteRole: (serverId: string, roleId: string, token: AuthToken) =>
+        apiFetch<unknown>(`/api/servers/${serverId}/roles/${roleId}`, {
+            method: 'DELETE',
+            token,
+        }),
+    reorderRoles: (serverId: string, roleIds: string[], token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/roles/reorder`, {
+            method: 'PATCH',
+            body: { role_ids: roleIds },
+            token,
+        }),
+    listMemberRoles: (serverId: string, userId: string, token: AuthToken) =>
+        apiFetch<string[]>(`/api/servers/${serverId}/members/${userId}/roles`, {
+            token,
+        }),
+    updateMemberRoles: (serverId: string, userId: string, roleIds: string[], token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/members/${userId}/roles`, {
+            method: 'PUT',
+            body: { role_ids: roleIds },
             token,
         }),
 

@@ -1,7 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
-import { friendApi, serverApi } from '../api'
+import { friendApi, serverApi, type ServerRole } from '../api'
 import { useCallback, useEffect, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
@@ -76,6 +76,14 @@ export default function MemberSidebar() {
         canAddFriend: boolean
         canKick: boolean
     } | null>(null)
+    const [roleEditor, setRoleEditor] = useState<{
+        userId: string
+        username: string
+        loading: boolean
+        saving: boolean
+        roles: ServerRole[]
+        selectedRoleIds: string[]
+    } | null>(null)
     const [kickConfirm, setKickConfirm] = useState<{ userId: string; username: string } | null>(null)
     const menuRef = useRef<HTMLDivElement>(null)
 
@@ -104,19 +112,45 @@ export default function MemberSidebar() {
         }
     }, [contextMenu])
 
-    const handleToggleAdmin = useCallback(
-        async (memberUserId: string, currentRole: string) => {
+    const openRoleEditor = useCallback(
+        async (memberUserId: string, username: string) => {
             if (!user || !activeServerId || !isOwner) return
-            const nextRole: 'moderator' | 'member' = currentRole === 'moderator' ? 'member' : 'moderator'
+            setRoleEditor({
+                userId: memberUserId,
+                username,
+                loading: true,
+                saving: false,
+                roles: [],
+                selectedRoleIds: [],
+            })
             try {
-                await serverApi.setMemberRole(activeServerId, memberUserId, nextRole, token)
-                const detail = await serverApi.get(activeServerId, token)
-                setMembers(detail.members)
+                const [roles, memberRoleIds] = await Promise.all([
+                    serverApi.listRoles(activeServerId, token),
+                    serverApi.listMemberRoles(activeServerId, memberUserId, token),
+                ])
+                setRoleEditor((prev) =>
+                    prev && prev.userId === memberUserId
+                        ? {
+                              ...prev,
+                              loading: false,
+                              roles,
+                              selectedRoleIds: memberRoleIds,
+                          }
+                        : prev,
+                )
             } catch (e) {
-                console.error('Failed to update member role', e)
+                console.error('Failed to load member roles', e)
+                setRoleEditor((prev) =>
+                    prev
+                        ? {
+                              ...prev,
+                              loading: false,
+                          }
+                        : prev,
+                )
             }
         },
-        [activeServerId, isOwner, setMembers, token, user],
+        [activeServerId, isOwner, token, user],
     )
 
     const handleAddFriend = useCallback(
@@ -255,11 +289,11 @@ export default function MemberSidebar() {
                             type="button"
                             className="server-context-menu-item"
                             onClick={() => {
-                                handleToggleAdmin(contextMenu.userId, contextMenu.role)
+                                void openRoleEditor(contextMenu.userId, contextMenu.username)
                                 setContextMenu(null)
                             }}
                         >
-                            {contextMenu.role === 'moderator' ? 'Remove moderator' : 'Make moderator'}
+                            Manage roles
                         </button>
                     )}
                     {contextMenu.canKick && (
@@ -271,9 +305,106 @@ export default function MemberSidebar() {
                                 setContextMenu(null)
                             }}
                         >
-                            Kick
+                            Kick user
                         </button>
                     )}
+                </div>
+            )}
+
+            {roleEditor && (
+                <div className="modal-overlay" onClick={() => setRoleEditor(null)}>
+                    <div
+                        className="modal"
+                        style={{ maxWidth: 380 }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h2>Manage roles</h2>
+                        <p style={{ marginBottom: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
+                            {roleEditor.username}
+                        </p>
+                        {roleEditor.loading ? (
+                            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading roles…</div>
+                        ) : roleEditor.roles.length === 0 ? (
+                            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                No roles in this server yet. Create roles in Server Settings &gt; Roles.
+                            </div>
+                        ) : (
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr',
+                                    gap: 6,
+                                    marginBottom: 16,
+                                }}
+                            >
+                                {roleEditor.roles.map((role) => {
+                                    const checked = roleEditor.selectedRoleIds.includes(role.id)
+                                    return (
+                                        <label
+                                            key={role.id}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                fontSize: 13,
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) => {
+                                                    const isChecked = e.target.checked
+                                                    setRoleEditor((prev) =>
+                                                        prev
+                                                            ? {
+                                                                  ...prev,
+                                                                  selectedRoleIds: isChecked
+                                                                      ? [...prev.selectedRoleIds, role.id]
+                                                                      : prev.selectedRoleIds.filter((id) => id !== role.id),
+                                                              }
+                                                            : prev,
+                                                    )
+                                                }}
+                                            />
+                                            <span>{role.name}</span>
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                        )}
+                        <div className="modal-actions">
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setRoleEditor(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                disabled={roleEditor.loading || roleEditor.saving}
+                                onClick={async () => {
+                                    if (!activeServerId || !user) return
+                                    setRoleEditor((prev) => (prev ? { ...prev, saving: true } : prev))
+                                    try {
+                                        await serverApi.updateMemberRoles(
+                                            activeServerId,
+                                            roleEditor.userId,
+                                            roleEditor.selectedRoleIds,
+                                            token,
+                                        )
+                                        setRoleEditor(null)
+                                    } catch (e) {
+                                        console.error('Failed to update member roles', e)
+                                        setRoleEditor((prev) => (prev ? { ...prev, saving: false } : prev))
+                                    }
+                                }}
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -293,7 +424,7 @@ export default function MemberSidebar() {
                                 className="btn btn-danger"
                                 onClick={() => void handleKick(kickConfirm.userId)}
                             >
-                                Kick
+                                Kick user
                             </button>
                         </div>
                     </div>

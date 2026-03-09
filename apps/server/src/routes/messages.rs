@@ -12,8 +12,11 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{EditMessageRequest, MessageAuthor, MessageQuery, MessageWithAuthor, SendMessageRequest},
-    services::attachments::validate_attachments,
-    services::rate_limit::enforce_rate_limit,
+    services::{
+        attachments::validate_attachments,
+        rate_limit::enforce_rate_limit,
+        permissions::{self, Permissions},
+    },
     ws::WsEvent,
     AppState,
 };
@@ -378,25 +381,8 @@ async fn delete_message(
     check_channel_access(&state, channel_id, claims.sub).await?;
 
     if claims.sub != author_id {
-        let server_id: Uuid = sqlx::query_scalar(
-            "SELECT server_id FROM channels WHERE id = $1",
-        )
-        .bind(channel_id)
-        .fetch_one(&state.db)
-        .await?;
-        let role: Option<String> = sqlx::query_scalar(
-            "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-        )
-        .bind(server_id)
-        .bind(claims.sub)
-        .fetch_optional(&state.db)
-        .await?;
-        let can_mod = matches!(role.as_deref(), Some("owner") | Some("moderator"));
-        if !can_mod {
-            return Err(AppError::Forbidden(
-                "Only the author or a server moderator can delete this message".into(),
-            ));
-        }
+        // Non-authors must have MANAGE_MESSAGES on this channel.
+        permissions::ensure_channel_permission(&state.db, channel_id, claims.sub, Permissions::MANAGE_MESSAGES).await?;
     }
 
     sqlx::query("DELETE FROM messages WHERE id = $1")

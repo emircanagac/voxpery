@@ -38,6 +38,7 @@ sha1 = "0.10"
 base64 = "0.22"
 reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
+bitflags = "2"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

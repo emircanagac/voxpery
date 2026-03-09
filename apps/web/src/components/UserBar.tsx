@@ -145,6 +145,19 @@ export default function UserBar() {
     setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends')
   }, [user?.dm_privacy])
 
+  useEffect(() => {
+    if (!showSettingsPanel) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowSettingsPanel(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [showSettingsPanel])
 
   const updateMyStatus = async (status: 'online' | 'dnd' | 'offline') => {
     if (isTauri() && !token) return

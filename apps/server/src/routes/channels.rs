@@ -11,7 +11,7 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::Channel,
-    services::audit,
+    services::{audit, permissions::{self, Permissions}},
     AppState,
 };
 
@@ -30,19 +30,8 @@ async fn create_channel(
     Extension(claims): Extension<Claims>,
     Json(body): Json<CreateChannelWithServer>,
 ) -> Result<Json<Channel>, AppError> {
-    // Check if user is admin/owner
-    let member = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(body.server_id)
-    .bind(claims.sub)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden("Not a member of this server".into()))?;
-
-    if member != "owner" && member != "moderator" {
-        return Err(AppError::Forbidden("Only moderators can create channels".into()));
-    }
+    // Require MANAGE_CHANNELS permission to create channels.
+    permissions::ensure_server_permission(&state.db, body.server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
 
     if body.name.is_empty() || body.name.len() > 100 {
         return Err(AppError::Validation("Channel name must be 1-100 characters".into()));
@@ -110,19 +99,8 @@ async fn delete_channel(
         .await?
         .ok_or(AppError::NotFound("Channel not found".into()))?;
 
-    // Check if user is admin/owner of the server
-    let member = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(channel.server_id)
-    .bind(claims.sub)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden("Not a member of this server".into()))?;
-
-    if member != "owner" && member != "moderator" {
-        return Err(AppError::Forbidden("Only moderators can delete channels".into()));
-    }
+    // Require MANAGE_CHANNELS permission to delete channels.
+    permissions::ensure_server_permission(&state.db, channel.server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
 
     // Keep at least one text channel in a server to avoid a broken server state.
     if channel.channel_type == "text" {
@@ -268,21 +246,7 @@ async fn ensure_channel_manage_permission(
     server_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let member = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(server_id)
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden("Not a member of this server".into()))?;
-
-    if member != "owner" && member != "moderator" {
-        return Err(AppError::Forbidden(
-            "Only moderators can manage channels".into(),
-        ));
-    }
-    Ok(())
+    permissions::ensure_server_permission(&state.db, server_id, user_id, Permissions::MANAGE_CHANNELS).await
 }
 
 /// Extended request that includes server_id.
