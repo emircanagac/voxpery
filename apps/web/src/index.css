@@ -3127,9 +3127,9 @@ body {
   flex-shrink: 0;
 }
 
-/* Offline with role color: same color but faded vs online */
+/* Offline with role color: same color but clearly dimmed vs online */
 .member-name--offline {
-  opacity: 0.75;
+  opacity: 0.55;
 }
 
 /* No-role offline: muted gray so it's clear they're offline */

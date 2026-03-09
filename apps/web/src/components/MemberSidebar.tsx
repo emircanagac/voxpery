@@ -33,8 +33,10 @@ const MemberItem = memo(function MemberItem({
     const isOnline = status(member) === 'online' || status(member) === 'dnd'
     const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
-    // Role color or default. Offline = always muted vs online (same color, faded).
-    const nameClass = member.role_color
+    const displayColor = member.role_color ?? (isServerOwner ? '#f97316' : undefined) // fox-like orange for owner when no role color
+    const hasColor = !!displayColor
+    // Role/owner color or default. Offline = always muted vs online (same color, faded).
+    const nameClass = hasColor
         ? (isOnline ? 'member-name' : 'member-name member-name--offline')
         : (isOnline ? 'member-name' : 'member-name member-name--default-offline')
 
@@ -66,7 +68,7 @@ const MemberItem = memo(function MemberItem({
             </div>
             <span
                 className={nameClass}
-                style={member.role_color ? { color: member.role_color } : undefined}
+                style={displayColor ? { color: displayColor } : undefined}
             >
                 {member.username}
                 {isServerOwner && (
