@@ -662,14 +662,14 @@ export default function UserBar() {
                     value={usernameEdit}
                     disabled={cannotChangeYet}
                     onChange={(e) => {
-                      const v = e.target.value
+                      const v = e.target.value.toLowerCase()
                       setUsernameEdit(v)
                       setUsernameError(null)
-                      if (v.trim().toLowerCase() === user?.username?.toLowerCase()) {
+                      if (v.trim() === user?.username?.toLowerCase()) {
                         setUsernameAvailable(true)
                         return
                       }
-                      if (v.trim().length < 3 || !/^[a-zA-Z0-9_]+$/.test(v.trim())) {
+                      if (v.trim().length < 3 || !/^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(v.trim())) {
                         setUsernameAvailable(null)
                         setUsernameChecking(false)
                         setUsernameCheckFailed(false)
@@ -694,7 +694,7 @@ export default function UserBar() {
                     }}
                     onBlur={() => {
                       const v = usernameEdit.trim()
-                      if (v.length >= 3 && /^[a-zA-Z0-9_]+$/.test(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
+                      if (v.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
                         setUsernameChecking(true)
                         setUsernameCheckFailed(false)
                         authApi.checkUsername(v, token ?? null)
@@ -717,19 +717,25 @@ export default function UserBar() {
                 {usernameEdit.length > 0 && usernameEdit.length < 3 && (
                   <div className="pw-hint pw-hint-warn">At least 3 characters</div>
                 )}
-                {usernameEdit.length >= 3 && !/^[a-zA-Z0-9_]+$/.test(usernameEdit) && (
-                  <div className="pw-hint pw-hint-warn">Only letters, numbers, and underscores</div>
+                {usernameEdit.length >= 3 && !/^[a-z0-9_.]+$/.test(usernameEdit) && (
+                  <div className="pw-hint pw-hint-warn">Only letters, numbers, underscores, and periods</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && usernameChecking && (
+                {usernameEdit.length >= 3 && /^[a-z0-9_.]+$/.test(usernameEdit) && (usernameEdit.startsWith('_') || usernameEdit.startsWith('.') || usernameEdit.endsWith('_') || usernameEdit.endsWith('.')) && (
+                  <div className="pw-hint pw-hint-warn">Cannot start or end with '_' or '.'</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-z0-9_.]+$/.test(usernameEdit) && (usernameEdit.includes('..') || usernameEdit.includes('__') || usernameEdit.includes('._') || usernameEdit.includes('_.')) && (
+                  <div className="pw-hint pw-hint-warn">Cannot contain consecutive '_' or '.'</div>
+                )}
+                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && usernameChecking && (
                   <div className="pw-hint">Checking availability…</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && !usernameChecking && usernameAvailable === false && (
+                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && !usernameChecking && usernameAvailable === false && (
                   <div className="pw-hint pw-hint-warn">Username already taken</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
+                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
                   <div className="pw-hint pw-hint-ok">Available</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-zA-Z0-9_]+$/.test(usernameEdit) && usernameCheckFailed && (
+                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && usernameCheckFailed && (
                   <div className="pw-hint pw-hint-warn">Could not verify. You can try Save.</div>
                 )}
                 {usernameError && <div className="pw-error">{usernameError}</div>}
@@ -752,7 +758,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={cannotChangeYet || usernameSaving || usernameEdit.trim().length < 3 || !/^[a-zA-Z0-9_]+$/.test(usernameEdit.trim()) || usernameEdit.trim().toLowerCase() === user?.username?.toLowerCase() || usernameAvailable !== true}
+                disabled={cannotChangeYet || usernameSaving || usernameEdit.trim().length < 3 || !/^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit.trim()) || usernameEdit.trim() === user?.username?.toLowerCase() || usernameAvailable !== true}
                 onClick={async () => {
                   const v = usernameEdit.trim()
                   if (v.toLowerCase() === user?.username?.toLowerCase() || v.length < 3) return

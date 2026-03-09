@@ -106,9 +106,15 @@ async fn register(
     if username.len() < 3 || username.len() > 32 {
         return Err(AppError::Validation("Username must be 3-32 characters".into()));
     }
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+        return Err(AppError::Validation("Username cannot start or end with an underscore or period".into()));
+    }
+    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+        return Err(AppError::Validation("Username cannot contain consecutive underscores or periods".into()));
+    }
+    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
         return Err(AppError::Validation(
-            "Username may only contain letters, numbers, and underscores".into(),
+            "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
         ));
     }
     if email.len() > 255 {
@@ -124,7 +130,7 @@ async fn register(
     // Check if user already exists
     let existing = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE email = $1 OR username = $2")
         .bind(&email)
-        .bind(username)
+        .bind(&username)
         .fetch_one(&state.db)
         .await?;
 
@@ -142,7 +148,7 @@ async fn register(
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
-    .bind(username)
+    .bind(&username)
     .bind(&email)
     .bind(&password_hash)
     .fetch_one(&state.db)
@@ -204,9 +210,22 @@ pub async fn ensure_seed_admin(
     username: &str,
     password: &str,
 ) -> Result<Option<Uuid>, AppError> {
+    let username = username.trim();
     if username.len() < 3 || username.len() > 32 {
-        tracing::warn!("Seed admin username must be 3-32 characters; skipping seed");
-        return Ok(None);
+        tracing::error!("Seed admin username must be 3-32 characters. Check your ADMIN_USERNAME env var.");
+        return Err(AppError::Validation("Invalid seed admin username".into()));
+    }
+    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+        tracing::error!("Seed admin username cannot start or end with an underscore or period. Check your ADMIN_USERNAME env var.");
+        return Err(AppError::Validation("Invalid seed admin username".into()));
+    }
+    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+        tracing::error!("Seed admin username cannot contain consecutive underscores or periods. Check your ADMIN_USERNAME env var.");
+        return Err(AppError::Validation("Invalid seed admin username".into()));
+    }
+    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+        tracing::error!("Seed admin username may only contain lowercase letters, numbers, underscores, and periods. Check your ADMIN_USERNAME env var.");
+        return Err(AppError::Validation("Invalid seed admin username".into()));
     }
     if password.len() < 8 {
         tracing::warn!("Seed admin password must be at least 8 characters; skipping seed");
@@ -227,7 +246,7 @@ pub async fn ensure_seed_admin(
            VALUES ($1, $2, $3, $4, 'offline', NOW())"#,
     )
     .bind(id)
-    .bind(username)
+    .bind(&username)
     .bind(email)
     .bind(&password_hash)
     .execute(db)
@@ -658,10 +677,11 @@ async fn google_oauth_callback(
             let name = userinfo
                 .name
                 .or(userinfo.given_name)
-                .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string());
+                .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string())
+                .to_lowercase();
             let base_username = name
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+                .map(|c| if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' { c } else { '_' })
                 .collect::<String>();
             let base_username = base_username.trim_matches('_');
             let base_username: String = if base_username.len() >= 3 {
@@ -840,7 +860,13 @@ async fn check_username(
     if username.len() < 3 || username.len() > 32 {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+        return Ok(Json(serde_json::json!({ "available": false })));
+    }
+    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+        return Ok(Json(serde_json::json!({ "available": false })));
+    }
+    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
     let taken = sqlx::query_scalar::<_, i64>(
@@ -911,7 +937,7 @@ async fn update_profile(
 
     if let Some(raw_username) = body.username {
         let username = raw_username.trim();
-        if username.to_lowercase() != user.username.to_lowercase() {
+        if username != user.username {
             // Enforce at most one username change per 30 days
             if let Some(changed_at) = user.username_changed_at {
                 let since = chrono::Utc::now().signed_duration_since(changed_at);
@@ -926,15 +952,21 @@ async fn update_profile(
                     "Username must be 3–32 characters".into(),
                 ));
             }
-            if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+                return Err(AppError::Validation("Username cannot start or end with an underscore or period".into()));
+            }
+            if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+                return Err(AppError::Validation("Username cannot contain consecutive underscores or periods".into()));
+            }
+            if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
                 return Err(AppError::Validation(
-                    "Username may only contain letters, numbers, and underscores".into(),
+                    "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
                 ));
             }
             let taken = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
             )
-            .bind(username)
+            .bind(&username)
             .bind(claims.sub)
             .fetch_one(&state.db)
             .await?;
