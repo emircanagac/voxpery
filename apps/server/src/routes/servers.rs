@@ -38,6 +38,10 @@ struct AuditLogEntry {
     resource_type: String,
     resource_id: Option<Uuid>,
     details: Option<serde_json::Value>,
+    /// Who performed the action (from users.username).
+    actor_username: Option<String>,
+    /// Target user display name when resource is a user (e.g. kicked member, role change target).
+    resource_username: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -483,8 +487,13 @@ async fn get_audit_log(
     permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::VIEW_AUDIT_LOG).await?;
 
     let rows = sqlx::query_as::<_, AuditLogEntry>(
-        "SELECT id, at, actor_id, server_id, action, resource_type, resource_id, details
-         FROM audit_log WHERE server_id = $1 ORDER BY at DESC LIMIT 500",
+        r#"SELECT a.id, a.at, a.actor_id, a.server_id, a.action, a.resource_type, a.resource_id, a.details,
+                  u_actor.username AS actor_username,
+                  u_resource.username AS resource_username
+           FROM audit_log a
+           LEFT JOIN users u_actor ON u_actor.id = a.actor_id
+           LEFT JOIN users u_resource ON u_resource.id = a.resource_id
+           WHERE a.server_id = $1 ORDER BY a.at DESC LIMIT 500"#,
     )
     .bind(server_id)
     .fetch_all(&state.db)

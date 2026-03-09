@@ -1648,10 +1648,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                             }}
                                                         >
                                                             {auditLogEntries.map((entry) => {
-                                                                const actor =
-                                                                    members.find((m) => m.user_id === entry.actor_id) ??
-                                                                    members.find((m) => m.user_id === entry.actor_id)
-                                                                const actorName = actor?.username ?? 'Unknown user'
+                                                                const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown'
+                                                                const targetName = entry.resource_username ?? (entry.resource_id ? members.find((m) => m.user_id === entry.resource_id)?.username : null)
+                                                                const actionLine = targetName
+                                                                    ? `${actorName} — ${entry.action} → ${targetName}`
+                                                                    : `${actorName} — ${entry.action}`
                                                                 return (
                                                                     <div
                                                                         key={entry.id}
@@ -1681,7 +1682,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             </span>
                                                                         </div>
                                                                         <div style={{ color: 'var(--text-primary)' }}>
-                                                                            {actorName} — {entry.action}
+                                                                            {actionLine}
                                                                         </div>
                                                                     </div>
                                                                 )

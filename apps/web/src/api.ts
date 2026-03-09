@@ -12,6 +12,8 @@ export interface AuditLogEntry {
     resource_type: string
     resource_id: string | null
     details: unknown | null
+    actor_username: string | null
+    resource_username: string | null
 }
 
 // Re-export User as UserPublic for compat
