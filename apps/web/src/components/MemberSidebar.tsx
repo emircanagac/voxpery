@@ -2,9 +2,62 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { friendApi, serverApi } from '../api'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
+
+const MemberItem = memo(function MemberItem({
+    member,
+    isOwner,
+    currentUserId,
+    isFriend,
+    canKickAsRole,
+    myRole,
+    onContextMenu
+}: {
+    member: any
+    isOwner: boolean
+    currentUserId?: string
+    isFriend: boolean
+    canKickAsRole: boolean
+    myRole: string
+    onContextMenu: (e: React.MouseEvent, member: any, canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean) => void
+}) {
+    const status = (m: any) => (m.status || 'offline').toLowerCase()
+    const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
+    const getInitial = (name: string) => name.charAt(0).toUpperCase()
+
+    const canMakeAdmin = isOwner && member.role !== 'owner'
+    const canAddFriend = member.user_id !== currentUserId && !isFriend
+    const canKick =
+        canKickAsRole &&
+        member.user_id !== currentUserId &&
+        member.role !== 'owner' &&
+        (myRole === 'owner' || member.role === 'member')
+    const showContextMenu = canMakeAdmin || canAddFriend || canKick
+
+    return (
+        <div
+            className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
+            onContextMenu={(e) => {
+                if (!showContextMenu) return
+                e.preventDefault()
+                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick)
+            }}
+        >
+            <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
+                {member.avatar_url ? (
+                    <img src={member.avatar_url} alt="" className="member-avatar-image" />
+                ) : (
+                    getInitial(member.username)
+                )}
+            </div>
+            <span className={`member-name ${member.role}`}>
+                {member.username}
+            </span>
+        </div>
+    )
+})
 
 export default function MemberSidebar() {
     const { user, token } = useAuthStore()
@@ -35,10 +88,6 @@ export default function MemberSidebar() {
             y: Math.min(Math.max(y, pad), maxY),
         }
     }
-
-    const getInitial = (name: string) => name.charAt(0).toUpperCase()
-    const statusLabel = (s: string) =>
-        ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
@@ -107,6 +156,27 @@ export default function MemberSidebar() {
         [activeServerId, pushToast, setMembers, token],
     )
 
+    const handleContextMenu = useCallback((
+        e: React.MouseEvent,
+        member: any,
+        canMakeAdmin: boolean,
+        canAddFriend: boolean,
+        canKick: boolean
+    ) => {
+        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0)
+        const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
+        setContextMenu({
+            userId: member.user_id,
+            username: member.username,
+            role: member.role,
+            x: pos.x,
+            y: pos.y,
+            canMakeAdmin,
+            canAddFriend,
+            canKick,
+        })
+    }, [])
+
     if (!activeServer) return null
 
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
@@ -119,50 +189,6 @@ export default function MemberSidebar() {
     const offlineMembers = members.filter((m) => !isOnline(m)).sort(byRoleThenName)
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
-    const renderMember = (member: (typeof members)[0]) => {
-        const canMakeAdmin = isOwner && member.role !== 'owner'
-        const canAddFriend = member.user_id !== user?.id && !friendUsernames.has(member.username.toLowerCase())
-        const canKick =
-            canKickAsRole &&
-            member.user_id !== user?.id &&
-            member.role !== 'owner' &&
-            (myRole === 'owner' || member.role === 'member')
-        const showContextMenu = canMakeAdmin || canAddFriend || canKick
-        return (
-        <div
-            key={member.user_id}
-            className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
-            onContextMenu={(e) => {
-                if (!showContextMenu) return
-                e.preventDefault()
-                const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0)
-                const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
-                setContextMenu({
-                    userId: member.user_id,
-                    username: member.username,
-                    role: member.role,
-                    x: pos.x,
-                    y: pos.y,
-                    canMakeAdmin,
-                    canAddFriend,
-                    canKick,
-                })
-            }}
-        >
-            <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
-                {member.avatar_url ? (
-                    <img src={member.avatar_url} alt="" className="member-avatar-image" />
-                ) : (
-                    getInitial(member.username)
-                )}
-            </div>
-            <span className={`member-name ${member.role}`}>
-                {member.username}
-            </span>
-        </div>
-        )
-    }
-
     return (
         <div className="member-sidebar">
             {onlineMembers.length > 0 && (
@@ -170,7 +196,18 @@ export default function MemberSidebar() {
                     <div className="member-category member-category-online">
                         ONLINE — {onlineMembers.length}
                     </div>
-                    {onlineMembers.map(renderMember)}
+                    {onlineMembers.map((member) => (
+                        <MemberItem
+                            key={member.user_id}
+                            member={member}
+                            isOwner={isOwner}
+                            currentUserId={user?.id}
+                            isFriend={friendUsernames.has(member.username.toLowerCase())}
+                            canKickAsRole={canKickAsRole}
+                            myRole={myRole}
+                            onContextMenu={handleContextMenu}
+                        />
+                    ))}
                 </>
             )}
 
@@ -179,7 +216,18 @@ export default function MemberSidebar() {
                     <div className="member-category member-category-offline">
                         OFFLINE — {offlineMembers.length}
                     </div>
-                    {offlineMembers.map(renderMember)}
+                    {offlineMembers.map((member) => (
+                        <MemberItem
+                            key={member.user_id}
+                            member={member}
+                            isOwner={isOwner}
+                            currentUserId={user?.id}
+                            isFriend={friendUsernames.has(member.username.toLowerCase())}
+                            canKickAsRole={canKickAsRole}
+                            myRole={myRole}
+                            onContextMenu={handleContextMenu}
+                        />
+                    ))}
                 </>
             )}
 

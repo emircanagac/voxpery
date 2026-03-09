@@ -223,6 +223,23 @@ async fn pin_channel_message(
     .execute(&state.db)
     .await?;
 
+    // We need server_id to log this
+    let server_id: Uuid = sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "message_pin",
+        "message",
+        Some(body.message_id),
+        Some(serde_json::json!({ "channel_id": channel_id })),
+    )
+    .await?;
+
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
                   u.id as user_id, u.username, u.avatar_url
@@ -258,6 +275,22 @@ async fn unpin_channel_message(
     if deleted.rows_affected() == 0 {
         return Err(AppError::NotFound("Pinned message not found".into()));
     }
+
+    let server_id: Uuid = sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "message_unpin",
+        "message",
+        Some(message_id),
+        Some(serde_json::json!({ "channel_id": channel_id })),
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

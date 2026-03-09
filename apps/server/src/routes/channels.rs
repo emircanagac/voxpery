@@ -84,6 +84,17 @@ async fn create_channel(
     .fetch_one(&state.db)
     .await?;
 
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(body.server_id),
+        "channel_create",
+        "channel",
+        Some(channel.id),
+        Some(serde_json::json!({ "name": channel.name, "type": channel.channel_type, "category": channel.category })),
+    )
+    .await?;
+
     Ok(Json(channel))
 }
 
@@ -175,6 +186,17 @@ async fn rename_channel(
     .bind(trimmed)
     .bind(channel_id)
     .fetch_one(&state.db)
+    .await?;
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(channel.server_id),
+        "channel_rename",
+        "channel",
+        Some(channel_id),
+        Some(serde_json::json!({ "old_name": channel.name, "new_name": updated.name })),
+    )
     .await?;
 
     Ok(Json(updated))

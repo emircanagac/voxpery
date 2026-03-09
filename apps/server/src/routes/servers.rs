@@ -404,6 +404,22 @@ async fn update_server(
     .fetch_one(&state.db)
     .await?;
 
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "server_update",
+        "server",
+        Some(server_id),
+        Some(serde_json::json!({
+            "old_name": current.name,
+            "new_name": updated.name,
+            "old_icon": current.icon_url,
+            "new_icon": updated.icon_url
+        })),
+    )
+    .await?;
+
     Ok(Json(updated))
 }
 
@@ -581,6 +597,17 @@ async fn kick_member(
         .bind(user_id)
         .execute(&state.db)
         .await?;
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "member_kick",
+        "member",
+        Some(user_id),
+        Some(serde_json::json!({ "target_role": target_role })),
+    )
+    .await?;
 
     let _ = state.tx.send(WsEvent::MemberLeft {
         server_id,
