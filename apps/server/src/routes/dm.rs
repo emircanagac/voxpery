@@ -229,12 +229,13 @@ async fn get_or_create_dm_channel(
     }
 
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("dm_create:{}", claims.sub),
         5,
         Duration::from_secs(60),
         "Too many DM channels created recently. Please slow down.",
-    )?;
+    )
+    .await?;
 
     // Always enforce peer's DM privacy (open and create). So if they unfriend you, you can't open the channel either.
     check_can_dm_peer(&state, claims.sub, peer_id).await?;
@@ -378,12 +379,13 @@ async fn send_dm_message(
     check_can_dm_peer(&state, claims.sub, peer_id).await?;
 
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("message:dm:{}:{}", channel_id, claims.sub),
         state.message_rate_limit_max,
         Duration::from_secs(state.message_rate_limit_window_secs),
         "Message rate limit exceeded. Please slow down.",
-    )?;
+    )
+    .await?;
 
     let content = body.content.unwrap_or_default();
     let has_attachments = body.attachments.as_ref().is_some();

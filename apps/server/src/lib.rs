@@ -1,7 +1,6 @@
 //! Voxpery server library. Exposes app state and router for integration tests and binary.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use axum::{
     body::{to_bytes, Body},
@@ -39,8 +38,6 @@ pub struct AppState {
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// Voice controls: user_id -> (muted, deafened, screen_sharing, camera_on)
     pub voice_controls: DashMap<uuid::Uuid, (bool, bool, bool, bool)>,
-    /// Rolling in-memory counters for basic route rate limits.
-    pub rate_limits: DashMap<String, Vec<Instant>>,
     pub auth_rate_limit_max: usize,
     pub auth_rate_limit_window_secs: u64,
     pub message_rate_limit_max: usize,

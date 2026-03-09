@@ -304,12 +304,13 @@ async fn send_message(
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("message:channel:{}:{}", channel_id, claims.sub),
         state.message_rate_limit_max,
         Duration::from_secs(state.message_rate_limit_window_secs),
         "Message rate limit exceeded. Please slow down.",
-    )?;
+    )
+    .await?;
 
     let content = body.content.unwrap_or_default();
     let has_attachments = body.attachments.as_ref().is_some();

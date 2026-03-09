@@ -108,12 +108,14 @@ pub async fn ws_handler(
     };
 
     if let Err(e) = crate::services::rate_limit::enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("ws:{}", claims.sub),
         3,
         std::time::Duration::from_secs(10),
         "Too many connection attempts. Please slow down.",
-    ) {
+    )
+    .await
+    {
         return Response::builder()
             .status(429)
             .body(e.to_string().into())

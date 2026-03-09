@@ -94,12 +94,13 @@ async fn register(
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let email = body.email.trim().to_lowercase();
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("auth:register:{}", email),
         state.auth_rate_limit_max,
         Duration::from_secs(state.auth_rate_limit_window_secs),
         "Too many register attempts. Please wait and try again.",
-    )?;
+    )
+    .await?;
 
     // Validate input
     let username = body.username.trim();
@@ -339,12 +340,13 @@ async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("auth:login:{}", body.identifier.trim().to_lowercase()),
         state.auth_rate_limit_max,
         Duration::from_secs(state.auth_rate_limit_window_secs),
         "Too many login attempts. Please wait and try again.",
-    )?;
+    )
+    .await?;
 
     // Find user by email or username (case-insensitive)
     let identifier = body.identifier.trim();
@@ -845,12 +847,13 @@ async fn check_username(
     Query(q): Query<CheckUsernameQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("auth:check_username:{}", claims.sub),
         10,
         Duration::from_secs(60),
         "Too many username checks. Please wait a moment.",
-    )?;
+    )
+    .await?;
     let username = q
         .username
         .as_deref()
@@ -918,12 +921,13 @@ async fn update_profile(
     Json(body): Json<UpdateProfileRequest>,
 ) -> Result<Json<UserPublic>, AppError> {
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("auth:profile:{}", claims.sub),
         12,
         Duration::from_secs(60),
         "Too many profile update attempts. Please wait and try again.",
-    )?;
+    )
+    .await?;
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)
@@ -1040,12 +1044,13 @@ async fn change_password(
     Json(body): Json<ChangePasswordRequest>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), AppError> {
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("auth:change_password:{}", claims.sub),
         5,
         Duration::from_secs(60 * 60), // max 5 attempts per hour
         "Too many password change attempts. Please wait.",
-    )?;
+    )
+    .await?;
 
     if body.new_password.len() < 8 {
         return Err(AppError::Validation("New password must be at least 8 characters".into()));

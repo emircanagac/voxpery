@@ -62,7 +62,6 @@ async fn main() {
         sessions: dashmap::DashMap::new(),
         voice_sessions: dashmap::DashMap::new(),
         voice_controls: dashmap::DashMap::new(),
-        rate_limits: dashmap::DashMap::new(),
         auth_rate_limit_max: config.auth_rate_limit_max,
         auth_rate_limit_window_secs: config.auth_rate_limit_window_secs,
         message_rate_limit_max: config.message_rate_limit_max,

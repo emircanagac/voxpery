@@ -138,12 +138,13 @@ async fn send_friend_request(
     Json(body): Json<SendFriendRequestBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     enforce_rate_limit(
-        &state.rate_limits,
+        &state.redis,
         format!("friend_request:{}", claims.sub),
         10,
         std::time::Duration::from_secs(60),
         "Too many friend requests sent recently. Please slow down.",
-    )?;
+    )
+    .await?;
 
     let username = body.username.trim();
     if username.len() < 3 || username.len() > 32 {

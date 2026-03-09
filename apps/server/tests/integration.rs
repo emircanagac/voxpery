@@ -51,7 +51,6 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         sessions: DashMap::new(),
         voice_sessions: DashMap::new(),
         voice_controls: DashMap::new(),
-        rate_limits: DashMap::new(),
         auth_rate_limit_max: 100,
         auth_rate_limit_window_secs: 60,
         message_rate_limit_max: 100,
