@@ -1681,56 +1681,68 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                             }}
                                                         >
                                                             {auditLogEntries.map((entry) => {
-                                                                const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown'
+                                                                const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown User'
                                                                 const targetName = entry.resource_username ?? (entry.resource_id ? members.find((m) => m.user_id === entry.resource_id)?.username : null)
                                                                 const details = entry.details as Record<string, unknown> | null | undefined
-                                                                let channelDesc: string | null = null
-                                                                if (entry.resource_type === 'channel' && details) {
-                                                                    if ('name' in details && typeof details.name === 'string') {
-                                                                        channelDesc = `#${details.name}`
-                                                                    } else if (
-                                                                        'old_name' in details &&
-                                                                        'new_name' in details &&
-                                                                        typeof details.old_name === 'string' &&
-                                                                        typeof details.new_name === 'string'
-                                                                    ) {
-                                                                        channelDesc = `#${details.old_name} → #${details.new_name}`
-                                                                    }
+                                                                
+                                                                let actionText = entry.action
+                                                                let targetDesc = targetName
+
+                                                                switch (entry.action) {
+                                                                    case 'channel_create':
+                                                                        actionText = 'Created channel'
+                                                                        targetDesc = details?.name ? `#${details.name}` : 'Unknown Channel'
+                                                                        break
+                                                                    case 'channel_delete':
+                                                                        actionText = 'Deleted channel'
+                                                                        targetDesc = details?.name ? `#${details.name}` : 'Unknown Channel'
+                                                                        break
+                                                                    case 'channel_rename':
+                                                                        actionText = 'Renamed channel'
+                                                                        targetDesc = details?.old_name && details?.new_name ? `#${details.old_name} → #${details.new_name}` : 'Unknown Channel'
+                                                                        break
+                                                                    case 'server_update':
+                                                                        actionText = 'Updated server settings'
+                                                                        targetDesc = null
+                                                                        break
+                                                                    case 'member_kick':
+                                                                        actionText = 'Kicked member'
+                                                                        break
+                                                                    case 'member_role_change':
+                                                                        actionText = 'Updated member roles'
+                                                                        break
+                                                                    case 'message_pin':
+                                                                        actionText = 'Pinned a message'
+                                                                        targetDesc = details?.channel_id ? `in a channel` : null
+                                                                        break
+                                                                    case 'message_unpin':
+                                                                        actionText = 'Unpinned a message'
+                                                                        targetDesc = details?.channel_id ? `in a channel` : null
+                                                                        break
                                                                 }
-                                                                const targetDesc = targetName ?? channelDesc
-                                                                const actionLine = targetDesc
-                                                                    ? `${actorName} — ${entry.action} → ${targetDesc}`
-                                                                    : `${actorName} — ${entry.action}`
+
                                                                 return (
                                                                     <div
                                                                         key={entry.id}
                                                                         style={{
-                                                                            padding: '6px 0',
-                                                                            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                                                                            padding: '12px 16px',
+                                                                            borderBottom: '1px solid var(--border-color)',
+                                                                            display: 'flex',
+                                                                            flexDirection: 'column',
+                                                                            gap: 4
                                                                         }}
                                                                     >
-                                                                        <div
-                                                                            style={{
-                                                                                display: 'flex',
-                                                                                justifyContent: 'space-between',
-                                                                                gap: 8,
-                                                                            }}
-                                                                        >
-                                                                            <span style={{ color: 'var(--text-secondary)' }}>
+                                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                                                                                <strong style={{ color: 'var(--text-normal)' }}>{actorName}</strong>
+                                                                                <span style={{ color: 'var(--text-muted)' }}>{actionText}</span>
+                                                                                {targetDesc && (
+                                                                                    <strong style={{ color: 'var(--text-normal)' }}>{targetDesc}</strong>
+                                                                                )}
+                                                                            </div>
+                                                                            <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                                                                 {new Date(entry.at).toLocaleString()}
                                                                             </span>
-                                                                            <span
-                                                                                style={{
-                                                                                    color: 'var(--text-muted)',
-                                                                                    textTransform: 'uppercase',
-                                                                                    letterSpacing: 0.04,
-                                                                                }}
-                                                                            >
-                                                                                {entry.resource_type}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div style={{ color: 'var(--text-primary)' }}>
-                                                                            {actionLine}
                                                                         </div>
                                                                     </div>
                                                                 )
