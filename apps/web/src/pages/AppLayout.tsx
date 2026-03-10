@@ -8,6 +8,7 @@ import { useSocketStore } from '../stores/socket'
 import { serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
+import ChannelSettingsModal from '../components/ChannelSettingsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import { useToastStore } from '../stores/toast'
@@ -125,6 +126,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [, setChannelServerMap] = useState<Record<string, string>>({})
     const [deleteMessageConfirmId, setDeleteMessageConfirmId] = useState<string | null>(null)
     const [deleteChannelConfirm, setDeleteChannelConfirm] = useState<Channel | null>(null)
+    const [channelSettingsTarget, setChannelSettingsTarget] = useState<Channel | null>(null)
     const [copiedInvite, setCopiedInvite] = useState<'link' | 'code' | null>(null)
     const [hasMoreOlder, setHasMoreOlder] = useState(true)
     const [loadingOlder, setLoadingOlder] = useState(false)
@@ -2263,10 +2265,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             channel={channelSettingsTarget}
                             serverRoles={serverRoles}
                             onClose={() => setChannelSettingsTarget(null)}
-                            onUpdated={(updated) => {
+                            onUpdated={(updated: Channel) => {
                                 setChannels(channels.map(c => c.id === updated.id ? updated : c))
                             }}
-                            onDeleted={(id) => {
+                            onDeleted={(id: string) => {
                                 setChannels(channels.filter(c => c.id !== id))
                             }}
                         />

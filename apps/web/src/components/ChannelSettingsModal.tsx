@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { X, Save, Trash2, Shield, Settings } from 'lucide-react'
+import { X, Trash2, Shield, Settings } from 'lucide-react'
 import type { Channel, ServerRole } from '../api'
 import { channelApi } from '../api'
 import type { ChannelOverride } from '../api'

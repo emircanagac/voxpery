@@ -374,6 +374,14 @@ async fn send_message(
     Json(body): Json<SendMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
+    crate::services::permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        crate::services::permissions::Permissions::SEND_MESSAGES,
+    )
+    .await?;
+
     enforce_rate_limit(
         &state.redis,
         format!("message:channel:{}:{}", channel_id, claims.sub),
@@ -585,6 +593,14 @@ async fn check_channel_access(
     if has_access == 0 {
         return Err(AppError::Forbidden("No access to this channel".into()));
     }
+
+    crate::services::permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        user_id,
+        crate::services::permissions::Permissions::VIEW_SERVER,
+    )
+    .await?;
 
     Ok(())
 }

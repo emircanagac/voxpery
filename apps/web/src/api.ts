@@ -331,6 +331,12 @@ export interface ServerRole {
     permissions: number
 }
 
+export interface ChannelOverride {
+    role_id: string
+    allow: number
+    deny: number
+}
+
 export const serverApi = {
     list: (token: AuthToken) =>
         apiFetch<Server[]>('/api/servers', { token }),
