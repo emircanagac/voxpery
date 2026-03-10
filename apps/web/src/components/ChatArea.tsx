@@ -683,7 +683,12 @@ export default function ChatArea({
                                         </div>
                                         <div className="message-content">
                                             <div className="message-header">
-                                                <span className="message-author">{msg.author.username}</span>
+                                                <span 
+                                                    className="message-author" 
+                                                    style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
+                                                >
+                                                    {msg.author.username}
+                                                </span>
                                                 <span className="message-timestamp">{formatDate(msg.created_at)}</span>
                                                 {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
                                                 {(onReplyToMessage || onForwardMessage || onDeleteMessage || onPinMessage || onUnpinMessage || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (

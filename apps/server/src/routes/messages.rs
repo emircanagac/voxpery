@@ -61,6 +61,7 @@ struct MessageRow {
     user_id: Uuid,
     username: String,
     avatar_url: Option<String>,
+    role_color: Option<String>,
 }
 
 impl From<MessageRow> for MessageWithAuthor {
@@ -76,6 +77,7 @@ impl From<MessageRow> for MessageWithAuthor {
                 user_id: row.user_id,
                 username: row.username,
                 avatar_url: row.avatar_url,
+                role_color: row.role_color,
             },
         }
     }
@@ -96,7 +98,18 @@ async fn get_messages(
     let rows: Vec<MessageRow> = if let Some(before) = query.before {
         sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url
+                      u.id as user_id, u.username, u.avatar_url,
+                      (
+                          SELECT sr.color 
+                          FROM server_roles sr 
+                          INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                          INNER JOIN channels c ON c.server_id = sr.server_id
+                          WHERE smr.user_id = m.user_id 
+                            AND c.id = m.channel_id
+                            AND sr.color IS NOT NULL 
+                          ORDER BY sr.position ASC 
+                          LIMIT 1
+                      ) as role_color
                FROM messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
@@ -112,7 +125,18 @@ async fn get_messages(
     } else {
         sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url
+                      u.id as user_id, u.username, u.avatar_url,
+                      (
+                          SELECT sr.color 
+                          FROM server_roles sr 
+                          INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                          INNER JOIN channels c ON c.server_id = sr.server_id
+                          WHERE smr.user_id = m.user_id 
+                            AND c.id = m.channel_id
+                            AND sr.color IS NOT NULL 
+                          ORDER BY sr.position ASC 
+                          LIMIT 1
+                      ) as role_color
                FROM messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
@@ -150,7 +174,18 @@ async fn search_messages(
 
     let rows = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id 
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color
            FROM messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.channel_id = $1
@@ -178,7 +213,29 @@ async fn list_channel_pins(
 
     let rows = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id 
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id 
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color
            FROM channel_pins p
            INNER JOIN messages m ON p.message_id = m.id
            INNER JOIN users u ON m.user_id = u.id
@@ -245,7 +302,18 @@ async fn pin_channel_message(
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id 
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color
            FROM messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.id = $1"#,
@@ -441,7 +509,18 @@ async fn edit_message(
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id 
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color
            FROM messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.id = $1"#,

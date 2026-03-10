@@ -32,12 +32,20 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 const MESSAGE_PAGE_SIZE = 50
 
 // Permission bit masks (must stay in sync with backend Permissions flags).
+const PERM_VIEW_SERVER = 1 << 0
 const PERM_MANAGE_SERVER = 1 << 1
 const PERM_MANAGE_ROLES = 1 << 2
 const PERM_MANAGE_CHANNELS = 1 << 3
 const PERM_KICK_MEMBERS = 1 << 4
+const PERM_BAN_MEMBERS = 1 << 5
 const PERM_VIEW_AUDIT_LOG = 1 << 6
+const PERM_SEND_MESSAGES = 1 << 7
 const PERM_MANAGE_MESSAGES = 1 << 8
+const PERM_MANAGE_PINS = 1 << 9
+const PERM_CONNECT_VOICE = 1 << 10
+const PERM_MUTE_MEMBERS = 1 << 11
+const PERM_DEAFEN_MEMBERS = 1 << 12
+const PERM_MANAGE_WEBHOOKS = 1 << 13
 
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -1218,6 +1226,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
+                onOpenChannelSettings={(channel) => setChannelSettingsTarget(channel)}
                 onReorderChannels={handleReorderChannels}
             />
             <ChatArea
@@ -1927,9 +1936,18 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                                 { label: 'Full admin', bit: PERM_MANAGE_SERVER },
                                                                                 { label: 'Manage roles', bit: PERM_MANAGE_ROLES },
                                                                                 { label: 'Manage channels', bit: PERM_MANAGE_CHANNELS },
+                                                                                { label: 'Manage webhooks', bit: PERM_MANAGE_WEBHOOKS },
                                                                                 { label: 'Manage messages', bit: PERM_MANAGE_MESSAGES },
-                                                                                { label: 'Kick members', bit: PERM_KICK_MEMBERS },
+                                                                                { label: 'Manage pins', bit: PERM_MANAGE_PINS },
                                                                                 { label: 'View audit log', bit: PERM_VIEW_AUDIT_LOG },
+                                                                                // Text & Voice group
+                                                                                { label: 'Send messages', bit: PERM_SEND_MESSAGES },
+                                                                                { label: 'Connect to voice', bit: PERM_CONNECT_VOICE },
+                                                                                { label: 'Mute members', bit: PERM_MUTE_MEMBERS },
+                                                                                { label: 'Deafen members', bit: PERM_DEAFEN_MEMBERS },
+                                                                                // Moderation group
+                                                                                { label: 'Kick members', bit: PERM_KICK_MEMBERS },
+                                                                                { label: 'Ban members', bit: PERM_BAN_MEMBERS },
                                                                             ].map((perm) => {
                                                                                 const isFullAdmin = perm.bit === PERM_MANAGE_SERVER
                                                                                 const fullAdminOn = (roleEditPermissions & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
@@ -1957,12 +1975,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                                                 const checked = e.target.checked
                                                                                                 setRoleEditPermissions((prev) => {
                                                                                                     const ADMIN_MASK =
+                                                                                                        PERM_VIEW_SERVER |
                                                                                                         PERM_MANAGE_SERVER |
                                                                                                         PERM_MANAGE_ROLES |
                                                                                                         PERM_MANAGE_CHANNELS |
-                                                                                                        PERM_MANAGE_MESSAGES |
                                                                                                         PERM_KICK_MEMBERS |
-                                                                                                        PERM_VIEW_AUDIT_LOG
+                                                                                                        PERM_BAN_MEMBERS |
+                                                                                                        PERM_VIEW_AUDIT_LOG |
+                                                                                                        PERM_SEND_MESSAGES |
+                                                                                                        PERM_MANAGE_MESSAGES |
+                                                                                                        PERM_MANAGE_PINS |
+                                                                                                        PERM_CONNECT_VOICE |
+                                                                                                        PERM_MUTE_MEMBERS |
+                                                                                                        PERM_DEAFEN_MEMBERS |
+                                                                                                        PERM_MANAGE_WEBHOOKS
                                                                                                     if (isFullAdmin && !checked) {
                                                                                                         return prev & ~ADMIN_MASK
                                                                                                     }
@@ -2231,6 +2257,19 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                 </div>
                             </div>
                         </div>
+                    )}
+                    {channelSettingsTarget && (
+                        <ChannelSettingsModal
+                            channel={channelSettingsTarget}
+                            serverRoles={serverRoles}
+                            onClose={() => setChannelSettingsTarget(null)}
+                            onUpdated={(updated) => {
+                                setChannels(channels.map(c => c.id === updated.id ? updated : c))
+                            }}
+                            onDeleted={(id) => {
+                                setChannels(channels.filter(c => c.id !== id))
+                            }}
+                        />
                     )}
                 </>,
                 document.body

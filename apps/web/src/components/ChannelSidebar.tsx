@@ -16,6 +16,7 @@ interface ChannelSidebarProps {
     voiceControls?: Record<string, { muted: boolean; deafened: boolean; screenSharing: boolean; cameraOn?: boolean }>
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
+    onOpenChannelSettings?: (channel: Channel) => void
     onReorderChannels?: (draggedChannelId: string, targetChannelId: string) => void
 }
 
@@ -27,6 +28,7 @@ export default function ChannelSidebar({
     voiceControls = {},
     onRenameChannel,
     onDeleteChannel,
+    onOpenChannelSettings,
     onReorderChannels,
 }: ChannelSidebarProps) {
     const { user, token } = useAuthStore()
@@ -364,6 +366,16 @@ export default function ChannelSidebar({
                             }}
                         >
                             Rename Channel
+                        </button>
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            onClick={() => {
+                                setContextMenu(null)
+                                onOpenChannelSettings?.(channel)
+                            }}
+                        >
+                            Edit Channel
                         </button>
                         <button
                             type="button"

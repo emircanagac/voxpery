@@ -42,6 +42,7 @@ export interface Message {
         user_id: string;
         username: string;
         avatar_url?: string;
+        role_color?: string | null;
     };
 }
 

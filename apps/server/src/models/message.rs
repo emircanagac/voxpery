@@ -32,6 +32,7 @@ pub struct MessageAuthor {
     pub user_id: Uuid,
     pub username: String,
     pub avatar_url: Option<String>,
+    pub role_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

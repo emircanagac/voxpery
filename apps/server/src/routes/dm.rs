@@ -88,6 +88,7 @@ impl From<DmMessageRow> for MessageWithAuthor {
                 user_id: row.user_id,
                 username: row.username,
                 avatar_url: row.avatar_url,
+                role_color: None,
             },
         }
     }

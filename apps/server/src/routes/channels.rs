@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, State},
     middleware,
-    routing::{delete, patch, post},
+    routing::{delete, get, patch, post, put},
     Extension, Json, Router,
 };
 use std::sync::Arc;
@@ -11,7 +11,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::Channel,
-    services::{audit, permissions::{self, Permissions}},
+    services::audit,
+    services::permissions::{self, Permissions},
     AppState,
 };
 
@@ -19,6 +20,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/{channel_id}", delete(delete_channel))
         .route("/{channel_id}", patch(rename_channel))
+        .route("/{channel_id}/overrides", get(list_channel_overrides))
+        .route("/{channel_id}/overrides/{role_id}", put(update_channel_override).delete(delete_channel_override))
         .route("/reorder", patch(reorder_channels))
         .route("/", post(create_channel))
         .route_layer(middleware::from_fn_with_state(state, require_auth))
@@ -239,6 +242,112 @@ async fn reorder_channels(
     tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "message": "Channels reordered" })))
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ChannelOverride {
+    role_id: Uuid,
+    allow: i64,
+    deny: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct UpdateChannelOverrideRequest {
+    allow: i64,
+    deny: i64,
+}
+
+/// GET /api/channels/:channel_id/overrides — list role overrides for a channel.
+async fn list_channel_overrides(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Vec<ChannelOverride>>, AppError> {
+    let channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Channel not found".into()))?;
+
+    ensure_channel_manage_permission(&state, channel.server_id, claims.sub).await?;
+
+    let overrides = sqlx::query_as::<_, ChannelOverride>(
+        "SELECT role_id, allow, deny FROM channel_role_overrides WHERE channel_id = $1"
+    )
+    .bind(channel_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(overrides))
+}
+
+/// PUT /api/channels/:channel_id/overrides/:role_id — update or create a role override for a channel.
+async fn update_channel_override(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((channel_id, role_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateChannelOverrideRequest>,
+) -> Result<Json<ChannelOverride>, AppError> {
+    let channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Channel not found".into()))?;
+
+    ensure_channel_manage_permission(&state, channel.server_id, claims.sub).await?;
+
+    let role_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2"
+    )
+    .bind(role_id)
+    .bind(channel.server_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    if role_exists == 0 {
+        return Err(AppError::NotFound("Role not found in this server".into()));
+    }
+
+    let ov = sqlx::query_as::<_, ChannelOverride>(
+        r#"INSERT INTO channel_role_overrides (channel_id, role_id, allow, deny)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (channel_id, role_id)
+           DO UPDATE SET allow = EXCLUDED.allow, deny = EXCLUDED.deny
+           RETURNING role_id, allow, deny"#
+    )
+    .bind(channel_id)
+    .bind(role_id)
+    .bind(body.allow)
+    .bind(body.deny)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(ov))
+}
+
+/// DELETE /api/channels/:channel_id/overrides/:role_id — delete a role override for a channel.
+async fn delete_channel_override(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((channel_id, role_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Channel not found".into()))?;
+
+    ensure_channel_manage_permission(&state, channel.server_id, claims.sub).await?;
+
+    sqlx::query(
+        "DELETE FROM channel_role_overrides WHERE channel_id = $1 AND role_id = $2"
+    )
+    .bind(channel_id)
+    .bind(role_id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
 
 async fn ensure_channel_manage_permission(

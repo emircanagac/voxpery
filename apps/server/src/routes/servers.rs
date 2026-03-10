@@ -854,9 +854,39 @@ async fn update_member_roles(
         return Err(AppError::NotFound("Member not found".into()));
     }
 
-    let is_owner = owner_id == Some(user_id);
+    // Role Hierarchy Security
+    let caller_pos = permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
+    let target_pos = permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
 
-    // Capture previous role_ids for audit.
+    // 1. Cannot modify someone with a higher or equal role.
+    if caller_pos >= target_pos && claims.sub != user_id && owner_id != Some(claims.sub) {
+        return Err(AppError::Forbidden(
+            "You cannot modify the roles of a member with an equal or higher role".into(),
+        ));
+    }
+
+    // 2. Cannot assign or remove roles that are higher or equal to the caller's highest role.
+    // First, check the new roles being assigned.
+    for role_id in &body.role_ids {
+        let role_pos = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT position FROM server_roles WHERE id = $1 AND server_id = $2"
+        )
+        .bind(role_id)
+        .bind(server_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten();
+
+        if let Some(pos) = role_pos {
+            if caller_pos >= pos && owner_id != Some(claims.sub) {
+                return Err(AppError::Forbidden(
+                    "You cannot assign a role higher or equal to your own highest role".into(),
+                ));
+            }
+        }
+    }
+
+    // Then, check the roles being removed (roles they currently have but aren't in the new list).
     let old_role_ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT role_id FROM server_member_roles WHERE server_id = $1 AND user_id = $2",
     )
@@ -864,6 +894,29 @@ async fn update_member_roles(
     .bind(user_id)
     .fetch_all(&state.db)
     .await?;
+
+    for old_role_id in &old_role_ids {
+        if !body.role_ids.contains(old_role_id) {
+            let role_pos = sqlx::query_scalar::<_, Option<i32>>(
+                "SELECT position FROM server_roles WHERE id = $1 AND server_id = $2"
+            )
+            .bind(old_role_id)
+            .bind(server_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+
+            if let Some(pos) = role_pos {
+                if caller_pos >= pos && owner_id != Some(claims.sub) {
+                    return Err(AppError::Forbidden(
+                        "You cannot remove a role higher or equal to your own highest role".into(),
+                    ));
+                }
+            }
+        }
+    }
+
+    let is_owner = owner_id == Some(user_id);
 
     // Replace all current roles with the provided set.
     sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2")
@@ -1037,14 +1090,16 @@ async fn kick_member(
         return Err(AppError::Forbidden("Cannot kick the server owner".into()));
     }
 
-    // Only owner can kick users who have admin (management) permissions.
-    if target_role == "admin" {
-        let caller_perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
-        if !caller_perms.contains(Permissions::MANAGE_SERVER) {
-            return Err(AppError::Forbidden(
-                "Only the server owner can kick users with admin permissions".into(),
-            ));
-        }
+    // Role Hierarchy Security:
+    // A user can only kick someone if their highest role position is lower (higher rank)
+    // than the target's highest role position.
+    let caller_pos = permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
+    let target_pos = permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
+
+    if caller_pos >= target_pos {
+        return Err(AppError::Forbidden(
+            "You cannot kick a member with an equal or higher role than yourself".into(),
+        ));
     }
 
     sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")

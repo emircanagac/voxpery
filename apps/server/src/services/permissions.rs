@@ -153,6 +153,41 @@ pub async fn ensure_channel_permission(
     }
 }
 
+/// Returns the highest role position (lowest numerical value) for a user in a server.
+/// If the user is the server owner, returns -1 (highest possible).
+/// If the user has no roles, returns i32::MAX (lowest possible).
+pub async fn get_user_highest_role_position(
+    db: &PgPool,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<i32, AppError> {
+    let is_owner = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM servers WHERE id = $1 AND owner_id = $2",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(db)
+    .await?;
+
+    if is_owner > 0 {
+        return Ok(-1);
+    }
+
+    let highest_position = sqlx::query_scalar::<_, Option<i32>>(
+        r#"SELECT MIN(sr.position)
+           FROM server_roles sr
+           INNER JOIN server_member_roles smr ON sr.id = smr.role_id
+           WHERE smr.server_id = $1 AND smr.user_id = $2"#
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    Ok(highest_position.unwrap_or(i32::MAX))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

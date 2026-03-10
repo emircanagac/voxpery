@@ -432,12 +432,28 @@ export const channelApi = {
         }),
 
     reorder: (serverId: string, channelIds: string[], token: AuthToken) =>
-        apiFetch<void>('/api/channels/reorder', {
+        apiFetch<{ message: string }>('/api/channels/reorder', {
             method: 'PATCH',
             body: { server_id: serverId, channel_ids: channelIds },
             token,
         }),
-}
+
+    getOverrides: (channelId: string, token: AuthToken) =>
+        apiFetch<ChannelOverride[]>(`/api/channels/${channelId}/overrides`, { token }),
+
+    updateOverride: (channelId: string, roleId: string, allow: number, deny: number, token: AuthToken) =>
+        apiFetch<ChannelOverride>(`/api/channels/${channelId}/overrides/${roleId}`, {
+            method: 'PUT',
+            body: { allow, deny },
+            token,
+        }),
+
+    deleteOverride: (channelId: string, roleId: string, token: AuthToken) =>
+        apiFetch<{ message: string }>(`/api/channels/${channelId}/overrides/${roleId}`, {
+            method: 'DELETE',
+            token,
+        }),
+    }
 
 // ─── Friends ───────────────────────────
 
