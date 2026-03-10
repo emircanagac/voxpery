@@ -1,12 +1,16 @@
 # Rust
 target/
+**/target/
 **/*.rs.bk
 # Cargo.lock is committed for server/desktop for reproducible builds
 
 # Node
 node_modules/
+**/node_modules/
 dist/
+**/dist/
 .vite/
+**/.vite/
 
 # Environment
 .env

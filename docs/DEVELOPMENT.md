@@ -5,7 +5,7 @@ Local development setup, debugging, testing, and CI/CD.
 ## Prerequisites
 
 - **Rust**: 1.75+ (`rustup update`)
-- **Node.js**: 20+ (`node -v`)
+- **Node.js**: >=20.19.0 (`node -v`)
 - **Docker**: For Postgres + Redis + LiveKit (`docker --version`)
 - **Git**: For version control
 

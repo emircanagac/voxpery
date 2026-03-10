@@ -63,7 +63,7 @@
 | DB       | PostgreSQL |
 | Cache    | Redis |
 | Voice    | LiveKit SFU |
-| Frontend | React, TypeScript, Vite 7 |
+| Frontend | React 19, TypeScript 5, Vite 7 |
 | Auth     | JWT, Argon2; httpOnly cookie |
 
 ## Quick Start

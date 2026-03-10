@@ -9,7 +9,7 @@ Voxpery is a full-stack real-time communication platform with voice, text, prese
 | Backend     | Rust, Axum, SQLx                        |
 | Database    | PostgreSQL 16                           |
 | Cache       | Redis (JWT blacklist)                   |
-| Frontend    | React 18, TypeScript, Vite 7, Zustand   |
+| Frontend    | React 19, TypeScript, Vite 7, Zustand   |
 | Voice (SFU) | LiveKit (WebRTC media server)           |
 | Real-time   | WebSocket (presence, typing, messages)  |
 | Auth        | JWT (Bearer for desktop, httpOnly cookie for web) |
