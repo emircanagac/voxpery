@@ -391,3 +391,163 @@ async fn friends_endpoints_require_auth() {
         );
     }
 }
+
+#[tokio::test]
+async fn strict_username_validation_rejects_invalid_usernames() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let invalid_usernames = vec![
+        "UPPERCASE",
+        "has space",
+        ".start_dot",
+        "end_dot.",
+        "_start_underscore",
+        "end_underscore_",
+        "consecutive..dots",
+        "consecutive__underscores",
+        "special!chars",
+    ];
+
+    for username in invalid_usernames {
+        let uid = Uuid::new_v4();
+        let email = format!("test-{}@example.com", uid);
+        
+        let register_body = json!({
+            "email": email,
+            "username": username,
+            "password": "password123"
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/register")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, req).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "username '{}' should be rejected but got status {}. body: {}",
+            username,
+            status,
+            String::from_utf8_lossy(&body)
+        );
+        let resp: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let err_msg = resp["error"].as_str().unwrap_or("");
+        assert!(err_msg.contains("Username cannot") || err_msg.contains("Username may only"));
+    }
+}
+
+#[tokio::test]
+async fn roles_and_channel_overrides_flow() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("admin-{}@example.com", uid);
+    let username = format!("admin_{}", uid.as_u128() % 1_000_000);
+    
+    // Register owner
+    let register_body = json!({
+        "email": email,
+        "username": username,
+        "password": "password123"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let token = auth["token"].as_str().unwrap();
+    let auth_header = format!("Bearer {}", token);
+
+    // Create server
+    let create_body = json!({ "name": "Permissions Server" });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = server["id"].as_str().unwrap();
+
+    // Create a role
+    let role_body = json!({
+        "name": "VIP",
+        "permissions": 128, // SEND_MESSAGES
+        "color": "#ff0000"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/servers/{}/roles", server_id))
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&role_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "create role failed");
+    let role: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let role_id = role["id"].as_str().unwrap();
+
+    // Create a channel
+    let channel_body = json!({
+        "server_id": server_id,
+        "name": "vip-lounge",
+        "channel_type": "text"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&channel_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let channel_id = channel["id"].as_str().unwrap();
+
+    // Add channel override
+    let override_body = json!({
+        "allow": 128, // SEND_MESSAGES
+        "deny": 1 // VIEW_SERVER (meaning view channel)
+    });
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/channels/{}/overrides/{}", channel_id, role_id))
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&override_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "channel override failed: {}", String::from_utf8_lossy(&body));
+    
+    // Get channel overrides
+    let req = Request::builder()
+        .uri(format!("/api/channels/{}/overrides", channel_id))
+        .header("Authorization", &auth_header)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let overrides: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(overrides.len(), 1);
+    assert_eq!(overrides[0]["role_id"], role_id);
+    assert_eq!(overrides[0]["allow"], 128);
+    assert_eq!(overrides[0]["deny"], 1);
+}

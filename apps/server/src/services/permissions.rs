@@ -201,5 +201,20 @@ mod tests {
         assert!(restored.contains(Permissions::SEND_MESSAGES));
         assert!(!restored.contains(Permissions::KICK_MEMBERS));
     }
+
+    #[test]
+    fn permissions_all_bits() {
+        let p = Permissions::all();
+        assert!(p.contains(Permissions::VIEW_SERVER));
+        assert!(p.contains(Permissions::MANAGE_SERVER));
+        assert!(p.contains(Permissions::MANAGE_WEBHOOKS));
+    }
+
+    #[test]
+    fn permissions_empty_bits() {
+        let p = Permissions::empty();
+        assert!(!p.contains(Permissions::VIEW_SERVER));
+        assert_eq!(p.bits(), 0);
+    }
 }
 

@@ -415,7 +415,18 @@ async fn send_message(
                RETURNING *
            )
            SELECT nm.id, nm.channel_id, nm.content, nm.attachments, nm.edited_at, nm.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color 
+                      FROM server_roles sr 
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = nm.user_id 
+                        AND c.id = nm.channel_id
+                        AND sr.color IS NOT NULL 
+                      ORDER BY sr.position ASC 
+                      LIMIT 1
+                  ) as role_color
            FROM new_msg nm
            INNER JOIN users u ON nm.user_id = u.id"#,
     )
