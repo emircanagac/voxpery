@@ -1,6 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Download } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
@@ -9,7 +8,6 @@ import ActiveCallBar from '../components/ActiveCallBar'
 import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
 import { authApi, dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
-import { checkForUpdates, downloadAndInstallUpdate, isTauri } from '../updater'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
@@ -260,7 +258,6 @@ export default function AppShell() {
     })
     return () => unsub()
   }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setVoiceControl, setVoiceState, subscribe, token, user?.id])
-  const [updating, setUpdating] = useState(false)
   const channels = useAppStore((s) => s.channels)
   const activeChannelId = useAppStore((s) => s.activeChannelId)
   const activeServerId = useAppStore((s) => s.activeServerId)

@@ -72,10 +72,10 @@ function App() {
         .then((fn) => { unlisten = fn })
         .catch(console.error)
 
-      listen<string>('custom-deep-link', (event) => {
+      listen<string>('custom-deep-link', (event: { payload: string }) => {
         handleDeepLinkUrl(event.payload)
       })
-        .then((fn) => { unlistenCustom = fn })
+        .then((fn: () => void) => { unlistenCustom = fn })
         .catch(console.error)
 
       return () => {
