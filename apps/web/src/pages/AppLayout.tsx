@@ -48,6 +48,31 @@ const PERM_MUTE_MEMBERS = 1 << 11
 const PERM_DEAFEN_MEMBERS = 1 << 12
 const PERM_MANAGE_WEBHOOKS = 1 << 13
 
+const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
+
+function getStoredChannelId(serverId: string): string | null {
+    try {
+        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
+        if (!raw) return null
+        const map = JSON.parse(raw) as Record<string, string>
+        return map[serverId] || null
+    } catch {
+        return null
+    }
+}
+
+function setStoredChannelId(serverId: string, channelId: string | null) {
+    try {
+        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
+        const map = raw ? (JSON.parse(raw) as Record<string, string>) : {}
+        if (channelId) map[serverId] = channelId
+        else delete map[serverId]
+        sessionStorage.setItem(LAST_CHANNELS_STORAGE_KEY, JSON.stringify(map))
+    } catch {
+        // ignore
+    }
+}
+
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
@@ -214,8 +239,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const currentActive = activeChannelIdRef.current
             const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
             if (!stillValid) {
+                const stored = getStoredChannelId(serverId)
+                const storedValid = !!stored && chs.some((c) => c.id === stored)
+
                 const inThisServer = joinedVoiceChannelId && chs.some((c) => c.id === joinedVoiceChannelId)
-                const target = inThisServer ? joinedVoiceChannelId : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null)
+                const target = inThisServer ? joinedVoiceChannelId : (storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null))
                 setActiveChannel(target)
             }
         }).catch(console.error)
@@ -226,6 +254,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
         }).catch(console.error)
     }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer, joinedVoiceChannelId])
+
+    useEffect(() => {
+        if (activeServerId && activeChannelId) {
+            const currentChannel = channels.find((c) => c.id === activeChannelId)
+            if (currentChannel && currentChannel.server_id === activeServerId) {
+                setStoredChannelId(activeServerId, activeChannelId)
+            }
+        }
+    }, [activeServerId, activeChannelId, channels])
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return

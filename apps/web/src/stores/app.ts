@@ -88,9 +88,21 @@ export const useAppStore = create<AppState>()(
                     const cachedChannels = s.channelsByServerId[id] ?? []
                     const cachedMembers = s.membersByServerId[id] ?? []
                     const hasCache = cachedChannels.length > 0
-                    const defaultChannelId = hasCache
-                        ? (cachedChannels.find((c) => c.channel_type === 'text')?.id ?? cachedChannels[0]?.id ?? null)
-                        : null
+                    
+                    let defaultChannelId = null
+                    if (hasCache) {
+                        let stored = null
+                        try {
+                            const raw = sessionStorage.getItem('voxpery-last-channel-ids')
+                            if (raw) stored = (JSON.parse(raw) as Record<string, string>)[id] || null
+                        } catch {}
+                        if (stored && cachedChannels.some(c => c.id === stored)) {
+                            defaultChannelId = stored
+                        } else {
+                            defaultChannelId = cachedChannels.find((c) => c.channel_type === 'text')?.id ?? cachedChannels[0]?.id ?? null
+                        }
+                    }
+
                     return {
                         activeServerId: id,
                         channels: cachedChannels,
