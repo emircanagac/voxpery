@@ -51,7 +51,15 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('rnnoise-wasm')) return undefined
             if (id.includes('lucide-react')) return 'lucide'
             if (id.includes('@tauri-apps')) return 'tauri'
-            if (id.includes('react-dom') || id.includes('react/') || id.includes('zustand')) return 'react'
+            // Precise matching for core React libraries to avoid circular dependencies
+            if (
+              id.includes('/node_modules/react/') ||
+              id.includes('/node_modules/react-dom/') ||
+              id.includes('/node_modules/scheduler/') ||
+              id.includes('/node_modules/zustand/')
+            ) {
+              return 'react'
+            }
             if (id.includes('react-router')) return 'router'
             if (id.includes('livekit-client')) return 'livekit'
             if (id.includes('@tanstack')) return 'tanstack'
