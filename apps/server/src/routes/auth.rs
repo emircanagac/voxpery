@@ -506,11 +506,11 @@ async fn google_oauth_start(
         .unwrap_or("http://localhost:3001")
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
-    let redirect_path = q.redirect.as_deref().unwrap_or("/app/friends").trim();
+    let redirect_path = q.redirect.as_deref().unwrap_or("/").trim();
     let redirect_path = if redirect_path.starts_with('/') {
         redirect_path
     } else {
-        "/app/friends"
+        "/"
     };
     let mut origin = q.origin.as_deref().unwrap_or("http://localhost:5173").trim().to_string();
     if !state.cors_origins.contains(&origin) {

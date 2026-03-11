@@ -209,10 +209,6 @@ function App() {
                 <Route path={ROUTES.home} element={null} />
                 <Route path={ROUTES.servers} element={null} />
                 <Route path={`${ROUTES.servers}/*`} element={<Navigate to={ROUTES.servers} replace />} />
-                {/* Legacy paths */}
-                <Route path="/app/social" element={<Navigate to={ROUTES.home} replace />} />
-                <Route path="/app/servers" element={<Navigate to={ROUTES.servers} replace />} />
-                <Route path="/app/servers/*" element={<Navigate to={ROUTES.servers} replace />} />
               </Route>
               <Route path={ROUTES.dm} element={<RedirectDmToSocial />} />
               <Route path={`${ROUTES.dm}/:userId`} element={<RedirectDmToSocial />} />

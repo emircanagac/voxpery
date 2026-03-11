@@ -65,7 +65,7 @@ struct UpdateRoleRequest {
     permissions: Option<i64>,
     /// Optional display color. When omitted, color stays unchanged.
     /// When provided (including null from JSON), color is updated.
-    color: Option<Option<String>>,
+    color: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -450,28 +450,26 @@ async fn update_role(
     }
 
     let permissions_opt = body.permissions;
-    // Interpret color field:
-    // - None => leave unchanged
-    // - Some(None) (JSON null) => clear color
-    // - Some(Some(String)) => set to trimmed non-empty string, or clear if empty.
-    let color_update: Option<Option<String>> = match body.color {
-        None => None,
-        Some(None) => Some(None),
-        Some(Some(s)) => {
+    // Interpret color field using serde_json::Value to distinguish missing vs null:
+    let (update_color, color_val): (bool, Option<String>) = match body.color {
+        None => (false, None),
+        Some(serde_json::Value::Null) => (true, None),
+        Some(serde_json::Value::String(s)) => {
             let trimmed = s.trim();
             if trimmed.is_empty() {
-                Some(None)
+                (true, None)
             } else {
-                Some(Some(trimmed.to_string()))
+                (true, Some(trimmed.to_string()))
             }
         }
+        _ => (false, None), // ignores invalid types
     };
 
     let role = sqlx::query_as::<_, ServerRole>(
         r#"UPDATE server_roles
            SET name = COALESCE($3, name),
                permissions = COALESCE($4, permissions),
-               color = COALESCE($5, color)
+               color = CASE WHEN $5 THEN $6 ELSE color END
            WHERE id = $1 AND server_id = $2
            RETURNING id, name, color, position, permissions"#,
     )
@@ -479,7 +477,8 @@ async fn update_role(
     .bind(server_id)
     .bind(new_name_opt)
     .bind(permissions_opt)
-    .bind(color_update.unwrap_or_else(|| None))
+    .bind(update_color)
+    .bind(color_val)
     .fetch_one(&state.db)
     .await
     .map_err(|e| match &e {

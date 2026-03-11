@@ -24,7 +24,7 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByRole('button', { name: /sign up/i }).click()
 
     // Should redirect to app after successful registration
-    await expect(page).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\//, { timeout: 10000 })
 
     // Should see app layout (e.g., Friends sidebar)
     await expect(page.getByText(/friends/i)).toBeVisible({ timeout: 5000 })
@@ -39,7 +39,7 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByRole('button', { name: /sign in/i }).click()
 
     // Should redirect to app after successful login
-    await expect(page).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\//, { timeout: 10000 })
     await expect(page.getByText(/friends/i)).toBeVisible({ timeout: 5000 })
   })
 
@@ -50,13 +50,13 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByPlaceholder(/password/i).fill(testUser.password)
     await page.getByRole('button', { name: /sign in/i }).click()
 
-    await expect(page).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\//, { timeout: 10000 })
 
     // Reload page
     await page.reload()
 
     // Should still be logged in
-    await expect(page).toHaveURL(/.*\/app/)
+    await expect(page).toHaveURL(/\//)
     await expect(page.getByText(/friends/i)).toBeVisible({ timeout: 5000 })
   })
 
@@ -71,7 +71,7 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByPlaceholder(/password/i).fill(testUser.password)
     await page.getByRole('button', { name: /sign in/i }).click()
 
-    await expect(page).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\//, { timeout: 10000 })
 
     // Save storage state
     const storageState = await context.storageState()
@@ -86,7 +86,7 @@ test.describe('Auth Integration with Real Backend', () => {
 
     // Should be logged in automatically
     await newPage.goto('/')
-    await expect(newPage).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(newPage).toHaveURL(/\//, { timeout: 10000 })
     await expect(newPage.getByText(/friends/i)).toBeVisible({ timeout: 5000 })
 
     await newPage.close()
@@ -159,7 +159,7 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByPlaceholder(/password/i).fill(testUser.password)
     await page.getByRole('button', { name: /sign in/i }).click()
 
-    await expect(page).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\//, { timeout: 10000 })
 
     // Wait a bit for WebSocket to connect
     await page.waitForTimeout(2000)

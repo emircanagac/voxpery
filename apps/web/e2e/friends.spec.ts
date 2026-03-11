@@ -31,7 +31,7 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
     await page1.getByRole('button', { name: /sign up/i }).click()
-    await expect(page1).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
     // Register user 2
     await page2.goto('/register')
@@ -39,7 +39,7 @@ test.describe('Friend & DM Flows', () => {
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
     await page2.getByRole('button', { name: /sign up/i }).click()
-    await expect(page2).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
     // User 1 sends friend request to user 2
     await page1.getByRole('button', { name: /add friend/i }).click()
@@ -82,14 +82,14 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
     await page1.getByRole('button', { name: /sign up/i }).click()
-    await expect(page1).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
     await page2.goto('/register')
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
     await page2.getByRole('button', { name: /sign up/i }).click()
-    await expect(page2).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
     // Send friend request
     await page1.getByRole('button', { name: /add friend/i }).click()
@@ -153,14 +153,14 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
     await page1.getByRole('button', { name: /sign up/i }).click()
-    await expect(page1).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
     await page2.goto('/register')
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
     await page2.getByRole('button', { name: /sign up/i }).click()
-    await expect(page2).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
     // User 1 sends friend request
     await page1.getByRole('button', { name: /add friend/i }).click()
@@ -199,14 +199,14 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
     await page1.getByRole('button', { name: /sign up/i }).click()
-    await expect(page1).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
     await page2.goto('/register')
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
     await page2.getByRole('button', { name: /sign up/i }).click()
-    await expect(page2).toHaveURL(/.*\/app/, { timeout: 10000 })
+    await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
     // Send and accept friend request
     await page1.getByRole('button', { name: /add friend/i }).click()
