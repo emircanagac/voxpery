@@ -90,17 +90,73 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// POST /api/auth/register
 async fn register(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let email = body.email.trim().to_lowercase();
+    
+    // 1) Email-based rate limit
     enforce_rate_limit(
         &state.redis,
         format!("auth:register:{}", email),
         state.auth_rate_limit_max,
         Duration::from_secs(state.auth_rate_limit_window_secs),
-        "Too many register attempts. Please wait and try again.",
+        "Too many register attempts for this email. Please wait and try again.",
     )
     .await?;
+
+    // 2) IP-based rate limit (Flood protection)
+    let ip = headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown_ip");
+        
+    // Allow max 5 accounts per IP per hour as basic flood protection
+    if ip != "unknown_ip" {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:register_ip:{}", ip),
+            5,
+            Duration::from_secs(3600), // 1 hour
+            "Too many accounts created from this IP address. Please try again later.",
+        )
+        .await?;
+    }
+
+    // 3) CAPTCHA validation (if configured)
+    if let Some(secret_key) = &state.turnstile_secret_key {
+        let token = body.captcha_token.as_deref().unwrap_or("");
+        if token.is_empty() {
+            return Err(AppError::Validation("CAPTCHA token is required".into()));
+        }
+
+        let client = reqwest::Client::new();
+        let res = client
+            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+            .form(&[
+                ("secret", secret_key.as_str()),
+                ("response", token),
+                ("remoteip", ip),
+            ])
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("CAPTCHA service error: {}", e)))?;
+
+        #[derive(serde::Deserialize)]
+        struct TurnstileResponse {
+            success: bool,
+        }
+
+        let verify_result = res
+            .json::<TurnstileResponse>()
+            .await
+            .map_err(|e| AppError::Internal(format!("CAPTCHA parse error: {}", e)))?;
+
+        if !verify_result.success {
+            return Err(AppError::Validation("CAPTCHA verification failed. Are you a robot?".into()));
+        }
+    }
 
     // Validate input
     let username = body.username.trim();

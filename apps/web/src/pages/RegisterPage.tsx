@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Turnstile } from '@marsidev/react-turnstile'
 import { authApi, getAuthErrorMessage, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { isTauri, setSecureToken } from '../secureStorage'
@@ -31,10 +32,13 @@ export default function RegisterPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
+    const [captchaToken, setCaptchaToken] = useState<string>('')
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
     const navigate = useNavigate()
+
+    const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
         if (isTauri()) {
@@ -60,10 +64,14 @@ export default function RegisterPage() {
             setError('Passwords do not match')
             return
         }
+        if (turnstileSiteKey && !captchaToken) {
+            setError('Please complete the CAPTCHA verification')
+            return
+        }
 
         setLoading(true)
         try {
-            const res = await authApi.register(username, email, password)
+            const res = await authApi.register(username, email, password, captchaToken || undefined)
             setAuth(res.token, res.user)
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
@@ -149,7 +157,19 @@ export default function RegisterPage() {
                     />
                 </div>
 
-                <button className="auth-btn" type="submit" disabled={loading}>
+                {turnstileSiteKey && (
+                    <div className="form-group" style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+                        <Turnstile
+                            siteKey={turnstileSiteKey}
+                            onSuccess={setCaptchaToken}
+                            onError={() => setError('CAPTCHA verification failed')}
+                            onExpire={() => setCaptchaToken('')}
+                            options={{ theme: 'dark' }}
+                        />
+                    </div>
+                )}
+
+                <button className="auth-btn" type="submit" disabled={loading || (turnstileSiteKey && !captchaToken)}>
                     {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
 

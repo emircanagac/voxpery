@@ -35,6 +35,8 @@ pub struct Config {
     pub google_client_secret: Option<String>,
     /// Public base URL of this API (for OAuth redirect_uri). e.g. http://localhost:3001 or https://api.voxpery.com
     pub public_api_url: Option<String>,
+    /// Cloudflare Turnstile Secret Key for CAPTCHA validation
+    pub turnstile_secret_key: Option<String>,
 }
 
 impl Config {
@@ -115,6 +117,7 @@ impl Config {
             google_client_id: std::env::var("GOOGLE_CLIENT_ID").ok().filter(|s| !s.is_empty()),
             google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
             public_api_url: std::env::var("PUBLIC_API_URL").ok().filter(|s| !s.is_empty()),
+            turnstile_secret_key: std::env::var("TURNSTILE_SECRET_KEY").ok().filter(|s| !s.is_empty()),
         }
     }
 }

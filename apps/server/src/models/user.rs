@@ -48,6 +48,7 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+    pub captcha_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

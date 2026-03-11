@@ -218,10 +218,10 @@ export interface AuthResponse {
 
 
 export const authApi = {
-    register: (username: string, email: string, password: string) =>
+    register: (username: string, email: string, password: string, captcha_token?: string) =>
         apiFetch<AuthResponse>('/api/auth/register', {
             method: 'POST',
-            body: { username, email, password },
+            body: { username, email, password, captcha_token },
         }),
 
     login: (identifier: string, password: string) =>
