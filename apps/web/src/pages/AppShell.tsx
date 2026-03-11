@@ -196,7 +196,7 @@ export default function AppShell() {
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
           const authorId = incomingMessage?.author?.user_id
-          const isSocialWithDm = location.pathname === '/app/social'
+          const isSocialWithDm = location.pathname === '/'
           if (!channelId || channelType !== 'dm') return
           if (authorId && authorId === user?.id) return
 
@@ -269,15 +269,15 @@ export default function AppShell() {
     joinedVoiceChannelId ??
     null
   const isFriendsOrDm =
-    location.pathname === '/app/social' || location.pathname === '/app'
-  const isServerView = !!activeServerId && location.pathname.startsWith('/app/servers')
+    location.pathname === '/'
+  const isServerView = !!activeServerId && location.pathname.startsWith('/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
 
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
         <div className="shell-left">
-          <button type="button" className="shell-brand" onClick={() => navigate('/app/social')}>
+          <button type="button" className="shell-brand" onClick={() => navigate('/')}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
             <span className="shell-brand-beta" title="Preview build">Beta</span>

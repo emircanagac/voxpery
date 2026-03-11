@@ -123,9 +123,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [dmUnread, hiddenDmPeerIds, storeDmChannels]
   )
 
-  // Single path /app/social: restore the tab that was open when user left (Friends vs DM).
+  // Single path /: restore the tab that was open when user left (Friends vs DM).
   useEffect(() => {
-    if (location.pathname !== '/app/social') return
+    if (location.pathname !== '/') return
     const openDmUserId = (location.state as { openDmUserId?: string } | null)?.openDmUserId
     if (openDmUserId && dmChannels.length > 0) {
       const channel = isUuid(openDmUserId)
@@ -137,7 +137,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         setView('dm')
         setPersistedSocialView('dm')
         clearDmUnread(channel.id)
-        navigate('/app/social', { replace: true, state: {} })
+        navigate('/', { replace: true, state: {} })
       }
       return
     }
@@ -296,7 +296,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       ; (document.activeElement as HTMLElement | null)?.blur()
   }, [view])
 
-  /* Mark DM as read whenever the conversation is visible (fixes badge when landing on /app/social with same DM still in state) */
+  /* Mark DM as read whenever the conversation is visible (fixes badge when landing on / with same DM still in state) */
   useEffect(() => {
     if (view === 'dm' && activeDmChannelId) {
       clearDmUnread(activeDmChannelId)
@@ -389,7 +389,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!prev.some((c) => c.id === channel.id)) {
       setStoreDmChannels([channel, ...prev])
     }
-    navigate('/app/social')
+    navigate('/')
   }
 
   const sendFriendRequest = async () => {
@@ -599,7 +599,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setActiveDmChannelId(targetChannelId)
       setView('dm')
       setPersistedSocialView('dm')
-      if (peer) navigate('/app/social')
+      if (peer) navigate('/')
     }
     try {
       const sent = await dmApi.sendMessage(targetChannelId, content, [], token)
@@ -684,7 +684,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           onClick={() => {
             setView('friends')
             setPersistedSocialView('friends')
-            if (location.pathname !== '/app/social') navigate('/app/social')
+            if (location.pathname !== '/') navigate('/')
           }}
         >
           <Users size={14} />
@@ -709,7 +709,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 setActiveDmChannelId(channel.id)
                 setPersistedSocialView('dm')
                 clearDmUnread(channel.id)
-                if (location.pathname !== '/app/social') navigate('/app/social')
+                if (location.pathname !== '/') navigate('/')
               }}
             >
               <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
@@ -740,7 +740,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       setView('friends')
                       setActiveDmChannelId(null)
                       setPersistedSocialView('friends')
-                      navigate('/app/social')
+                      navigate('/')
                     }
                   }}
                   onKeyDown={(e) => {
@@ -755,7 +755,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         setView('friends')
                         setActiveDmChannelId(null)
                         setPersistedSocialView('friends')
-                        navigate('/app/social')
+                        navigate('/')
                       }
                     }
                   }}
@@ -1040,7 +1040,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             onClick={async () => {
               if (voxperyServer) {
                 setActiveServer(voxperyServer.id)
-                navigate('/app/servers')
+                navigate('/servers')
                 return
               }
               try {
@@ -1048,7 +1048,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 const list = await serverApi.list(token)
                 setServers(list)
                 setActiveServer(joined.id)
-                navigate('/app/servers')
+                navigate('/servers')
               } catch (err) {
                 pushToast({
                   level: 'error',

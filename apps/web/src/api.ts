@@ -37,7 +37,7 @@ export function getApiBase(): string {
 }
 
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
-export function getGoogleAuthUrl(redirectPath: string = '/app/social'): string {
+export function getGoogleAuthUrl(redirectPath: string = '/'): string {
     const origin = isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
     const params = new URLSearchParams({
         redirect: redirectPath,

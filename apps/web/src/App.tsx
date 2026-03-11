@@ -10,6 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
 import GlobalLoading from './components/GlobalLoading'
 import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
+import { ROUTES } from './routes'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -19,7 +20,16 @@ const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
 
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
-  return <Navigate to="/app/social" state={userId ? { openDmUserId: userId } : undefined} replace />
+  return <Navigate to={ROUTES.home} state={userId ? { openDmUserId: userId } : undefined} replace />
+}
+
+function AuthRedirect() {
+  const location = window.location
+  const currentPath = location.pathname + location.search + location.hash
+  if (currentPath === '/' || currentPath.startsWith('/login') || currentPath.startsWith('/register')) {
+    return <Navigate to={ROUTES.login} replace />
+  }
+  return <Navigate to={`${ROUTES.login}?redirect=${encodeURIComponent(currentPath)}`} replace />
 }
 
 function App() {
@@ -176,10 +186,10 @@ function App() {
       <ConnectionGate>
         <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/invite/:code" element={<InvitePage />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path={ROUTES.login} element={<LoginPage />} />
+            <Route path={ROUTES.register} element={<RegisterPage />} />
+            <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
+            <Route path="*" element={<AuthRedirect />} />
           </Routes>
         </Suspense>
         <ToastViewport />
@@ -193,16 +203,22 @@ function App() {
         <RnnoisePreloadOnInteraction />
         <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
           <Routes>
-            <Route path="/app" element={<AppShell />}>
-              <Route path="social" element={<UnifiedLayout />} />
-              <Route path="dm" element={<RedirectDmToSocial />} />
-              <Route path="dm/:userId" element={<RedirectDmToSocial />} />
-              <Route path="servers" element={<UnifiedLayout />} />
-              <Route path="servers/*" element={<Navigate to="/app/servers" replace />} />
-              <Route index element={<Navigate to="/app/social" replace />} />
+            <Route element={<AppShell />}>
+              {/* UnifiedLayout wraps both / and /servers so it doesn't unmount on switch */}
+              <Route element={<UnifiedLayout />}>
+                <Route path={ROUTES.home} element={null} />
+                <Route path={ROUTES.servers} element={null} />
+                <Route path={`${ROUTES.servers}/*`} element={null} />
+                {/* Legacy paths */}
+                <Route path="/app/social" element={<Navigate to={ROUTES.home} replace />} />
+                <Route path="/app/servers" element={<Navigate to={ROUTES.servers} replace />} />
+                <Route path="/app/servers/*" element={<Navigate to={ROUTES.servers} replace />} />
+              </Route>
+              <Route path={ROUTES.dm} element={<RedirectDmToSocial />} />
+              <Route path={`${ROUTES.dm}/:userId`} element={<RedirectDmToSocial />} />
             </Route>
-            <Route path="/invite/:code" element={<InvitePage />} />
-            <Route path="*" element={<Navigate to="/app/social" replace />} />
+            <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
+            <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

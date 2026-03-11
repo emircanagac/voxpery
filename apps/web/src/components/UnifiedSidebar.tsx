@@ -24,16 +24,16 @@ export default function UnifiedSidebar({
   const { activeServerId, setActiveServer } = useAppStore(
     useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer }))
   )
-  const isServerRoute = location.pathname === '/app/servers'
+  const isServerRoute = location.pathname === '/servers'
   const displayActiveServerId = isServerRoute ? activeServerId : null
-  const isSocialRoute = location.pathname === '/app/social'
+  const isSocialRoute = location.pathname === '/'
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
-  const socialHref = '/app/social'
+  const socialHref = '/'
 
   const handleSelectServer = (serverId: string) => {
     setActiveServer(serverId)
-    navigate('/app/servers')
+    navigate('/servers')
   }
 
   return (

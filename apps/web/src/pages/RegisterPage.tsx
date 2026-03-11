@@ -4,6 +4,7 @@ import { authApi, getAuthErrorMessage, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
+import { ROUTES } from '../routes'
 
 function GoogleLogoIcon() {
     return (
@@ -16,11 +17,11 @@ function GoogleLogoIcon() {
     )
 }
 
-function safeRedirectPath(redirect: string | null): string {
-    if (!redirect || typeof redirect !== 'string') return '/app/social'
+function safeRedirectPath(redirect: string | null): string | undefined {
+    if (!redirect || typeof redirect !== 'string') return undefined
     const path = redirect.trim()
     if (path.startsWith('/') && !path.startsWith('//')) return path
-    return '/app/social'
+    return undefined
 }
 
 export default function RegisterPage() {
@@ -66,7 +67,7 @@ export default function RegisterPage() {
             setAuth(res.token, res.user)
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
-            navigate(redirectTo)
+            navigate(redirectTo || ROUTES.home)
         } catch (err: unknown) {
             const { message, code } = getAuthErrorMessage(err)
             setError(code ? `${message} (Error code: ${code})` : message || 'Registration failed')
@@ -167,7 +168,15 @@ export default function RegisterPage() {
 
                 <div className="auth-footer">
                     Already have an account?{' '}
-                    <a onClick={() => navigate(redirectTo ? `/login?redirect=${encodeURIComponent(redirectTo)}` : '/login')}>Sign In</a>
+                    <a
+                        onClick={() =>
+                            navigate(
+                                redirectTo ? `${ROUTES.login}?redirect=${encodeURIComponent(redirectTo)}` : ROUTES.login,
+                            )
+                        }
+                    >
+                        Sign In
+                    </a>
                 </div>
             </form>
         </div>

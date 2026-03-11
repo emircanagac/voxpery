@@ -4,6 +4,7 @@ import { authApi, getAuthErrorMessage, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
+import { ROUTES } from '../routes'
 
 function GoogleLogoIcon() {
     return (
@@ -28,11 +29,11 @@ function GoogleLogoIcon() {
     )
 }
 
-function safeRedirectPath(redirect: string | null): string {
-    if (!redirect || typeof redirect !== 'string') return '/app/social'
+function safeRedirectPath(redirect: string | null): string | undefined {
+    if (!redirect || typeof redirect !== 'string') return undefined
     const path = redirect.trim()
     if (path.startsWith('/') && !path.startsWith('//')) return path
-    return '/app/social'
+    return undefined
 }
 
 export default function LoginPage() {
@@ -64,7 +65,7 @@ export default function LoginPage() {
             setAuth(res.token, res.user)
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
-            navigate(redirectTo)
+            navigate(redirectTo || ROUTES.home)
         } catch (err: unknown) {
             const { message, code } = getAuthErrorMessage(err)
             setError(code ? `${message} (Error code: ${code})` : message || 'Login failed')
@@ -127,7 +128,17 @@ export default function LoginPage() {
 
                 <div className="auth-footer">
                     Don't have an account?{' '}
-                    <a onClick={() => navigate(redirectTo ? `/register?redirect=${encodeURIComponent(redirectTo)}` : '/register')}>Sign Up</a>
+                    <a
+                        onClick={() =>
+                            navigate(
+                                redirectTo
+                                    ? `${ROUTES.register}?redirect=${encodeURIComponent(redirectTo)}`
+                                    : ROUTES.register,
+                            )
+                        }
+                    >
+                        Sign Up
+                    </a>
                 </div>
             </form>
         </div>

@@ -7,6 +7,7 @@ import UnifiedSidebar from '../components/UnifiedSidebar'
 import HomePage from './HomePage'
 import AppLayout from './AppLayout'
 import { friendApi } from '../api'
+import { ROUTES } from '../routes'
 
 const ACTIVE_SERVER_STORAGE_KEY = 'voxpery-active-server-id'
 
@@ -48,11 +49,10 @@ export default function UnifiedLayout() {
     }))
   )
 
-  const isFriendsOrDm =
-    location.pathname === '/app/social' || location.pathname === '/app'
-  const isServerView = location.pathname === '/app/servers'
+  const isFriendsOrDm = location.pathname === ROUTES.home
+  const isServerView = location.pathname === ROUTES.servers
 
-  // When on /app/servers with no active server, set first server (or restore from sessionStorage)
+  // When on /servers with no active server, set first server (or restore from sessionStorage)
   useEffect(() => {
     if (!isServerView) return
     if (activeServerId) {
@@ -65,8 +65,9 @@ export default function UnifiedLayout() {
       return
     }
     const first = servers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') ?? servers[0]
-    if (first) setActiveServer(first.id)
-    else navigate('/app/social', { replace: true })
+    if (first) {
+      setActiveServer(first.id)
+    }
   }, [isServerView, activeServerId, servers, setActiveServer, navigate])
 
   // When leaving servers view, clear server from store (optional: keep for "last server" next time)
@@ -106,7 +107,7 @@ export default function UnifiedLayout() {
   const handleOpenServerSettings = (id: string) => {
     setOpenServerSettingsForServerId(id)
     setActiveServer(id)
-    navigate('/app/servers')
+    navigate(ROUTES.servers)
   }
 
   return (

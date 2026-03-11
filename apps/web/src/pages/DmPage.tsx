@@ -340,7 +340,7 @@ export default function DmPage() {
     setForwardPickerMessageId(null)
     if (targetChannelId !== activeChannelId && targetChannel) {
       setActiveChannelId(targetChannelId)
-      navigate('/app/social')
+      navigate('/')
     }
     try {
       const sent = await dmApi.sendMessage(targetChannelId, content, [], token)
@@ -450,7 +450,7 @@ export default function DmPage() {
             className={`dm-item ${activeChannelId === channel.id ? 'active' : ''}`}
             onClick={() => {
               setActiveChannelId(channel.id)
-              navigate('/app/social')
+              navigate('/')
             }}
           >
             <div className={`dm-avatar avatar-status-${['online', 'dnd', 'offline'].includes((channel.peer_status ?? '').toLowerCase()) ? (channel.peer_status ?? 'offline').toLowerCase() : 'offline'}`}>
@@ -475,7 +475,7 @@ export default function DmPage() {
             type="button"
             className="home-member-action"
             title="Voice action via friend flow"
-            onClick={() => navigate('/app/social')}
+            onClick={() => navigate('/')}
           >
             <Volume2 size={15} />
           </button>

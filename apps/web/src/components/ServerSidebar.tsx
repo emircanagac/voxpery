@@ -9,7 +9,7 @@ interface ServerSidebarProps {
     onCreateServer: () => void
     onJoinServer: () => void
     onOpenServerSettings?: (serverId: string) => void
-    /** When set, clicking a server calls this instead of only setActiveServer (e.g. to navigate to /app/servers/:id). */
+    /** When set, clicking a server calls this instead of only setActiveServer (e.g. to navigate to /servers/:id). */
     onSelectServer?: (serverId: string) => void
     /** When set, only this server id shows as active (for unified sidebar: only highlight server when on server route). */
     displayActiveServerId?: string | null

@@ -78,7 +78,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!id || !serverId) return
     setActiveServer(serverId)
     setActiveChannel(id)
-    navigate('/app/servers')
+    navigate('/servers')
   }
   const pushToast = useToastStore((s) => s.pushToast)
   const [muted, setMuted] = useState(false)

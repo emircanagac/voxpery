@@ -11,6 +11,7 @@ import { authApi, getAuthErrorMessage } from '../api'
 import { useSocketStore } from '../stores/socket'
 import { SENSITIVITY_THRESHOLD_KEY } from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
+import { ROUTES } from '../routes'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -398,7 +399,7 @@ export default function UserBar() {
               onClick={() => {
                 disconnect()
                 logout()
-                navigate('/login', { replace: true })
+                navigate(ROUTES.login, { replace: true })
               }}
             >
               Log out
@@ -898,7 +899,7 @@ export default function UserBar() {
                     setTimeout(() => {
                       disconnect()
                       logout()
-                      navigate('/login', { replace: true })
+                      navigate(ROUTES.login, { replace: true })
                     }, 1500)
                   } catch (err: unknown) {
                     const errorObj = err as Record<string, Record<string, Record<string, string>>>

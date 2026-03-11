@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { serverApi } from '../api'
+import { ROUTES } from '../routes'
 
 export default function InvitePage() {
     const { code } = useParams<{ code: string }>()
@@ -29,7 +30,7 @@ export default function InvitePage() {
                 const list = await serverApi.list(token)
                 setServers(list)
                 setActiveServer(server.id)
-                navigate('/app/servers', { replace: true })
+                navigate(ROUTES.servers, { replace: true })
             })
             .catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : 'Could not join server.')
@@ -41,8 +42,8 @@ export default function InvitePage() {
 
     if (!user) {
         const invitePath = `/invite/${code ?? ''}`
-        const loginUrl = `/login?redirect=${encodeURIComponent(invitePath)}`
-        const registerUrl = `/register?redirect=${encodeURIComponent(invitePath)}`
+        const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`
+        const registerUrl = `${ROUTES.register}?redirect=${encodeURIComponent(invitePath)}`
         return (
             <div className="auth-page">
                 <div className="auth-card" style={{ textAlign: 'center' }}>
@@ -72,7 +73,7 @@ export default function InvitePage() {
                     <p className="auth-error" role="alert" style={{ marginBottom: 16 }}>
                         {error}
                     </p>
-                    <button type="button" className="btn btn-secondary" onClick={() => navigate('/app/servers', { replace: true })}>
+                    <button type="button" className="btn btn-secondary" onClick={() => navigate(ROUTES.servers, { replace: true })}>
                         Back to app
                     </button>
                 </div>
