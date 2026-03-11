@@ -384,12 +384,17 @@ export const serverApi = {
         roleId: string,
         payload: { name?: string; permissions?: number; color?: string | null },
         token: AuthToken,
-    ) =>
-        apiFetch<ServerRole>(`/api/servers/${serverId}/roles/${roleId}`, {
+    ) => {
+        const bodyToSend = {
+            ...payload,
+            color: payload.color === null ? '' : payload.color,
+        }
+        return apiFetch<ServerRole>(`/api/servers/${serverId}/roles/${roleId}`, {
             method: 'PATCH',
-            body: payload,
+            body: bodyToSend,
             token,
-        }),
+        })
+    },
 
     deleteRole: (serverId: string, roleId: string, token: AuthToken) =>
         apiFetch<unknown>(`/api/servers/${serverId}/roles/${roleId}`, {

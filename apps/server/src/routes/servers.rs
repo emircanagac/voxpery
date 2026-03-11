@@ -64,8 +64,8 @@ struct UpdateRoleRequest {
     name: Option<String>,
     permissions: Option<i64>,
     /// Optional display color. When omitted, color stays unchanged.
-    /// When provided (including null from JSON), color is updated.
-    color: Option<serde_json::Value>,
+    /// When provided (empty string from JSON), color is cleared.
+    color: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -450,19 +450,14 @@ async fn update_role(
     }
 
     let permissions_opt = body.permissions;
-    // Interpret color field using serde_json::Value to distinguish missing vs null:
-    let (update_color, color_val): (bool, Option<String>) = match body.color {
+    // Interpret color field:
+    // If body.color is None, it means the field wasn't sent (don't update).
+    // If it's Some(""), clear the color (set to NULL in DB).
+    // Otherwise, set to the new color.
+    let (update_color, color_val): (bool, Option<String>) = match &body.color {
         None => (false, None),
-        Some(serde_json::Value::Null) => (true, None),
-        Some(serde_json::Value::String(s)) => {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                (true, None)
-            } else {
-                (true, Some(trimmed.to_string()))
-            }
-        }
-        _ => (false, None), // ignores invalid types
+        Some(s) if s.trim().is_empty() => (true, None),
+        Some(s) => (true, Some(s.trim().to_string())),
     };
 
     let role = sqlx::query_as::<_, ServerRole>(
