@@ -230,6 +230,10 @@ async fn register(
 /// Default Voxpery server invite code.
 /// Users auto-join this official community server on register/login.
 const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
+// Keep in sync with routes/servers.rs seeding.
+const PERM_MANAGE_CHANNELS: i64 = 1 << 3;
+const PERM_KICK_MEMBERS: i64 = 1 << 4;
+const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
 
 /// Env vars to resolve default Voxpery server owner: ADMIN_EMAIL or ADMIN_USERNAME (seeded admin).
 fn official_owner_lookup() -> (Option<String>, Option<String>) {
@@ -373,6 +377,21 @@ pub async fn ensure_default_server_join(
     }
 
     if let Some(server_id) = server_id_opt {
+            // Ensure default Voxpery server has the seeded Moderator role.
+            // This also backfills older default servers that were created without it.
+            let moderator_perms =
+                PERM_MANAGE_CHANNELS | PERM_MANAGE_MESSAGES | PERM_KICK_MEMBERS;
+            sqlx::query(
+                r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+                   VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
+                   ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(server_id)
+            .bind(moderator_perms)
+            .execute(db)
+            .await?;
+
             let already = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
             )

@@ -169,6 +169,55 @@ async fn register_login_me_flow() {
 }
 
 #[tokio::test]
+async fn default_voxpery_server_has_moderator_role_after_register() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("mod-{}@example.com", uid);
+    let username = format!("moduser_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+
+    let register_body = json!({
+        "email": email,
+        "username": username,
+        "password": password
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let role_count = sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*)
+           FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery'
+             AND LOWER(sr.name) = 'moderator'"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("role count query should succeed");
+
+    assert!(
+        role_count >= 1,
+        "default Voxpery server must have Moderator role after register"
+    );
+}
+
+#[tokio::test]
 async fn create_server_list_servers_get_server() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
