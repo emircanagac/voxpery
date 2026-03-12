@@ -149,7 +149,7 @@ export default function ChannelSidebar({
         }
     }
 
-    const handleJoinVoice = async (id: string, name: string) => {
+    const handleJoinVoice = async (id: string, _name: string) => {
         setIsJoiningVoice(true)
         setActiveChannel(id)
         const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice

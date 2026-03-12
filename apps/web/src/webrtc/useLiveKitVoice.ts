@@ -261,7 +261,7 @@ export function useLiveKitVoice() {
       } catch { /* ignore unsupported constraints */ }
 
       // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
-      const { track: processedMicTrack, vadStream } = await buildMicSendTrack(
+      const { track: publishTrack, vadStream } = await buildMicSendTrack(
         preflightStream,
         getInputVolumeFactor(),
         desiredMicMutedRef.current,
@@ -420,10 +420,10 @@ export function useLiveKitVoice() {
       updateRoomStats()
 
       // Publish the track directly to LiveKit.
-      await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
+      const pub = await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
 
       micPublished = true
-      localAudioTrackRef.current = publishTrack
+      localAudioTrackRef.current = pub.track as LocalAudioTrack
       await setLocalMicMuted(desiredMicMutedRef.current)
 
       refreshLocalStreams()

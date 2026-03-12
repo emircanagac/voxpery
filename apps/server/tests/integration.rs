@@ -68,6 +68,9 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         google_client_secret: None,
         public_api_url: None,
         turnstile_secret_key: None,
+        smtp_host: None,
+        smtp_password: None,
+        smtp_user: None,
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
