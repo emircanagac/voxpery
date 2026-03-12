@@ -416,7 +416,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return 4
   }
 
-  // Auto-join when user clicks a voice channel. If already in another voice channel, leave it first then join the new one.
+  // Auto-join handling
   useEffect(() => {
     if (!selectedVoiceChannelId) return
     if (blockedAutoJoinChannelId === selectedVoiceChannelId) return
@@ -425,15 +425,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       leaveVoice({ skipLeaveSound: true })
       return
     }
-    if (state.livekit) return
+    // Only auto-join if we don't have a room state yet (disconnected)
+    if (state.livekit.roomState !== 'disconnected') return
     const tryAutoJoin = async () => {
       if (navigator.permissions?.query) {
         try {
           const status = await navigator.permissions.query({ name: 'microphone' as PermissionName })
           if (status.state !== 'granted') return
-        } catch {
-          // ignore permission API errors
-        }
+        } catch { /* ignore */ }
       }
       try {
         await joinVoice(selectedVoiceChannelId)
@@ -442,10 +441,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
     }
     void tryAutoJoin()
-  }, [blockedAutoJoinChannelId, joinVoice, leaveVoice, selectedVoiceChannelId, state.joinedChannelId, state.livekit])
+  }, [blockedAutoJoinChannelId, joinVoice, leaveVoice, selectedVoiceChannelId, state.joinedChannelId, state.livekit.roomState])
 
+  // Expose joinVoice to window for ChannelSidebar
   useEffect(() => {
-    if (!state.livekit) return
     const joinFn = async (channelId: string, preflightStream?: MediaStream) => {
       if (!channelId) return
       if (state.isJoining) return
@@ -464,17 +463,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         await joinVoice(channelId, { preflightStream: micStream })
       } catch {
         micStream?.getTracks().forEach((t) => t.stop())
+        await joinVoice(channelId)
       }
     }
-      ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice = joinFn
+    ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice = joinFn
     return () => {
       if ((window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice === joinFn) {
         delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
       }
     }
-    }, [joinVoice, leaveVoice, state.isJoining, state.joinedChannelId, state.livekit])
+  }, [joinVoice, leaveVoice, state.isJoining, state.joinedChannelId])
 
-  // Unblock auto-join when user switches to another channel.
   useEffect(() => {
     if (!blockedAutoJoinChannelId) return
     if (selectedVoiceChannelId !== blockedAutoJoinChannelId) {
@@ -530,14 +529,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       await joinVoice(channelId, { preflightStream: stream })
     } catch {
       stream?.getTracks().forEach((t) => t.stop())
-      // Toast is shown once by the useEffect that reacts to state.lastError (set by joinVoice).
+      await joinVoice(channelId)
     }
   }
 
   const handleJoinLeave = async () => {
-    // Never auto-leave when navigating (e.g. to Social). Only leave when user explicitly leaves this channel.
     if (!selectedVoiceChannelId && !state.joinedChannelId) return
-    if (!selectedVoiceChannelId) return // in call but no channel selected in UI (e.g. on Social) – keep call, do nothing
+    if (!selectedVoiceChannelId) return
     if (isInThisChannel) {
       setVoiceControls(false, false, false)
       leaveVoice()
@@ -592,21 +590,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       localStorage.setItem('voxpery-settings-screen-share-quality', screenShareQuality)
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-    } catch {
-      // ignore storage errors
-    }
+    } catch { }
     try {
       await startScreenShare()
     } catch (e) {
       const message = e instanceof Error
         ? e.message
         : 'Unable to start screen sharing. Check permission and active window selection.'
-      pushToast({
-        level: 'error',
-        title: 'Screen share failed',
-        message,
-      })
-      console.error('Failed to start screen share:', e)
+      pushToast({ level: 'error', title: 'Screen share failed', message })
     }
   }
 
@@ -629,9 +620,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   }
 
-  // Hide dock only when both call state and local media are absent.
-  // This prevents transient state desync from making controls disappear.
-  if (!state.joinedChannelId && !state.localStream) return null
   const handleTileMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const tile = e.currentTarget as VoxperyHTMLDivElement
     tile.classList.remove('is-mouse-idle')
@@ -650,21 +638,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }
 
   const localInitial = (user?.username?.charAt(0) || 'Y').toUpperCase()
-
-  const remoteShareOwner = (peerId: string) =>
-    members.find((m) => m.user_id === peerId)?.username ?? 'User'
-
-  const localFallbackTileCount =
-    currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) ? 1 : 0
-  const totalStageTiles =
-    channelParticipants.length +
-    localFallbackTileCount +
-    (state.isScreenSharing && state.screenStream ? 1 : 0) +
-    (state.cameraStream ? 1 : 0) +
-    remoteVideoTrackEntries.length
+  const remoteShareOwner = (peerId: string) => members.find((m) => m.user_id === peerId)?.username ?? 'User'
+  const localFallbackTileCount = currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) ? 1 : 0
+  const totalStageTiles = channelParticipants.length + localFallbackTileCount + (state.isScreenSharing && state.screenStream ? 1 : 0) + (state.cameraStream ? 1 : 0) + remoteVideoTrackEntries.length
   const stageColumns = getStageColumns(totalStageTiles)
-  const livekitInfo = state.livekit
-  const roomState = livekitInfo.roomState
+  const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
   const roomConnecting = state.isJoining || roomState === 'connecting'
   const roomReconnecting = roomState === 'reconnecting'
@@ -672,67 +650,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const participantIds = new Set(channelParticipants.map((member) => member.user_id))
   if (state.joinedChannelId && user?.id) participantIds.add(user.id)
   const participantCount = participantIds.size
-  const livekitLabel = livekitInfo
-    ? `${livekitInfo.roomState} • P:${livekitInfo.participants} • S:${livekitInfo.remoteStreams}`
-    : null
   const participantLabel = `${participantCount}`
-  const connectionLabel =
-    !state.joinedChannelId
-      ? 'Offline'
-      : roomConnecting
-        ? 'Connecting...'
-        : roomReconnecting
-          ? 'Reconnecting...'
-          : roomConnected
-            ? `Connected (${participantLabel})`
-            : roomDisconnected
-              ? 'Offline'
-              : 'Connecting...'
-  const connectionTitle =
-    roomConnected
-      ? 'Connected'
-      : connectionLabel
-  const pingTooltip =
-    !state.joinedChannelId
-      ? 'Ping: N/A'
-      : state.pingMs != null
-        ? `Ping: ${state.pingMs} ms${state.diagnostics.wsPingMs != null ? ` (WS ${state.diagnostics.wsPingMs} ms` : ''}${state.diagnostics.rtcPingMs != null ? `${state.diagnostics.wsPingMs != null ? ', ' : ' ('}RTC ${state.diagnostics.rtcPingMs} ms` : ''}${state.diagnostics.wsPingMs != null || state.diagnostics.rtcPingMs != null ? ')' : ''}`
-        : 'Ping: measuring...'
-  const pingStateClass =
-    !state.joinedChannelId || state.pingMs == null
-      ? 'is-unknown'
-      : state.pingMs <= 80
-        ? 'is-good'
-        : state.pingMs <= 150
-          ? 'is-mid'
-          : 'is-bad'
-  const connectionStateClass =
-    !state.joinedChannelId || roomDisconnected
-      ? 'is-offline'
-      : roomConnecting || roomReconnecting
-        ? 'is-connecting'
-        : 'is-connected'
+  const connectionLabel = !state.joinedChannelId ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
+  const connectionTitle = roomConnected ? 'Connected' : connectionLabel
+  const pingTooltip = !state.joinedChannelId ? 'Ping: N/A' : state.pingMs != null ? `Ping: ${state.pingMs} ms` : 'Ping: measuring...'
+  const pingStateClass = !state.joinedChannelId || state.pingMs == null ? 'is-unknown' : state.pingMs <= 80 ? 'is-good' : state.pingMs <= 150 ? 'is-mid' : 'is-bad'
+  const connectionStateClass = !state.joinedChannelId || roomDisconnected ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : 'is-connected'
 
   const screenShareModal = showScreenShareConfirm && (
     <div className="modal-overlay" onClick={() => setShowScreenShareConfirm(false)}>
       <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
         <h3>Share your screen</h3>
-        <p>
-          Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.
-        </p>
+        <p>Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.</p>
         <div className="screen-share-quality-picker">
           <label htmlFor="screen-share-quality-select">Screen share quality</label>
-          <select
-            id="screen-share-quality-select"
-            className="user-select"
-            value={screenShareQuality}
-            onChange={(e) => {
-              const raw = e.target.value
-              const next: ScreenShareQuality =
-                raw === 'presentation' || raw === 'video' || raw === 'gaming' ? raw : 'auto'
-              setScreenShareQuality(next)
-            }}
-          >
+          <select id="screen-share-quality-select" className="user-select" value={screenShareQuality} onChange={(e) => setScreenShareQuality(e.target.value as ScreenShareQuality)}>
             <option value="auto">Auto</option>
             <option value="presentation">Presentation</option>
             <option value="video">Video</option>
@@ -741,12 +673,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           <div className="screen-share-quality-summary">{screenShareQualitySummary(screenShareQuality)}</div>
         </div>
         <div className="modal-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => setShowScreenShareConfirm(false)}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => void confirmScreenShare()}>
-            Share screen
-          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => setShowScreenShareConfirm(false)}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={() => void confirmScreenShare()}>Share screen</button>
         </div>
       </div>
     </div>
@@ -756,387 +684,208 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     <div className="modal-overlay" onClick={() => setShowCameraConfirm(false)}>
       <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
         <h3>Turn on camera</h3>
-        <p>
-          Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.
-        </p>
+        <p>Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.</p>
         <div className="modal-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => setShowCameraConfirm(false)}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => void confirmCamera()}>
-            Turn on camera
-          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => setShowCameraConfirm(false)}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={() => void confirmCamera()}>Turn on camera</button>
         </div>
       </div>
     </div>
   )
 
+  const showActiveCallBar = !!(state.joinedChannelId || state.localStream)
+
   return (
     <>
       {typeof document !== 'undefined' && createPortal(screenShareModal, document.body)}
       {typeof document !== 'undefined' && createPortal(cameraModal, document.body)}
-      {showVoiceStage && (
-        <div
-          className="screen-share-stage"
-          style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
-        >
-          {channelParticipants.map((p) => {
-            const isLocal = p.user_id === user?.id
-            const pSpeaking = isLocal
-              ? voiceLocalSpeaking && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
-              : voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
-            return (
-            <div key={`participant-${p.user_id}`} className="voice-stage-tile">
-              <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
-                {p.avatar_url ? (
-                  <img src={p.avatar_url} alt="" />
-                ) : (
-                  (p.username.charAt(0) || '?').toUpperCase()
-                )}
-              </div>
-              <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`}>{p.username}</div>
-              <div className="voice-stage-sub">
-                <Users size={12} />
-                In voice
-              </div>
-            </div>
-            )
-          })}
-          {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
-            <div key="participant-local-fallback" className="voice-stage-tile">
-              <div className={`voice-stage-avatar${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>
-                {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="" />
-                ) : (
-                  localInitial
-                )}
-              </div>
-              <div className={`voice-stage-name${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>{user?.username ?? 'You'}</div>
-              <div className="voice-stage-sub">
-                <Users size={12} />
-                In voice
-              </div>
-            </div>
-          )}
-          {state.cameraStream && (
-            <div
-              className="screen-share-preview voice-stage-share-tile camera-preview"
-              data-fullscreen-key="camera"
-              onMouseMove={handleTileMouseMove}
-              onMouseLeave={handleTileMouseLeave}
-            >
-              <video
-                ref={(el) => { cameraVideoRef.current = el }}
-                autoPlay
-                muted
-                playsInline
-                style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }}
-              />
-              <div className="screen-share-info-overlay">
-                <span className="screen-share-info-text">Camera · You</span>
-              </div>
-              <div className="screen-share-controls-bar">
-                <div className="screen-share-controls-left" />
-                <div className="screen-share-controls-right">
-                  <button
-                    type="button"
-                    className="screen-share-controls-btn"
-                    title="Toggle fullscreen"
-                    onClick={(e) => {
-                      const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                      if (!tile) return
-                      if (document.fullscreenElement) {
-                        void document.exitFullscreen().catch(() => { })
-                      } else {
-                        void tile.requestFullscreen?.().catch(() => { })
-                      }
-                    }}
-                  >
-                    {fullscreenTileKey === 'camera' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                  </button>
+      {showActiveCallBar && (
+        <>
+          {showVoiceStage && (
+            <div className="screen-share-stage" style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}>
+              {channelParticipants.map((p) => {
+                const isLocal = p.user_id === user?.id
+                const pSpeaking = isLocal ? voiceLocalSpeaking && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened : voiceSpeakingUserIds.includes(p.user_id) && !voiceControls[p.user_id]?.muted && !voiceControls[p.user_id]?.deafened
+                return (
+                  <div key={`participant-${p.user_id}`} className="voice-stage-tile">
+                    <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
+                      {p.avatar_url ? <img src={p.avatar_url} alt="" /> : (p.username.charAt(0) || '?').toUpperCase()}
+                    </div>
+                    <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`}>{p.username}</div>
+                    <div className="voice-stage-sub"><Users size={12} />In voice</div>
+                  </div>
+                )
+              })}
+              {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
+                <div key="participant-local-fallback" className="voice-stage-tile">
+                  <div className={`voice-stage-avatar${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>
+                    {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : localInitial}
+                  </div>
+                  <div className={`voice-stage-name${voiceLocalSpeaking && !muted && !deafened ? ' is-speaking' : ''}`}>{user?.username ?? 'You'}</div>
+                  <div className="voice-stage-sub"><Users size={12} />In voice</div>
                 </div>
-              </div>
-            </div>
-          )}
-          {state.isScreenSharing && state.screenStream && (
-            <div
-              className="screen-share-preview voice-stage-share-tile"
-              data-fullscreen-key="screen"
-              onMouseMove={handleTileMouseMove}
-              onMouseLeave={handleTileMouseLeave}
-            >
-              <video
-                autoPlay
-                muted
-                playsInline
-                ref={(el) => {
-                  if (!el) return
-                  if (el.srcObject !== state.screenStream) el.srcObject = state.screenStream
-                  void el.play().catch(() => { })
-                }}
-              />
-              <div className="screen-share-info-overlay">
-                <span className="screen-share-info-text">Screen share · You</span>
-              </div>
-
-              <div className="screen-share-controls-bar">
-                <div className="screen-share-controls-left" />
-                <div className="screen-share-controls-right">
-                  <button
-                    type="button"
-                    className="screen-share-controls-btn"
-                    title="Toggle fullscreen"
-                    onClick={(e) => {
-                      const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                      if (!tile) return
-                      if (document.fullscreenElement) {
-                        void document.exitFullscreen().catch(() => { })
-                      } else {
-                        void tile.requestFullscreen?.().catch(() => { })
-                      }
-                    }}
-                  >
-                    {fullscreenTileKey === 'screen' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                  </button>
+              )}
+              {state.cameraStream && (
+                <div className="screen-share-preview voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <video ref={(el) => { cameraVideoRef.current = el }} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
+                  <div className="screen-share-info-overlay"><span className="screen-share-info-text">Camera · You</span></div>
+                  <div className="screen-share-controls-bar">
+                    <div className="screen-share-controls-left" />
+                    <div className="screen-share-controls-right">
+                      <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                        const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                        if (!tile) return
+                        if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                        else void tile.requestFullscreen?.().catch(() => { })
+                      }}>
+                        {fullscreenTileKey === 'camera' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-          {remoteVideoTrackEntries.map(({ peerId, track, label }) => {
-            const volumeKey = resolvePeerVolumeKey(peerId)
-            const screenVolumeKey = `screen:${volumeKey}`
-            const currentVol = label === 'Screen share' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
-            const tileKey = `${peerId}-${track.id}`
-            return (
-              <div
-                key={tileKey}
-                className="screen-share-preview remote-screen-preview voice-stage-share-tile"
-                data-fullscreen-key={tileKey}
-                onMouseMove={handleTileMouseMove}
-                onMouseLeave={handleTileMouseLeave}
-              >
-                <video
-                  autoPlay
-                  muted
-                  playsInline
-                  ref={(el) => {
-                    if (!el) return
-                    let stream = remoteVideoStreamByTrackIdRef.current.get(track.id)
-                    if (!stream) {
-                      stream = new MediaStream([track])
-                      remoteVideoStreamByTrackIdRef.current.set(track.id, stream)
-                    }
-                    if (el.srcObject !== stream) el.srcObject = stream
-                    void el.play().catch(() => { })
-                  }}
-                />
-
-                {/* Top info overlay */}
-                <div className="screen-share-info-overlay">
-                  <span className="screen-share-info-text">{label} · {remoteShareOwner(peerId)}</span>
+              )}
+              {state.isScreenSharing && state.screenStream && (
+                <div className="screen-share-preview voice-stage-share-tile" data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <video autoPlay muted playsInline ref={(el) => { if (!el) return; if (el.srcObject !== state.screenStream) el.srcObject = state.screenStream; void el.play().catch(() => { }) }} />
+                  <div className="screen-share-info-overlay"><span className="screen-share-info-text">Screen share · You</span></div>
+                  <div className="screen-share-controls-bar">
+                    <div className="screen-share-controls-left" />
+                    <div className="screen-share-controls-right">
+                      <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                        const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                        if (!tile) return
+                        if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                        else void tile.requestFullscreen?.().catch(() => { })
+                      }}>
+                        {fullscreenTileKey === 'screen' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-                {/* YouTube-style hover control bar. Volume only for screen share (camera has no audio). */}
-                <div className="screen-share-controls-bar">
-                  <div className="screen-share-controls-left">
-                    {label === 'Screen share' && (
-                      <div className="screen-share-volume-container">
-                        <button
-                          type="button"
-                          className="screen-share-volume-btn"
-                          title={currentVol === 0 ? 'Unmute (hover for volume)' : 'Mute (hover for volume)'}
-                          onClick={() => {
-                            const isMuted = currentVol === 0
-                            const prevVolumeKey = `${screenVolumeKey}_prev`
-
-                            let newVal: number
-                            if (isMuted) {
-                              const savedStr = localStorage.getItem(prevVolumeKey)
-                              const savedVal = savedStr ? Number(savedStr) : 100
-                              newVal = savedVal > 0 ? savedVal : 100
-                            } else {
-                              localStorage.setItem(prevVolumeKey, String(currentVol))
-                              newVal = 0
-                            }
-
-                            const next = { ...peerVolumeByUserId, [screenVolumeKey]: newVal }
-                            setPeerVolumeByUserId(next)
-                            localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
-                            applyOutputVolumeToElements(outputVolumeRef.current / 100)
-                          }}
-                        >
-                          {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                        </button>
-                        <div className="screen-share-volume-slider-wrap">
-                          <input
-                            type="range"
-                            min={0}
-                            max={200}
-                            value={currentVol}
-                            className="screen-share-volume-slider"
-                            title={`Volume: ${currentVol}%`}
-                            onChange={(e) => {
-                              const val = Number(e.target.value)
-                              const next = { ...peerVolumeByUserId, [screenVolumeKey]: val }
+              )}
+              {remoteVideoTrackEntries.map(({ peerId, track, label }) => {
+                const volumeKey = resolvePeerVolumeKey(peerId)
+                const screenVolumeKey = `screen:${volumeKey}`
+                const currentVol = label === 'Screen share' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
+                const tileKey = `${peerId}-${track.id}`
+                return (
+                  <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                    <video autoPlay muted playsInline ref={(el) => { if (!el) return; let stream = remoteVideoStreamByTrackIdRef.current.get(track.id); if (!stream) { stream = new MediaStream([track]); remoteVideoStreamByTrackIdRef.current.set(track.id, stream) }; if (el.srcObject !== stream) el.srcObject = stream; void el.play().catch(() => { }) }} />
+                    <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {remoteShareOwner(peerId)}</span></div>
+                    <div className="screen-share-controls-bar">
+                      <div className="screen-share-controls-left">
+                        {label === 'Screen share' && (
+                          <div className="screen-share-volume-container">
+                            <button type="button" className="screen-share-volume-btn" title={currentVol === 0 ? 'Unmute' : 'Mute'} onClick={() => {
+                              const isMuted = currentVol === 0
+                              const prevVolumeKey = `${screenVolumeKey}_prev`
+                              let newVal: number
+                              if (isMuted) {
+                                const savedStr = localStorage.getItem(prevVolumeKey)
+                                const savedVal = savedStr ? Number(savedStr) : 100
+                                newVal = savedVal > 0 ? savedVal : 100
+                              } else {
+                                localStorage.setItem(prevVolumeKey, String(currentVol))
+                                newVal = 0
+                              }
+                              const next = { ...peerVolumeByUserId, [screenVolumeKey]: newVal }
                               setPeerVolumeByUserId(next)
                               localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
                               applyOutputVolumeToElements(outputVolumeRef.current / 100)
-                            }}
-                          />
-                          <span className="screen-share-volume-value">{currentVol}%</span>
-                        </div>
+                            }}>
+                              {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                            </button>
+                            <div className="screen-share-volume-slider-wrap">
+                              <input type="range" min={0} max={200} value={currentVol} className="screen-share-volume-slider" title={`Volume: ${currentVol}%`} onChange={(e) => {
+                                const val = Number(e.target.value)
+                                const next = { ...peerVolumeByUserId, [screenVolumeKey]: val }
+                                setPeerVolumeByUserId(next)
+                                localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
+                                applyOutputVolumeToElements(outputVolumeRef.current / 100)
+                              }} />
+                              <span className="screen-share-volume-value">{currentVol}%</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="screen-share-controls-right">
+                        <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                          const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                          if (!tile) return
+                          if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                          else void tile.requestFullscreen?.().catch(() => { })
+                        }}>
+                          {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="screen-share-controls-right">
-                    <button
-                      type="button"
-                      className="screen-share-controls-btn"
-                      title="Toggle fullscreen"
-                      onClick={(e) => {
-                        const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                        if (!tile) return
-                        if (document.fullscreenElement) {
-                          void document.exitFullscreen().catch(() => { })
-                        } else {
-                          void tile.requestFullscreen?.().catch(() => { })
+                )
+              })}
+            </div>
+          )}
+          <div className="callbar-wrap">
+            <div className="active-call-bar">
+              <div style={{ display: 'none' }}>
+                {Array.from(state.remoteStreams.keys()).map((peerId) => {
+                  const stream = state.remoteStreams.get(peerId)
+                  if (!stream) return null
+                  return (
+                    <audio key={peerId} autoPlay playsInline ref={(el) => {
+                      if (el) {
+                        remoteAudioRefsRef.current.set(peerId, el)
+                        if (el.srcObject !== stream) el.srcObject = stream
+                        const shouldMute = deafenedRef.current
+                        const isCaptured = perPeerAudioCtxRef.current.has(peerId)
+                        if (!isCaptured) {
+                          const peerFactor = getPeerVolumeFactor(peerId)
+                          const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
+                          try { el.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
+                          el.muted = shouldMute
                         }
-                      }}
-                    >
-                      {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                    </button>
-                  </div>
-                </div>
+                        if (!shouldMute) ensureRemoteAudioPlayback(peerId, el)
+                      } else {
+                        remoteAudioRefsRef.current.delete(peerId)
+                        const t = remoteAudioRetryTimerRef.current.get(peerId)
+                        if (t != null) { window.clearTimeout(t); remoteAudioRetryTimerRef.current.delete(peerId) }
+                      }
+                    }} />
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
+              <div className="callbar-status">
+                <button type="button" className="active-call-title active-call-title-btn" onClick={goToVoiceChannel} title={voiceLocation.full}>{voiceLocation.display}</button>
+              </div>
+              <div className="callbar-controls-center">
+                <button onClick={toggleMute} disabled={!state.joinedChannelId || !state.localStream || deafened} className={`callbar-control-btn ${muted ? 'is-off' : ''}`} title={muted ? 'Unmute' : 'Mute'}>
+                  {muted ? <MicOff size={16} /> : <Mic size={16} />}
+                </button>
+                <button onClick={toggleDeafen} disabled={!state.joinedChannelId} className={`callbar-control-btn ${deafened ? 'is-off' : ''}`} title={deafened ? 'Enable headphones' : 'Disable headphones'}>
+                  {deafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                </button>
+                <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}>
+                  {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
+                </button>
+                <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}>
+                  <Monitor size={16} />
+                </button>
+              </div>
+              <div className="callbar-controls-right">
+                <span className="callbar-connection-inline">
+                  <span className={`active-call-subtitle active-call-subtitle-inline ${connectionStateClass}`} title={connectionTitle}>
+                    {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" />}
+                    {connectionLabel}
+                  </span>
+                  <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip}><Wifi size={14} /></span>
+                </span>
+                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${(isInThisChannel || state.joinedChannelId) ? 'is-live' : ''}`} title={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}>
+                  <PhoneOff size={16} style={{ transform: (isInThisChannel || state.joinedChannelId) ? 'none' : 'rotate(135deg)' }} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
-      <div className="callbar-wrap">
-        <div className="active-call-bar">
-          {/* Remote audio outputs (required to actually hear peers) */}
-          <div style={{ display: 'none' }}>
-            {Array.from(state.remoteStreams.keys()).map((peerId) => {
-              const stream = state.remoteStreams.get(peerId)
-              if (!stream) return null
-              return (
-                <audio
-                  key={peerId}
-                  autoPlay
-                  playsInline
-                  ref={(el) => {
-                    if (el) {
-                      remoteAudioRefsRef.current.set(peerId, el)
-                      // Always ensure srcObject is set to the current stream
-                      if (el.srcObject !== stream) {
-                        el.srcObject = stream
-                      }
-                      // Set volume and mute only when element is not captured by Web Audio (Firefox warns otherwise)
-                      const shouldMute = deafenedRef.current
-                      const isCaptured = perPeerAudioCtxRef.current.has(peerId)
-                      if (!isCaptured) {
-                        const peerFactor = getPeerVolumeFactor(peerId)
-                        const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
-                        try {
-                          el.volume = vol
-                        } catch (e) {
-                          console.warn('[ActiveCallBar] Failed to set volume:', e)
-                        }
-                        el.muted = shouldMute
-                      }
-                      // Try to play if not deafened
-                      if (!shouldMute) {
-                        ensureRemoteAudioPlayback(peerId, el)
-                      }
-                    } else {
-                      remoteAudioRefsRef.current.delete(peerId)
-                      const t = remoteAudioRetryTimerRef.current.get(peerId)
-                      if (t != null) {
-                        window.clearTimeout(t)
-                        remoteAudioRetryTimerRef.current.delete(peerId)
-                      }
-                    }
-                  }}
-                />
-              )
-            })}
-          </div>
-
-          <div className="callbar-status">
-            <button
-              type="button"
-              className="active-call-title active-call-title-btn"
-              onClick={goToVoiceChannel}
-              title={voiceLocation.full}
-            >
-              {voiceLocation.display}
-            </button>
-          </div>
-
-          <div className="callbar-controls-center">
-            <button
-              onClick={toggleMute}
-              disabled={!state.joinedChannelId || !state.localStream || deafened}
-              className={`callbar-control-btn ${muted ? 'is-off' : ''}`}
-              title={muted ? 'Unmute' : 'Mute'}
-              aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
-            >
-              {muted ? <MicOff size={16} /> : <Mic size={16} />}
-            </button>
-            <button
-              onClick={toggleDeafen}
-              disabled={!state.joinedChannelId}
-              className={`callbar-control-btn ${deafened ? 'is-off' : ''}`}
-              title={deafened ? 'Enable headphones' : 'Disable headphones'}
-              aria-label={deafened ? 'Enable headphones' : 'Disable headphones'}
-            >
-              {deafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
-            </button>
-            <button
-              onClick={handleCamera}
-              disabled={!state.joinedChannelId}
-              className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`}
-              title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
-              aria-label={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}
-            >
-              {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
-            </button>
-            <button
-              onClick={handleScreenShare}
-              disabled={!state.joinedChannelId}
-              className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`}
-              title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}
-              aria-label={state.isScreenSharing ? 'Stop screen sharing' : 'Start screen sharing'}
-            >
-              <Monitor size={16} />
-            </button>
-          </div>
-
-          <div className="callbar-controls-right">
-            <span className="callbar-connection-inline">
-              <span className={`active-call-subtitle active-call-subtitle-inline ${connectionStateClass}`} title={connectionTitle}>
-                {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" aria-hidden="true" />}
-                {connectionLabel}
-              </span>
-              <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip} aria-label={pingTooltip}>
-                <Wifi size={14} />
-              </span>
-            </span>
-            <button
-              onClick={handleJoinLeave}
-              disabled={state.isJoining}
-              className={`callbar-control-btn callbar-control-btn-disconnect danger ${(isInThisChannel || state.joinedChannelId) ? 'is-live' : ''}`}
-              title={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
-              aria-label={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}
-            >
-              {(isInThisChannel || state.joinedChannelId) ? <PhoneOff size={16} /> : <PhoneOff size={16} style={{ transform: 'rotate(135deg)' }} />}
-            </button>
-          </div>
-
-          {livekitLabel && <div style={{ display: 'none' }}>{livekitLabel}</div>}
-        </div>
-      </div>
     </>
   )
 }
-

@@ -273,15 +273,25 @@ export function useLiveKitVoice() {
       // Keep vadStream ref so we can pass it to the speaking monitor after room connect
       vadStreamRef.current = vadStream
 
-      const publishTrack = new LocalAudioTrack(processedMicTrack, undefined, true, audioContext)
-
       const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: {
+          screenShareEncoding: getScreenShareEncoding(),
+          screenShareSimulcastLayers: [],
+          videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
+        },
+      })
+      roomRef.current = room
 
       const iceServers: RTCIceServer[] = [
         { urls: ['stun:stun.l.google.com:19302'] },
         { urls: ['stun:stun1.l.google.com:19302'] },
       ]
 
+      // Optional: Add TURN servers only if configured in .env
       try {
         const turnCreds = await webrtcApi.getTurnCredentials(token ?? null)
         if (turnCreds.urls && turnCreds.urls.length > 0) {
@@ -292,20 +302,10 @@ export function useLiveKitVoice() {
           })
         }
       } catch (err) {
-        console.warn('[useLiveKitVoice] Failed to fetch TURN credentials (optional):', err)
+        // Ignore TURN errors in dev
       }
 
-      const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        publishDefaults: {
-          screenShareEncoding: getScreenShareEncoding(),
-          screenShareSimulcastLayers: [],  // No simulcast for screen share — send full quality
-          videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
-        },
-      })
-      roomRef.current = room
-
+      console.log('[useLiveKitVoice] Connecting to Room...', { ws_url, iceServers })
       room.on(RoomEvent.TrackPublished, (publication) => {
         if (!publication.isSubscribed) publication.setSubscribed(true)
       })

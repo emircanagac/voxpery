@@ -53,6 +53,7 @@ export default function ChannelSidebar({
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; x: number; y: number } | null>(null)
     const [pendingVoiceJoin, setPendingVoiceJoin] = useState<{ id: string; name: string } | null>(null)
     const [isJoiningVoice, setIsJoiningVoice] = useState(false)
+    const [dontAskVoiceJoin, setDontAskVoiceJoin] = useState(() => localStorage.getItem('voxpery-dont-ask-voice-join') === 'true')
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
         try {
             const raw = localStorage.getItem('voxpery-voice-peer-volume')
@@ -148,6 +149,40 @@ export default function ChannelSidebar({
         }
     }
 
+    const handleJoinVoice = async (id: string, name: string) => {
+        setIsJoiningVoice(true)
+        setActiveChannel(id)
+        const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
+
+        if (joinFn) {
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    await joinFn(id)
+                } else {
+                    let stream: MediaStream | null = null
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                        await joinFn(id, stream)
+                    } catch {
+                        stream?.getTracks().forEach((t) => t.stop())
+                        await joinFn(id)
+                    }
+                }
+                setTimeout(() => {
+                    setPendingVoiceJoin(null)
+                    setIsJoiningVoice(false)
+                }, 500)
+            } catch (e) {
+                console.error("Voice join failed:", e)
+                setIsJoiningVoice(false)
+            }
+        } else {
+            pushToast({ level: 'error', title: 'Voice Error', message: 'Voice service is not ready. Please refresh.' })
+            setIsJoiningVoice(false)
+            setPendingVoiceJoin(null)
+        }
+    }
+
     return (
         <div className="channel-sidebar" ref={sidebarRef}>
             <div className="channel-header" onClick={activeServer ? onOpenServerSettings : undefined}>
@@ -203,8 +238,12 @@ export default function ChannelSidebar({
                                                     setActiveChannel(ch.id)
                                                     return
                                                 }
-                                                // Ask for confirmation
-                                                setPendingVoiceJoin({ id: ch.id, name: ch.name })
+                                                // Ask for confirmation or join directly
+                                                if (dontAskVoiceJoin) {
+                                                    void handleJoinVoice(ch.id, ch.name)
+                                                } else {
+                                                    setPendingVoiceJoin({ id: ch.id, name: ch.name })
+                                                }
                                                 return
                                             }
                                             setActiveChannel(ch.id)
@@ -414,13 +453,41 @@ export default function ChannelSidebar({
                 <div className="modal-overlay" onClick={() => !isJoiningVoice && setPendingVoiceJoin(null)}>
                     <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                         <h2>Join Voice Channel</h2>
-                        <p style={{ marginTop: '0.5rem', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>
+                        <p style={{ marginTop: '0.5rem', marginBottom: '1.5rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                             Are you sure you want to connect to <strong>{pendingVoiceJoin.name}</strong>?
                         </p>
-                        <div className="modal-actions">
+                        
+                        <label 
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '10px', 
+                                marginBottom: '2rem', 
+                                padding: '10px 12px',
+                                background: 'rgba(255,255,255,0.03)',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                userSelect: 'none'
+                            }}
+                        >
+                            <input 
+                                type="checkbox" 
+                                checked={dontAskVoiceJoin} 
+                                onChange={(e) => {
+                                    const next = e.target.checked
+                                    setDontAskVoiceJoin(next)
+                                    localStorage.setItem('voxpery-dont-ask-voice-join', String(next))
+                                }}
+                                style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#a6e3a1' }}
+                            />
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Don't ask again</span>
+                        </label>
+
+                        <div className="modal-actions" style={{ gap: '12px' }}>
                             <button
                                 type="button"
                                 className="modal-btn"
+                                style={{ flex: 1 }}
                                 onClick={() => setPendingVoiceJoin(null)}
                                 disabled={isJoiningVoice}
                             >
@@ -429,37 +496,25 @@ export default function ChannelSidebar({
                             <button
                                 type="button"
                                 className="modal-btn danger"
-                                style={{ backgroundColor: '#a6e3a1', color: '#1e1e2e' }}
-                                disabled={isJoiningVoice}
-                                onClick={async () => {
-                                    setIsJoiningVoice(true)
-                                    setActiveChannel(pendingVoiceJoin.id)
-                                    const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
-                                    if (joinFn) {
-                                        try {
-                                            if (!navigator.mediaDevices?.getUserMedia) {
-                                                await joinFn(pendingVoiceJoin.id)
-                                            } else {
-                                                let stream: MediaStream | null = null
-                                                try {
-                                                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                                                    await joinFn(pendingVoiceJoin.id, stream)
-                                                } catch {
-                                                    stream?.getTracks().forEach((t) => t.stop())
-                                                    await joinFn(pendingVoiceJoin.id) // Fallback without preflight stream if mic fails
-                                                }
-                                            }
-                                        } finally {
-                                            setIsJoiningVoice(false)
-                                            setPendingVoiceJoin(null)
-                                        }
-                                    } else {
-                                        setIsJoiningVoice(false)
-                                        setPendingVoiceJoin(null)
-                                    }
+                                style={{ 
+                                    flex: 1, 
+                                    backgroundColor: isJoiningVoice ? 'var(--bg-surface)' : '#a6e3a1', 
+                                    color: isJoiningVoice ? 'var(--text-muted)' : '#1e1e2e',
+                                    fontWeight: '600',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
                                 }}
+                                disabled={isJoiningVoice}
+                                onClick={() => void handleJoinVoice(pendingVoiceJoin.id, pendingVoiceJoin.name)}
                             >
-                                {isJoiningVoice ? 'Connecting...' : 'Join'}
+                                {isJoiningVoice ? (
+                                    <>
+                                        <div className="spinner-small" />
+                                        Connecting...
+                                    </>
+                                ) : 'Join Channel'}
                             </button>
                         </div>
                     </div>
