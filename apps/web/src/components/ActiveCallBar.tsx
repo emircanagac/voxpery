@@ -416,32 +416,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return 4
   }
 
-  // Auto-join handling
-  useEffect(() => {
-    if (!selectedVoiceChannelId) return
-    if (blockedAutoJoinChannelId === selectedVoiceChannelId) return
-    if (state.joinedChannelId === selectedVoiceChannelId) return
-    if (state.joinedChannelId && state.joinedChannelId !== selectedVoiceChannelId) {
-      leaveVoice({ skipLeaveSound: true })
-      return
-    }
-    // Only auto-join if we don't have a room state yet (disconnected)
-    if (state.livekit.roomState !== 'disconnected') return
-    const tryAutoJoin = async () => {
-      if (navigator.permissions?.query) {
-        try {
-          const status = await navigator.permissions.query({ name: 'microphone' as PermissionName })
-          if (status.state !== 'granted') return
-        } catch { /* ignore */ }
-      }
-      try {
-        await joinVoice(selectedVoiceChannelId)
-      } catch (e) {
-        console.error('Failed to auto-join voice:', e)
-      }
-    }
-    void tryAutoJoin()
-  }, [blockedAutoJoinChannelId, joinVoice, leaveVoice, selectedVoiceChannelId, state.joinedChannelId, state.livekit.roomState])
+  // Auto-join disabled intentionally:
+  // voice join/leave should only happen on explicit user action (sidebar confirm or callbar button).
 
   // Expose joinVoice to window for ChannelSidebar
   useEffect(() => {
@@ -456,14 +432,22 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         await joinVoice(channelId, { preflightStream })
         return
       }
-      if (!navigator.mediaDevices?.getUserMedia) return
+      if (!navigator.mediaDevices?.getUserMedia) {
+        await joinVoice(channelId)
+        return
+      }
       let micStream: MediaStream | null = null
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         await joinVoice(channelId, { preflightStream: micStream })
-      } catch {
+      } catch (err: any) {
         micStream?.getTracks().forEach((t) => t.stop())
-        await joinVoice(channelId)
+        // Fallback to normal join only if the error is related to microphone permissions/hardware
+        if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError' || err?.message?.toLowerCase().includes('microphone')) {
+          await joinVoice(channelId)
+        } else {
+          throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
+        }
       }
     }
     ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice = joinFn

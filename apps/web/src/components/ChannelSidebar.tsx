@@ -151,35 +151,28 @@ export default function ChannelSidebar({
 
     const handleJoinVoice = async (id: string, _name: string) => {
         setIsJoiningVoice(true)
+        ;(window as any).__voxperyManualJoinActive = true
         setActiveChannel(id)
         const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
 
         if (joinFn) {
             try {
-                if (!navigator.mediaDevices?.getUserMedia) {
-                    await joinFn(id)
-                } else {
-                    let stream: MediaStream | null = null
-                    try {
-                        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                        await joinFn(id, stream)
-                    } catch {
-                        stream?.getTracks().forEach((t) => t.stop())
-                        await joinFn(id)
-                    }
-                }
+                await joinFn(id)
                 setTimeout(() => {
                     setPendingVoiceJoin(null)
                     setIsJoiningVoice(false)
+                    ;(window as any).__voxperyManualJoinActive = false
                 }, 500)
             } catch (e) {
                 console.error("Voice join failed:", e)
                 setIsJoiningVoice(false)
+                ;(window as any).__voxperyManualJoinActive = false
             }
         } else {
             pushToast({ level: 'error', title: 'Voice Error', message: 'Voice service is not ready. Please refresh.' })
             setIsJoiningVoice(false)
             setPendingVoiceJoin(null)
+            ;(window as any).__voxperyManualJoinActive = false
         }
     }
 

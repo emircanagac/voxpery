@@ -67,6 +67,7 @@ export function useLiveKitVoice() {
   const desiredMicMutedRef = useRef(false)
 
   const [joinedChannelId, setJoinedChannelId] = useState<string | null>(null)
+  const isJoiningRef = useRef(false)
   const [isJoining, setIsJoining] = useState(false)
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
@@ -228,8 +229,13 @@ export function useLiveKitVoice() {
     if (!isConnected) throw new Error('WebSocket is not connected')
     if (!userId) throw new Error('Not authenticated')
     if (joinedChannelIdRef.current === channelId) return
+    if (isJoiningRef.current) {
+      console.warn('[useLiveKitVoice] Already joining a channel, ignoring request.')
+      return
+    }
 
     setLastError(null)
+    isJoiningRef.current = true
     setIsJoining(true)
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
     let micPublished = false
@@ -448,11 +454,13 @@ export function useLiveKitVoice() {
       if (!micPublished) cleanupLocalMedia()
       throw e
     } finally {
+      isJoiningRef.current = false
       setIsJoining(false)
     }
     }, [buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
+    isJoiningRef.current = false
     if (joinedChannelIdRef.current && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
     send('LeaveVoice', null)

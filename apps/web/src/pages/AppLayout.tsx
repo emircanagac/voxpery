@@ -83,7 +83,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setChannelsForServer, setMembersForServer,
         friends, setFriends,
         dmChannels, setDmChannels, setActiveDmChannelId, setDmChannelIds,
-        voiceControls, joinedVoiceChannelId,
+        voiceControls,
         setShowCreateServer, setShowJoinServer,
         showCreateServer, showJoinServer,
         openServerSettingsForServerId,
@@ -109,7 +109,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setActiveDmChannelId: s.setActiveDmChannelId,
             setDmChannelIds: s.setDmChannelIds,
             voiceControls: s.voiceControls,
-            joinedVoiceChannelId: s.joinedVoiceChannelId,
             setShowCreateServer: s.setShowCreateServer,
             setShowJoinServer: s.setShowJoinServer,
             showCreateServer: s.showCreateServer,
@@ -240,10 +239,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
             if (!stillValid) {
                 const stored = getStoredChannelId(serverId)
-                const storedValid = !!stored && chs.some((c) => c.id === stored)
-
-                const inThisServer = joinedVoiceChannelId && chs.some((c) => c.id === joinedVoiceChannelId)
-                const target = inThisServer ? joinedVoiceChannelId : (storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null))
+                const storedValid = !!stored && chs.some((c) => c.id === stored && c.channel_type === 'text')
+                const target = storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null)
                 setActiveChannel(target)
             }
         }).catch(console.error)
@@ -253,12 +250,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setMembersForServer(serverId, detail.members)
             setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
         }).catch(console.error)
-    }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer, joinedVoiceChannelId])
+    }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
 
     useEffect(() => {
         if (activeServerId && activeChannelId) {
             const currentChannel = channels.find((c) => c.id === activeChannelId)
-            if (currentChannel && currentChannel.server_id === activeServerId) {
+            if (currentChannel && currentChannel.server_id === activeServerId && currentChannel.channel_type === 'text') {
                 setStoredChannelId(activeServerId, activeChannelId)
             }
         }

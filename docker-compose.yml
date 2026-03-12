@@ -52,6 +52,8 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET}"
+      # Dev default is false; set true in production when clients connect over public internet.
+      LIVEKIT_RTC_USE_EXTERNAL_IP: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
     # LiveKit uses: 7880 (WS), 7881 (TCP), 7882 (UDP), 50000-50200 (media UDP)
     configs:
       - source: livekit_config
@@ -81,7 +83,8 @@ configs:
         udp_port: 7882
         tcp_port: 7881
         # Enables direct client-to-server UDP for media, bypassing reverse proxies (NAT Traversal)
-        use_external_ip: true
+        # Note: use_external_ip is injected dynamically via environment variable
+        use_external_ip: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
 
       # network_mode: host means Redis is on localhost, not Docker DNS
       redis:
