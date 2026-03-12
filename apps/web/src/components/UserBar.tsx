@@ -21,6 +21,7 @@ const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
 const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
+const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
 const LAST_STATUS_KEY = 'voxpery-last-status'
@@ -58,6 +59,7 @@ export default function UserBar() {
   const [pttKey, setPttKey] = useState('V')
   const [capturingPtt, setCapturingPtt] = useState(false)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
+  const [voiceJoinConfirmEnabled, setVoiceJoinConfirmEnabled] = useState(true)
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
     (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
   )
@@ -90,6 +92,7 @@ export default function UserBar() {
     const mode = localStorage.getItem(VOICE_MODE_KEY)
     const ptt = localStorage.getItem(PTT_KEY_KEY)
     const ns = localStorage.getItem(NOISE_SUPPRESSION_KEY)
+    const voiceJoinConfirm = localStorage.getItem(VOICE_JOIN_CONFIRM_KEY)
     const speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
     const preset = localStorage.getItem(SPEAKING_PRESET_KEY)
     if (sound != null) setSoundEnabled(sound === '1')
@@ -98,6 +101,7 @@ export default function UserBar() {
     if (mode === 'push_to_talk' || mode === 'voice_activity') setVoiceMode(mode)
     if (ptt) setPttKey(ptt)
     if (ns != null) setNoiseSuppressionEnabled(ns === '1')
+    if (voiceJoinConfirm != null) setVoiceJoinConfirmEnabled(voiceJoinConfirm !== '0')
     if (speaking != null) setSpeakingThreshold(Math.min(100, Math.max(0, Number(speaking) || 30)))
     if (preset === 'quiet' || preset === 'normal' || preset === 'noisy' || preset === 'custom') {
       setSpeakingPreset(preset)
@@ -516,6 +520,24 @@ export default function UserBar() {
                     }}
                   >
                     {noiseSuppressionEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Voice join confirmation</div>
+                    <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
+                    onClick={() => {
+                      const next = !voiceJoinConfirmEnabled
+                      setVoiceJoinConfirmEnabled(next)
+                      localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
+                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                    }}
+                  >
+                    {voiceJoinConfirmEnabled ? 'On' : 'Off'}
                   </button>
                 </div>
                 <div className="user-setting-row">

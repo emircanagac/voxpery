@@ -8,6 +8,9 @@ import type { Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
+const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
+const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+
 interface ChannelSidebarProps {
     onOpenServerSettings: () => void
     onOpenCreateChannel?: () => void
@@ -53,7 +56,7 @@ export default function ChannelSidebar({
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; x: number; y: number } | null>(null)
     const [pendingVoiceJoin, setPendingVoiceJoin] = useState<{ id: string; name: string } | null>(null)
     const [isJoiningVoice, setIsJoiningVoice] = useState(false)
-    const [dontAskVoiceJoin, setDontAskVoiceJoin] = useState(() => localStorage.getItem('voxpery-dont-ask-voice-join') === 'true')
+    const [voiceJoinConfirmEnabled, setVoiceJoinConfirmEnabled] = useState(() => localStorage.getItem(VOICE_JOIN_CONFIRM_KEY) !== '0')
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
         try {
             const raw = localStorage.getItem('voxpery-voice-peer-volume')
@@ -126,6 +129,18 @@ export default function ChannelSidebar({
         }
     }, [contextMenu, participantMenu])
 
+    useEffect(() => {
+        const syncJoinConfirm = () => {
+            setVoiceJoinConfirmEnabled(localStorage.getItem(VOICE_JOIN_CONFIRM_KEY) !== '0')
+        }
+        window.addEventListener(SETTINGS_CHANGED_EVENT, syncJoinConfirm)
+        window.addEventListener('storage', syncJoinConfirm)
+        return () => {
+            window.removeEventListener(SETTINGS_CHANGED_EVENT, syncJoinConfirm)
+            window.removeEventListener('storage', syncJoinConfirm)
+        }
+    }, [])
+
     const savePeerVolume = (userId: string, volume: number) => {
         const bounded = Math.min(200, Math.max(0, Math.round(volume)))
         const next = { ...peerVolumeByUserId, [userId]: bounded }
@@ -150,28 +165,24 @@ export default function ChannelSidebar({
     }
 
     const handleJoinVoice = async (id: string, _name: string) => {
+        // Close confirmation immediately after user confirms.
+        // Join progress is reflected in call bar status instead of blocking modal.
+        setPendingVoiceJoin(null)
         setIsJoiningVoice(true)
         ;(window as any).__voxperyManualJoinActive = true
         setActiveChannel(id)
         const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
 
-        if (joinFn) {
-            try {
-                await joinFn(id)
-                setTimeout(() => {
-                    setPendingVoiceJoin(null)
-                    setIsJoiningVoice(false)
-                    ;(window as any).__voxperyManualJoinActive = false
-                }, 500)
-            } catch (e) {
-                console.error("Voice join failed:", e)
-                setIsJoiningVoice(false)
-                ;(window as any).__voxperyManualJoinActive = false
+        try {
+            if (!joinFn) {
+                pushToast({ level: 'error', title: 'Voice Error', message: 'Voice service is not ready. Please refresh.' })
+                return
             }
-        } else {
-            pushToast({ level: 'error', title: 'Voice Error', message: 'Voice service is not ready. Please refresh.' })
+            await joinFn(id)
+        } catch (e) {
+            console.error("Voice join failed:", e)
+        } finally {
             setIsJoiningVoice(false)
-            setPendingVoiceJoin(null)
             ;(window as any).__voxperyManualJoinActive = false
         }
     }
@@ -232,7 +243,7 @@ export default function ChannelSidebar({
                                                     return
                                                 }
                                                 // Ask for confirmation or join directly
-                                                if (dontAskVoiceJoin) {
+                                                if (!voiceJoinConfirmEnabled) {
                                                     void handleJoinVoice(ch.id, ch.name)
                                                 } else {
                                                     setPendingVoiceJoin({ id: ch.id, name: ch.name })
@@ -444,43 +455,31 @@ export default function ChannelSidebar({
 
             {pendingVoiceJoin && (
                 <div className="modal-overlay" onClick={() => !isJoiningVoice && setPendingVoiceJoin(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="modal confirm-modal voice-join-modal" onClick={(e) => e.stopPropagation()}>
                         <h2>Join Voice Channel</h2>
-                        <p style={{ marginTop: '0.5rem', marginBottom: '1.5rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                        <p className="voice-join-modal-desc">
                             Are you sure you want to connect to <strong>{pendingVoiceJoin.name}</strong>?
                         </p>
-                        
-                        <label 
-                            style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '10px', 
-                                marginBottom: '2rem', 
-                                padding: '10px 12px',
-                                background: 'rgba(255,255,255,0.03)',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                userSelect: 'none'
-                            }}
-                        >
-                            <input 
-                                type="checkbox" 
-                                checked={dontAskVoiceJoin} 
-                                onChange={(e) => {
-                                    const next = e.target.checked
-                                    setDontAskVoiceJoin(next)
-                                    localStorage.setItem('voxpery-dont-ask-voice-join', String(next))
-                                }}
-                                style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#a6e3a1' }}
-                            />
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Don't ask again</span>
-                        </label>
 
-                        <div className="modal-actions" style={{ gap: '12px' }}>
+                        <label className="voice-join-remember">
+                            <input
+                                type="checkbox" 
+                                checked={!voiceJoinConfirmEnabled}
+                                onChange={(e) => {
+                                    const nextConfirmEnabled = !e.target.checked
+                                    setVoiceJoinConfirmEnabled(nextConfirmEnabled)
+                                    localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, nextConfirmEnabled ? '1' : '0')
+                                    window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                                }}
+                            />
+                            <span>Don't ask again</span>
+                        </label>
+                        <p className="voice-join-hint">You can change this later in Settings → Voice.</p>
+
+                        <div className="modal-actions voice-join-actions">
                             <button
                                 type="button"
-                                className="modal-btn"
-                                style={{ flex: 1 }}
+                                className="btn btn-secondary voice-join-btn"
                                 onClick={() => setPendingVoiceJoin(null)}
                                 disabled={isJoiningVoice}
                             >
@@ -488,17 +487,7 @@ export default function ChannelSidebar({
                             </button>
                             <button
                                 type="button"
-                                className="modal-btn danger"
-                                style={{ 
-                                    flex: 1, 
-                                    backgroundColor: isJoiningVoice ? 'var(--bg-surface)' : '#a6e3a1', 
-                                    color: isJoiningVoice ? 'var(--text-muted)' : '#1e1e2e',
-                                    fontWeight: '600',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px'
-                                }}
+                                className="btn btn-primary voice-join-btn voice-join-btn-primary"
                                 disabled={isJoiningVoice}
                                 onClick={() => void handleJoinVoice(pendingVoiceJoin.id, pendingVoiceJoin.name)}
                             >

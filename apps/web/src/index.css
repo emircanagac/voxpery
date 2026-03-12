@@ -6278,6 +6278,104 @@ a.community-open-btn:hover {
   margin-top: 10px;
 }
 
+.voice-join-modal {
+  max-width: 420px;
+  padding: 22px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 92%, #2b3f73 8%), var(--bg-surface));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.voice-join-modal h2 {
+  margin-bottom: 8px;
+  font-size: 21px;
+  letter-spacing: 0.01em;
+}
+
+.voice-join-modal-desc {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.voice-join-remember {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  user-select: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.voice-join-remember:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.voice-join-remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #67cf9d;
+  cursor: pointer;
+}
+
+.voice-join-hint {
+  margin: -8px 2px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.voice-join-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.voice-join-btn {
+  min-height: 38px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-join-btn-primary {
+  background: linear-gradient(180deg, #82d6a9 0%, #67cf9d 100%);
+  color: #0d2219;
+}
+
+.voice-join-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #90dcaf 0%, #73d5a3 100%);
+  box-shadow: 0 6px 16px rgba(103, 207, 157, 0.35);
+}
+
+.voice-join-btn-primary:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+}
+
+@media (max-width: 500px) {
+  .voice-join-modal {
+    width: calc(100vw - 24px);
+    max-width: 100%;
+    padding: 18px;
+  }
+
+  .voice-join-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .server-icon-action {
   min-width: 84px;
   height: 34px;
