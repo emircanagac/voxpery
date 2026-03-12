@@ -131,7 +131,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'invite' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'danger'>('overview')
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
     const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
@@ -1468,6 +1468,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         <div className="server-settings-header__text">
                                             <h2>Server Settings</h2>
                                             <p className="server-settings-header__server-name">{settingsServer.name}</p>
+                                            <p className="server-settings-header__hint">Manage overview, roles, invites, and security.</p>
                                         </div>
                                     </div>
                                     <button
@@ -1517,18 +1518,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('audit')}
                                                 >
-                                                    Audit log
+                                                    Audit Log
                                                 </button>
                                             )}
-                                            <button
-                                                type="button"
-                                                className={`server-settings-nav__item ${
-                                                    serverSettingsTab === 'invite' ? 'server-settings-nav__item--active' : ''
-                                                }`}
-                                                onClick={() => setServerSettingsTab('invite')}
-                                            >
-                                                Invite
-                                            </button>
                                             {isOwner && (
                                                 <button
                                                     type="button"
@@ -1537,7 +1529,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('danger')}
                                                 >
-                                                    Danger zone
+                                                    Danger Zone
                                                 </button>
                                             )}
                                         </nav>
@@ -1546,121 +1538,124 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             {serverSettingsTab === 'overview' && (
                                                 <section className="server-settings-card">
                                                     <h3 className="server-settings-card__title">Overview</h3>
-                                                    <div className="form-group">
-                                                        <label>Server name</label>
-                                                        <input
-                                                            type="text"
-                                                            value={serverSettingsName}
-                                                            onChange={(e) => setServerSettingsName(e.target.value)}
-                                                            placeholder="Server name"
-                                                            disabled={!isOwner}
-                                                        />
-                                                    </div>
-                                                    <div className="form-group">
-                                                        <label>Server icon</label>
-                                                        <div className="server-settings-icon-row">
-                                                            {effectiveServerIcon ? (
-                                                                <img
-                                                                    src={effectiveServerIcon}
-                                                                    alt={settingsServer.name}
-                                                                    className="server-settings-icon-preview"
+                                                    <div className="server-settings-overview-grid">
+                                                        <div className="server-settings-subcard">
+                                                            <h4 className="server-settings-subcard__title">Server</h4>
+                                                            <div className="form-group">
+                                                                <label>Server name</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={serverSettingsName}
+                                                                    onChange={(e) => setServerSettingsName(e.target.value)}
+                                                                    placeholder="Server name"
+                                                                    disabled={!isOwner}
                                                                 />
-                                                            ) : (
-                                                                <div className="server-settings-icon-placeholder">
-                                                                    {settingsServer.name.charAt(0).toUpperCase()}
+                                                            </div>
+                                                            <div className="form-group">
+                                                                <label>Server icon</label>
+                                                                <div className="server-settings-icon-row">
+                                                                    {effectiveServerIcon ? (
+                                                                        <img
+                                                                            src={effectiveServerIcon}
+                                                                            alt={settingsServer.name}
+                                                                            className="server-settings-icon-preview"
+                                                                        />
+                                                                    ) : (
+                                                                        <div className="server-settings-icon-placeholder">
+                                                                            {settingsServer.name.charAt(0).toUpperCase()}
+                                                                        </div>
+                                                                    )}
+                                                                    {isOwner && (
+                                                                        <div className="server-settings-icon-actions">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm"
+                                                                                onClick={() => serverIconInputRef.current?.click()}
+                                                                            >
+                                                                                Upload
+                                                                            </button>
+                                                                            {(effectiveServerIcon ?? null) && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-sm"
+                                                                                    onClick={handleClearServerIcon}
+                                                                                >
+                                                                                    Remove
+                                                                                </button>
+                                                                            )}
+                                                                            <input
+                                                                                ref={serverIconInputRef}
+                                                                                type="file"
+                                                                                accept="image/*"
+                                                                                style={{ display: 'none' }}
+                                                                                onChange={(e) => {
+                                                                                    void handleServerIconPick(e.target.files)
+                                                                                    e.currentTarget.value = ''
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            )}
+                                                            </div>
                                                             {isOwner && (
-                                                                <>
+                                                                <div className="server-settings-server-actions">
                                                                     <button
                                                                         type="button"
-                                                                        className="btn btn-secondary btn-sm"
-                                                                        onClick={() => serverIconInputRef.current?.click()}
+                                                                        className="btn btn-primary btn-sm"
+                                                                        disabled={!canSaveServerSettings}
+                                                                        onClick={() => void handleUpdateServerSettings()}
                                                                     >
-                                                                        Upload
+                                                                        Save changes
                                                                     </button>
-                                                                    {(effectiveServerIcon ?? null) && (
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-secondary btn-sm"
-                                                                            onClick={handleClearServerIcon}
-                                                                        >
-                                                                            Remove
-                                                                        </button>
-                                                                    )}
-                                                                    <input
-                                                                        ref={serverIconInputRef}
-                                                                        type="file"
-                                                                        accept="image/*"
-                                                                        style={{ display: 'none' }}
-                                                                        onChange={(e) => {
-                                                                            void handleServerIconPick(e.target.files)
-                                                                            e.currentTarget.value = ''
-                                                                        }}
-                                                                    />
-                                                                </>
+                                                                </div>
                                                             )}
                                                         </div>
-                                                    </div>
-                                                    {isOwner && (
-                                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-primary btn-sm"
-                                                                disabled={!canSaveServerSettings}
-                                                                onClick={() => void handleUpdateServerSettings()}
-                                                            >
-                                                                Save changes
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </section>
-                                            )}
 
-                                            {serverSettingsTab === 'invite' && (
-                                                <section className="server-settings-card">
-                                                    <h3 className="server-settings-card__title">Invite people</h3>
-                                                    <div className="invite-unified-box">
-                                                        <div className="invite-unified-row invite-unified-link">
-                                                            <code>
-                                                                {typeof window !== 'undefined'
-                                                                    ? `${window.location.origin}/invite/${settingsServer.invite_code}`
-                                                                    : `/invite/${settingsServer.invite_code}`}
-                                                            </code>
-                                                        </div>
-                                                        <div className="invite-unified-actions">
-                                                            <button
-                                                                type="button"
-                                                                className="copy-btn"
-                                                                onClick={() => {
-                                                                    const link =
-                                                                        typeof window !== 'undefined'
+                                                        <div className="server-settings-subcard">
+                                                            <h4 className="server-settings-subcard__title">Invite People</h4>
+                                                            <div className="invite-unified-box">
+                                                                <div className="invite-unified-row invite-unified-link">
+                                                                    <code>
+                                                                        {typeof window !== 'undefined'
                                                                             ? `${window.location.origin}/invite/${settingsServer.invite_code}`
-                                                                            : `/invite/${settingsServer.invite_code}`
-                                                                    navigator.clipboard.writeText(link).then(() => {
-                                                                        setCopiedInvite('link')
-                                                                        setTimeout(() => setCopiedInvite(null), 2000)
-                                                                    })
-                                                                }}
-                                                            >
-                                                                {copiedInvite === 'link' ? 'Copied' : 'Copy link'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="copy-btn"
-                                                                onClick={() => {
-                                                                    navigator.clipboard.writeText(settingsServer.invite_code).then(() => {
-                                                                        setCopiedInvite('code')
-                                                                        setTimeout(() => setCopiedInvite(null), 2000)
-                                                                    })
-                                                                }}
-                                                            >
-                                                                {copiedInvite === 'code' ? 'Copied' : 'Copy code'}
-                                                            </button>
+                                                                            : `/invite/${settingsServer.invite_code}`}
+                                                                    </code>
+                                                                </div>
+                                                                <div className="invite-unified-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="copy-btn"
+                                                                        onClick={() => {
+                                                                            const link =
+                                                                                typeof window !== 'undefined'
+                                                                                    ? `${window.location.origin}/invite/${settingsServer.invite_code}`
+                                                                                    : `/invite/${settingsServer.invite_code}`
+                                                                            navigator.clipboard.writeText(link).then(() => {
+                                                                                setCopiedInvite('link')
+                                                                                setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        {copiedInvite === 'link' ? 'Copied' : 'Copy link'}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="copy-btn"
+                                                                        onClick={() => {
+                                                                            navigator.clipboard.writeText(settingsServer.invite_code).then(() => {
+                                                                                setCopiedInvite('code')
+                                                                                setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        {copiedInvite === 'code' ? 'Copied' : 'Copy code'}
+                                                                    </button>
+                                                                </div>
+                                                                <p className="invite-unified-hint">
+                                                                    Share the link so others can join with one click.
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        <p className="invite-unified-hint">
-                                                            Share the link so others can join with one click.
-                                                        </p>
                                                     </div>
                                                 </section>
                                             )}
@@ -1668,7 +1663,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             {serverSettingsTab === 'danger' && isOwner && (
                                                 <section className="server-settings-card server-settings-card--danger">
                                                     <h3 className="server-settings-card__title server-settings-card__title--danger">
-                                                        Danger zone
+                                                        Danger Zone
                                                     </h3>
                                                     <p className="server-settings-danger-text">
                                                         Deleting this server will permanently remove all channels and messages. This
@@ -1689,8 +1684,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'audit' && canViewAuditLog && (
-                                                <section className="server-settings-card">
-                                                    <h3 className="server-settings-card__title">Audit log</h3>
+                                                <section className="server-settings-card server-settings-card--audit">
+                                                    <h3 className="server-settings-card__title">Audit Log</h3>
                                                     {auditLogError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {auditLogError}
@@ -1707,13 +1702,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         </div>
                                                     )}
                                                     {!auditLogLoading && auditLogEntries && auditLogEntries.length > 0 && (
-                                                        <div
-                                                            style={{
-                                                                maxHeight: 260,
-                                                                overflowY: 'auto',
-                                                                fontSize: 12,
-                                                            }}
-                                                        >
+                                                        <div className="server-settings-audit-list">
                                                             {auditLogEntries.map((entry) => {
                                                                 const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown User'
                                                                 const targetName = entry.resource_username ?? (entry.resource_id ? members.find((m) => m.user_id === entry.resource_id)?.username : null)
@@ -1758,13 +1747,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                 return (
                                                                     <div
                                                                         key={entry.id}
-                                                                        style={{
-                                                                            padding: '12px 16px',
-                                                                            borderBottom: '1px solid var(--border-color)',
-                                                                            display: 'flex',
-                                                                            flexDirection: 'column',
-                                                                            gap: 4
-                                                                        }}
+                                                                        className="server-settings-audit-row"
                                                                     >
                                                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                                                             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -1847,13 +1830,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         <button
                                                                             key={role.id}
                                                                             type="button"
-                                                                            className={`server-settings-nav__item ${
+                                                                            className={`server-role-list-item ${
                                                                                 selectedRoleId === role.id
-                                                                                    ? 'server-settings-nav__item--active'
+                                                                                    ? 'server-role-list-item--active'
                                                                                     : ''
                                                                             }`}
                                                                             style={{
-                                                                                borderRadius: 0,
                                                                                 width: '100%',
                                                                                 textAlign: 'left',
                                                                                 cursor: 'grab',
@@ -1926,41 +1908,35 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         <div className="server-roles-detail">
                                                             {selectedRoleId ? (
                                                                 <>
-                                                                    <div
-                                                                        style={{
-                                                                            marginBottom: 12,
-                                                                            maxWidth: 320,
-                                                                        }}
-                                                                    >
-                                                                        <label className="server-settings-card__title" style={{ display: 'block', marginBottom: 6 }}>
-                                                                            Role name
-                                                                        </label>
-                                                                        <input
-                                                                            type="text"
-                                                                            value={roleEditName}
-                                                                            onChange={(e) => setRoleEditName(e.target.value)}
-                                                                            maxLength={64}
-                                                                            placeholder="Role name"
-                                                                            style={{ fontSize: 13, padding: '4px 8px', width: '85%' }}
-                                                                        />
-                                                                        <div style={{ marginTop: 10 }}>
-                                                                            <label
-                                                                                className="server-settings-card__title"
-                                                                                style={{ display: 'block', marginBottom: 6 }}
-                                                                            >
+                                                                    <div className="server-role-editor-meta">
+                                                                        <div>
+                                                                            <label className="server-settings-card__title server-role-editor-label">
+                                                                                Role name
+                                                                            </label>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={roleEditName}
+                                                                                onChange={(e) => setRoleEditName(e.target.value)}
+                                                                                maxLength={64}
+                                                                                placeholder="Role name"
+                                                                                className="server-role-editor-name-input"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="server-role-editor-color-wrap">
+                                                                            <label className="server-settings-card__title server-role-editor-label">
                                                                                 Role color
                                                                             </label>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                            <div className="server-role-editor-color-row">
                                                                                 <input
                                                                                     type="color"
                                                                                     value={roleEditColor ?? '#ffffff'}
                                                                                     onChange={(e) => setRoleEditColor(e.target.value)}
-                                                                                    style={{ width: 32, height: 18, padding: 0, border: 'none' }}
+                                                                                    className="server-role-editor-color-input"
                                                                                 />
                                                                                 <button
                                                                                     type="button"
                                                                                     className="btn btn-secondary btn-xs"
-                                                                                    style={{ fontSize: 11 }}
+                                                                                    style={{ fontSize: 11, padding: '4px 10px' }}
                                                                                     onClick={() => setRoleEditColor(null)}
                                                                                 >
                                                                                     Clear color
@@ -1968,100 +1944,106 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div>
-                                                                        <div className="server-settings-card__title" style={{ marginBottom: 6 }}>
+                                                                    <div className="server-role-permissions-wrap">
+                                                                        <div className="server-settings-card__title server-role-editor-label">
                                                                             Permissions
                                                                         </div>
-                                                                        <div
-                                                                            style={{
-                                                                                display: 'grid',
-                                                                                gridTemplateColumns: '1fr',
-                                                                                gap: 6,
-                                                                            }}
-                                                                        >
+                                                                        <div className="server-role-permissions-groups">
                                                                             {[
-                                                                                // Manage group first
-                                                                                { label: 'Full admin', bit: PERM_MANAGE_SERVER },
-                                                                                { label: 'Manage roles', bit: PERM_MANAGE_ROLES },
-                                                                                { label: 'Manage channels', bit: PERM_MANAGE_CHANNELS },
-                                                                                { label: 'Manage webhooks', bit: PERM_MANAGE_WEBHOOKS },
-                                                                                { label: 'Manage messages', bit: PERM_MANAGE_MESSAGES },
-                                                                                { label: 'Manage pins', bit: PERM_MANAGE_PINS },
-                                                                                { label: 'View audit log', bit: PERM_VIEW_AUDIT_LOG },
-                                                                                // Text & Voice group
-                                                                                { label: 'Send messages', bit: PERM_SEND_MESSAGES },
-                                                                                { label: 'Connect to voice', bit: PERM_CONNECT_VOICE },
-                                                                                { label: 'Mute members', bit: PERM_MUTE_MEMBERS },
-                                                                                { label: 'Deafen members', bit: PERM_DEAFEN_MEMBERS },
-                                                                                // Moderation group
-                                                                                { label: 'Kick members', bit: PERM_KICK_MEMBERS },
-                                                                                { label: 'Ban members', bit: PERM_BAN_MEMBERS },
-                                                                            ].map((perm) => {
-                                                                                const isFullAdmin = perm.bit === PERM_MANAGE_SERVER
-                                                                                const fullAdminOn = (roleEditPermissions & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
-                                                                                const isDisabled = !isFullAdmin && fullAdminOn
-                                                                                return (
-                                                                                    <label
-                                                                                        key={perm.bit}
-                                                                                        style={{
-                                                                                            display: 'flex',
-                                                                                            alignItems: 'center',
-                                                                                            gap: 6,
-                                                                                            fontSize: 13,
-                                                                                            opacity: isDisabled ? 0.85 : 1,
-                                                                                        }}
-                                                                                    >
-                                                                                        <input
-                                                                                            type="checkbox"
-                                                                                            checked={
-                                                                                                fullAdminOn && !isFullAdmin
-                                                                                                    ? true
-                                                                                                    : (roleEditPermissions & perm.bit) === perm.bit
-                                                                                            }
-                                                                                            disabled={isDisabled}
-                                                                                            onChange={(e) => {
-                                                                                                const checked = e.target.checked
-                                                                                                setRoleEditPermissions((prev) => {
-                                                                                                    const ADMIN_MASK =
-                                                                                                        PERM_VIEW_SERVER |
-                                                                                                        PERM_MANAGE_SERVER |
-                                                                                                        PERM_MANAGE_ROLES |
-                                                                                                        PERM_MANAGE_CHANNELS |
-                                                                                                        PERM_KICK_MEMBERS |
-                                                                                                        PERM_BAN_MEMBERS |
-                                                                                                        PERM_VIEW_AUDIT_LOG |
-                                                                                                        PERM_SEND_MESSAGES |
-                                                                                                        PERM_MANAGE_MESSAGES |
-                                                                                                        PERM_MANAGE_PINS |
-                                                                                                        PERM_CONNECT_VOICE |
-                                                                                                        PERM_MUTE_MEMBERS |
-                                                                                                        PERM_DEAFEN_MEMBERS |
-                                                                                                        PERM_MANAGE_WEBHOOKS
-                                                                                                    if (isFullAdmin && !checked) {
-                                                                                                        return prev & ~ADMIN_MASK
-                                                                                                    }
-                                                                                                    let next = checked ? prev | perm.bit : prev & ~perm.bit
-                                                                                                    if ((next & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER) {
-                                                                                                        next |= ADMIN_MASK
-                                                                                                    }
-                                                                                                    return next
-                                                                                                })
-                                                                                            }}
-                                                                                        />
-                                                                                        <span>{perm.label}</span>
-                                                                                    </label>
-                                                                                )
-                                                                            })}
+                                                                                {
+                                                                                    title: 'Server',
+                                                                                    perms: [
+                                                                                        { label: 'Full admin', bit: PERM_MANAGE_SERVER },
+                                                                                        { label: 'Manage roles', bit: PERM_MANAGE_ROLES },
+                                                                                        { label: 'Manage channels', bit: PERM_MANAGE_CHANNELS },
+                                                                                        { label: 'Manage webhooks', bit: PERM_MANAGE_WEBHOOKS },
+                                                                                        { label: 'View audit log', bit: PERM_VIEW_AUDIT_LOG },
+                                                                                    ],
+                                                                                },
+                                                                                {
+                                                                                    title: 'Messages',
+                                                                                    perms: [
+                                                                                        { label: 'Send messages', bit: PERM_SEND_MESSAGES },
+                                                                                        { label: 'Manage messages', bit: PERM_MANAGE_MESSAGES },
+                                                                                        { label: 'Manage pins', bit: PERM_MANAGE_PINS },
+                                                                                    ],
+                                                                                },
+                                                                                {
+                                                                                    title: 'Voice',
+                                                                                    perms: [
+                                                                                        { label: 'Connect to voice', bit: PERM_CONNECT_VOICE },
+                                                                                        { label: 'Mute members', bit: PERM_MUTE_MEMBERS },
+                                                                                        { label: 'Deafen members', bit: PERM_DEAFEN_MEMBERS },
+                                                                                    ],
+                                                                                },
+                                                                                {
+                                                                                    title: 'Moderation',
+                                                                                    perms: [
+                                                                                        { label: 'Kick members', bit: PERM_KICK_MEMBERS },
+                                                                                        { label: 'Ban members', bit: PERM_BAN_MEMBERS },
+                                                                                    ],
+                                                                                },
+                                                                            ].map((group) => (
+                                                                                <section key={group.title} className="server-role-permission-group">
+                                                                                    <div className="server-role-permission-group-title">{group.title}</div>
+                                                                                    <div className="server-role-permission-group-items">
+                                                                                        {group.perms.map((perm) => {
+                                                                                            const isFullAdmin = perm.bit === PERM_MANAGE_SERVER
+                                                                                            const fullAdminOn = (roleEditPermissions & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
+                                                                                            const isDisabled = !isFullAdmin && fullAdminOn
+                                                                                            return (
+                                                                                                <label
+                                                                                                    key={perm.bit}
+                                                                                                    className="server-role-permission-item"
+                                                                                                    style={{ opacity: isDisabled ? 0.85 : 1 }}
+                                                                                                >
+                                                                                                    <input
+                                                                                                        type="checkbox"
+                                                                                                        checked={
+                                                                                                            fullAdminOn && !isFullAdmin
+                                                                                                                ? true
+                                                                                                                : (roleEditPermissions & perm.bit) === perm.bit
+                                                                                                        }
+                                                                                                        disabled={isDisabled}
+                                                                                                        onChange={(e) => {
+                                                                                                            const checked = e.target.checked
+                                                                                                            setRoleEditPermissions((prev) => {
+                                                                                                                const ADMIN_MASK =
+                                                                                                                    PERM_VIEW_SERVER |
+                                                                                                                    PERM_MANAGE_SERVER |
+                                                                                                                    PERM_MANAGE_ROLES |
+                                                                                                                    PERM_MANAGE_CHANNELS |
+                                                                                                                    PERM_KICK_MEMBERS |
+                                                                                                                    PERM_BAN_MEMBERS |
+                                                                                                                    PERM_VIEW_AUDIT_LOG |
+                                                                                                                    PERM_SEND_MESSAGES |
+                                                                                                                    PERM_MANAGE_MESSAGES |
+                                                                                                                    PERM_MANAGE_PINS |
+                                                                                                                    PERM_CONNECT_VOICE |
+                                                                                                                    PERM_MUTE_MEMBERS |
+                                                                                                                    PERM_DEAFEN_MEMBERS |
+                                                                                                                    PERM_MANAGE_WEBHOOKS
+                                                                                                                if (isFullAdmin && !checked) {
+                                                                                                                    return prev & ~ADMIN_MASK
+                                                                                                                }
+                                                                                                                let next = checked ? prev | perm.bit : prev & ~perm.bit
+                                                                                                                if ((next & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER) {
+                                                                                                                    next |= ADMIN_MASK
+                                                                                                                }
+                                                                                                                return next
+                                                                                                            })
+                                                                                                        }}
+                                                                                                    />
+                                                                                                    <span>{perm.label}</span>
+                                                                                                </label>
+                                                                                            )
+                                                                                        })}
+                                                                                    </div>
+                                                                                </section>
+                                                                            ))}
                                                                         </div>
                                                                     </div>
-                                                                    <div
-                                                                        style={{
-                                                                            display: 'flex',
-                                                                            justifyContent: 'space-between',
-                                                                            marginTop: 12,
-                                                                            gap: 8,
-                                                                        }}
-                                                                    >
+                                                                    <div className="server-role-editor-actions">
                                                                         <button
                                                                             type="button"
                                                                             className="btn btn-danger-outline btn-sm"
@@ -2077,65 +2059,80 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         >
                                                                             Delete role
                                                                         </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-primary btn-sm"
-                                                                            style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                                                                            disabled={
-                                                                                !roleEditName.trim() ||
-                                                                                rolesLoading ||
-                                                                                !settingsServer
-                                                                            }
-                                                                            onClick={async () => {
-                                                                                if (!settingsServer) return
-                                                                                try {
-                                                                                    const existing = selectedRoleId
-                                                                                        ? serverRoles.find(
-                                                                                              (r) => r.id === selectedRoleId,
-                                                                                          )
-                                                                                        : undefined
-                                                                                    if (!existing) {
-                                                                                        await serverApi.createRole(
-                                                                                            settingsServer.id,
-                                                                                            roleEditName.trim(),
-                                                                                            roleEditPermissions,
-                                                                                            token,
-                                                                                            roleEditColor,
-                                                                                        )
-                                                                                    } else {
-                                                                                        await serverApi.updateRole(
-                                                                                            settingsServer.id,
-                                                                                            selectedRoleId,
-                                                                                            {
-                                                                                                name: roleEditName.trim(),
-                                                                                                permissions: roleEditPermissions,
-                                                                                                color: roleEditColor,
-                                                                                            },
-                                                                                            token,
-                                                                                        )
-                                                                                    }
-                                                                                    const roles = await serverApi.listRoles(
-                                                                                        settingsServer.id,
-                                                                                        token,
-                                                                                    )
-                                                                                    setServerRoles(roles)
-                                                                                    // Collapse editor after successful save;
-                                                                                    // user can re-open by clicking a role.
+                                                                        <div className="server-role-editor-actions-right">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                onClick={() => {
                                                                                     setSelectedRoleId(null)
                                                                                     setRoleEditName('')
                                                                                     setRoleEditPermissions(0)
                                                                                     setRoleEditColor(null)
-                                                                                } catch (err) {
-                                                                                    const message =
-                                                                                        err instanceof Error
-                                                                                            ? err.message
-                                                                                            : 'Failed to save role.'
-                                                                                    setRolesError(message)
+                                                                                }}
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-primary btn-sm server-role-btn-save"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                disabled={
+                                                                                    !roleEditName.trim() ||
+                                                                                    rolesLoading ||
+                                                                                    !settingsServer
                                                                                 }
-                                                                            }}
-                                                                        >
-                                                                            Save role
-                                                                        </button>
+                                                                                onClick={async () => {
+                                                                                    if (!settingsServer) return
+                                                                                    try {
+                                                                                        const existing = selectedRoleId
+                                                                                            ? serverRoles.find(
+                                                                                                  (r) => r.id === selectedRoleId,
+                                                                                              )
+                                                                                            : undefined
+                                                                                        if (!existing) {
+                                                                                            await serverApi.createRole(
+                                                                                                settingsServer.id,
+                                                                                                roleEditName.trim(),
+                                                                                                roleEditPermissions,
+                                                                                                token,
+                                                                                                roleEditColor,
+                                                                                            )
+                                                                                        } else {
+                                                                                            await serverApi.updateRole(
+                                                                                                settingsServer.id,
+                                                                                                selectedRoleId,
+                                                                                                {
+                                                                                                    name: roleEditName.trim(),
+                                                                                                    permissions: roleEditPermissions,
+                                                                                                    color: roleEditColor,
+                                                                                                },
+                                                                                                token,
+                                                                                            )
+                                                                                        }
+                                                                                        const roles = await serverApi.listRoles(
+                                                                                            settingsServer.id,
+                                                                                            token,
+                                                                                        )
+                                                                                        setServerRoles(roles)
+                                                                                        // Collapse editor after successful save;
+                                                                                        // user can re-open by clicking a role.
+                                                                                        setSelectedRoleId(null)
+                                                                                        setRoleEditName('')
+                                                                                        setRoleEditPermissions(0)
+                                                                                        setRoleEditColor(null)
+                                                                                    } catch (err) {
+                                                                                        const message =
+                                                                                            err instanceof Error
+                                                                                                ? err.message
+                                                                                                : 'Failed to save role.'
+                                                                                        setRolesError(message)
+                                                                                    }
+                                                                                }}
+                                                                            >
+                                                                                Save role
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 </>
                                                             ) : (
@@ -2157,7 +2154,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     )}
                     {showUnsavedServerSettingsConfirm && (
                         <div className="modal-overlay" onClick={() => setShowUnsavedServerSettingsConfirm(false)}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal confirm-modal server-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Discard changes?</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     You have unsaved changes to the server name or icon. If you close now, those changes will be

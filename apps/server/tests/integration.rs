@@ -199,6 +199,8 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
         "register failed: {}",
         String::from_utf8_lossy(&body)
     );
+    let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
 
     let role_count = sqlx::query_scalar::<_, i64>(
         r#"SELECT COUNT(*)
@@ -215,6 +217,69 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
         role_count >= 1,
         "default Voxpery server must have Moderator role after register"
     );
+
+    let moderator_permissions = sqlx::query_scalar::<_, i64>(
+        r#"SELECT sr.permissions
+           FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery'
+             AND LOWER(sr.name) = 'moderator'
+           LIMIT 1"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("moderator permissions query should succeed");
+
+    assert_eq!(
+        moderator_permissions,
+        6992,
+        "default Voxpery Moderator role should use recommended default permissions"
+    );
+
+    let everyone_role_id: Uuid = sqlx::query_scalar(
+        r#"SELECT sr.id
+           FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery'
+             AND LOWER(sr.name) = 'everyone'
+           LIMIT 1"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("@everyone role should exist on default Voxpery server");
+
+    let everyone_permissions: i64 = sqlx::query_scalar(
+        r#"SELECT sr.permissions
+           FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery'
+             AND LOWER(sr.name) = 'everyone'
+           LIMIT 1"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("@everyone permissions query should succeed");
+
+    assert_eq!(
+        everyone_permissions,
+        1153,
+        "@everyone role should use baseline default permissions"
+    );
+
+    let has_everyone_role: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM server_member_roles smr
+           INNER JOIN servers s ON s.id = smr.server_id
+           WHERE s.invite_code = 'voxpery'
+             AND smr.user_id = $1
+             AND smr.role_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(everyone_role_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("member-role mapping query should succeed");
+    assert_eq!(has_everyone_role, 1, "newly joined default member must get @everyone role");
 }
 
 #[tokio::test]
@@ -284,6 +349,211 @@ async fn create_server_list_servers_get_server() {
     let got: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(got["id"], server_id);
     assert_eq!(got["name"], "My Test Server");
+}
+
+#[tokio::test]
+async fn create_server_seeds_recommended_moderator_permissions() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("srvmod-{}@example.com", uid);
+    let username = format!("srvmod_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+
+    let register_body = json!({
+        "email": email,
+        "username": username,
+        "password": password
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "register failed: {}", String::from_utf8_lossy(&body));
+    let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let token = auth["token"].as_str().unwrap();
+    let creator_user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
+    let auth_header = format!("Bearer {}", token);
+
+    let create_body = json!({ "name": "Moderator Seed Server" });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "create server failed: {}", String::from_utf8_lossy(&body));
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+
+    let moderator_permissions = sqlx::query_scalar::<_, i64>(
+        r#"SELECT permissions
+           FROM server_roles
+           WHERE server_id = $1
+             AND LOWER(name) = 'moderator'
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("moderator role should exist for newly created server");
+
+    assert_eq!(
+        moderator_permissions,
+        6992,
+        "new server Moderator role should use recommended default permissions"
+    );
+
+    let everyone_role_id: Uuid = sqlx::query_scalar(
+        r#"SELECT id
+           FROM server_roles
+           WHERE server_id = $1
+             AND LOWER(name) = 'everyone'
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("@everyone role should exist for newly created server");
+
+    let everyone_permissions: i64 = sqlx::query_scalar(
+        r#"SELECT permissions
+           FROM server_roles
+           WHERE id = $1"#,
+    )
+    .bind(everyone_role_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("@everyone permissions should be readable");
+    assert_eq!(
+        everyone_permissions,
+        1153,
+        "new server @everyone role should use baseline default permissions"
+    );
+
+    let creator_has_everyone: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM server_member_roles
+           WHERE server_id = $1 AND user_id = $2 AND role_id = $3"#,
+    )
+    .bind(server_id)
+    .bind(creator_user_id)
+    .bind(everyone_role_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("creator @everyone mapping query should succeed");
+    assert_eq!(creator_has_everyone, 1, "server creator must get @everyone role");
+}
+
+#[tokio::test]
+async fn join_server_auto_assigns_everyone_role() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    // Owner account
+    let owner_uid = Uuid::new_v4();
+    let owner_email = format!("owner-{}@example.com", owner_uid);
+    let owner_username = format!("owner_{}", owner_uid.as_u128() % 1_000_000);
+    let owner_register = json!({
+        "email": owner_email,
+        "username": owner_username,
+        "password": "password123"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&owner_register).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "owner register failed: {}", String::from_utf8_lossy(&body));
+    let owner_auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let owner_token = owner_auth["token"].as_str().unwrap();
+    let owner_auth_header = format!("Bearer {}", owner_token);
+
+    // Create server
+    let create_body = json!({ "name": "Join Everyone Test" });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "create server failed: {}", String::from_utf8_lossy(&body));
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let invite_code = server["invite_code"].as_str().unwrap().to_string();
+
+    // Member account
+    let member_uid = Uuid::new_v4();
+    let member_email = format!("member-{}@example.com", member_uid);
+    let member_username = format!("member_{}", member_uid.as_u128() % 1_000_000);
+    let member_register = json!({
+        "email": member_email,
+        "username": member_username,
+        "password": "password123"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&member_register).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "member register failed: {}", String::from_utf8_lossy(&body));
+    let member_auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let member_token = member_auth["token"].as_str().unwrap();
+    let member_id = Uuid::parse_str(member_auth["user"]["id"].as_str().unwrap()).unwrap();
+    let member_auth_header = format!("Bearer {}", member_token);
+
+    // Join server by invite code
+    let join_body = json!({ "invite_code": invite_code });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &member_auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&join_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "join server failed: {}", String::from_utf8_lossy(&body));
+
+    let everyone_role_id: Uuid = sqlx::query_scalar(
+        r#"SELECT id FROM server_roles
+           WHERE server_id = $1 AND LOWER(name) = 'everyone'
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("@everyone role should exist");
+
+    let member_has_everyone: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM server_member_roles
+           WHERE server_id = $1 AND user_id = $2 AND role_id = $3"#,
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .bind(everyone_role_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("member role assignment query should succeed");
+
+    assert_eq!(member_has_everyone, 1, "joined member should auto-receive @everyone role");
 }
 
 #[tokio::test]

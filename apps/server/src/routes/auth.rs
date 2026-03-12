@@ -231,9 +231,15 @@ async fn register(
 /// Users auto-join this official community server on register/login.
 const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
 // Keep in sync with routes/servers.rs seeding.
-const PERM_MANAGE_CHANNELS: i64 = 1 << 3;
+const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
+const PERM_VIEW_AUDIT_LOG: i64 = 1 << 6;
+const PERM_SEND_MESSAGES: i64 = 1 << 7;
 const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
+const PERM_MANAGE_PINS: i64 = 1 << 9;
+const PERM_CONNECT_VOICE: i64 = 1 << 10;
+const PERM_MUTE_MEMBERS: i64 = 1 << 11;
+const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
 
 /// Env vars to resolve default Voxpery server owner: ADMIN_EMAIL or ADMIN_USERNAME (seeded admin).
 fn official_owner_lookup() -> (Option<String>, Option<String>) {
@@ -380,7 +386,12 @@ pub async fn ensure_default_server_join(
             // Ensure default Voxpery server has the seeded Moderator role.
             // This also backfills older default servers that were created without it.
             let moderator_perms =
-                PERM_MANAGE_CHANNELS | PERM_MANAGE_MESSAGES | PERM_KICK_MEMBERS;
+                PERM_MANAGE_MESSAGES
+                | PERM_MANAGE_PINS
+                | PERM_KICK_MEMBERS
+                | PERM_MUTE_MEMBERS
+                | PERM_DEAFEN_MEMBERS
+                | PERM_VIEW_AUDIT_LOG;
             sqlx::query(
                 r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
                    VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
@@ -389,6 +400,20 @@ pub async fn ensure_default_server_join(
             .bind(Uuid::new_v4())
             .bind(server_id)
             .bind(moderator_perms)
+            .execute(db)
+            .await?;
+
+            // Ensure default Voxpery server has an "@everyone" baseline role.
+            // Baseline member access: can view server, send messages, and connect voice.
+            let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
+            sqlx::query(
+                r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+                   VALUES ($1, $2, 'Everyone', NULL, 9999, $3)
+                   ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(server_id)
+            .bind(everyone_perms)
             .execute(db)
             .await?;
 
@@ -405,6 +430,26 @@ pub async fn ensure_default_server_join(
                 )
                 .bind(server_id)
                 .bind(user_id)
+                .execute(db)
+                .await?;
+            }
+
+            // Auto-assign "@everyone" role to every member joining default Voxpery server.
+            let everyone_role_id: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone' LIMIT 1",
+            )
+            .bind(server_id)
+            .fetch_optional(db)
+            .await?;
+            if let Some(role_id) = everyone_role_id {
+                sqlx::query(
+                    r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (server_id, user_id, role_id) DO NOTHING"#,
+                )
+                .bind(server_id)
+                .bind(user_id)
+                .bind(role_id)
                 .execute(db)
                 .await?;
             }
