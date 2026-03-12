@@ -270,6 +270,18 @@ export const authApi = {
             body: { old_password: oldPassword, new_password: newPassword },
             token: token ?? undefined,
         }),
+
+    forgotPassword: (email: string) =>
+        apiFetch<{ message: string }>('/api/auth/forgot-password', {
+            method: 'POST',
+            body: { email },
+        }),
+
+    resetPassword: (token: string, newPassword: string) =>
+        apiFetch<{ message: string }>('/api/auth/reset-password', {
+            method: 'POST',
+            body: { token, new_password: newPassword },
+        }),
 }
 
 // ─── Servers ────────────────────────────

@@ -55,6 +55,9 @@ pub struct AppState {
     pub google_client_secret: Option<String>,
     pub public_api_url: Option<String>,
     pub turnstile_secret_key: Option<String>,
+    pub smtp_host: Option<String>,
+    pub smtp_user: Option<String>,
+    pub smtp_password: Option<String>,
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.

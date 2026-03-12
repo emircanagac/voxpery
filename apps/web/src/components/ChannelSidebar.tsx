@@ -51,6 +51,8 @@ export default function ChannelSidebar({
     const [draggedChannelId, setDraggedChannelId] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; x: number; y: number } | null>(null)
+    const [pendingVoiceJoin, setPendingVoiceJoin] = useState<{ id: string; name: string } | null>(null)
+    const [isJoiningVoice, setIsJoiningVoice] = useState(false)
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
         try {
             const raw = localStorage.getItem('voxpery-voice-peer-volume')
@@ -194,48 +196,18 @@ export default function ChannelSidebar({
                                         className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''}`}
                                         onMouseEnter={() => { if (ch.channel_type === 'voice') preloadRnnoiseWorklet() }}
                                         onClick={() => {
-                                            // If user re-clicks the same voice channel they're already viewing,
-                                            // just trigger the join without resetting activeChannel (which caused the Welcome screen flash).
-                                            if (isActive && ch.channel_type === 'voice') {
-                                                const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
-                                                if (joinFn) {
-                                                    void (async () => {
-                                                        if (!navigator.mediaDevices?.getUserMedia) {
-                                                            joinFn(ch.id)
-                                                            return
-                                                        }
-                                                        let stream: MediaStream | null = null
-                                                        try {
-                                                            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                                                            await joinFn(ch.id, stream)
-                                                        } catch {
-                                                            stream?.getTracks().forEach((t) => t.stop())
-                                                            // Toast shown once via state.lastError in ActiveCallBar.
-                                                        }
-                                                    })()
+                                            if (ch.channel_type === 'voice') {
+                                                const currentJoined = useAppStore.getState().joinedVoiceChannelId
+                                                if (currentJoined === ch.id) {
+                                                    // Already joined, just view it
+                                                    setActiveChannel(ch.id)
+                                                    return
                                                 }
+                                                // Ask for confirmation
+                                                setPendingVoiceJoin({ id: ch.id, name: ch.name })
                                                 return
                                             }
                                             setActiveChannel(ch.id)
-                                            if (ch.channel_type === 'voice') {
-                                                const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
-                                                if (joinFn) {
-                                                    void (async () => {
-                                                        if (!navigator.mediaDevices?.getUserMedia) {
-                                                            joinFn(ch.id)
-                                                            return
-                                                        }
-                                                        let stream: MediaStream | null = null
-                                                        try {
-                                                            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                                                            await joinFn(ch.id, stream)
-                                                        } catch {
-                                                            stream?.getTracks().forEach((t) => t.stop())
-                                                            // Toast shown once via state.lastError in ActiveCallBar.
-                                                        }
-                                                    })()
-                                                }
-                                            }
                                         }}
                                         onContextMenu={(e) => {
                                             if (!canManageChannels) return
@@ -437,6 +409,62 @@ export default function ChannelSidebar({
                     </div>
                 )
             })()}
+
+            {pendingVoiceJoin && (
+                <div className="modal-overlay" onClick={() => !isJoiningVoice && setPendingVoiceJoin(null)}>
+                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Join Voice Channel</h2>
+                        <p style={{ marginTop: '0.5rem', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>
+                            Are you sure you want to connect to <strong>{pendingVoiceJoin.name}</strong>?
+                        </p>
+                        <div className="modal-actions">
+                            <button
+                                type="button"
+                                className="modal-btn"
+                                onClick={() => setPendingVoiceJoin(null)}
+                                disabled={isJoiningVoice}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="modal-btn danger"
+                                style={{ backgroundColor: '#a6e3a1', color: '#1e1e2e' }}
+                                disabled={isJoiningVoice}
+                                onClick={async () => {
+                                    setIsJoiningVoice(true)
+                                    setActiveChannel(pendingVoiceJoin.id)
+                                    const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
+                                    if (joinFn) {
+                                        try {
+                                            if (!navigator.mediaDevices?.getUserMedia) {
+                                                await joinFn(pendingVoiceJoin.id)
+                                            } else {
+                                                let stream: MediaStream | null = null
+                                                try {
+                                                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                                                    await joinFn(pendingVoiceJoin.id, stream)
+                                                } catch {
+                                                    stream?.getTracks().forEach((t) => t.stop())
+                                                    await joinFn(pendingVoiceJoin.id) // Fallback without preflight stream if mic fails
+                                                }
+                                            }
+                                        } finally {
+                                            setIsJoiningVoice(false)
+                                            setPendingVoiceJoin(null)
+                                        }
+                                    } else {
+                                        setIsJoiningVoice(false)
+                                        setPendingVoiceJoin(null)
+                                    }
+                                }}
+                            >
+                                {isJoiningVoice ? 'Connecting...' : 'Join'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     )

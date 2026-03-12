@@ -79,6 +79,9 @@ async fn main() {
         google_client_secret: config.google_client_secret.clone(),
         public_api_url: config.public_api_url.clone(),
         turnstile_secret_key: config.turnstile_secret_key.clone(),
+        smtp_host: config.smtp_host.clone(),
+        smtp_user: config.smtp_user.clone(),
+        smtp_password: config.smtp_password.clone(),
     });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (

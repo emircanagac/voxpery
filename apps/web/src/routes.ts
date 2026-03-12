@@ -6,6 +6,8 @@ export const ROUTES = {
   dm: '/dm' as const,
   login: '/login' as const,
   register: '/register' as const,
+  forgotPassword: '/forgot-password' as const,
+  resetPassword: '/reset-password' as const,
   invite: (code: string = ':code') => `/invite/${code}`,
 } as const
 

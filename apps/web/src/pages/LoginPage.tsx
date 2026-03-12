@@ -99,7 +99,15 @@ export default function LoginPage() {
                 </div>
 
                 <div className="form-group">
-                    <label>Password</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label>Password</label>
+                        <a 
+                            onClick={() => navigate(ROUTES.forgotPassword)} 
+                            style={{ fontSize: '0.8em', cursor: 'pointer', color: '#89b4fa' }}
+                        >
+                            Forgot password?
+                        </a>
+                    </div>
                     <input
                         type="password"
                         value={password}

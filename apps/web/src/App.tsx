@@ -14,6 +14,8 @@ import { ROUTES } from './routes'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -26,7 +28,13 @@ function RedirectDmToSocial() {
 function AuthRedirect() {
   const location = window.location
   const currentPath = location.pathname + location.search + location.hash
-  if (currentPath === '/' || currentPath.startsWith('/login') || currentPath.startsWith('/register')) {
+  if (
+    currentPath === '/' || 
+    currentPath.startsWith('/login') || 
+    currentPath.startsWith('/register') || 
+    currentPath.startsWith('/forgot-password') || 
+    currentPath.startsWith('/reset-password')
+  ) {
     return <Navigate to={ROUTES.login} replace />
   }
   return <Navigate to={`${ROUTES.login}?redirect=${encodeURIComponent(currentPath)}`} replace />
@@ -188,6 +196,8 @@ function App() {
           <Routes>
             <Route path={ROUTES.login} element={<LoginPage />} />
             <Route path={ROUTES.register} element={<RegisterPage />} />
+            <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
+            <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
             <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
             <Route path="*" element={<AuthRedirect />} />
           </Routes>

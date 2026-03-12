@@ -7,6 +7,7 @@ use axum::{
     Extension, Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use sha1::{Digest, Sha1};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -14,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, token_from_request, Claims},
-    models::{AuthResponse, LoginRequest, RegisterRequest, User, UserPublic},
+    models::{AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest, User, UserPublic},
     services::auth::{generate_token, hash_password, verify_password},
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
@@ -82,6 +83,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/forgot-password", post(forgot_password))
+        .route("/reset-password", post(reset_password))
         .route("/google", get(google_oauth_start))
         .route("/google/callback", get(google_oauth_callback))
         .merge(protected)
@@ -1139,4 +1142,147 @@ async fn change_password(
 
     let out_headers = clear_auth_cookie_header(&state);
     Ok((out_headers, Json(serde_json::json!({ "message": "Password changed successfully" }))))
+}
+
+/// POST /api/auth/forgot-password
+async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ForgotPasswordRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let email = body.email.trim().to_lowercase();
+    
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:forgot_password:{}", email),
+        3,
+        Duration::from_secs(3600), // max 3 attempts per hour
+        "Too many password reset requests. Please check your email or try again later.",
+    ).await?;
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE lower(email) = $1")
+        .bind(&email)
+        .fetch_optional(&state.db)
+        .await?;
+
+    if let Some(user) = user {
+        if user.google_id.is_some() {
+            // Can't reset password for Google OAuth users
+            return Err(AppError::Validation("This account uses Google Sign-In. Password reset is not available.".into()));
+        }
+
+        // Generate token
+        let token_plain = Uuid::new_v4().to_string();
+        let mut hasher = Sha1::new();
+        hasher.update(token_plain.as_bytes());
+        let token_hash = BASE64.encode(hasher.finalize());
+        let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+        // Delete any existing token for this user to respect UNIQUE(user_id) constraint
+        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+            .bind(user.id)
+            .execute(&state.db)
+            .await?;
+
+        // Insert new token
+        sqlx::query(
+            "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)"
+        )
+        .bind(user.id)
+        .bind(&token_hash)
+        .bind(expires_at)
+        .execute(&state.db)
+        .await?;
+
+        // Send email
+        if let (Some(host), Some(smtp_user), Some(smtp_pass)) = (&state.smtp_host, &state.smtp_user, &state.smtp_password) {
+            let frontend_url = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
+            let frontend_url = frontend_url.trim_end_matches('/');
+            let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
+            
+            if let Err(e) = crate::services::email::send_password_reset_email(
+                &user.email,
+                &reset_link,
+                host,
+                smtp_user,
+                smtp_pass,
+            ).await {
+                tracing::error!("Failed to send password reset email: {}", e);
+            }
+        } else {
+            tracing::warn!("SMTP is not configured! Password reset email not sent. Token: {}", token_plain);
+        }
+    }
+
+    // Always return success to prevent email enumeration
+    Ok(Json(serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." })))
+}
+
+/// POST /api/auth/reset-password
+async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ResetPasswordRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:reset_password_attempt:{}", body.token), // limit attempts per token to prevent brute force
+        5,
+        Duration::from_secs(3600),
+        "Too many password reset attempts. Please request a new token.",
+    ).await?;
+
+    if body.new_password.len() < 8 {
+        return Err(AppError::Validation("New password must be at least 8 characters".into()));
+    }
+
+    let mut hasher = Sha1::new();
+    hasher.update(body.token.as_bytes());
+    let token_hash = BASE64.encode(hasher.finalize());
+
+    // Find the token
+    #[derive(sqlx::FromRow)]
+    struct TokenRow {
+        user_id: Uuid,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    let token_row = sqlx::query_as::<_, TokenRow>(
+        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = $1"
+    )
+    .bind(&token_hash)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if let Some(row) = token_row {
+        if chrono::Utc::now() > row.expires_at {
+            // Delete expired token
+            sqlx::query("DELETE FROM password_reset_tokens WHERE token_hash = $1")
+                .bind(&token_hash)
+                .execute(&state.db)
+                .await?;
+            return Err(AppError::Validation("Password reset token has expired".into()));
+        }
+
+        // Token is valid, update password
+        let password_hash = hash_password(&body.new_password)?;
+        
+        // Use a transaction to update password and delete token
+        let mut tx = state.db.begin().await?;
+        
+        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+            .bind(&password_hash)
+            .bind(row.user_id)
+            .execute(&mut *tx)
+            .await?;
+            
+        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+            .bind(row.user_id)
+            .execute(&mut *tx)
+            .await?;
+            
+        tx.commit().await?;
+
+        Ok(Json(serde_json::json!({ "message": "Password has been successfully reset. You can now log in." })))
+    } else {
+        Err(AppError::Validation("Invalid password reset token".into()))
+    }
 }
