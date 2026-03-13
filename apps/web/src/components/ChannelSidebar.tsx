@@ -491,7 +491,7 @@ export default function ChannelSidebar({
                                 type="button"
                                 className="btn btn-primary voice-join-btn voice-join-btn-primary"
                                 disabled={isJoiningVoice}
-                                onClick={() => void handleJoinVoice(pendingVoiceJoin.id, pendingVoiceJoin.name)}
+                                onClick={() => void handleJoinVoice(pendingVoiceJoin.id)}
                             >
                                 {isJoiningVoice ? (
                                     <>
