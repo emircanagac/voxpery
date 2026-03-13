@@ -67,4 +67,7 @@ pub struct MemberInfo {
     /// Display color derived from the highest-positioned role with a color,
     /// similar to Discord's member list behaviour.
     pub role_color: Option<String>,
+    /// Explicit assigned server roles (excluding Everyone), ordered by role position.
+    #[serde(default)]
+    pub roles: Vec<String>,
 }

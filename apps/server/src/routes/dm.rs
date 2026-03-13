@@ -6,12 +6,13 @@ use axum::{
 };
 use std::sync::Arc;
 use std::time::Duration;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
-    models::{MessageAuthor, MessageQuery, MessageWithAuthor},
+    models::{MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor},
     services::attachments::validate_attachments,
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
@@ -58,6 +59,16 @@ pub struct EditDmMessageRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub struct AddDmReactionRequest {
+    pub emoji: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RemoveDmReactionQuery {
+    pub emoji: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub struct PinDmMessageRequest {
     pub message_id: Uuid,
 }
@@ -90,8 +101,75 @@ impl From<DmMessageRow> for MessageWithAuthor {
                 avatar_url: row.avatar_url,
                 role_color: None,
             },
+            reactions: Vec::new(),
         }
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct DmMessageReactionRow {
+    message_id: Uuid,
+    emoji: String,
+    count: i64,
+    reacted: bool,
+}
+
+fn normalize_reaction_emoji(raw: &str) -> Result<String, AppError> {
+    let emoji = raw.trim();
+    if emoji.is_empty() {
+        return Err(AppError::Validation("Emoji is required".into()));
+    }
+    let char_count = emoji.chars().count();
+    if char_count > 16 {
+        return Err(AppError::Validation("Emoji is too long".into()));
+    }
+    if emoji.chars().any(char::is_whitespace) {
+        return Err(AppError::Validation("Emoji cannot include spaces".into()));
+    }
+    Ok(emoji.to_string())
+}
+
+async fn attach_dm_message_reactions(
+    db: &sqlx::PgPool,
+    messages: &mut [MessageWithAuthor],
+    viewer_id: Uuid,
+) -> Result<(), AppError> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+
+    let message_ids: Vec<Uuid> = messages.iter().map(|m| m.id).collect();
+    let rows = sqlx::query_as::<_, DmMessageReactionRow>(
+        r#"SELECT r.message_id,
+                  r.emoji,
+                  COUNT(*)::BIGINT AS count,
+                  BOOL_OR(r.user_id = $2) AS reacted
+           FROM dm_message_reactions r
+           WHERE r.message_id = ANY($1)
+           GROUP BY r.message_id, r.emoji
+           ORDER BY r.message_id ASC, MIN(r.created_at) ASC"#,
+    )
+    .bind(&message_ids)
+    .bind(viewer_id)
+    .fetch_all(db)
+    .await?;
+
+    let mut by_message: HashMap<Uuid, Vec<MessageReactionSummary>> = HashMap::new();
+    for row in rows {
+        by_message
+            .entry(row.message_id)
+            .or_default()
+            .push(MessageReactionSummary {
+                emoji: row.emoji,
+                count: row.count,
+                reacted: row.reacted,
+            });
+    }
+
+    for msg in messages.iter_mut() {
+        msg.reactions = by_message.remove(&msg.id).unwrap_or_default();
+    }
+    Ok(())
 }
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -115,6 +193,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/messages/item/{message_id}",
             patch(edit_dm_message).delete(delete_dm_message),
+        )
+        .route(
+            "/messages/item/{message_id}/reactions",
+            axum::routing::post(add_dm_reaction).delete(remove_dm_reaction),
         )
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
@@ -370,7 +452,8 @@ async fn get_dm_messages(
         .await?
     };
 
-    let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
     if let Some(last) = result.last() {
         mark_dm_read(&state, channel_id, claims.sub, Some(last.id)).await?;
     }
@@ -437,7 +520,8 @@ async fn send_dm_message(
     .fetch_one(&state.db)
     .await?;
 
-    let message: MessageWithAuthor = row.into();
+    let mut message: MessageWithAuthor = row.into();
+    attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
     mark_dm_read(&state, channel_id, claims.sub, Some(message.id)).await?;
     let event = WsEvent::NewMessage {
         channel_id,
@@ -533,7 +617,8 @@ async fn search_dm_messages(
     .fetch_all(&state.db)
     .await?;
 
-    let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
     Ok(Json(result))
 }
 
@@ -557,7 +642,8 @@ async fn list_dm_pins(
     .fetch_all(&state.db)
     .await?;
 
-    let result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
     Ok(Json(result))
 }
 
@@ -603,7 +689,9 @@ async fn pin_dm_message(
     .await?
     .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
 
-    Ok(Json(row.into()))
+    let mut message: MessageWithAuthor = row.into();
+    attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    Ok(Json(message))
 }
 
 async fn unpin_dm_message(
@@ -668,7 +756,8 @@ async fn edit_dm_message(
     .fetch_one(&state.db)
     .await?;
 
-    let message: MessageWithAuthor = row.into();
+    let mut message: MessageWithAuthor = row.into();
+    attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
@@ -707,6 +796,99 @@ async fn delete_dm_message(
     Ok(Json(
         serde_json::json!({ "message": "DM message deleted", "id": message_id }),
     ))
+}
+
+async fn load_dm_message_with_author(
+    db: &sqlx::PgPool,
+    message_id: Uuid,
+) -> Result<MessageWithAuthor, AppError> {
+    let row = sqlx::query_as::<_, DmMessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url
+           FROM dm_messages m
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE m.id = $1"#,
+    )
+    .bind(message_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(AppError::NotFound("DM message not found".into()))?;
+    Ok(row.into())
+}
+
+async fn add_dm_reaction(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(message_id): Path<Uuid>,
+    Json(body): Json<AddDmReactionRequest>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    let emoji = normalize_reaction_emoji(&body.emoji)?;
+    let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("DM message not found".into()))?;
+
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    sqlx::query(
+        r#"INSERT INTO dm_message_reactions (message_id, user_id, emoji)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (message_id, user_id, emoji) DO NOTHING"#,
+    )
+    .bind(message_id)
+    .bind(claims.sub)
+    .bind(&emoji)
+    .execute(&state.db)
+    .await?;
+
+    let mut message = load_dm_message_with_author(&state.db, message_id).await?;
+    attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    let event = WsEvent::MessageUpdated {
+        channel_id,
+        message: message.clone(),
+    };
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+        tracing::warn!("Failed to push DM reaction event to members: {}", e);
+    }
+    Ok(Json(message))
+}
+
+async fn remove_dm_reaction(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(message_id): Path<Uuid>,
+    Query(query): Query<RemoveDmReactionQuery>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    let emoji = normalize_reaction_emoji(&query.emoji)?;
+    let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("DM message not found".into()))?;
+
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    sqlx::query(
+        r#"DELETE FROM dm_message_reactions
+           WHERE message_id = $1 AND user_id = $2 AND emoji = $3"#,
+    )
+    .bind(message_id)
+    .bind(claims.sub)
+    .bind(&emoji)
+    .execute(&state.db)
+    .await?;
+
+    let mut message = load_dm_message_with_author(&state.db, message_id).await?;
+    attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    let event = WsEvent::MessageUpdated {
+        channel_id,
+        message: message.clone(),
+    };
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+        tracing::warn!("Failed to push DM reaction removal event to members: {}", e);
+    }
+    Ok(Json(message))
 }
 
 async fn check_dm_access(

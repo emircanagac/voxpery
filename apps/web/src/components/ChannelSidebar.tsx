@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -11,6 +11,7 @@ import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+const PERM_CONNECT_VOICE = 1 << 10
 type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 
 interface ChannelSidebarProps {
@@ -430,15 +431,22 @@ export default function ChannelSidebar({
                         </button>
                         {!collapsedCategories[category] && chs.map((ch) => {
                             const isActive = activeChannelId === ch.id
+                            const channelPerms = typeof ch.my_permissions === 'number' ? ch.my_permissions : 0
+                            const canConnectVoice =
+                                ch.channel_type !== 'voice'
+                                || (channelPerms & PERM_CONNECT_VOICE) === PERM_CONNECT_VOICE
+                            const isVoiceLocked = ch.channel_type === 'voice' && !canConnectVoice
                             const voiceMembers = ch.channel_type === 'voice'
                                 ? members.filter((m) => voiceStates[m.user_id] === ch.id)
                                 : []
                             return (
                                 <div key={ch.id}>
                                     <div
-                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
-                                        onMouseEnter={() => { if (ch.channel_type === 'voice') preloadRnnoiseWorklet() }}
+                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${isVoiceLocked ? 'channel-item--disabled' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
+                                        onMouseEnter={() => { if (ch.channel_type === 'voice' && !isVoiceLocked) preloadRnnoiseWorklet() }}
+                                        title={isVoiceLocked ? "You don't have permission to connect to this voice channel." : undefined}
                                         onClick={() => {
+                                            if (isVoiceLocked) return
                                             if (ch.channel_type === 'voice') {
                                                 const currentJoined = useAppStore.getState().joinedVoiceChannelId
                                                 if (currentJoined === ch.id) {
@@ -511,6 +519,11 @@ export default function ChannelSidebar({
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
                                         </span>
                                         <span className="channel-name">{ch.name}</span>
+                                        {isVoiceLocked && (
+                                            <span className="channel-item-lock" aria-hidden>
+                                                <Lock size={12} />
+                                            </span>
+                                        )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
                                             <span className="channel-unread-badge">{unreadByChannel[ch.id]}</span>
                                         )}

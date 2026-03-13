@@ -456,6 +456,42 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const ev = data as { type?: string; data?: Record<string, unknown> }
             if (!ev || typeof ev.type !== 'string') return
             const d = ev.data ?? {}
+            const refreshServerSnapshot = (sid: string, t: string | null, refreshChannels: boolean) => {
+                const detailPromise = serverApi.get(sid, t)
+                const channelsPromise = refreshChannels
+                    ? serverApi.channels(sid, t).catch(() => [] as Channel[])
+                    : Promise.resolve([] as Channel[])
+                const categoriesPromise = refreshChannels
+                    ? channelApi.listCategories(sid, t).catch(() => [])
+                    : Promise.resolve([] as Array<{ name: string }>)
+                Promise.all([detailPromise, channelsPromise, categoriesPromise])
+                    .then(([detail, chs, categories]) => {
+                        const store = useAppStore.getState()
+                        store.setMembersForServer(sid, detail.members ?? [])
+                        if (activeServerIdRef.current === sid) {
+                            store.setMembers(detail.members ?? [])
+                        }
+                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+
+                        if (!refreshChannels) return
+                        store.setChannelsForServer(sid, chs)
+                        setChannelServerMap((prev) => {
+                            const next = { ...prev }
+                            for (const ch of chs) next[ch.id] = ch.server_id
+                            return next
+                        })
+                        if (activeServerIdRef.current !== sid) return
+                        setChannels(chs)
+                        setChannelCategories(categories.map((c) => c.name))
+                        const currentActive = activeChannelIdRef.current
+                        const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
+                        if (!stillValid) {
+                            const target = chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null
+                            store.setActiveChannel(target)
+                        }
+                    })
+                    .catch(() => { })
+            }
             switch (ev.type) {
                 case 'NewMessage': {
                     const incomingChannelId = d.channel_id as string | undefined
@@ -527,74 +563,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 }
                 case 'MemberJoined': {
                     const eventSid = d.server_id as string | undefined
-                    const uid = d.user_id as string | undefined
-                    const username = d.username as string | undefined
-                    if (!eventSid || !uid || !username) break
+                    if (!eventSid) break
                     const t = tokenRef.current ?? null
-                    serverApi.get(eventSid, t).then((detail) => {
-                        const store = useAppStore.getState()
-                        store.setMembersForServer(eventSid, detail.members ?? [])
-                        if (activeServerIdRef.current === eventSid) {
-                            store.setMembers(detail.members ?? [])
-                        }
-                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
-                    }).catch(console.error)
+                    refreshServerSnapshot(eventSid, t, false)
                     break
                 }
                 case 'MemberRoleUpdated': {
                     const sid = d.server_id as string | undefined
                     if (!sid) break
                     const t = tokenRef.current ?? null
-                    serverApi.get(sid, t).then((detail) => {
-                        const store = useAppStore.getState()
-                        store.setMembersForServer(sid, detail.members ?? [])
-                        if (activeServerIdRef.current === sid) {
-                            store.setMembers(detail.members ?? [])
-                        }
-                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
-                    }).catch(() => {})
+                    refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'ServerRolesUpdated': {
                     const sid = d.server_id as string | undefined
                     if (!sid) break
                     const t = tokenRef.current ?? null
-                    serverApi.get(sid, t).then((detail) => {
-                        const store = useAppStore.getState()
-                        store.setMembersForServer(sid, detail.members ?? [])
-                        if (activeServerIdRef.current === sid) {
-                            store.setMembers(detail.members ?? [])
-                        }
-                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
-                    }).catch(() => {})
+                    refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'ServerChannelsUpdated': {
                     const sid = d.server_id as string | undefined
                     if (!sid) break
                     const t = tokenRef.current ?? null
-                    serverApi.channels(sid, t).then(async (chs) => {
-                        const store = useAppStore.getState()
-                        store.setChannelsForServer(sid, chs)
-                        setChannelServerMap((prev) => {
-                            const next = { ...prev }
-                            for (const ch of chs) next[ch.id] = ch.server_id
-                            return next
-                        })
-
-                        if (activeServerIdRef.current !== sid) return
-
-                        setChannels(chs)
-                        const categories = await channelApi.listCategories(sid, t).catch(() => [])
-                        setChannelCategories(categories.map((c) => c.name))
-
-                        const currentActive = activeChannelIdRef.current
-                        const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
-                        if (!stillValid) {
-                            const target = chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null
-                            store.setActiveChannel(target)
-                        }
-                    }).catch(() => {})
+                    refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'MemberLeft': {
@@ -648,7 +640,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [user?.id])
+    }, [setChannels, user?.id])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -769,6 +761,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 ) as UiMessage[]
                 messagesByChannelRef.current[activeChannelId] = next
                 return next
+            })
+        }
+    }
+
+    const handleToggleChannelReaction = async (
+        messageId: string,
+        emoji: string,
+        reacted: boolean,
+    ) => {
+        if (!activeChannelId || !isLoggedIn || !canSendMessages) return
+        try {
+            const updated = reacted
+                ? await messageApi.removeReaction(messageId, emoji, token)
+                : await messageApi.addReaction(messageId, emoji, token)
+            setMessages((prev) => {
+                const next = prev.map((m) => (m.id === updated.id ? { ...updated } : m))
+                messagesByChannelRef.current[activeChannelId] = next
+                return next
+            })
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Reaction failed',
+                message: err instanceof Error ? err.message : 'Could not update reaction.',
             })
         }
     }
@@ -974,11 +990,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const activeServer = servers.find((s) => s.id === activeServerId)
     const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
     const activePerms = activeServerId ? myServerPermissions[activeServerId] ?? 0 : 0
+    const activeChannelForPerms = activeChannelId ? channels.find((c) => c.id === activeChannelId) : null
+    const activeChannelPerms =
+        activeChannelForPerms != null
+            ? (activeChannelForPerms.my_permissions ?? 0)
+            : activePerms
     // Permissions-based gating (backend enforces same).
     const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
-    const canSendMessages = (activePerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
-    const canManageMessages = (activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
-    const canManagePins = (activePerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
+    const canSendMessages = (activeChannelPerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
+    const canManageMessages = (activeChannelPerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
+    const canManagePins = (activeChannelPerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
     const canMuteMembers = (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
     const canDeafenMembers = (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
     const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
@@ -1549,12 +1570,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setCreateChannelError(validationError)
             return
         }
-        if (createChannelCategory.trim()) {
-            const categoryValidation = validateCategoryNameInput(createChannelCategory)
-            if (categoryValidation) {
-                setCreateChannelError(categoryValidation)
-                return
-            }
+        const normalizedCategory = createChannelCategory.trim() || 'GENERAL'
+        const categoryValidation = validateCategoryNameInput(normalizedCategory)
+        if (categoryValidation) {
+            setCreateChannelError(categoryValidation)
+            return
         }
         setCreateChannelError(null)
         try {
@@ -1563,7 +1583,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 createChannelName.trim(),
                 createChannelType,
                 token,
-                createChannelCategory.trim() || undefined,
+                normalizedCategory,
             )
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
@@ -1960,6 +1980,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 pinnedMessages={channelPins}
                 onPinMessage={canManagePins ? handlePinChannelMessage : undefined}
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
+                onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
                 canSendMessages={canSendMessages}
             />
             <MemberSidebar
@@ -2068,12 +2089,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                     </div>
                                 </div>
                                 <div className="form-group">
-                                    <label>Category (optional)</label>
+                                    <label>Category (optional, default: GENERAL)</label>
                                     <input
                                         type="text"
                                         value={createChannelCategory}
                                         onChange={(e) => setCreateChannelCategory(e.target.value)}
-                                        placeholder="e.g. Squad 1"
+                                        placeholder="GENERAL"
                                         list="channel-category-suggestions"
                                         maxLength={CATEGORY_NAME_MAX}
                                     />

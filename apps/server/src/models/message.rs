@@ -15,6 +15,13 @@ pub struct Message {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageReactionSummary {
+    pub emoji: String,
+    pub count: i64,
+    pub reacted: bool,
+}
+
 /// Message with author info for API responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageWithAuthor {
@@ -25,6 +32,8 @@ pub struct MessageWithAuthor {
     pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub author: MessageAuthor,
+    #[serde(default)]
+    pub reactions: Vec<MessageReactionSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

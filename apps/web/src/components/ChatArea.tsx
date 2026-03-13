@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Trash2, Reply, Edit3, Save, Share2, Search, Pin, PinOff, ChevronRight } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Trash2, Reply, Edit3, Save, Share2, Search, Pin, PinOff, ChevronRight, Smile } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
@@ -20,6 +20,12 @@ type MentionUser = {
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
+const CHAT_EMOJI_OPTIONS = [
+    '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤔',
+    '😅', '😴', '😭', '😡', '🤯', '🥳', '👏', '🙏', '💪', '🔥',
+    '✨', '🎉', '🎮', '🎵', '✅', '❌', '❤️', '💙', '👍', '👎',
+]
+const MESSAGE_REACTION_OPTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '😮', '😢', '👀']
 
 interface ChatAreaProps {
     activeChannel: Channel | undefined
@@ -64,6 +70,7 @@ interface ChatAreaProps {
     pinnedMessages?: MessageWithAuthor[]
     onPinMessage?: (messageId: string) => void
     onUnpinMessage?: (messageId: string) => void
+    onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
     canSendMessages?: boolean
 }
 
@@ -105,6 +112,7 @@ export default function ChatArea({
     pinnedMessages = [],
     onPinMessage,
     onUnpinMessage,
+    onToggleReaction,
     canSendMessages = true,
 }: ChatAreaProps) {
     const messagesScrollRef = useRef<HTMLDivElement>(null)
@@ -130,6 +138,9 @@ export default function ChatArea({
     const [mentionQuery, setMentionQuery] = useState('')
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
     const [clickedLink, setClickedLink] = useState<string | null>(null)
+    const [emojiOpen, setEmojiOpen] = useState(false)
+    const emojiPickerRef = useRef<HTMLDivElement | null>(null)
+    const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
     const textChannelsForForward = channelsForForward?.filter((c) => c.channel_type === 'text' && c.id !== activeChannel?.id) ?? []
@@ -314,6 +325,22 @@ export default function ChatArea({
         syncMentionMenu(value, cursor)
     }
 
+    const insertEmoji = (emoji: string) => {
+        if (!canSendMessages) return
+        const inputEl = textareaRef.current
+        const start = inputEl?.selectionStart ?? messageInput.length
+        const end = inputEl?.selectionEnd ?? start
+        const next = `${messageInput.slice(0, start)}${emoji}${messageInput.slice(end)}`
+        onMessageInputChange(next)
+        setEmojiOpen(false)
+        requestAnimationFrame(() => {
+            const pos = start + emoji.length
+            textareaRef.current?.focus()
+            textareaRef.current?.setSelectionRange(pos, pos)
+            syncMentionMenu(next, pos)
+        })
+    }
+
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
         if (!canSendMessages) {
             e.preventDefault()
@@ -360,6 +387,8 @@ export default function ChatArea({
 
     useEffect(() => {
         closeMentionMenu()
+        setEmojiOpen(false)
+        setReactionPickerMessageId(null)
     }, [activeChannel?.id])
 
     useEffect(() => {
@@ -371,6 +400,31 @@ export default function ChatArea({
         document.addEventListener('click', close)
         return () => document.removeEventListener('click', close)
     }, [pinnedOpen])
+
+    useEffect(() => {
+        if (!emojiOpen) return
+        const close = (e: MouseEvent) => {
+            if (emojiPickerRef.current?.contains(e.target as Node)) return
+            setEmojiOpen(false)
+        }
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            setEmojiOpen(false)
+        }
+        document.addEventListener('click', close)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('click', close)
+            document.removeEventListener('keydown', onKeyDown)
+        }
+    }, [emojiOpen])
+
+    useEffect(() => {
+        if (!reactionPickerMessageId) return
+        const close = () => setReactionPickerMessageId(null)
+        document.addEventListener('click', close)
+        return () => document.removeEventListener('click', close)
+    }, [reactionPickerMessageId])
 
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         if (!canSendMessages) return
@@ -698,8 +752,22 @@ export default function ChatArea({
                                                 </span>
                                                 <span className="message-timestamp">{formatDate(msg.created_at)}</span>
                                                 {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
-                                                {(onReplyToMessage || onForwardMessage || onDeleteMessage || onPinMessage || onUnpinMessage || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (
+                                                {(onReplyToMessage || onForwardMessage || onDeleteMessage || onPinMessage || onUnpinMessage || onToggleReaction || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (
                                                     <div className="message-inline-actions">
+                                                        {onToggleReaction && (
+                                                            <button
+                                                                type="button"
+                                                                className="message-inline-action-btn"
+                                                                title="Add reaction"
+                                                                aria-label="Add reaction"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setReactionPickerMessageId((prev) => (prev === msg.id ? null : msg.id))
+                                                                }}
+                                                            >
+                                                                <Smile size={14} />
+                                                            </button>
+                                                        )}
                                                         {onPinMessage && !pinnedMessageIds.has(msg.id) && (
                                                             <button type="button" className="message-inline-action-btn" title="Pin message" aria-label="Pin" onClick={(e) => { e.stopPropagation(); onPinMessage(msg.id) }}>
                                                                 <Pin size={14} />
@@ -747,6 +815,26 @@ export default function ChatArea({
                                                         )}
                                                     </div>
                                                 )}
+                                                {reactionPickerMessageId === msg.id && onToggleReaction && (
+                                                    <div
+                                                        className="message-reaction-picker"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {MESSAGE_REACTION_OPTIONS.map((emoji) => (
+                                                            <button
+                                                                key={`${msg.id}-${emoji}`}
+                                                                type="button"
+                                                                className="chat-emoji-item"
+                                                                onClick={() => {
+                                                                    onToggleReaction(msg.id, emoji, false)
+                                                                    setReactionPickerMessageId(null)
+                                                                }}
+                                                            >
+                                                                {emoji}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
                                                 {msg.clientStatus === 'sending' && (
                                                     <span className="message-send-state">Sending...</span>
                                                 )}
@@ -780,6 +868,22 @@ export default function ChatArea({
                                                 </div>
                                             ) : (
                                                 renderMessageContent(msg.content)
+                                            )}
+                                            {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                                                <div className="message-reactions">
+                                                    {msg.reactions.map((reaction) => (
+                                                        <button
+                                                            key={`${msg.id}-${reaction.emoji}`}
+                                                            type="button"
+                                                            className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
+                                                            disabled={!onToggleReaction}
+                                                            onClick={() => onToggleReaction?.(msg.id, reaction.emoji, !!reaction.reacted)}
+                                                        >
+                                                            <span>{reaction.emoji}</span>
+                                                            <span>{reaction.count}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             )}
                                             {msg.clientStatus === 'failed' && msg.clientId && (
                                                 <div className="message-retry-row">
@@ -868,6 +972,40 @@ export default function ChatArea({
                             onChange={(e) => onPickAttachments(e.target.files)}
                         />
                     </label>
+                    <button
+                        type="button"
+                        className="chat-emoji-btn"
+                        disabled={!canSendMessages}
+                        title="Insert emoji"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (!canSendMessages) return
+                            setEmojiOpen((prev) => !prev)
+                        }}
+                    >
+                        <Smile size={16} />
+                    </button>
+                    {emojiOpen && (
+                        <div
+                            ref={emojiPickerRef}
+                            className="chat-emoji-picker"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="chat-emoji-grid">
+                                {CHAT_EMOJI_OPTIONS.map((emoji) => (
+                                    <button
+                                        key={emoji}
+                                        type="button"
+                                        className="chat-emoji-item"
+                                        onClick={() => insertEmoji(emoji)}
+                                    >
+                                        {emoji}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <textarea
                         ref={textareaRef}
                         className="message-input"
@@ -903,9 +1041,6 @@ export default function ChatArea({
                         }}
                     />
                 </div>
-                {!canSendMessages && (
-                    <div className="message-send-disabled-note">You can view messages here, but you cannot send in this channel.</div>
-                )}
                 {draftAttachments.length > 0 && (
                     <div className="dm-draft-attachments">
                         {draftAttachments.map((att, i) => (

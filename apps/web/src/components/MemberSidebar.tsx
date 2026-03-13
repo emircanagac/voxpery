@@ -7,7 +7,7 @@ import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
 
 interface MemberItemProps {
-    member: { user_id: string; username: string; role: string; avatar_url?: string | null; status?: string | null; role_color?: string | null }
+    member: { user_id: string; username: string; role: string; avatar_url?: string | null; status?: string | null; role_color?: string | null; roles?: string[] }
     isOwner: boolean
     isServerOwner: boolean
     currentUserId?: string
@@ -17,6 +17,7 @@ interface MemberItemProps {
     canManageRoles: boolean
     myRole: string
     onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean) => void
+    onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
 
 const MemberItem = memo(function MemberItem({
@@ -29,7 +30,8 @@ const MemberItem = memo(function MemberItem({
     canBanAsRole,
     canManageRoles,
     myRole,
-    onContextMenu
+    onContextMenu,
+    onOpenProfile,
 }: MemberItemProps) {
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
     const isOnline = status(member) === 'online' || status(member) === 'dnd'
@@ -64,6 +66,7 @@ const MemberItem = memo(function MemberItem({
     return (
         <div
             className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
+            onClick={(e) => onOpenProfile(e, member, isServerOwner)}
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
@@ -128,7 +131,15 @@ export default function MemberSidebar({
     } | null>(null)
     const [kickConfirm, setKickConfirm] = useState<{ userId: string; username: string } | null>(null)
     const [banConfirm, setBanConfirm] = useState<{ userId: string; username: string } | null>(null)
+    const [profileCard, setProfileCard] = useState<{
+        member: MemberItemProps['member']
+        isServerOwner: boolean
+        x: number
+        y: number
+    } | null>(null)
     const menuRef = useRef<HTMLDivElement>(null)
+    const profileRef = useRef<HTMLDivElement>(null)
+    const sidebarRef = useRef<HTMLDivElement>(null)
 
     const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
         const pad = 8
@@ -146,15 +157,29 @@ export default function MemberSidebar({
     const canBanAsRole = isOwner || canBanMembers
 
     useEffect(() => {
-        if (!contextMenu) return
+        if (!contextMenu && !profileCard) return
         const close = () => setContextMenu(null)
+        const closeProfile = (event: MouseEvent) => {
+            if (!profileRef.current) return
+            if (profileRef.current.contains(event.target as Node)) return
+            setProfileCard(null)
+        }
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return
+            setContextMenu(null)
+            setProfileCard(null)
+        }
         window.addEventListener('click', close)
+        window.addEventListener('click', closeProfile)
+        window.addEventListener('keydown', onKeyDown)
         window.addEventListener('scroll', close, true)
         return () => {
             window.removeEventListener('click', close)
+            window.removeEventListener('click', closeProfile)
+            window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu])
+    }, [contextMenu, profileCard])
 
     const canManageRoles = isOwner || canManageRolesFromPerms
 
@@ -278,6 +303,30 @@ export default function MemberSidebar({
         })
     }, [])
 
+    const handleOpenProfile = useCallback((
+        e: React.MouseEvent,
+        member: MemberItemProps['member'],
+        isServerOwner: boolean,
+    ) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        setContextMenu(null)
+        const profileWidth = 260
+        const profileHeight = 220
+        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
+        const itemRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        const desiredX = (sidebarRect?.left ?? e.clientX) - profileWidth - 12
+        const desiredY = itemRect.top - 6
+        const pos = clampMenuPosition(desiredX, desiredY, profileWidth, profileHeight)
+        setProfileCard({
+            member,
+            isServerOwner,
+            x: pos.x,
+            y: pos.y,
+        })
+    }, [])
+
     if (!activeServer) return null
 
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
@@ -291,7 +340,7 @@ export default function MemberSidebar({
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (
-        <div className="member-sidebar">
+        <div className="member-sidebar" ref={sidebarRef}>
             {onlineMembers.length > 0 && (
                 <>
                     <div className="member-category member-category-online">
@@ -310,6 +359,7 @@ export default function MemberSidebar({
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
+                            onOpenProfile={handleOpenProfile}
                         />
                     ))}
                 </>
@@ -333,6 +383,7 @@ export default function MemberSidebar({
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
+                            onOpenProfile={handleOpenProfile}
                         />
                     ))}
                 </>
@@ -393,6 +444,87 @@ export default function MemberSidebar({
                             Ban user
                         </button>
                     )}
+                </div>
+            )}
+
+            {profileCard && (
+                <div
+                    ref={profileRef}
+                    className="member-profile-popout"
+                    style={{ left: profileCard.x, top: profileCard.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {(() => {
+                        const baseRoleNormalized = profileCard.member.role.trim().toLowerCase()
+                        const roleSet = new Set<string>()
+                        for (const roleName of profileCard.member.roles ?? []) {
+                            const trimmed = roleName.trim()
+                            if (!trimmed) continue
+                            const normalized = trimmed.toLowerCase()
+                            if (normalized === 'owner') continue
+                            if (normalized === baseRoleNormalized) continue
+                            roleSet.add(trimmed)
+                        }
+                        const roleLabels = Array.from(roleSet)
+                        const normalizedRole = profileCard.member.role.trim().toLowerCase()
+                        const showBaseRoleBadge =
+                            normalizedRole.length > 0
+                            && !(profileCard.isServerOwner && normalizedRole === 'owner')
+                        return (
+                            <>
+                    <div className="member-profile-header">
+                        <div className="member-profile-avatar">
+                            {profileCard.member.avatar_url ? (
+                                <img src={profileCard.member.avatar_url} alt="" className="member-avatar-image" />
+                            ) : (
+                                profileCard.member.username.charAt(0).toUpperCase()
+                            )}
+                        </div>
+                        <div className="member-profile-meta">
+                            <div className="member-profile-username">{profileCard.member.username}</div>
+                            <div className="member-profile-status">{(profileCard.member.status ?? 'offline').toString().toUpperCase()}</div>
+                        </div>
+                    </div>
+                    <div className="member-profile-badges">
+                        {profileCard.isServerOwner && (
+                            <span className="member-profile-badge is-owner">Owner</span>
+                        )}
+                        {showBaseRoleBadge && (
+                            <span
+                                className="member-profile-badge"
+                                style={profileCard.member.role_color ? { borderColor: profileCard.member.role_color, color: profileCard.member.role_color } : undefined}
+                            >
+                                {profileCard.member.role}
+                            </span>
+                        )}
+                    </div>
+                    <div className="member-profile-section">
+                        <div className="member-profile-section-title">Server Profile</div>
+                        <div className="member-profile-section-value">
+                            {profileCard.isServerOwner ? 'Server owner with full access' : `Role: ${profileCard.member.role}`}
+                        </div>
+                    </div>
+                    <div className="member-profile-section">
+                        <div className="member-profile-section-title">Roles in server</div>
+                        {roleLabels.length > 0 ? (
+                            <div className="member-profile-badges member-profile-badges--stack">
+                                {roleLabels.map((label) => (
+                                    <span
+                                        key={label}
+                                        className="member-profile-badge"
+                                        style={profileCard.member.role_color ? { borderColor: profileCard.member.role_color, color: profileCard.member.role_color } : undefined}
+                                    >
+                                        {label}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="member-profile-section-value">No custom roles.</div>
+                        )}
+                    </div>
+                            </>
+                        )
+                    })()}
                 </div>
             )}
 

@@ -298,6 +298,7 @@ export interface MemberInfo {
     role: string
     status: string
     role_color: string | null
+    roles?: string[]
 }
 
 export interface Friend {
@@ -653,6 +654,22 @@ export const dmApi = {
             token,
         }),
 
+    addReaction: (messageId: string, emoji: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(`/api/dm/messages/item/${messageId}/reactions`, {
+            method: 'POST',
+            body: { emoji },
+            token,
+        }),
+
+    removeReaction: (messageId: string, emoji: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(
+            `/api/dm/messages/item/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`,
+            {
+                method: 'DELETE',
+                token,
+            },
+        ),
+
     readState: (channelId: string, token: AuthToken) =>
         apiFetch<DmReadState>(`/api/dm/channels/${channelId}/read-state`, { token }),
 
@@ -709,6 +726,22 @@ export const messageApi = {
             body: { content },
             token,
         }),
+
+    addReaction: (messageId: string, emoji: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(`/api/messages/item/${messageId}/reactions`, {
+            method: 'POST',
+            body: { emoji },
+            token,
+        }),
+
+    removeReaction: (messageId: string, emoji: string, token: AuthToken) =>
+        apiFetch<MessageWithAuthor>(
+            `/api/messages/item/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`,
+            {
+                method: 'DELETE',
+                token,
+            },
+        ),
 
     listPins: (channelId: string, token: AuthToken) =>
         apiFetch<MessageWithAuthor[]>(`/api/messages/${channelId}/pins`, { token }),

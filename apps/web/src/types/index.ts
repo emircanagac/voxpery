@@ -23,6 +23,7 @@ export interface Channel {
     channel_type: 'text' | 'voice';
     category?: string;
     position: number;
+    my_permissions?: number;
 }
 
 export interface Attachment {
@@ -36,6 +37,7 @@ export interface Message {
     channel_id: string;
     content: string;
     attachments?: Attachment[];
+    reactions?: MessageReaction[];
     edited_at?: string | null;
     created_at: string;
     author: {
@@ -44,6 +46,12 @@ export interface Message {
         avatar_url?: string;
         role_color?: string | null;
     };
+}
+
+export interface MessageReaction {
+    emoji: string;
+    count: number;
+    reacted: boolean;
 }
 
 export interface SignalingMessage {

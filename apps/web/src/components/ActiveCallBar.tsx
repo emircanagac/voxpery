@@ -83,8 +83,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const pushToast = useToastStore((s) => s.pushToast)
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
-  const [serverMuted, setServerMuted] = useState(false)
-  const [serverDeafened, setServerDeafened] = useState(false)
+  const localControl = user?.id ? voiceControls[user.id] : null
+  const serverMuted = !!localControl?.serverMuted
+  const serverDeafened = !!localControl?.serverDeafened
   const [blockedAutoJoinChannelId, setBlockedAutoJoinChannelId] = useState<string | null>(null)
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false)
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>(() => readScreenShareQuality())
@@ -471,7 +472,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [blockedAutoJoinChannelId, selectedVoiceChannelId])
 
   useEffect(() => {
-    if (!state.lastError) return
+    if (!state.lastError) {
+      lastShownErrorRef.current = null
+      return
+    }
     if (state.lastError === lastShownErrorRef.current) return
     lastShownErrorRef.current = state.lastError
 
@@ -543,15 +547,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       leaveVoice()
       setDeafened(false)
       setMuted(false)
-      setServerMuted(false)
-      setServerDeafened(false)
       setBlockedAutoJoinChannelId(selectedVoiceChannelId)
     } else {
       await joinWithPreflight(selectedVoiceChannelId)
       setMuted(false)
       setDeafened(false)
-      setServerMuted(false)
-      setServerDeafened(false)
       setVoiceControls(false, false, false)
       setBlockedAutoJoinChannelId(null)
     }
@@ -620,16 +620,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }
 
   useEffect(() => {
-    const localControl = user?.id ? voiceControls[user.id] : null
-    if (!localControl) return
-    setServerMuted(!!localControl.serverMuted)
-    setServerDeafened(!!localControl.serverDeafened)
     const stream = localStreamRef.current ?? state.localStream
-    if (stream) {
-      const shouldMuteTrack = muted || deafened || !!localControl.serverMuted || !!localControl.serverDeafened
-      for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
-    }
-  }, [deafened, muted, state.localStream, user?.id, voiceControls])
+    if (!stream) return
+    const shouldMuteTrack = muted || deafened || serverMuted || serverDeafened
+    for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
+  }, [deafened, muted, serverDeafened, serverMuted, state.localStream])
 
   useEffect(() => {
     if (!showScreenShareConfirm && !showCameraConfirm) return

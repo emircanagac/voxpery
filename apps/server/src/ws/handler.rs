@@ -15,8 +15,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
-use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::middleware::auth::token_from_request;
+use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
 
@@ -428,7 +428,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                 .voice_controls
                                                 .get(other_uid)
                                                 .map(|s| *s)
-                                                .unwrap_or((false, false, false, false, false, false));
+                                                .unwrap_or((
+                                                    false, false, false, false, false, false,
+                                                ));
                                             let _ = client_tx.send(voice_control_event_from_state(
                                                 *other_uid,
                                                 server_id,
@@ -497,12 +499,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                         // 1. Update voice session
                                         let _ =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
-                                        let _ = recv_state
-                                            .voice_controls
-                                            .insert(
-                                                user_id,
-                                                (false, false, false, false, false, false),
-                                            );
+                                        let _ = recv_state.voice_controls.insert(
+                                            user_id,
+                                            (false, false, false, false, false, false),
+                                        );
 
                                         // 2. Broadcast join to everyone
                                         let server_id =
@@ -531,12 +531,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                     .voice_controls
                                                     .get(other_uid)
                                                     .map(|s| *s)
-                                                    .unwrap_or((false, false, false, false, false, false));
-                                                let _ = client_tx.send(voice_control_event_from_state(
-                                                    *other_uid,
-                                                    server_id,
-                                                    control_state,
-                                                ));
+                                                    .unwrap_or((
+                                                        false, false, false, false, false, false,
+                                                    ));
+                                                let _ =
+                                                    client_tx.send(voice_control_event_from_state(
+                                                        *other_uid,
+                                                        server_id,
+                                                        control_state,
+                                                    ));
                                             }
                                         }
                                     }
@@ -569,7 +572,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 screen_sharing,
                                 camera_on,
                             } => {
-                                let actor_channel = recv_state.voice_sessions.get(&user_id).map(|r| *r);
+                                let actor_channel =
+                                    recv_state.voice_sessions.get(&user_id).map(|r| *r);
                                 let Some(actor_channel_id) = actor_channel else {
                                     continue;
                                 };
@@ -610,7 +614,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                         .get(&target_id)
                                         .map(|s| *s)
                                         .unwrap_or((false, false, false, false, false, false));
-                                    if muted != current.2 && !perms.contains(Permissions::MUTE_MEMBERS)
+                                    if muted != current.2
+                                        && !perms.contains(Permissions::MUTE_MEMBERS)
                                     {
                                         continue;
                                     }
@@ -621,19 +626,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     }
 
                                     // Moderators can only change server-enforced mute/deafen.
-                                    let next_state =
-                                        (current.0, current.1, muted, deafened, current.4, current.5);
-                                    let _ = recv_state.voice_controls.insert(
-                                        target_id,
-                                        next_state,
+                                    let next_state = (
+                                        current.0, current.1, muted, deafened, current.4, current.5,
                                     );
-                                    let _ = recv_state
-                                        .tx
-                                        .send(voice_control_event_from_state(
-                                            target_id,
-                                            actor_server_id,
-                                            next_state,
-                                        ));
+                                    let _ = recv_state.voice_controls.insert(target_id, next_state);
+                                    let _ = recv_state.tx.send(voice_control_event_from_state(
+                                        target_id,
+                                        actor_server_id,
+                                        next_state,
+                                    ));
                                     continue;
                                 }
 
@@ -642,19 +643,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     .get(&user_id)
                                     .map(|s| *s)
                                     .unwrap_or((false, false, false, false, false, false));
-                                let next_state =
-                                    (muted, deafened, current.2, current.3, screen_sharing, camera_on);
-                                let _ = recv_state.voice_controls.insert(
-                                    user_id,
-                                    next_state,
+                                let next_state = (
+                                    muted,
+                                    deafened,
+                                    current.2,
+                                    current.3,
+                                    screen_sharing,
+                                    camera_on,
                                 );
-                                let _ = recv_state
-                                    .tx
-                                    .send(voice_control_event_from_state(
-                                        user_id,
-                                        actor_server_id,
-                                        next_state,
-                                    ));
+                                let _ = recv_state.voice_controls.insert(user_id, next_state);
+                                let _ = recv_state.tx.send(voice_control_event_from_state(
+                                    user_id,
+                                    actor_server_id,
+                                    next_state,
+                                ));
                             }
                             WsClientMessage::Signal {
                                 target_user_id,
@@ -741,17 +743,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
-        let _ = state.voice_controls.remove(&user_id);
-        let _ = state.tx.send(WsEvent::VoiceStateUpdate {
-            channel_id: None,
-            user_id,
+            let _ = state.voice_controls.remove(&user_id);
+            let _ = state.tx.send(WsEvent::VoiceStateUpdate {
+                channel_id: None,
+                user_id,
                 server_id: previous_server_id,
-        });
-        let _ = state.tx.send(voice_control_event_from_state(
-            user_id,
+            });
+            let _ = state.tx.send(voice_control_event_from_state(
+                user_id,
                 previous_server_id,
-            (false, false, false, false, false, false),
-        ));
+                (false, false, false, false, false, false),
+            ));
         }
     }
 

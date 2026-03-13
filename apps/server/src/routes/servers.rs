@@ -325,7 +325,8 @@ async fn get_server(
                   u.avatar_url,
                   sm.role,
                   u.status,
-                  rc.color AS role_color
+                  rc.color AS role_color,
+                  rr.role_names AS roles
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -338,6 +339,17 @@ async fn get_server(
                ORDER BY sr.position ASC
                LIMIT 1
            ) rc ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(
+                   ARRAY_AGG(sr.name ORDER BY sr.position ASC),
+                   ARRAY[]::text[]
+               ) AS role_names
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND LOWER(sr.name) <> 'everyone'
+           ) rr ON TRUE
            WHERE sm.server_id = $1
            ORDER BY sm.role ASC, u.username ASC"#,
     )
@@ -971,7 +983,7 @@ async fn list_channels(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(server_id): Path<Uuid>,
-) -> Result<Json<Vec<Channel>>, AppError> {
+) -> Result<Json<Vec<ChannelWithPermissions>>, AppError> {
     // Check membership
     let is_member = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
@@ -997,11 +1009,32 @@ async fn list_channels(
         let perms =
             permissions::get_user_channel_permissions(&state.db, channel.id, claims.sub).await?;
         if perms.contains(Permissions::VIEW_SERVER) {
-            visible.push(channel);
+            visible.push(ChannelWithPermissions {
+                id: channel.id,
+                server_id: channel.server_id,
+                name: channel.name,
+                channel_type: channel.channel_type,
+                category: channel.category,
+                position: channel.position,
+                created_at: channel.created_at,
+                my_permissions: perms.bits(),
+            });
         }
     }
 
     Ok(Json(visible))
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ChannelWithPermissions {
+    id: Uuid,
+    server_id: Uuid,
+    name: String,
+    channel_type: String,
+    category: Option<String>,
+    position: i32,
+    created_at: chrono::DateTime<chrono::Utc>,
+    my_permissions: i64,
 }
 
 /// PATCH /api/servers/:server_id/members/:user_id/role — owner can make/remove admins.

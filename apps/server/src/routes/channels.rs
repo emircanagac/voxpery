@@ -131,9 +131,9 @@ async fn create_channel(
     )
     .await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id: body.server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
+        server_id: body.server_id,
+    });
 
     Ok(Json(channel))
 }
@@ -227,8 +227,7 @@ async fn rename_channel(
         .map(str::to_string)
         .or_else(|| channel.category.clone());
     if let Some(category_name) = &next_category {
-        let canonical =
-            ensure_category_exists(&state.db, channel.server_id, category_name).await?;
+        let canonical = ensure_category_exists(&state.db, channel.server_id, category_name).await?;
         next_category = Some(canonical);
     }
     ensure_channel_name_unique(
@@ -329,9 +328,9 @@ async fn reorder_channels(
     }
     tx.commit().await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id: body.server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
+        server_id: body.server_id,
+    });
 
     Ok(Json(serde_json::json!({ "message": "Channels reordered" })))
 }
@@ -445,9 +444,7 @@ async fn delete_channel_override(
         .bind(channel_id)
         .fetch_one(&state.db)
         .await?;
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -565,15 +562,23 @@ async fn create_category(
     validate_category_name(name)?;
 
     backfill_category_rows(&state.db, server_id).await?;
+
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2)",
+    )
+    .bind(server_id)
+    .bind(name)
+    .fetch_one(&state.db)
+    .await?;
+    if exists > 0 {
+        return Err(AppError::Validation("Category already exists".into()));
+    }
+
     let canonical = ensure_category_exists(&state.db, server_id, name).await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
-    Ok(Json(CategoryNameResponse {
-        name: canonical,
-    }))
+    Ok(Json(CategoryNameResponse { name: canonical }))
 }
 
 async fn delete_category(
@@ -658,9 +663,7 @@ async fn delete_category(
 
     tx.commit().await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Category deleted" })))
 }
@@ -766,9 +769,7 @@ async fn rename_category(
     )
     .await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(CategoryNameResponse {
         name: new_name.to_string(),
@@ -853,9 +854,7 @@ async fn update_category_override(
     .fetch_one(&state.db)
     .await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(ov))
 }
@@ -887,9 +886,7 @@ async fn delete_category_override(
     .execute(&state.db)
     .await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -962,9 +959,7 @@ async fn reorder_categories(
     }
     tx.commit().await?;
 
-    let _ = state
-        .tx
-        .send(WsEvent::ServerChannelsUpdated { server_id });
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(
         serde_json::json!({ "message": "Categories reordered" }),

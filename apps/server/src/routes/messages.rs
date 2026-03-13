@@ -4,6 +4,7 @@ use axum::{
     routing::{delete, get},
     Extension, Json, Router,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -12,7 +13,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{
-        EditMessageRequest, MessageAuthor, MessageQuery, MessageWithAuthor, SendMessageRequest,
+        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary,
+        MessageWithAuthor, SendMessageRequest,
     },
     services::{
         attachments::validate_attachments,
@@ -28,11 +30,25 @@ struct PinMessageRequest {
     message_id: Uuid,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct AddReactionRequest {
+    emoji: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RemoveReactionQuery {
+    emoji: String,
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/item/{message_id}",
             delete(delete_message).patch(edit_message),
+        )
+        .route(
+            "/item/{message_id}/reactions",
+            axum::routing::post(add_message_reaction).delete(remove_message_reaction),
         )
         .route("/{channel_id}/search", get(search_messages))
         .route(
@@ -90,8 +106,75 @@ impl From<MessageRow> for MessageWithAuthor {
                 avatar_url: row.avatar_url,
                 role_color: row.role_color,
             },
+            reactions: Vec::new(),
         }
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct MessageReactionRow {
+    message_id: Uuid,
+    emoji: String,
+    count: i64,
+    reacted: bool,
+}
+
+fn normalize_reaction_emoji(raw: &str) -> Result<String, AppError> {
+    let emoji = raw.trim();
+    if emoji.is_empty() {
+        return Err(AppError::Validation("Emoji is required".into()));
+    }
+    let char_count = emoji.chars().count();
+    if char_count > 16 {
+        return Err(AppError::Validation("Emoji is too long".into()));
+    }
+    if emoji.chars().any(char::is_whitespace) {
+        return Err(AppError::Validation("Emoji cannot include spaces".into()));
+    }
+    Ok(emoji.to_string())
+}
+
+async fn attach_message_reactions(
+    db: &sqlx::PgPool,
+    messages: &mut [MessageWithAuthor],
+    viewer_id: Uuid,
+) -> Result<(), AppError> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+
+    let message_ids: Vec<Uuid> = messages.iter().map(|m| m.id).collect();
+    let rows = sqlx::query_as::<_, MessageReactionRow>(
+        r#"SELECT mr.message_id,
+                  mr.emoji,
+                  COUNT(*)::BIGINT AS count,
+                  BOOL_OR(mr.user_id = $2) AS reacted
+           FROM message_reactions mr
+           WHERE mr.message_id = ANY($1)
+           GROUP BY mr.message_id, mr.emoji
+           ORDER BY mr.message_id ASC, MIN(mr.created_at) ASC"#,
+    )
+    .bind(&message_ids)
+    .bind(viewer_id)
+    .fetch_all(db)
+    .await?;
+
+    let mut by_message: HashMap<Uuid, Vec<MessageReactionSummary>> = HashMap::new();
+    for row in rows {
+        by_message
+            .entry(row.message_id)
+            .or_default()
+            .push(MessageReactionSummary {
+                emoji: row.emoji,
+                count: row.count,
+                reacted: row.reacted,
+            });
+    }
+
+    for msg in messages.iter_mut() {
+        msg.reactions = by_message.remove(&msg.id).unwrap_or_default();
+    }
+    Ok(())
 }
 
 /// GET /api/messages/:channel_id?before=uuid&limit=50 — get paginated messages.
@@ -161,7 +244,8 @@ async fn get_messages(
     };
 
     // Reverse to chronological order and convert to MessageWithAuthor
-    let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    attach_message_reactions(&state.db, &mut result, claims.sub).await?;
 
     Ok(Json(result))
 }
@@ -210,7 +294,8 @@ async fn search_messages(
     .fetch_all(&state.db)
     .await?;
 
-    let result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    attach_message_reactions(&state.db, &mut result, claims.sub).await?;
     Ok(Json(result))
 }
 
@@ -257,7 +342,8 @@ async fn list_channel_pins(
     .fetch_all(&state.db)
     .await?;
 
-    let result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    let mut result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
+    attach_message_reactions(&state.db, &mut result, claims.sub).await?;
     Ok(Json(result))
 }
 
@@ -339,7 +425,15 @@ async fn pin_channel_message(
     .await?
     .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
 
-    Ok(Json(row.into()))
+    let mut msg_with_author: MessageWithAuthor = row.into();
+    attach_message_reactions(
+        &state.db,
+        std::slice::from_mut(&mut msg_with_author),
+        claims.sub,
+    )
+    .await?;
+
+    Ok(Json(msg_with_author))
 }
 
 /// DELETE /api/messages/:channel_id/pins/:message_id — unpin a message (server owner/admin only).
@@ -458,7 +552,13 @@ async fn send_message(
     .fetch_one(&state.db)
     .await?;
 
-    let msg_with_author: MessageWithAuthor = row.into();
+    let mut msg_with_author: MessageWithAuthor = row.into();
+    attach_message_reactions(
+        &state.db,
+        std::slice::from_mut(&mut msg_with_author),
+        claims.sub,
+    )
+    .await?;
 
     // Broadcast to WebSocket subscribers
     let _ = state.tx.send(WsEvent::NewMessage {
@@ -574,7 +674,142 @@ async fn edit_message(
     .fetch_one(&state.db)
     .await?;
 
-    let msg_with_author: MessageWithAuthor = row.into();
+    let mut msg_with_author: MessageWithAuthor = row.into();
+    attach_message_reactions(
+        &state.db,
+        std::slice::from_mut(&mut msg_with_author),
+        claims.sub,
+    )
+    .await?;
+
+    let _ = state.tx.send(WsEvent::MessageUpdated {
+        channel_id,
+        message: msg_with_author.clone(),
+    });
+
+    Ok(Json(msg_with_author))
+}
+
+async fn load_message_with_author(
+    db: &sqlx::PgPool,
+    message_id: Uuid,
+) -> Result<MessageWithAuthor, AppError> {
+    let row = sqlx::query_as::<_, MessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id as user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color
+                      FROM server_roles sr
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL
+                      ORDER BY sr.position ASC
+                      LIMIT 1
+                  ) as role_color
+           FROM messages m
+           INNER JOIN users u ON m.user_id = u.id
+           WHERE m.id = $1"#,
+    )
+    .bind(message_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(AppError::NotFound("Message not found".into()))?;
+
+    Ok(row.into())
+}
+
+/// POST /api/messages/item/:message_id/reactions — add emoji reaction.
+async fn add_message_reaction(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(message_id): Path<Uuid>,
+    Json(body): Json<AddReactionRequest>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    let emoji = normalize_reaction_emoji(&body.emoji)?;
+    let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Message not found".into()))?;
+
+    check_channel_access(&state, channel_id, claims.sub).await?;
+    permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        Permissions::SEND_MESSAGES,
+    )
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO message_reactions (message_id, user_id, emoji)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (message_id, user_id, emoji) DO NOTHING"#,
+    )
+    .bind(message_id)
+    .bind(claims.sub)
+    .bind(&emoji)
+    .execute(&state.db)
+    .await?;
+
+    let mut msg_with_author = load_message_with_author(&state.db, message_id).await?;
+    attach_message_reactions(
+        &state.db,
+        std::slice::from_mut(&mut msg_with_author),
+        claims.sub,
+    )
+    .await?;
+
+    let _ = state.tx.send(WsEvent::MessageUpdated {
+        channel_id,
+        message: msg_with_author.clone(),
+    });
+
+    Ok(Json(msg_with_author))
+}
+
+/// DELETE /api/messages/item/:message_id/reactions?emoji=... — remove emoji reaction.
+async fn remove_message_reaction(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(message_id): Path<Uuid>,
+    Query(query): Query<RemoveReactionQuery>,
+) -> Result<Json<MessageWithAuthor>, AppError> {
+    let emoji = normalize_reaction_emoji(&query.emoji)?;
+    let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Message not found".into()))?;
+
+    check_channel_access(&state, channel_id, claims.sub).await?;
+    permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        Permissions::SEND_MESSAGES,
+    )
+    .await?;
+
+    sqlx::query(
+        r#"DELETE FROM message_reactions
+           WHERE message_id = $1 AND user_id = $2 AND emoji = $3"#,
+    )
+    .bind(message_id)
+    .bind(claims.sub)
+    .bind(&emoji)
+    .execute(&state.db)
+    .await?;
+
+    let mut msg_with_author = load_message_with_author(&state.db, message_id).await?;
+    attach_message_reactions(
+        &state.db,
+        std::slice::from_mut(&mut msg_with_author),
+        claims.sub,
+    )
+    .await?;
 
     let _ = state.tx.send(WsEvent::MessageUpdated {
         channel_id,

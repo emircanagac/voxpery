@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Edit3, Paperclip, Reply, Save, Send, Share2, Trash2, Volume2, X } from 'lucide-react'
+import { Edit3, Paperclip, Reply, Save, Send, Share2, Trash2, Volume2, X, Smile } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import { dmApi, type DmChannel, type MessageWithAuthor } from '../api'
@@ -16,6 +16,13 @@ type UiDmMessage = MessageWithAuthor & {
   clientStatus?: 'sending' | 'failed'
   clientError?: string
 }
+
+const DM_EMOJI_OPTIONS = [
+  '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤔',
+  '😅', '😴', '😭', '😡', '🤯', '🥳', '👏', '🙏', '💪', '🔥',
+  '✨', '🎉', '🎮', '🎵', '✅', '❌', '❤️', '💙', '👍', '👎',
+]
+const DM_REACTION_OPTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '😮', '😢', '👀']
 
 export default function DmPage() {
   const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
@@ -38,7 +45,11 @@ export default function DmPage() {
   const [forwardPickerMessageId, setForwardPickerMessageId] = useState<string | null>(null)
   const [deleteConfirmMessageId, setDeleteConfirmMessageId] = useState<string | null>(null)
   const [clickedLink, setClickedLink] = useState<string | null>(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
   const forwardPickerRef = useRef<HTMLDivElement>(null)
+  const emojiPickerRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const typingTimeoutRef = useRef<number | null>(null)
   const dmScrollRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -93,7 +104,17 @@ export default function DmPage() {
 
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
-      const e = evt as { type?: string; data?: { channel_id?: string; message?: unknown; user_id?: string; is_typing?: boolean; username?: string } }
+      const e = evt as {
+        type?: string
+        data?: {
+          channel_id?: string
+          message?: unknown
+          message_id?: string
+          user_id?: string
+          is_typing?: boolean
+          username?: string
+        }
+      }
       if (e?.type === 'NewMessage') {
         const payload = e.data
         if (!payload || payload.channel_id !== activeChannelId) return
@@ -112,6 +133,17 @@ export default function DmPage() {
           ))
           return [...withoutMatchingOptimistic, incoming]
         })
+      }
+      if (e?.type === 'MessageUpdated') {
+        const payload = e.data
+        if (!payload || payload.channel_id !== activeChannelId) return
+        const updated = payload.message as MessageWithAuthor
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+      }
+      if (e?.type === 'MessageDeleted') {
+        const payload = e.data
+        if (!payload || payload.channel_id !== activeChannelId || !payload.message_id) return
+        setMessages((prev) => prev.filter((m) => m.id !== payload.message_id))
       }
       if (e?.type === 'Typing') {
         const payload = e.data
@@ -239,6 +271,36 @@ export default function DmPage() {
     }, 1200)
   }
 
+  const insertEmoji = (emoji: string) => {
+    const inputEl = inputRef.current
+    const start = inputEl?.selectionStart ?? input.length
+    const end = inputEl?.selectionEnd ?? start
+    const next = `${input.slice(0, start)}${emoji}${input.slice(end)}`
+    onTypingInput(next)
+    setEmojiOpen(false)
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length
+      inputRef.current?.focus()
+      inputRef.current?.setSelectionRange(pos, pos)
+    })
+  }
+
+  const toggleDmReaction = async (messageId: string, emoji: string, reacted: boolean) => {
+    if (!user) return
+    try {
+      const updated = reacted
+        ? await dmApi.removeReaction(messageId, emoji, token)
+        : await dmApi.addReaction(messageId, emoji, token)
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'Reaction failed',
+        message: err instanceof Error ? err.message : 'Could not update reaction.',
+      })
+    }
+  }
+
   const handleAttachmentPick = async (files: FileList | null) => {
     if (!files) return
     const list = Array.from(files).slice(0, 4)
@@ -330,7 +392,37 @@ export default function DmPage() {
     return () => document.removeEventListener('click', close)
   }, [forwardPickerMessageId])
 
+  useEffect(() => {
+    if (!emojiOpen) return
+    const close = (e: MouseEvent) => {
+      if (emojiPickerRef.current?.contains(e.target as Node)) return
+      setEmojiOpen(false)
+    }
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setEmojiOpen(false)
+    }
+    document.addEventListener('click', close)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [emojiOpen])
+
+  useEffect(() => {
+    if (!reactionPickerMessageId) return
+    const close = () => setReactionPickerMessageId(null)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [reactionPickerMessageId])
+
   const otherDmChannels = channels.filter((c) => c.id !== activeChannelId)
+
+  useEffect(() => {
+    setEmojiOpen(false)
+    setReactionPickerMessageId(null)
+  }, [activeChannelId])
 
   const handleForwardDm = async (msg: { author?: { username?: string }; content: string }, targetChannelId: string) => {
     if (!user) return
@@ -536,6 +628,18 @@ export default function DmPage() {
                         {msg.edited_at ? <span className="message-edited" title="Edited">(edited)</span> : null}
                         {!msg.clientStatus && (
                           <div className="message-inline-actions dm-message-actions" ref={forwardPickerMessageId === msg.id ? forwardPickerRef : undefined}>
+                            <button
+                              type="button"
+                              className="message-inline-action-btn dm-msg-btn"
+                              title="Add reaction"
+                              aria-label="Add reaction"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setReactionPickerMessageId((prev) => (prev === msg.id ? null : msg.id))
+                              }}
+                            >
+                              <Smile size={14} />
+                            </button>
                             <button type="button" className="message-inline-action-btn dm-msg-btn" title="Reply" aria-label="Reply" onClick={(e) => {
                               e.stopPropagation()
                               const username = msg.author?.username ?? 'User'
@@ -573,6 +677,26 @@ export default function DmPage() {
                             )}
                           </div>
                         )}
+                        {reactionPickerMessageId === msg.id && (
+                          <div
+                            className="message-reaction-picker"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {DM_REACTION_OPTIONS.map((emoji) => (
+                              <button
+                                key={`${msg.id}-${emoji}`}
+                                type="button"
+                                className="chat-emoji-item"
+                                onClick={() => {
+                                  void toggleDmReaction(msg.id, emoji, false)
+                                  setReactionPickerMessageId(null)
+                                }}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       {editingMessageId === msg.id ? (
                         <div className="dm-edit-row">
@@ -590,6 +714,21 @@ export default function DmPage() {
                         </div>
                       ) : (
                         renderMessageContent(msg.content)
+                      )}
+                      {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                        <div className="message-reactions">
+                          {msg.reactions.map((reaction) => (
+                            <button
+                              key={`${msg.id}-${reaction.emoji}`}
+                              type="button"
+                              className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
+                              onClick={() => void toggleDmReaction(msg.id, reaction.emoji, !!reaction.reacted)}
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span>{reaction.count}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                       {msg.clientStatus === 'sending' && (
                         <div className="message-send-state">Sending...</div>
@@ -654,7 +793,40 @@ export default function DmPage() {
                 onChange={(e) => handleAttachmentPick(e.target.files)}
               />
             </label>
+            <button
+              type="button"
+              className="chat-emoji-btn"
+              title="Insert emoji"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setEmojiOpen((prev) => !prev)
+              }}
+            >
+              <Smile size={16} />
+            </button>
+            {emojiOpen && (
+              <div
+                ref={emojiPickerRef}
+                className="chat-emoji-picker"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="chat-emoji-grid">
+                  {DM_EMOJI_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="chat-emoji-item"
+                      onClick={() => insertEmoji(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <textarea
+              ref={inputRef}
               className="message-input"
               value={input}
               onChange={(e) => onTypingInput(e.target.value)}
