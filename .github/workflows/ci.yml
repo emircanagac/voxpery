@@ -22,11 +22,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
       - name: Dependency audit (Rust)
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: apps/server
+        working-directory: apps/server
+        run: cargo audit --deny warnings
 
       - name: Setup Node
         uses: actions/setup-node@v4

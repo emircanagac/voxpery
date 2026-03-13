@@ -192,12 +192,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const activeChannelIdRef = useRef(activeChannelId)
     const activeServerIdRef = useRef(activeServerId)
     const tokenRef = useRef(token)
+    const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
     useEffect(() => { tokenRef.current = token }, [token])
+    useEffect(() => { selectedRoleIdRef.current = selectedRoleId }, [selectedRoleId])
 
     useEffect(() => {
         setEditingMessageId(null)
@@ -885,6 +887,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
     const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
     const settingsServer = servers.find((s) => s.id === serverSettingsServerId) ?? activeServer
+    const settingsServerId = settingsServer?.id ?? null
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
@@ -912,21 +915,21 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // Load roles when Roles tab is opened.
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'roles') return
-        if (!isLoggedIn || !settingsServer) return
+        if (!isLoggedIn || !settingsServerId) return
         const load = async () => {
             setRolesLoading(true)
             setRolesError(null)
             try {
-                const roles = await serverApi.listRoles(settingsServer.id, token)
+                const roles = await serverApi.listRoles(settingsServerId, token)
                 setServerRoles(roles)
                 if (roles.length === 0) {
                     // No roles yet: keep editor blank until user creates one.
                     setSelectedRoleId(null)
                     setRoleEditName('')
                     setRoleEditPermissions(0)
-                } else if (selectedRoleId) {
+                } else if (selectedRoleIdRef.current) {
                     // If a specific role (or "new") was already selected, try to keep that state.
-                    const existing = roles.find((r) => r.id === selectedRoleId)
+                    const existing = roles.find((r) => r.id === selectedRoleIdRef.current)
                     if (existing) {
                         setSelectedRoleId(existing.id)
                         setRoleEditName(existing.name)
@@ -945,17 +948,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             }
         }
         void load()
-    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServer?.id])
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
     // Load audit log when Audit tab is opened.
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'audit') return
-        if (!isLoggedIn || !settingsServer) return
+        if (!isLoggedIn || !settingsServerId) return
         const load = async () => {
             setAuditLogLoading(true)
             setAuditLogError(null)
             try {
-                const entries = await serverApi.auditLog(settingsServer.id, token)
+                const entries = await serverApi.auditLog(settingsServerId, token)
                 setAuditLogEntries(entries)
             } catch (err) {
                 const message =
@@ -966,7 +969,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             }
         }
         void load()
-    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServer?.id, token])
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
     // When leaving Roles tab or closing Server Settings, drop any unsaved role edits.
     useEffect(() => {
@@ -1160,7 +1163,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
-    const actuallyCloseServerSettings = () => {
+    const actuallyCloseServerSettings = useCallback(() => {
         setShowServerSettings(false)
         setServerSettingsError(null)
         setServerSettingsServerId(null)
@@ -1170,15 +1173,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setShowDeleteServerConfirm(false)
         setDeleteServerError(null)
         setDeleteServerInput('')
-    }
+    }, [settingsServer?.name])
 
-    const handleCloseServerSettings = () => {
+    const handleCloseServerSettings = useCallback(() => {
         if (canSaveServerSettings) {
             setShowUnsavedServerSettingsConfirm(true)
             return
         }
         actuallyCloseServerSettings()
-    }
+    }, [canSaveServerSettings, actuallyCloseServerSettings])
 
     const handleServerIconPick = async (files: FileList | null) => {
         if (!files || files.length === 0 || !settingsServer) return
