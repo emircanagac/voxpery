@@ -9,7 +9,6 @@ import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
 import { authApi, dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
-import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
 const LAST_STATUS_KEY = 'voxpery-last-status'
 
@@ -49,11 +48,6 @@ export default function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const pushToast = useToastStore((s) => s.pushToast)
-
-  // Preload RNNoise worklet (~4.8 MB) so first voice join is faster
-  useEffect(() => {
-    preloadRnnoiseWorklet()
-  }, [])
 
   useEffect(() => {
     if (!user) return

@@ -103,7 +103,7 @@ export default function RegisterPage() {
                         type="text"
                         value={username}
                         onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                        placeholder="cooluser"
+                        placeholder="your_username"
                         required
                         minLength={3}
                         maxLength={32}

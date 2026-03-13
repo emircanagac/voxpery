@@ -93,7 +93,7 @@ export default function LoginPage() {
                         type="text"
                         value={identifier}
                         onChange={(e) => setIdentifier(e.target.value)}
-                        placeholder="Email or username"
+                        placeholder="you@example.com or your_username"
                         required
                     />
                 </div>
