@@ -349,6 +349,10 @@ export interface ChannelOverride {
     deny: number
 }
 
+export interface ChannelCategory {
+    name: string
+}
+
 export const serverApi = {
     list: (token: AuthToken) =>
         apiFetch<Server[]>('/api/servers', { token }),
@@ -437,20 +441,26 @@ export const serverApi = {
 // ─── Channels ───────────────────────────
 
 export const channelApi = {
-    create: (serverId: string, name: string, channelType: string, token: AuthToken) =>
+    create: (
+        serverId: string,
+        name: string,
+        channelType: string,
+        token: AuthToken,
+        category?: string,
+    ) =>
         apiFetch<Channel>('/api/channels', {
             method: 'POST',
-            body: { server_id: serverId, name, channel_type: channelType },
+            body: { server_id: serverId, name, channel_type: channelType, category },
             token,
         }),
 
     delete: (channelId: string, token: AuthToken) =>
         apiFetch<void>(`/api/channels/${channelId}`, { method: 'DELETE', token }),
 
-    rename: (channelId: string, name: string, token: AuthToken) =>
+    rename: (channelId: string, name: string, token: AuthToken, category?: string) =>
         apiFetch<Channel>(`/api/channels/${channelId}`, {
             method: 'PATCH',
-            body: { name },
+            body: { name, category },
             token,
         }),
 
@@ -476,6 +486,57 @@ export const channelApi = {
             method: 'DELETE',
             token,
         }),
+
+    listCategories: (serverId: string, token: AuthToken) =>
+        apiFetch<ChannelCategory[]>(`/api/channels/server/${serverId}/categories`, { token }),
+
+    createCategory: (serverId: string, name: string, token: AuthToken) =>
+        apiFetch<ChannelCategory>(`/api/channels/server/${serverId}/categories`, {
+            method: 'POST',
+            body: { name },
+            token,
+        }),
+
+    deleteCategory: (serverId: string, category: string, token: AuthToken, moveTo?: string | null) =>
+        apiFetch<{ message: string }>(
+            `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}${moveTo ? `?move_to=${encodeURIComponent(moveTo)}` : ''}`,
+            { method: 'DELETE', token },
+        ),
+
+    reorderCategories: (serverId: string, categoryNames: string[], token: AuthToken) =>
+        apiFetch<{ message: string }>(
+            `/api/channels/server/${serverId}/categories/reorder`,
+            {
+                method: 'PATCH',
+                body: { category_names: categoryNames },
+                token,
+            },
+        ),
+
+    getCategoryOverrides: (serverId: string, category: string, token: AuthToken) =>
+        apiFetch<ChannelOverride[]>(
+            `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}/overrides`,
+            { token },
+        ),
+
+    updateCategoryOverride: (serverId: string, category: string, roleId: string, allow: number, deny: number, token: AuthToken) =>
+        apiFetch<ChannelOverride>(
+            `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}/overrides/${roleId}`,
+            {
+                method: 'PUT',
+                body: { allow, deny },
+                token,
+            },
+        ),
+
+    deleteCategoryOverride: (serverId: string, category: string, roleId: string, token: AuthToken) =>
+        apiFetch<{ message: string }>(
+            `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}/overrides/${roleId}`,
+            {
+                method: 'DELETE',
+                token,
+            },
+        ),
     }
 
 // ─── Friends ───────────────────────────

@@ -1,5 +1,5 @@
 import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -15,26 +15,37 @@ type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 interface ChannelSidebarProps {
     onOpenServerSettings: () => void
     onOpenCreateChannel?: () => void
+    onOpenCreateCategory?: () => void
+    onOpenCategoryPermissions?: (category: string) => void
+    onDeleteCategory?: (category: string) => void
+    onReorderCategories?: (draggedCategory: string, targetCategory: string, position: 'before' | 'after') => void
+    onMoveChannelToCategory?: (channelId: string, targetCategory: string, placement?: 'start' | 'end') => void
+    channelCategories?: string[]
     canManageChannels?: boolean
     unreadByChannel?: Record<string, number>
     voiceControls?: Record<string, { muted: boolean; deafened: boolean; screenSharing: boolean; cameraOn?: boolean }>
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
-    onOpenChannelSettings?: (channel: Channel) => void
-    onReorderChannels?: (draggedChannelId: string, targetChannelId: string) => void
+    onReorderChannels?: (draggedChannelId: string, targetChannelId: string, position: 'before' | 'after') => void
 }
 
 export default function ChannelSidebar({
     onOpenServerSettings,
     onOpenCreateChannel,
+    onOpenCreateCategory,
+    onOpenCategoryPermissions,
+    onDeleteCategory,
+    onReorderCategories,
+    onMoveChannelToCategory,
+    channelCategories = [],
     canManageChannels,
     unreadByChannel = {},
     voiceControls = {},
     onRenameChannel,
     onDeleteChannel,
-    onOpenChannelSettings,
     onReorderChannels,
 }: ChannelSidebarProps) {
+    const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const { user, token } = useAuthStore()
     const { servers, activeServerId, activeChannelId, channels, members, voiceStates, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel, friends, setFriends } = useAppStore(
         useShallow((s) => ({
@@ -53,10 +64,16 @@ export default function ChannelSidebar({
     )
     const pushToast = useToastStore((s) => s.pushToast)
     const [draggedChannelId, setDraggedChannelId] = useState<string | null>(null)
+    const [dragOverChannel, setDragOverChannel] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
+    const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
+    const [categoryMenu, setCategoryMenu] = useState<{ category: string; x: number; y: number } | null>(null)
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; x: number; y: number } | null>(null)
     const [pendingVoiceJoin, setPendingVoiceJoin] = useState<{ id: string; name: string } | null>(null)
     const [isJoiningVoice, setIsJoiningVoice] = useState(false)
+    const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+    const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
+    const [dragOverCategoryForChannel, setDragOverCategoryForChannel] = useState<string | null>(null)
     const [voiceJoinConfirmEnabled, setVoiceJoinConfirmEnabled] = useState(() => localStorage.getItem(VOICE_JOIN_CONFIRM_KEY) !== '0')
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
         try {
@@ -76,6 +93,18 @@ export default function ChannelSidebar({
     const menuRef = useRef<HTMLDivElement>(null)
     const participantMenuRef = useRef<HTMLDivElement>(null)
     const sidebarRef = useRef<HTMLDivElement>(null)
+    const dragPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null)
+    const suppressDragPreview = (e: DragEvent<HTMLElement>) => {
+        if (!dragPreviewCanvasRef.current) {
+            const canvas = document.createElement('canvas')
+            canvas.width = 16
+            canvas.height = 16
+            const ctx = canvas.getContext('2d')
+            if (ctx) ctx.clearRect(0, 0, 16, 16)
+            dragPreviewCanvasRef.current = canvas
+        }
+        e.dataTransfer.setDragImage(dragPreviewCanvasRef.current, 0, 0)
+    }
 
     const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
         const pad = 8
@@ -104,23 +133,50 @@ export default function ChannelSidebar({
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
+    const draggedChannel = draggedChannelId ? channels.find((c) => c.id === draggedChannelId) : null
 
     // Group channels by category
     const channelsByCategory: Record<string, Channel[]> = {}
+    for (const category of channelCategories) {
+        const trimmed = category.trim()
+        if (!trimmed) continue
+        channelsByCategory[trimmed] = channelsByCategory[trimmed] ?? []
+    }
     channels.forEach((ch) => {
         const cat = ch.category || 'Channels'
         if (!channelsByCategory[cat]) channelsByCategory[cat] = []
         channelsByCategory[cat].push(ch)
     })
-    Object.values(channelsByCategory).forEach((chs) => chs.sort((a, b) => a.position - b.position))
+    Object.values(channelsByCategory).forEach((chs) =>
+        chs.sort((a, b) => {
+            const typeDiff = channelTypeOrder(a.channel_type) - channelTypeOrder(b.channel_type)
+            if (typeDiff !== 0) return typeDiff
+            return a.position - b.position
+        }),
+    )
+    const knownOrder = new Map(channelCategories.map((name, idx) => [name, idx]))
+    const orderedCategories = Object.entries(channelsByCategory).sort(([aName, aChannels], [bName, bChannels]) => {
+        const aKnown = knownOrder.get(aName)
+        const bKnown = knownOrder.get(bName)
+        if (aKnown !== undefined || bKnown !== undefined) {
+            if (aKnown === undefined) return 1
+            if (bKnown === undefined) return -1
+            if (aKnown !== bKnown) return aKnown - bKnown
+        }
+        const aMinPos = aChannels[0]?.position ?? 0
+        const bMinPos = bChannels[0]?.position ?? 0
+        if (aMinPos !== bMinPos) return aMinPos - bMinPos
+        return aName.localeCompare(bName)
+    })
 
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
 
     useEffect(() => {
-        if (!contextMenu && !participantMenu) return
+        if (!contextMenu && !participantMenu && !categoryMenu) return
         const close = () => {
             setContextMenu(null)
             setParticipantMenu(null)
+            setCategoryMenu(null)
         }
         window.addEventListener('click', close)
         window.addEventListener('scroll', close, true)
@@ -128,7 +184,7 @@ export default function ChannelSidebar({
             window.removeEventListener('click', close)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu, participantMenu])
+    }, [contextMenu, participantMenu, categoryMenu])
 
     useEffect(() => {
         const syncJoinConfirm = () => {
@@ -204,15 +260,28 @@ export default function ChannelSidebar({
 
             <div className="channel-list">
                 {canManageChannels && onOpenCreateChannel && (
-                    <button
-                        type="button"
-                        className="channel-create-btn"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenCreateChannel(); }}
-                        title="Create Channel"
-                    >
-                        <Plus size={16} />
-                        Create Channel
-                    </button>
+                    <div className="channel-create-actions">
+                        <button
+                            type="button"
+                            className="channel-create-btn"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenCreateChannel(); }}
+                            title="Create Channel"
+                        >
+                            <Plus size={16} />
+                            Create Channel
+                        </button>
+                        {onOpenCreateCategory && (
+                            <button
+                                type="button"
+                                className="channel-create-btn"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenCreateCategory(); }}
+                                title="Create Category"
+                            >
+                                <Plus size={16} />
+                                Create Category
+                            </button>
+                        )}
+                    </div>
                 )}
                 {channels.length === 0 && (
                     <div className="channel-empty-state">
@@ -220,13 +289,122 @@ export default function ChannelSidebar({
                         {canManageChannels && ' Create your first text or voice channel.'}
                     </div>
                 )}
-                {Object.entries(channelsByCategory).map(([category, chs]) => (
-                    <div key={category}>
-                        <div className="channel-category">
-                            <ChevronDown size={10} />
+                {orderedCategories.map(([category, chs]) => (
+                    <div
+                        key={category}
+                        className={`channel-category-group ${dragOverCategory?.name === category ? `drop-${dragOverCategory.position}` : ''}`}
+                        onDragOver={(e) => {
+                            if (!canManageChannels) return
+                            if (draggedCategory && draggedCategory !== category) {
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                                setDragOverCategory({ name: category, position })
+                                setDragOverCategoryForChannel(null)
+                                setDragOverChannel(null)
+                                return
+                            }
+                            const target = e.target as HTMLElement
+                            const overChannelItem = !!target.closest('.channel-item')
+                            const overCategoryHeader = !!target.closest('.channel-category-btn')
+                            if (overChannelItem || overCategoryHeader || chs.length > 0) return
+                            if (draggedChannelId) {
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                setDragOverCategoryForChannel(category)
+                                setDragOverChannel(null)
+                            }
+                        }}
+                        onDragLeave={(e) => {
+                            const currentTarget = e.currentTarget
+                            const related = e.relatedTarget as Node | null
+                            if (related && currentTarget.contains(related)) return
+                            if (dragOverCategory?.name === category) setDragOverCategory(null)
+                            if (dragOverCategoryForChannel === category) setDragOverCategoryForChannel(null)
+                        }}
+                        onDrop={(e) => {
+                            if (!canManageChannels) return
+                            if (draggedCategory && draggedCategory !== category) {
+                                e.preventDefault()
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                                onReorderCategories?.(draggedCategory, category, position)
+                                setDraggedCategory(null)
+                                setDragOverCategory(null)
+                                setDragOverCategoryForChannel(null)
+                                return
+                            }
+                            const target = e.target as HTMLElement
+                            const overChannelItem = !!target.closest('.channel-item')
+                            const overCategoryHeader = !!target.closest('.channel-category-btn')
+                            if (overChannelItem || overCategoryHeader || chs.length > 0) return
+                            if (draggedChannelId) {
+                                e.preventDefault()
+                                onMoveChannelToCategory?.(draggedChannelId, category, 'end')
+                                setDraggedChannelId(null)
+                                setDragOverChannel(null)
+                                setDragOverCategory(null)
+                                setDragOverCategoryForChannel(null)
+                            }
+                        }}
+                    >
+                        <button
+                            type="button"
+                            className={`channel-category channel-category-btn ${dragOverCategoryForChannel === category ? 'is-channel-drop-target' : ''}`}
+                            onClick={() =>
+                                setCollapsedCategories((prev) => ({
+                                    ...prev,
+                                    [category]: !prev[category],
+                                }))
+                            }
+                            onContextMenu={(e) => {
+                                if (!canManageChannels) return
+                                e.preventDefault()
+                                const pos = clampMenuPosition(e.clientX, e.clientY, 210, 100)
+                                setContextMenu(null)
+                                setCategoryMenu({ category, x: pos.x, y: pos.y })
+                            }}
+                            draggable={!!canManageChannels}
+                            onDragStart={(e) => {
+                                if (!canManageChannels) return
+                                setDraggedCategory(category)
+                                setDragOverCategoryForChannel(null)
+                                setDragOverChannel(null)
+                                e.dataTransfer.effectAllowed = 'move'
+                                e.dataTransfer.setData('text/plain', category)
+                                suppressDragPreview(e)
+                            }}
+                            onDragOver={(e) => {
+                                if (!canManageChannels) return
+                                if (draggedChannelId) {
+                                    e.preventDefault()
+                                    e.dataTransfer.dropEffect = 'move'
+                                    setDragOverCategoryForChannel(category)
+                                    setDragOverCategory(null)
+                                    setDragOverChannel(null)
+                                }
+                            }}
+                            onDrop={(e) => {
+                                if (!canManageChannels) return
+                                if (draggedChannelId) {
+                                    e.preventDefault()
+                                    onMoveChannelToCategory?.(draggedChannelId, category, 'start')
+                                    setDraggedChannelId(null)
+                                    setDragOverChannel(null)
+                                    setDragOverCategoryForChannel(null)
+                                }
+                            }}
+                            onDragEnd={() => {
+                                setDraggedCategory(null)
+                                setDragOverCategory(null)
+                                setDragOverCategoryForChannel(null)
+                            }}
+                        >
+                            <ChevronDown size={10} className={collapsedCategories[category] ? 'is-collapsed' : ''} />
                             {category}
-                        </div>
-                        {chs.map((ch) => {
+                        </button>
+                        {!collapsedCategories[category] && chs.map((ch) => {
                             const isActive = activeChannelId === ch.id
                             const voiceMembers = ch.channel_type === 'voice'
                                 ? members.filter((m) => voiceStates[m.user_id] === ch.id)
@@ -234,7 +412,7 @@ export default function ChannelSidebar({
                             return (
                                 <div key={ch.id}>
                                     <div
-                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''}`}
+                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
                                         onMouseEnter={() => { if (ch.channel_type === 'voice') preloadRnnoiseWorklet() }}
                                         onClick={() => {
                                             if (ch.channel_type === 'voice') {
@@ -262,22 +440,47 @@ export default function ChannelSidebar({
                                         draggable={!!canManageChannels}
                                         onDragStart={(e) => {
                                             if (!canManageChannels) return
+                                            setDraggedCategory(null)
                                             setDraggedChannelId(ch.id)
+                                            setDragOverCategory(null)
+                                            setDragOverCategoryForChannel(null)
                                             e.dataTransfer.effectAllowed = 'move'
                                             e.dataTransfer.setData('text/plain', ch.id)
+                                            suppressDragPreview(e)
                                         }}
                                         onDragOver={(e) => {
                                             if (!canManageChannels || !draggedChannelId || draggedChannelId === ch.id) return
+                                            if (draggedChannel && draggedChannel.channel_type !== ch.channel_type) {
+                                                if (dragOverChannel?.id === ch.id) setDragOverChannel(null)
+                                                return
+                                            }
+                                            e.stopPropagation()
                                             e.preventDefault()
                                             e.dataTransfer.dropEffect = 'move'
+                                            const rect = e.currentTarget.getBoundingClientRect()
+                                            const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                                            setDragOverChannel({ id: ch.id, position })
+                                            setDragOverCategoryForChannel(null)
                                         }}
                                         onDrop={(e) => {
                                             if (!canManageChannels || !draggedChannelId || draggedChannelId === ch.id) return
+                                            if (draggedChannel && draggedChannel.channel_type !== ch.channel_type) return
+                                            e.stopPropagation()
                                             e.preventDefault()
-                                            onReorderChannels?.(draggedChannelId, ch.id)
+                                            const rect = e.currentTarget.getBoundingClientRect()
+                                            const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                                            onReorderChannels?.(draggedChannelId, ch.id, position)
                                             setDraggedChannelId(null)
+                                            setDragOverChannel(null)
                                         }}
-                                        onDragEnd={() => setDraggedChannelId(null)}
+                                        onDragLeave={() => {
+                                            if (dragOverChannel?.id === ch.id) setDragOverChannel(null)
+                                        }}
+                                        onDragEnd={() => {
+                                            setDraggedChannelId(null)
+                                            setDragOverChannel(null)
+                                            setDragOverCategoryForChannel(null)
+                                        }}
                                     >
                                         <span className="channel-icon">
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
@@ -382,17 +585,7 @@ export default function ChannelSidebar({
                                 onRenameChannel?.(channel)
                             }}
                         >
-                            Rename Channel
-                        </button>
-                        <button
-                            type="button"
-                            className="server-context-menu-item"
-                            onClick={() => {
-                                setContextMenu(null)
-                                onOpenChannelSettings?.(channel)
-                            }}
-                        >
-                            Edit Channel
+                            Rename
                         </button>
                         <button
                             type="button"
@@ -407,6 +600,36 @@ export default function ChannelSidebar({
                     </div>
                 )
             })()}
+
+            {categoryMenu && canManageChannels && (
+                <div
+                    ref={menuRef}
+                    className="server-context-menu channel-context-menu"
+                    style={{ left: categoryMenu.x, top: categoryMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        type="button"
+                        className="server-context-menu-item"
+                        onClick={() => {
+                            onOpenCategoryPermissions?.(categoryMenu.category)
+                            setCategoryMenu(null)
+                        }}
+                    >
+                        Category Permissions
+                    </button>
+                    <button
+                        type="button"
+                        className="server-context-menu-item danger"
+                        onClick={() => {
+                            onDeleteCategory?.(categoryMenu.category)
+                            setCategoryMenu(null)
+                        }}
+                    >
+                        Delete Category
+                    </button>
+                </div>
+            )}
 
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id

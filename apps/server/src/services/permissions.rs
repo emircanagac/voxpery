@@ -77,20 +77,55 @@ pub async fn get_user_channel_permissions(
     channel_id: Uuid,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
-    // Resolve server_id from channel.
-    let server_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT server_id FROM channels WHERE id = $1",
+    // Resolve server_id and category from channel.
+    let channel_row: Option<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT server_id, category FROM channels WHERE id = $1",
     )
     .bind(channel_id)
     .fetch_optional(db)
     .await?;
 
-    let server_id = match server_id {
-        Some(id) => id,
+    let (server_id, category) = match channel_row {
+        Some(row) => row,
         None => return Ok(Permissions::empty()),
     };
 
     let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+
+    if let Some(category_name) = category
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
+            r#"SELECT co.allow, co.deny
+               FROM server_member_roles smr
+               INNER JOIN channel_category_role_overrides co
+                 ON co.role_id = smr.role_id
+               WHERE smr.server_id = $1
+                 AND smr.user_id = $2
+                 AND co.server_id = $1
+                 AND co.category = $3"#,
+        )
+        .bind(server_id)
+        .bind(user_id)
+        .bind(category_name)
+        .fetch_all(db)
+        .await?;
+
+        let mut deny_mask = Permissions::empty();
+        let mut allow_mask = Permissions::empty();
+        for (allow_bits, deny_bits) in category_overrides {
+            if let Some(d) = Permissions::from_bits(deny_bits) {
+                deny_mask |= d;
+            }
+            if let Some(a) = Permissions::from_bits(allow_bits) {
+                allow_mask |= a;
+            }
+        }
+        perms.remove(deny_mask);
+        perms |= allow_mask;
+    }
 
     // Gather all role overrides for roles the user has in this server.
     let overrides: Vec<(i64, i64)> = sqlx::query_as(

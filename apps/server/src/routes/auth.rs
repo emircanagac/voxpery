@@ -363,7 +363,7 @@ pub async fn ensure_default_server_join(
 
         sqlx::query(
             r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
-               VALUES ($1, $2, 'general', 'text', 'Text Channels', 0, NOW())"#,
+               VALUES ($1, $2, 'general', 'text', 'General', 0, NOW())"#,
         )
         .bind(Uuid::new_v4())
         .bind(server_id)
@@ -372,9 +372,18 @@ pub async fn ensure_default_server_join(
 
         sqlx::query(
             r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
-               VALUES ($1, $2, 'General', 'voice', 'Voice Channels', 0, NOW())"#,
+               VALUES ($1, $2, 'General', 'voice', 'General', 1, NOW())"#,
         )
         .bind(Uuid::new_v4())
+        .bind(server_id)
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            r#"INSERT INTO server_channel_categories (server_id, name, position)
+               VALUES ($1, 'General', 0)
+               ON CONFLICT (server_id, name) DO NOTHING"#,
+        )
         .bind(server_id)
         .execute(db)
         .await?;

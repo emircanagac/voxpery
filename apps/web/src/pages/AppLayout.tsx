@@ -9,6 +9,7 @@ import { serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAu
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
+import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
@@ -34,6 +35,7 @@ export interface AppLayoutProps {
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 /** Page size for message list (pagination). Must match backend max (100) or less. */
 const MESSAGE_PAGE_SIZE = 50
+const CHANNEL_NAME_MAX = 40
 
 // Permission bit masks (must stay in sync with backend Permissions flags).
 const PERM_VIEW_SERVER = 1 << 0
@@ -52,6 +54,34 @@ const PERM_DEAFEN_MEMBERS = 1 << 12
 const PERM_MANAGE_WEBHOOKS = 1 << 13
 
 const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
+
+function validateChannelNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Channel name is required.'
+    if (Array.from(value).length > CHANNEL_NAME_MAX) {
+        return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Channel name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Channel name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function channelTypeOrder(type: Channel['channel_type']): number {
+    return type === 'text' ? 0 : 1
+}
+
+function compareChannelsForSidebar(a: Channel, b: Channel): number {
+    const aCat = a.category ?? 'Channels'
+    const bCat = b.category ?? 'Channels'
+    if (aCat !== bCat) return aCat.localeCompare(bCat)
+    const typeDiff = channelTypeOrder(a.channel_type) - channelTypeOrder(b.channel_type)
+    if (typeDiff !== 0) return typeDiff
+    return a.position - b.position
+}
 
 function getStoredChannelId(serverId: string): string | null {
     try {
@@ -142,9 +172,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [deleteServerInput, setDeleteServerInput] = useState('')
     const [deleteServerError, setDeleteServerError] = useState<string | null>(null)
     const [showCreateChannel, setShowCreateChannel] = useState(false)
+    const [showCreateCategory, setShowCreateCategory] = useState(false)
     const [createChannelName, setCreateChannelName] = useState('')
     const [createChannelType, setCreateChannelType] = useState<'text' | 'voice'>('text')
+    const [createChannelCategory, setCreateChannelCategory] = useState('')
     const [createChannelError, setCreateChannelError] = useState<string | null>(null)
+    const [createCategoryName, setCreateCategoryName] = useState('')
+    const [createCategoryError, setCreateCategoryError] = useState<string | null>(null)
+    const [channelCategories, setChannelCategories] = useState<string[]>([])
+    const [categoryPermissionsTarget, setCategoryPermissionsTarget] = useState<string | null>(null)
+    const [deleteCategoryConfirm, setDeleteCategoryConfirm] = useState<string | null>(null)
+    const [deleteCategoryError, setDeleteCategoryError] = useState<string | null>(null)
     const [showRenameChannel, setShowRenameChannel] = useState(false)
     const [renameChannelId, setRenameChannelId] = useState<string | null>(null)
     const [renameChannelName, setRenameChannelName] = useState('')
@@ -243,9 +281,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) return
         const serverId = activeServerId
-        serverApi.channels(serverId, token).then((chs) => {
+        Promise.all([
+            serverApi.channels(serverId, token),
+            channelApi.listCategories(serverId, token).catch(() => []),
+        ]).then(([chs, categories]) => {
             setChannels(chs)
             setChannelsForServer(serverId, chs)
+            setChannelCategories(categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -1259,16 +1301,40 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }, [showServerSettings, handleCloseServerSettings])
 
     const activeChannel = channels.find((c) => c.id === activeChannelId)
+    const channelCategorySuggestions = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    [...channelCategories, ...channels.map((c) => c.category ?? '')]
+                        .map((c) => c.trim())
+                        .filter((c): c is string => !!c),
+                ),
+            ).sort((a, b) => a.localeCompare(b)),
+        [channels, channelCategories],
+    )
 
     const handleCreateChannel = async (e: FormEvent) => {
         e.preventDefault()
         if (!isLoggedIn || !activeServerId || !createChannelName.trim()) return
+        const validationError = validateChannelNameInput(createChannelName)
+        if (validationError) {
+            setCreateChannelError(validationError)
+            return
+        }
         setCreateChannelError(null)
         try {
-            await channelApi.create(activeServerId, createChannelName.trim(), createChannelType, token)
+            await channelApi.create(
+                activeServerId,
+                createChannelName.trim(),
+                createChannelType,
+                token,
+                createChannelCategory.trim() || undefined,
+            )
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
             setChannelsForServer(activeServerId, chs)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -1277,6 +1343,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setShowCreateChannel(false)
             setCreateChannelName('')
             setCreateChannelType('text')
+            setCreateChannelCategory('')
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to create channel.'
             setCreateChannelError(message)
@@ -1287,7 +1354,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setCreateChannelError(null)
         setCreateChannelName('')
         setCreateChannelType('text')
+        setCreateChannelCategory('')
         setShowCreateChannel(true)
+    }
+
+    const openCreateCategoryModal = () => {
+        setCreateCategoryError(null)
+        setCreateCategoryName('')
+        setShowCreateCategory(true)
+    }
+
+    const handleCreateCategory = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !activeServerId || !createCategoryName.trim()) return
+        setCreateCategoryError(null)
+        try {
+            await channelApi.createCategory(activeServerId, createCategoryName.trim(), token)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
+            setShowCreateCategory(false)
+            setCreateCategoryName('')
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to create category.'
+            setCreateCategoryError(message)
+        }
     }
 
     const openRenameChannelModal = (channel: Channel) => {
@@ -1300,6 +1390,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const handleRenameChannel = async (e: FormEvent) => {
         e.preventDefault()
         if (!isLoggedIn || !renameChannelId || !renameChannelName.trim()) return
+        const validationError = validateChannelNameInput(renameChannelName)
+        if (validationError) {
+            setRenameChannelError(validationError)
+            return
+        }
         setRenameChannelError(null)
         try {
             await channelApi.rename(renameChannelId, renameChannelName.trim(), token)
@@ -1341,6 +1436,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
             setChannelsForServer(activeServerId, chs)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -1367,51 +1464,142 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const orderedChannelIds = (source: Channel[]) =>
         [...source]
-            .sort((a, b) => {
-                const aCat = a.category ?? 'Channels'
-                const bCat = b.category ?? 'Channels'
-                if (aCat !== bCat) return aCat.localeCompare(bCat)
-                return a.position - b.position
-            })
+            .sort(compareChannelsForSidebar)
             .map((c) => c.id)
 
-    const handleReorderChannels = async (draggedChannelId: string, targetChannelId: string) => {
+    const handleReorderChannels = async (
+        draggedChannelId: string,
+        targetChannelId: string,
+        position: 'before' | 'after',
+    ) => {
         if (!isLoggedIn || !activeServerId) return
         const dragged = channels.find((c) => c.id === draggedChannelId)
         const target = channels.find((c) => c.id === targetChannelId)
         if (!dragged || !target) return
-        const category = dragged.category ?? 'Channels'
-        if ((target.category ?? 'Channels') !== category) return
+        if (dragged.channel_type !== target.channel_type) return
 
-        const sameCat = channels
-            .filter((c) => (c.category ?? 'Channels') === category)
-            .sort((a, b) => a.position - b.position)
-        const from = sameCat.findIndex((c) => c.id === draggedChannelId)
-        const to = sameCat.findIndex((c) => c.id === targetChannelId)
-        if (from < 0 || to < 0 || from === to) return
+        const previous = [...channels]
+        const targetCategory = target.category ?? 'Channels'
+        const shouldMoveCategory = (dragged.category ?? 'Channels') !== targetCategory
 
-        const reordered = [...sameCat]
-        const [moved] = reordered.splice(from, 1)
-        reordered.splice(to, 0, moved)
-        const positionById = new Map(reordered.map((c, i) => [c.id, i]))
-        const nextChannels = channels.map((c) => {
-            if ((c.category ?? 'Channels') !== category) return c
-            const nextPos = positionById.get(c.id)
-            if (nextPos === undefined || c.position === nextPos) return c
-            return { ...c, position: nextPos }
+        const ordered = [...channels].sort(compareChannelsForSidebar)
+        const withoutDragged = ordered.filter((c) => c.id !== draggedChannelId)
+        const targetIndex = withoutDragged.findIndex((c) => c.id === targetChannelId)
+        if (targetIndex < 0) return
+
+        const moved = ordered.find((c) => c.id === draggedChannelId)
+        if (!moved) return
+
+        const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+        withoutDragged.splice(insertIndex, 0, {
+            ...moved,
+            category: shouldMoveCategory ? targetCategory : moved.category,
         })
-        const changed = nextChannels.some((c, idx) => c.position !== channels[idx]?.position)
-        if (!changed) return
+
+        const positionByCategory = new Map<string, number>()
+        const nextChannels = withoutDragged.map((channel) => {
+            const category = channel.category ?? 'Channels'
+            const nextPosition = positionByCategory.get(category) ?? 0
+            positionByCategory.set(category, nextPosition + 1)
+            if (channel.position === nextPosition) return channel
+            return { ...channel, position: nextPosition }
+        })
+
         setChannels(nextChannels)
         setChannelsForServer(activeServerId, nextChannels)
         try {
+            if (shouldMoveCategory) {
+                await channelApi.rename(
+                    dragged.id,
+                    dragged.name,
+                    token,
+                    targetCategory,
+                )
+            }
             await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
         } catch (err) {
             console.error('Failed to reorder channels:', err)
-            serverApi.channels(activeServerId, token).then((chs) => {
-                setChannels(chs)
-                setChannelsForServer(activeServerId, chs)
-            }).catch(console.error)
+            setChannels(previous)
+            setChannelsForServer(activeServerId, previous)
+        }
+    }
+
+    const handleMoveChannelToCategory = async (
+        draggedChannelId: string,
+        targetCategory: string,
+        placement: 'start' | 'end' = 'end',
+    ) => {
+        if (!isLoggedIn || !activeServerId) return
+        const dragged = channels.find((c) => c.id === draggedChannelId)
+        if (!dragged) return
+        const currentCategory = dragged.category ?? 'Channels'
+        if (currentCategory === targetCategory) return
+
+        const previous = [...channels]
+        const movedBase = channels.map((ch) =>
+            ch.id === draggedChannelId
+                ? {
+                    ...ch,
+                    category: targetCategory,
+                    position: placement === 'start' ? -1 : Number.MAX_SAFE_INTEGER,
+                }
+                : ch,
+        )
+        const sortedByCategory = [...movedBase].sort(compareChannelsForSidebar)
+        const positionByCategory = new Map<string, number>()
+        const nextChannels = sortedByCategory.map((ch) => {
+            const cat = ch.category ?? 'Channels'
+            const nextPos = positionByCategory.get(cat) ?? 0
+            positionByCategory.set(cat, nextPos + 1)
+            if (ch.position === nextPos) return ch
+            return { ...ch, position: nextPos }
+        })
+
+        setChannels(nextChannels)
+        setChannelsForServer(activeServerId, nextChannels)
+        try {
+            await channelApi.rename(dragged.id, dragged.name, token, targetCategory)
+            await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+        } catch (err) {
+            console.error('Failed to move channel to category:', err)
+            setChannels(previous)
+            setChannelsForServer(activeServerId, previous)
+        }
+    }
+
+    const handleReorderCategories = async (
+        draggedCategory: string,
+        targetCategory: string,
+        position: 'before' | 'after',
+    ) => {
+        if (!isLoggedIn || !activeServerId) return
+        if (draggedCategory === targetCategory) return
+        const derivedFromChannels = Array.from(
+            new Set(
+                channels
+                    .map((c) => c.category?.trim())
+                    .filter((c): c is string => !!c),
+            ),
+        )
+        const baseCategories = Array.from(new Set([...channelCategories, ...derivedFromChannels]))
+        const next = baseCategories.filter((c) => c !== draggedCategory)
+        const targetIndex = next.findIndex((c) => c === targetCategory)
+        if (targetIndex < 0) return
+        const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+        next.splice(insertIndex, 0, draggedCategory)
+        setChannelCategories(next)
+        try {
+            await channelApi.reorderCategories(activeServerId, next, token)
+        } catch (err) {
+            console.error('Failed to reorder categories:', err)
+            const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+            setChannelCategories(categories.map((c) => c.name))
         }
     }
 
@@ -1429,12 +1617,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             <ChannelSidebar
                 onOpenServerSettings={openServerSettingsModal}
                 onOpenCreateChannel={openCreateChannelModal}
+                onOpenCreateCategory={openCreateCategoryModal}
+                onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}
+                onDeleteCategory={(category) => {
+                    setDeleteCategoryError(null)
+                    setDeleteCategoryConfirm(category)
+                }}
+                onReorderCategories={handleReorderCategories}
+                onMoveChannelToCategory={handleMoveChannelToCategory}
+                channelCategories={channelCategories}
                 canManageChannels={canManageChannels}
                 unreadByChannel={unreadByChannel}
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
-                onOpenChannelSettings={(channel) => setChannelSettingsTarget(channel)}
                 onReorderChannels={handleReorderChannels}
             />
             <ChatArea
@@ -1546,7 +1742,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
                     {/* Create Channel Modal */}
                     {showCreateChannel && activeServerId && (
-                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); }}>
+                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory('') }}>
                             <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
                                 <h2>Create Channel</h2>
                                 {createChannelError && (
@@ -1561,6 +1757,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         placeholder="e.g. general"
                                         autoFocus
                                         required
+                                        maxLength={CHANNEL_NAME_MAX}
                                     />
                                 </div>
                                 <div className="form-group">
@@ -1586,9 +1783,53 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         </button>
                                     </div>
                                 </div>
+                                <div className="form-group">
+                                    <label>Category (optional)</label>
+                                    <input
+                                        type="text"
+                                        value={createChannelCategory}
+                                        onChange={(e) => setCreateChannelCategory(e.target.value)}
+                                        placeholder="e.g. Squad 1"
+                                        list="channel-category-suggestions"
+                                        maxLength={64}
+                                    />
+                                    <datalist id="channel-category-suggestions">
+                                        {channelCategorySuggestions.map((category) => (
+                                            <option key={category} value={category} />
+                                        ))}
+                                    </datalist>
+                                </div>
                                 <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); }}>Cancel</button>
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory('') }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Create Channel</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Create Category Modal */}
+                    {showCreateCategory && activeServerId && (
+                        <div className="modal-overlay" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null) }}>
+                            <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
+                                <h2>Create Category</h2>
+                                {createCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createCategoryError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Category name</label>
+                                    <input
+                                        type="text"
+                                        value={createCategoryName}
+                                        onChange={(e) => setCreateCategoryName(e.target.value)}
+                                        placeholder="e.g. Squad 1"
+                                        autoFocus
+                                        required
+                                        maxLength={100}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null); }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Create Category</button>
                                 </div>
                             </form>
                         </div>
@@ -1611,6 +1852,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         placeholder="new-channel-name"
                                         autoFocus
                                         required
+                                        maxLength={CHANNEL_NAME_MAX}
                                     />
                                 </div>
                                 <div className="modal-actions">
@@ -2107,13 +2349,85 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             channel={channelSettingsTarget}
                             serverRoles={serverRoles}
                             onClose={() => setChannelSettingsTarget(null)}
-                            onUpdated={(updated: Channel) => {
+                            onUpdated={async (updated: Channel) => {
                                 setChannels(channels.map(c => c.id === updated.id ? updated : c))
+                                if (activeServerId) {
+                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+                                    setChannelCategories(categories.map((c) => c.name))
+                                }
                             }}
-                            onDeleted={(id: string) => {
+                            onDeleted={async (id: string) => {
                                 setChannels(channels.filter(c => c.id !== id))
+                                if (activeServerId) {
+                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+                                    setChannelCategories(categories.map((c) => c.name))
+                                }
                             }}
                         />
+                    )}
+                    {categoryPermissionsTarget && activeServerId && (
+                        <CategoryPermissionsModal
+                            serverId={activeServerId}
+                            category={categoryPermissionsTarget}
+                            serverRoles={serverRoles}
+                            onClose={() => setCategoryPermissionsTarget(null)}
+                        />
+                    )}
+                    {deleteCategoryConfirm && activeServerId && (
+                        <div className="modal-overlay" onClick={() => setDeleteCategoryConfirm(null)}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete category</h2>
+                                {(() => {
+                                    const channelsInCategory = channels.filter(
+                                        (c) => (c.category ?? 'Channels') === deleteCategoryConfirm,
+                                    ).length
+                                    return channelsInCategory > 0 ? (
+                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                            Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>Uncategorized</strong>.
+                                        </p>
+                                    ) : (
+                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                            <strong>{deleteCategoryConfirm}</strong> is empty.
+                                        </p>
+                                    )
+                                })()}
+                                {deleteCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 10 }}>{deleteCategoryError}</div>
+                                )}
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteCategoryConfirm(null)}>
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-danger"
+                                        onClick={async () => {
+                                            try {
+                                                await channelApi.deleteCategory(
+                                                    activeServerId,
+                                                    deleteCategoryConfirm,
+                                                    token,
+                                                    'Uncategorized',
+                                                )
+                                                const [chs, categories] = await Promise.all([
+                                                    serverApi.channels(activeServerId, token),
+                                                    channelApi.listCategories(activeServerId, token).catch(() => []),
+                                                ])
+                                                setChannels(chs)
+                                                setChannelsForServer(activeServerId, chs)
+                                                setChannelCategories(categories.map((c) => c.name))
+                                                setDeleteCategoryConfirm(null)
+                                                setDeleteCategoryError(null)
+                                            } catch (err: unknown) {
+                                                setDeleteCategoryError(err instanceof Error ? err.message : 'Failed to delete category.')
+                                            }
+                                        }}
+                                    >
+                                        Delete Category
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </>,
                 document.body

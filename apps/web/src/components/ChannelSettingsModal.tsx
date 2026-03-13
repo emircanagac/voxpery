@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
-import { X, Trash2, Shield, Settings } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { X, Trash2, Shield, Settings, AlertTriangle } from 'lucide-react'
 import type { Channel, ServerRole } from '../api'
-import { channelApi } from '../api'
+import { channelApi, serverApi } from '../api'
 import type { ChannelOverride } from '../api'
 import { useAuthStore } from '../stores/auth'
 
@@ -21,29 +21,61 @@ export default function ChannelSettingsModal({
     onDeleted,
 }: ChannelSettingsModalProps) {
     const { token } = useAuthStore()
-    const [tab, setTab] = useState<'general' | 'permissions'>('general')
+    const [tab, setTab] = useState<'general' | 'permissions' | 'danger'>('general')
 
     // General state
     const [name, setName] = useState(channel.name)
+    const [category, setCategory] = useState(channel.category ?? '')
     const [savingGeneral, setSavingGeneral] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     // Permissions state
     const [overrides, setOverrides] = useState<ChannelOverride[]>([])
+    const [categoryOverrides, setCategoryOverrides] = useState<ChannelOverride[]>([])
+    const [permissionScope, setPermissionScope] = useState<'channel' | 'category'>('channel')
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
     const [loadingPerms, setLoadingPerms] = useState(false)
+    const [loadingCategoryPerms, setLoadingCategoryPerms] = useState(false)
+    const [fallbackRoles, setFallbackRoles] = useState<ServerRole[]>([])
+    const [loadingRoles, setLoadingRoles] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [deletingChannel, setDeletingChannel] = useState(false)
+    const effectiveRoles = serverRoles.length > 0 ? serverRoles : fallbackRoles
 
     const openPermissionsTab = async () => {
         setTab('permissions')
-        if (overrides.length > 0 || loadingPerms) return
-        setLoadingPerms(true)
-        try {
-            const ov = await channelApi.getOverrides(channel.id, token)
-            setOverrides(ov)
-        } catch (e) {
-            console.error(e)
-        } finally {
-            setLoadingPerms(false)
+        if (effectiveRoles.length === 0 && !loadingRoles && channel.server_id) {
+            setLoadingRoles(true)
+            try {
+                const roles = await serverApi.listRoles(channel.server_id, token)
+                setFallbackRoles(roles)
+            } catch (e) {
+                console.error(e)
+            } finally {
+                setLoadingRoles(false)
+            }
+        }
+        if (overrides.length === 0 && !loadingPerms) {
+            setLoadingPerms(true)
+            try {
+                const ov = await channelApi.getOverrides(channel.id, token)
+                setOverrides(ov)
+            } catch (e) {
+                console.error(e)
+            } finally {
+                setLoadingPerms(false)
+            }
+        }
+        if (channel.category?.trim() && channel.server_id && !loadingCategoryPerms && categoryOverrides.length === 0) {
+            setLoadingCategoryPerms(true)
+            try {
+                const cov = await channelApi.getCategoryOverrides(channel.server_id, channel.category.trim(), token)
+                setCategoryOverrides(cov)
+            } catch (e) {
+                console.error(e)
+            } finally {
+                setLoadingCategoryPerms(false)
+            }
         }
     }
 
@@ -51,7 +83,12 @@ export default function ChannelSettingsModal({
         setSavingGeneral(true)
         setError(null)
         try {
-            const updated = await channelApi.rename(channel.id, name, token)
+            const updated = await channelApi.rename(
+                channel.id,
+                name,
+                token,
+                category.trim() || undefined,
+            )
             onUpdated?.(updated)
             onClose()
         } catch (e) {
@@ -60,21 +97,41 @@ export default function ChannelSettingsModal({
         }
     }
 
+    useEffect(() => {
+        setName(channel.name)
+        setCategory(channel.category ?? '')
+        setPermissionScope('channel')
+        setOverrides([])
+        setCategoryOverrides([])
+        setSelectedRoleId(null)
+    }, [channel.id, channel.name, channel.category])
+
     const handleDelete = async () => {
-        if (!confirm('Are you sure you want to delete this channel?')) return
+        setDeletingChannel(true)
+        setError(null)
         try {
             await channelApi.delete(channel.id, token)
             onDeleted?.(channel.id)
             onClose()
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setDeletingChannel(false)
+            setShowDeleteConfirm(false)
         }
     }
 
+    useEffect(() => {
+        if (selectedRoleId && !effectiveRoles.some((role) => role.id === selectedRoleId)) {
+            setSelectedRoleId(null)
+        }
+    }, [effectiveRoles, selectedRoleId])
+
     const currentOverride = useMemo(() => {
         if (!selectedRoleId) return null
-        return overrides.find(o => o.role_id === selectedRoleId) || { role_id: selectedRoleId, allow: 0, deny: 0 }
-    }, [selectedRoleId, overrides])
+        const source = permissionScope === 'category' ? categoryOverrides : overrides
+        return source.find(o => o.role_id === selectedRoleId) || { role_id: selectedRoleId, allow: 0, deny: 0 }
+    }, [selectedRoleId, overrides, categoryOverrides, permissionScope])
 
     const updateOverrideBit = async (bit: number, type: 'allow' | 'deny' | 'inherit') => {
         if (!selectedRoleId || !currentOverride) return
@@ -94,11 +151,26 @@ export default function ChannelSettingsModal({
         }
 
         try {
-            const updated = await channelApi.updateOverride(channel.id, selectedRoleId, newAllow, newDeny, token)
-            setOverrides(prev => {
-                const filtered = prev.filter(o => o.role_id !== selectedRoleId)
-                return [...filtered, updated]
-            })
+            if (permissionScope === 'category' && channel.server_id && channel.category?.trim()) {
+                const updated = await channelApi.updateCategoryOverride(
+                    channel.server_id,
+                    channel.category.trim(),
+                    selectedRoleId,
+                    newAllow,
+                    newDeny,
+                    token,
+                )
+                setCategoryOverrides(prev => {
+                    const filtered = prev.filter(o => o.role_id !== selectedRoleId)
+                    return [...filtered, updated]
+                })
+            } else {
+                const updated = await channelApi.updateOverride(channel.id, selectedRoleId, newAllow, newDeny, token)
+                setOverrides(prev => {
+                    const filtered = prev.filter(o => o.role_id !== selectedRoleId)
+                    return [...filtered, updated]
+                })
+            }
         } catch (e) {
             console.error(e)
         }
@@ -116,55 +188,84 @@ export default function ChannelSettingsModal({
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal server-settings-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
+            <div className="modal modal-server-settings channel-settings-modal" onClick={e => e.stopPropagation()}>
                 <div className="server-settings-layout">
-                    <div className="server-settings-sidebar">
-                        <div className="server-settings-sidebar-header">
-                            {channel.name} Settings
+                    <div className="server-settings-nav channel-settings-nav">
+                        <div className="channel-settings-nav-title">
+                            {channel.name}
                         </div>
-                        <button className={`server-settings-tab ${tab === 'general' ? 'active' : ''}`} onClick={() => setTab('general')}>
+                        <div className="channel-settings-nav-subtitle">
+                            Channel settings
+                        </div>
+                        <button
+                            className={`server-settings-nav__item ${tab === 'general' ? 'server-settings-nav__item--active' : ''}`}
+                            onClick={() => setTab('general')}
+                        >
                             <Settings size={16} />
                             Overview
                         </button>
-                        <button className={`server-settings-tab ${tab === 'permissions' ? 'active' : ''}`} onClick={() => { void openPermissionsTab() }}>
+                        <button
+                            className={`server-settings-nav__item ${tab === 'permissions' ? 'server-settings-nav__item--active' : ''}`}
+                            onClick={() => { void openPermissionsTab() }}
+                        >
                             <Shield size={16} />
                             Permissions
                         </button>
-                        <div className="server-settings-sidebar-divider" />
-                        <button className="server-settings-tab danger" onClick={handleDelete}>
-                            <Trash2 size={16} />
-                            Delete Channel
+                        <button
+                            className={`server-settings-nav__item ${tab === 'danger' ? 'server-settings-nav__item--active' : ''}`}
+                            onClick={() => setTab('danger')}
+                        >
+                            <AlertTriangle size={16} />
+                            Danger Zone
                         </button>
                     </div>
 
                     <div className="server-settings-content">
-                        <div className="server-settings-content-inner">
-                            <div className="server-settings-header">
-                                <h2>{tab === 'general' ? 'Overview' : 'Permissions'}</h2>
-                                <button className="modal-close-btn" onClick={onClose}>
-                                    <X size={20} />
+                        <div className="server-settings-card channel-settings-card">
+                            <div className="server-settings-header channel-settings-header">
+                                <div className="server-settings-header__text">
+                                    <h2>{tab === 'general' ? 'Overview' : tab === 'permissions' ? 'Permissions' : 'Danger Zone'}</h2>
+                                    <p className="server-settings-header__hint">
+                                        Configure this channel without leaving server settings.
+                                    </p>
+                                </div>
+                                <button className="server-settings-close-btn" onClick={onClose} aria-label="Close">
+                                    <X size={18} />
                                 </button>
                             </div>
-                            
+
                             <div className="server-settings-body server-settings-body--with-tabs">
-                                {error && <div className="modal-error">{error}</div>}
+                                {error && <div className="modal-error server-settings-error">{error}</div>}
 
                                 {tab === 'general' && (
-                                    <div className="server-settings-section">
+                                    <div className="server-settings-section channel-settings-general">
                                         <div className="form-group">
                                             <label>Channel Name</label>
-                                            <input 
-                                                type="text" 
-                                                value={name} 
-                                                onChange={e => setName(e.target.value)} 
+                                            <input
+                                                type="text"
+                                                value={name}
+                                                onChange={e => setName(e.target.value)}
                                                 placeholder="new-channel-name"
                                             />
                                         </div>
-                                        <button 
-                                            className="btn btn-primary" 
+                                        <div className="form-group">
+                                            <label>Category</label>
+                                            <input
+                                                type="text"
+                                                value={category}
+                                                onChange={e => setCategory(e.target.value)}
+                                                placeholder="e.g. Squad 1"
+                                                maxLength={64}
+                                            />
+                                        </div>
+                                        <button
+                                            className="btn btn-primary"
                                             onClick={handleSaveGeneral}
-                                            disabled={name.trim().length === 0 || name.trim() === channel.name || savingGeneral}
-                                            style={{ marginTop: 16 }}
+                                            disabled={
+                                                name.trim().length === 0
+                                                || (name.trim() === channel.name && category.trim() === (channel.category ?? '').trim())
+                                                || savingGeneral
+                                            }
                                         >
                                             {savingGeneral ? 'Saving...' : 'Save Changes'}
                                         </button>
@@ -172,59 +273,84 @@ export default function ChannelSettingsModal({
                                 )}
 
                                 {tab === 'permissions' && (
-                                    <div className="server-settings-section" style={{ display: 'flex', gap: 20 }}>
-                                        <div className="roles-list-col" style={{ width: 200 }}>
-                                            <label style={{ display: 'block', marginBottom: 8, fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>ROLES</label>
-                                            <div className="roles-list">
-                                                {serverRoles.map(role => (
-                                                    <div 
-                                                        key={role.id} 
-                                                        className={`role-list-item ${selectedRoleId === role.id ? 'active' : ''}`}
+                                    <div className="server-settings-section channel-settings-permissions">
+                                        <div className="channel-settings-roles-col">
+                                            <label className="channel-settings-label">Roles</label>
+                                            <div className="channel-settings-roles-list">
+                                                {effectiveRoles.map(role => (
+                                                    <button
+                                                        type="button"
+                                                        key={role.id}
+                                                        className={`server-role-list-item ${selectedRoleId === role.id ? 'server-role-list-item--active' : ''}`}
                                                         onClick={() => setSelectedRoleId(role.id)}
                                                     >
-                                                        <span className="role-color-dot" style={{ backgroundColor: role.color || 'var(--text-normal)' }} />
+                                                        <span className="channel-settings-role-dot" style={{ backgroundColor: role.color || 'var(--text-normal)' }} />
                                                         {role.name}
-                                                    </div>
+                                                    </button>
                                                 ))}
+                                                {loadingRoles && (
+                                                    <div className="channel-settings-roles-empty">Loading roles...</div>
+                                                )}
+                                                {!loadingRoles && effectiveRoles.length === 0 && (
+                                                    <div className="channel-settings-roles-empty">No roles found in this server.</div>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="role-edit-col" style={{ flex: 1 }}>
+                                        <div className="channel-settings-perm-col">
+                                            {channel.category?.trim() && (
+                                                <div className="channel-permission-scope">
+                                                    <button
+                                                        type="button"
+                                                        className={`channel-permission-scope-btn ${permissionScope === 'channel' ? 'is-active' : ''}`}
+                                                        onClick={() => setPermissionScope('channel')}
+                                                    >
+                                                        This channel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className={`channel-permission-scope-btn ${permissionScope === 'category' ? 'is-active' : ''}`}
+                                                        onClick={() => setPermissionScope('category')}
+                                                    >
+                                                        Category ({channel.category})
+                                                    </button>
+                                                </div>
+                                            )}
                                             {!selectedRoleId ? (
-                                                <div className="role-edit-empty">
+                                                <div className="role-edit-empty channel-settings-empty">
                                                     Select a role to configure channel permissions
                                                 </div>
-                                            ) : loadingPerms ? (
-                                                <div className="role-edit-empty">Loading...</div>
+                                            ) : (permissionScope === 'category' ? loadingCategoryPerms : loadingPerms) ? (
+                                                <div className="role-edit-empty channel-settings-empty">Loading...</div>
                                             ) : (
                                                 <>
-                                                    <label style={{ display: 'block', marginBottom: 16, fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                                                        ADVANCED PERMISSIONS
+                                                    <label className="channel-settings-label channel-settings-label--spaced">
+                                                        Advanced Permissions
                                                     </label>
                                                     {permOptions.map(opt => {
                                                         const isAllowed = (currentOverride!.allow & opt.bit) === opt.bit
                                                         const isDenied = (currentOverride!.deny & opt.bit) === opt.bit
                                                         return (
-                                                            <div key={opt.bit} className="channel-perm-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+                                                            <div key={opt.bit} className="channel-perm-row">
                                                                 <span>{opt.label}</span>
-                                                                <div className="channel-perm-switches" style={{ display: 'flex', background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden' }}>
-                                                                    <button 
-                                                                        className={`perm-btn ${isDenied ? 'denied' : ''}`}
+                                                                <div className="channel-perm-switches">
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`channel-perm-btn ${isDenied ? 'is-denied' : ''}`}
                                                                         onClick={() => updateOverrideBit(opt.bit, 'deny')}
-                                                                        style={{ padding: '6px 12px', border: 'none', background: isDenied ? '#f38ba8' : 'transparent', color: isDenied ? '#1e1e2e' : 'inherit', cursor: 'pointer' }}
                                                                     >
                                                                         <X size={14} />
                                                                     </button>
-                                                                    <button 
-                                                                        className={`perm-btn ${!isAllowed && !isDenied ? 'inherit' : ''}`}
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`channel-perm-btn ${!isAllowed && !isDenied ? 'is-inherit' : ''}`}
                                                                         onClick={() => updateOverrideBit(opt.bit, 'inherit')}
-                                                                        style={{ padding: '6px 12px', border: 'none', background: !isAllowed && !isDenied ? 'var(--bg-modifier-selected)' : 'transparent', cursor: 'pointer' }}
                                                                     >
                                                                         /
                                                                     </button>
-                                                                    <button 
-                                                                        className={`perm-btn ${isAllowed ? 'allowed' : ''}`}
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`channel-perm-btn ${isAllowed ? 'is-allowed' : ''}`}
                                                                         onClick={() => updateOverrideBit(opt.bit, 'allow')}
-                                                                        style={{ padding: '6px 12px', border: 'none', background: isAllowed ? '#a6e3a1' : 'transparent', color: isAllowed ? '#1e1e2e' : 'inherit', cursor: 'pointer' }}
                                                                     >
                                                                         ✓
                                                                     </button>
@@ -237,11 +363,63 @@ export default function ChannelSettingsModal({
                                         </div>
                                     </div>
                                 )}
+
+                                {tab === 'danger' && (
+                                    <div className="server-settings-section channel-settings-danger">
+                                        <div className="server-settings-card server-settings-card--danger channel-settings-danger-card">
+                                            <h3 className="server-settings-card__title server-settings-card__title--danger">Delete Channel</h3>
+                                            <p className="server-settings-danger-text">
+                                                Deleting this channel permanently removes its message history and cannot be undone.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                className="btn btn-danger"
+                                                onClick={() => setShowDeleteConfirm(true)}
+                                            >
+                                                Delete Channel
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+            {showDeleteConfirm && (
+                <div
+                    className="modal-overlay"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (!deletingChannel) setShowDeleteConfirm(false)
+                    }}
+                >
+                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Delete channel</h2>
+                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                            Are you sure you want to delete <strong>{channel.name}</strong>? This action cannot be undone.
+                        </p>
+                        <div className="modal-actions">
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setShowDeleteConfirm(false)}
+                                disabled={deletingChannel}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger"
+                                onClick={() => void handleDelete()}
+                                disabled={deletingChannel}
+                            >
+                                {deletingChannel ? 'Deleting...' : 'Delete Channel'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

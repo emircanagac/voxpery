@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     middleware,
     routing::{delete, get, patch, post, put},
     Extension, Json, Router,
@@ -16,8 +16,27 @@ use crate::{
     AppState,
 };
 
+const MAX_CHANNEL_NAME_CHARS: usize = 40;
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
+        .route("/server/{server_id}/categories", get(list_categories).post(create_category))
+        .route(
+            "/server/{server_id}/categories/{category}",
+            delete(delete_category),
+        )
+        .route(
+            "/server/{server_id}/categories/{category}/overrides",
+            get(list_category_overrides),
+        )
+        .route(
+            "/server/{server_id}/categories/{category}/overrides/{role_id}",
+            put(update_category_override).delete(delete_category_override),
+        )
+        .route(
+            "/server/{server_id}/categories/reorder",
+            patch(reorder_categories),
+        )
         .route("/{channel_id}", delete(delete_channel))
         .route("/{channel_id}", patch(rename_channel))
         .route("/{channel_id}/overrides", get(list_channel_overrides))
@@ -36,21 +55,21 @@ async fn create_channel(
     // Require MANAGE_CHANNELS permission to create channels.
     permissions::ensure_server_permission(&state.db, body.server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
 
-    if body.name.is_empty() || body.name.len() > 100 {
-        return Err(AppError::Validation("Channel name must be 1-100 characters".into()));
-    }
+    let trimmed_name = body.name.trim();
+    validate_channel_name(trimmed_name)?;
 
     let channel_type = body.channel_type.unwrap_or_else(|| "text".to_string());
     if channel_type != "text" && channel_type != "voice" {
         return Err(AppError::Validation("Channel type must be 'text' or 'voice'".into()));
     }
-    let category = body.category.unwrap_or_else(|| {
-        if channel_type == "voice" {
-            "Voice Channels".to_string()
-        } else {
-            "Text Channels".to_string()
-        }
-    });
+    let category = body
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("Channels")
+        .to_string();
+    ensure_category_exists(&state.db, body.server_id, &category).await?;
 
     // Get next position
     let max_pos = sqlx::query_scalar::<_, Option<i32>>(
@@ -69,7 +88,7 @@ async fn create_channel(
     )
     .bind(Uuid::new_v4())
     .bind(body.server_id)
-    .bind(&body.name)
+    .bind(trimmed_name)
     .bind(&channel_type)
     .bind(&category)
     .bind(max_pos + 1)
@@ -155,16 +174,28 @@ async fn rename_channel(
     ensure_channel_manage_permission(&state, channel.server_id, claims.sub).await?;
 
     let trimmed = body.name.trim();
-    if trimmed.is_empty() || trimmed.len() > 100 {
-        return Err(AppError::Validation(
-            "Channel name must be 1-100 characters".into(),
-        ));
+    // Keep backwards compatibility with legacy channel names that may no longer satisfy
+    // current rules when only moving categories.
+    if trimmed != channel.name.trim() {
+        validate_channel_name(trimmed)?;
+    }
+
+    let next_category = body
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .or_else(|| channel.category.clone());
+    if let Some(category_name) = &next_category {
+        ensure_category_exists(&state.db, channel.server_id, category_name).await?;
     }
 
     let updated = sqlx::query_as::<_, Channel>(
-        "UPDATE channels SET name = $1 WHERE id = $2 RETURNING *",
+        "UPDATE channels SET name = $1, category = $2 WHERE id = $3 RETURNING *",
     )
     .bind(trimmed)
+    .bind(&next_category)
     .bind(channel_id)
     .fetch_one(&state.db)
     .await?;
@@ -176,7 +207,12 @@ async fn rename_channel(
         "channel_rename",
         "channel",
         Some(channel_id),
-        Some(serde_json::json!({ "old_name": channel.name, "new_name": updated.name })),
+        Some(serde_json::json!({
+            "old_name": channel.name,
+            "new_name": updated.name,
+            "old_category": channel.category,
+            "new_category": updated.category,
+        })),
     )
     .await?;
 
@@ -350,12 +386,417 @@ async fn delete_channel_override(
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
 
+#[derive(Debug, serde::Serialize)]
+struct CategoryNameResponse {
+    name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CreateCategoryRequest {
+    name: String,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct CategoryOverride {
+    role_id: Uuid,
+    allow: i64,
+    deny: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct UpdateCategoryOverrideRequest {
+    allow: i64,
+    deny: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ReorderCategoriesRequest {
+    category_names: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DeleteCategoryQuery {
+    move_to: Option<String>,
+}
+
+async fn list_categories(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<CategoryNameResponse>>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::VIEW_SERVER).await?;
+
+    backfill_category_rows(&state.db, server_id).await?;
+
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 ORDER BY position, name",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|name| CategoryNameResponse { name })
+            .collect(),
+    ))
+}
+
+async fn create_category(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<CreateCategoryRequest>,
+) -> Result<Json<CategoryNameResponse>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let name = body.name.trim();
+    if name.is_empty() || name.len() > 100 {
+        return Err(AppError::Validation("Category name must be 1-100 characters".into()));
+    }
+
+    backfill_category_rows(&state.db, server_id).await?;
+    ensure_category_exists(&state.db, server_id, name).await?;
+
+    Ok(Json(CategoryNameResponse {
+        name: name.to_string(),
+    }))
+}
+
+async fn delete_category(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, category)): Path<(Uuid, String)>,
+    Query(query): Query<DeleteCategoryQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let category = category.trim();
+    if category.is_empty() {
+        return Err(AppError::Validation("Category name is required".into()));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    // Move channels out of this category into uncategorized space.
+    // They must remain in the server and appear at the top of uncategorized list.
+    let moving_channel_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND category = $2 ORDER BY position",
+    )
+    .bind(server_id)
+    .bind(category)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let move_to = query
+        .move_to
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .and_then(|target| if target == category { None } else { Some(target) })
+        .unwrap_or_else(|| {
+            if category == "Uncategorized" {
+                "Channels".to_string()
+            } else {
+                "Uncategorized".to_string()
+            }
+        });
+
+    if !moving_channel_ids.is_empty() {
+        ensure_category_exists(&state.db, server_id, &move_to).await?;
+
+        let max_target_pos = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT MAX(position) FROM channels WHERE server_id = $1 AND category = $2",
+        )
+        .bind(server_id)
+        .bind(&move_to)
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(-1);
+
+        for (idx, channel_id) in moving_channel_ids.iter().enumerate() {
+            sqlx::query("UPDATE channels SET category = $1, position = $2 WHERE id = $3")
+                .bind(&move_to)
+                .bind(max_target_pos + idx as i32 + 1)
+                .bind(channel_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    sqlx::query("DELETE FROM server_channel_categories WHERE server_id = $1 AND name = $2")
+        .bind(server_id)
+        .bind(category)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(serde_json::json!({ "message": "Category deleted" })))
+}
+
+async fn list_category_overrides(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, category)): Path<(Uuid, String)>,
+) -> Result<Json<Vec<CategoryOverride>>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let category = category.trim();
+    if category.is_empty() {
+        return Err(AppError::Validation("Category name is required".into()));
+    }
+
+    let overrides = sqlx::query_as::<_, CategoryOverride>(
+        r#"SELECT role_id, allow, deny
+           FROM channel_category_role_overrides
+           WHERE server_id = $1 AND category = $2"#,
+    )
+    .bind(server_id)
+    .bind(category)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(overrides))
+}
+
+async fn update_category_override(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, category, role_id)): Path<(Uuid, String, Uuid)>,
+    Json(body): Json<UpdateCategoryOverrideRequest>,
+) -> Result<Json<CategoryOverride>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let category = category.trim();
+    if category.is_empty() {
+        return Err(AppError::Validation("Category name is required".into()));
+    }
+    ensure_category_exists(&state.db, server_id, category).await?;
+
+    let role_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2"
+    )
+    .bind(role_id)
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    if role_exists == 0 {
+        return Err(AppError::NotFound("Role not found in this server".into()));
+    }
+
+    let ov = sqlx::query_as::<_, CategoryOverride>(
+        r#"INSERT INTO channel_category_role_overrides (server_id, category, role_id, allow, deny)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (server_id, category, role_id)
+           DO UPDATE SET allow = EXCLUDED.allow, deny = EXCLUDED.deny
+           RETURNING role_id, allow, deny"#
+    )
+    .bind(server_id)
+    .bind(category)
+    .bind(role_id)
+    .bind(body.allow)
+    .bind(body.deny)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(ov))
+}
+
+async fn delete_category_override(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, category, role_id)): Path<(Uuid, String, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let category = category.trim();
+    if category.is_empty() {
+        return Err(AppError::Validation("Category name is required".into()));
+    }
+
+    sqlx::query(
+        "DELETE FROM channel_category_role_overrides WHERE server_id = $1 AND category = $2 AND role_id = $3"
+    )
+    .bind(server_id)
+    .bind(category)
+    .bind(role_id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Override deleted" })))
+}
+
+async fn reorder_categories(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<ReorderCategoriesRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    if body.category_names.is_empty() {
+        return Err(AppError::Validation("category_names cannot be empty".into()));
+    }
+
+    backfill_category_rows(&state.db, server_id).await?;
+
+    let existing: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 ORDER BY position, name",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    if existing.len() != body.category_names.len() {
+        return Err(AppError::Validation(
+            "category_names must include every category in the server".into(),
+        ));
+    }
+
+    let mut set = std::collections::HashSet::new();
+    for name in &body.category_names {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Validation("Category name cannot be empty".into()));
+        }
+        if !set.insert(trimmed.to_string()) {
+            return Err(AppError::Validation("Duplicate category names are not allowed".into()));
+        }
+    }
+
+    let existing_set: std::collections::HashSet<String> = existing.into_iter().collect();
+    if set != existing_set {
+        return Err(AppError::Validation(
+            "category_names includes unknown category names".into(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    for (idx, name) in body.category_names.iter().enumerate() {
+        sqlx::query("UPDATE server_channel_categories SET position = $1 WHERE server_id = $2 AND name = $3")
+            .bind(idx as i32)
+            .bind(server_id)
+            .bind(name.trim())
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+
+    Ok(Json(serde_json::json!({ "message": "Categories reordered" })))
+}
+
 async fn ensure_channel_manage_permission(
     state: &AppState,
     server_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), AppError> {
     permissions::ensure_server_permission(&state.db, server_id, user_id, Permissions::MANAGE_CHANNELS).await
+}
+
+async fn ensure_category_exists(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    category: &str,
+) -> Result<(), AppError> {
+    let name = category.trim();
+    if name.is_empty() || name.len() > 100 {
+        return Err(AppError::Validation("Category name must be 1-100 characters".into()));
+    }
+
+    backfill_category_rows(db, server_id).await?;
+
+    let max_pos = sqlx::query_scalar::<_, Option<i32>>(
+        "SELECT MAX(position) FROM server_channel_categories WHERE server_id = $1",
+    )
+    .bind(server_id)
+    .fetch_one(db)
+    .await?
+    .unwrap_or(-1);
+
+    sqlx::query(
+        r#"INSERT INTO server_channel_categories (server_id, name, position)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (server_id, name) DO NOTHING"#
+    )
+    .bind(server_id)
+    .bind(name)
+    .bind(max_pos + 1)
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+async fn backfill_category_rows(db: &sqlx::PgPool, server_id: Uuid) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        WITH base AS (
+            SELECT COALESCE(MAX(position), -1) AS max_pos
+            FROM server_channel_categories
+            WHERE server_id = $1
+        ),
+        missing AS (
+            SELECT c.category AS name, MIN(c.position) AS min_pos
+            FROM channels c
+            LEFT JOIN server_channel_categories scc
+              ON scc.server_id = $1
+             AND scc.name = c.category
+            WHERE c.server_id = $1
+              AND c.category IS NOT NULL
+              AND BTRIM(c.category) <> ''
+              AND scc.name IS NULL
+            GROUP BY c.category
+        ),
+        ranked AS (
+            SELECT name, ROW_NUMBER() OVER (ORDER BY min_pos, name) AS rn
+            FROM missing
+        )
+        INSERT INTO server_channel_categories (server_id, name, position)
+        SELECT $1, r.name, (SELECT max_pos FROM base) + r.rn
+        FROM ranked r
+        ON CONFLICT (server_id, name) DO NOTHING
+        "#,
+    )
+    .bind(server_id)
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+fn validate_channel_name(name: &str) -> Result<(), AppError> {
+    let len = name.chars().count();
+    if len == 0 || len > MAX_CHANNEL_NAME_CHARS {
+        return Err(AppError::Validation(format!(
+            "Channel name must be 1-{} characters",
+            MAX_CHANNEL_NAME_CHARS
+        )));
+    }
+
+    let mut last_was_space = false;
+    for c in name.chars() {
+        let allowed = c.is_alphanumeric() || c == ' ' || c == '-' || c == '_';
+        if !allowed {
+            return Err(AppError::Validation(
+                "Channel name can only include letters, numbers, spaces, '-' and '_'".into(),
+            ));
+        }
+        if c == ' ' {
+            if last_was_space {
+                return Err(AppError::Validation(
+                    "Channel name cannot contain consecutive spaces".into(),
+                ));
+            }
+            last_was_space = true;
+        } else {
+            last_was_space = false;
+        }
+    }
+
+    Ok(())
 }
 
 /// Extended request that includes server_id.
@@ -370,6 +811,7 @@ struct CreateChannelWithServer {
 #[derive(Debug, serde::Deserialize)]
 struct RenameChannelRequest {
     pub name: String,
+    pub category: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
