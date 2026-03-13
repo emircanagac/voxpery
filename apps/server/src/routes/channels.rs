@@ -83,7 +83,7 @@ async fn create_channel(
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("Channels")
+        .unwrap_or("General")
         .to_string();
     let category = ensure_category_exists(&state.db, body.server_id, &category_input).await?;
     ensure_channel_name_unique(
@@ -300,7 +300,7 @@ async fn reorder_channels(
     use std::collections::HashMap;
     let mut existing: HashMap<Uuid, String> = HashMap::new();
     for ch in channels {
-        existing.insert(ch.id, ch.category.unwrap_or_else(|| "Channels".to_string()));
+        existing.insert(ch.id, ch.category.unwrap_or_else(|| "General".to_string()));
     }
 
     for cid in &body.channel_ids {
@@ -317,7 +317,7 @@ async fn reorder_channels(
         let category = existing
             .get(channel_id)
             .cloned()
-            .unwrap_or_else(|| "Channels".to_string());
+            .unwrap_or_else(|| "General".to_string());
         let pos = position_map.entry(category).or_insert(0);
         sqlx::query("UPDATE channels SET position = $1 WHERE id = $2")
             .bind(*pos)
@@ -612,26 +612,43 @@ async fn delete_category(
     .fetch_all(&mut *tx)
     .await?;
 
-    let move_to = query
+    let mut move_to = query
         .move_to
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .and_then(|target| {
-            if target == category {
+            if target.eq_ignore_ascii_case(category) {
                 None
             } else {
                 Some(target)
             }
         })
         .unwrap_or_else(|| {
-            if category == "Uncategorized" {
-                "Channels".to_string()
-            } else {
-                "Uncategorized".to_string()
-            }
+            "General".to_string()
         });
+
+    // Never move channels back into the same category being deleted.
+    // If no alternative category exists and the category still has channels,
+    // block deletion instead of silently creating legacy fallback categories.
+    if !moving_channel_ids.is_empty() && move_to.eq_ignore_ascii_case(category) {
+        let alternative: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) <> LOWER($2) ORDER BY position, name LIMIT 1",
+        )
+        .bind(server_id)
+        .bind(category)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(name) = alternative {
+            move_to = name;
+        } else {
+            return Err(AppError::Validation(
+                "Cannot delete this category while it still has channels".into(),
+            ));
+        }
+    }
 
     if !moving_channel_ids.is_empty() {
         let move_to = ensure_category_exists(&state.db, server_id, &move_to).await?;

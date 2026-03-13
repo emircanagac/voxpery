@@ -1679,6 +1679,27 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
+    const resolveDeleteCategoryMoveTarget = useCallback(
+        (categoryName: string): string => {
+            const normalized = categoryName.trim().toLowerCase()
+            const preferredGeneral = channelCategories.find(
+                (name) => name.trim().toLowerCase() === 'general',
+            )
+
+            if (preferredGeneral && preferredGeneral.trim().toLowerCase() !== normalized) {
+                return preferredGeneral
+            }
+
+            const firstOther = channelCategories.find(
+                (name) => name.trim().toLowerCase() !== normalized,
+            )
+            if (firstOther) return firstOther
+
+            return 'General'
+        },
+        [channelCategories],
+    )
+
     const openRenameChannelModal = (channel: Channel) => {
         setRenameChannelError(null)
         setRenameChannelId(channel.id)
@@ -2792,12 +2813,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete category</h2>
                                 {(() => {
+                                    const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
                                     const channelsInCategory = channels.filter(
                                         (c) => (c.category ?? 'Channels') === deleteCategoryConfirm,
                                     ).length
                                     return channelsInCategory > 0 ? (
                                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                            Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>Uncategorized</strong>.
+                                            Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>{moveTarget}</strong>.
                                         </p>
                                     ) : (
                                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
@@ -2817,11 +2839,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         className="btn btn-danger"
                                         onClick={async () => {
                                             try {
+                                                const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
                                                 await channelApi.deleteCategory(
                                                     activeServerId,
                                                     deleteCategoryConfirm,
                                                     token,
-                                                    'Uncategorized',
+                                                    moveTarget,
                                                 )
                                                 const [chs, categories] = await Promise.all([
                                                     serverApi.channels(activeServerId, token),
