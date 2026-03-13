@@ -44,10 +44,12 @@ const MemberItem = memo(function MemberItem({
         ? (isOnline ? 'member-name' : 'member-name member-name--offline')
         : (isOnline ? 'member-name' : 'member-name member-name--default-offline')
 
-    const canMakeAdmin =
+    const canManageOwnerSelf = isOwner && member.user_id === currentUserId
+    const canManageNonOwnerTarget =
         !isServerOwner &&
         member.role !== 'owner' &&
-        (isOwner || (canManageRoles && member.user_id !== currentUserId))
+        (isOwner || canManageRoles)
+    const canMakeAdmin = canManageOwnerSelf || canManageNonOwnerTarget
     const canAddFriend = member.user_id !== currentUserId && !isFriend
     const canKick =
         canKickAsRole &&
