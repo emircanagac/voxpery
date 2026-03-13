@@ -2,8 +2,6 @@
 -- 1) Category names are unique per server (case-insensitive).
 -- 2) Channel names are unique per (server, category, channel_type) (case-insensitive).
 
-BEGIN;
-
 -- Build mapping for category names that only differ by case and keep a canonical one.
 CREATE TEMP TABLE tmp_category_canonical_map (
     server_id UUID NOT NULL,
@@ -79,5 +77,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_server_channel_categories_server_name_ci
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_server_category_type_name_ci
     ON channels(server_id, LOWER(COALESCE(category, '')), channel_type, LOWER(name));
-
-COMMIT;

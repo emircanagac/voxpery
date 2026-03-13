@@ -84,6 +84,29 @@ async fn users_share_server(db: &sqlx::PgPool, a_user_id: Uuid, b_user_id: Uuid)
     .unwrap_or(false)
 }
 
+async fn user_in_server(db: &sqlx::PgPool, user_id: Uuid, server_id: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+            SELECT 1
+            FROM servers s
+            WHERE s.id = $1
+              AND (
+                    s.owner_id = $2
+                    OR EXISTS (
+                        SELECT 1
+                        FROM server_members sm
+                        WHERE sm.server_id = s.id AND sm.user_id = $2
+                    )
+              )
+        )"#,
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(db)
+    .await
+    .unwrap_or(false)
+}
+
 fn is_allowed_ws_origin(req: &Request, state: &AppState) -> bool {
     let origin = req
         .headers()
@@ -300,13 +323,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                         | WsEvent::MemberLeft { server_id, .. }
                         | WsEvent::MemberRoleUpdated { server_id, .. }
                         | WsEvent::ServerRolesUpdated { server_id }
-                        | WsEvent::ServerChannelsUpdated { server_id } => sub_server_counts
-                            .read()
-                            .await
-                            .get(server_id)
-                            .copied()
-                            .unwrap_or(0)
-                            > 0,
+                        | WsEvent::ServerChannelsUpdated { server_id } => {
+                            user_in_server(&send_state.db, user_id, *server_id).await
+                        }
                         WsEvent::VoiceStateUpdate { server_id, .. }
                         | WsEvent::VoiceControlUpdate { server_id, .. } => {
                             match server_id {

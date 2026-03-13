@@ -34,6 +34,7 @@ export default function ServerSidebar({
         channelsByServerId,
         setChannelsForServer,
         setMembersForServer,
+        voiceStates,
         voiceStateServerIds,
     } = useAppStore(
         useShallow((s) => ({
@@ -44,13 +45,19 @@ export default function ServerSidebar({
             channelsByServerId: s.channelsByServerId,
             setChannelsForServer: s.setChannelsForServer,
             setMembersForServer: s.setMembersForServer,
+            voiceStates: s.voiceStates,
             voiceStateServerIds: s.voiceStateServerIds,
         })),
     )
 
     const serverIdsWithActiveVoice = useMemo(
-        () => new Set<string>(Object.values(voiceStateServerIds).filter((id): id is string => !!id)),
-        [voiceStateServerIds],
+        () =>
+            new Set<string>(
+                Object.entries(voiceStateServerIds)
+                    .filter(([userId, serverId]) => !!serverId && !!voiceStates[userId])
+                    .map(([, serverId]) => serverId as string),
+            ),
+        [voiceStateServerIds, voiceStates],
     )
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
@@ -328,12 +335,12 @@ export default function ServerSidebar({
                     aria-label={server.name}
                 >
                     {server.icon_url ? <img src={server.icon_url} alt={server.name} /> : getInitial(server.name)}
+                    {isVoiceActive && (
+                        <span className="server-voice-indicator" aria-label="Sesli sohbet aktif" title="Sesli sohbette biri var">
+                            <Users size={10} strokeWidth={3} aria-hidden />
+                        </span>
+                    )}
                 </button>
-                {isVoiceActive && (
-                    <span className="server-voice-indicator" aria-label="Sesli sohbet aktif" title="Sesli sohbette biri var">
-                        <Users size={10} strokeWidth={3} aria-hidden />
-                    </span>
-                )}
             </div>
         )
     }

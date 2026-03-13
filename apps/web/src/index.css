@@ -592,23 +592,26 @@ body {
 
 .server-voice-indicator {
   position: absolute;
-  bottom: 3px;
-  right: 3px;
-  width: 16px;
-  height: 16px;
+  bottom: 5px;
+  right: 5px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--voice-online, #22c55e);
-  border: 2px solid var(--bg-surface);
+  border: 1.5px solid var(--bg-surface);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
   z-index: 10;
   color: white;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 .server-voice-indicator svg {
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.4));
+  width: 8px;
+  height: 8px;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.35));
 }
 
 .server-icon:hover {
