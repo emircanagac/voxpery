@@ -6,13 +6,13 @@ Voxpery aims to be the leading open-source Discord alternative, prioritizing pri
 ## Q1 2026 (Current)
 - [x] Core voice/text communication
 - [x] Friends and DMs
+- [x] Server roles & bitmask permissions system
 - [x] Comprehensive test suite (frontend + backend + E2E)
 - [x] Community documentation (CONTRIBUTING.md, CODE_OF_CONDUCT)
 - [x] Production deployment guide
 - [ ] Desktop auto-updater (T1)
 
 ## Q2 2026 (Planned)
-- [ ] Server roles & permissions system
 - [ ] Multi-language support (i18n)
 - [ ] Voice activity detection improvements
 - [ ] Desktop tray animation (T2)

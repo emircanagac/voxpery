@@ -180,6 +180,12 @@ cd apps/web
 node scripts/smoke-e2e.mjs
 ```
 
+**Security header strict mode**:
+```bash
+cd apps/web
+SMOKE_REQUIRE_SECURITY_HEADERS=1 node scripts/smoke-e2e.mjs
+```
+
 **Prerequisites**: Backend + Postgres must be running.
 
 ### Unit Tests
@@ -236,6 +242,36 @@ voxpery=# SELECT * FROM users;
 - **Application → Local Storage**: Voice settings, persistent state
 
 **React DevTools**: Install extension for component tree inspection.
+
+### Performance Profiling (React DevTools Profiler)
+
+Use this flow for heavy settings pages (especially Server Settings):
+
+1. Open app in browser and enable React DevTools Profiler.
+2. Start recording.
+3. Open Server Settings.
+4. Switch tabs: `Overview -> Roles -> Audit -> Danger zone`.
+5. In Roles, select a role and toggle multiple permissions.
+6. In Audit, click `Load older entries` at least twice.
+7. Stop recording and inspect:
+   - longest commit duration
+   - components with repeated re-renders
+   - interaction traces around tab switches
+
+Save screenshots/flamegraph export to PR discussion for regressions.
+
+Additionally, server settings render metrics are buffered at runtime in:
+
+```js
+window.__voxperyProfile
+```
+
+Quick summary in browser console:
+```js
+const rows = (window.__voxperyProfile || []).filter(x => x.id === 'ServerSettings')
+const max = rows.reduce((m, x) => Math.max(m, x.actualDuration || 0), 0)
+console.log({ samples: rows.length, maxActualDurationMs: max })
+```
 
 **Zustand DevTools**:
 ```typescript

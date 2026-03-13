@@ -1,508 +1,622 @@
 # API Reference
 
-REST API for authentication, servers, channels, messages, friends, and direct messages.
+REST API for authentication, servers, channels, messages, friends, direct messages, and voice tokening.
 
 ## Base URL
 
-- **Development**: `http://127.0.0.1:3001`
-- **Production**: `https://api.your-domain.com`
+- Development: `http://127.0.0.1:3001`
+- Production: `https://api.your-domain.com`
 
 ## Authentication
 
-All authenticated endpoints require either:
+Authenticated endpoints accept:
 
-- **Web**: httpOnly cookie (`voxpery_token`) — set automatically on login
-- **Desktop**: `Authorization: Bearer <jwt>` header
+- Web: httpOnly cookie (`voxpery_token`, configurable)
+- Desktop: `Authorization: Bearer <jwt>`
+
+## Authorization Model
+
+Server authorization is bitmask-permission based (aggregated from assigned roles), not a single moderator/admin flag.
+
+- Roles: `/api/servers/:server_id/roles*`
+- Member role assignments: `/api/servers/:server_id/members/:user_id/roles`
+- `Everyone` role is seeded by default per server.
+
+## Auth
 
 ### POST `/api/auth/register`
 
-Create a new account.
+Create account.
 
-**Request**:
+Request:
 ```json
-{ "username": "alice", "email": "alice@example.com", "password": "secure123" }
+{ "username": "alice", "email": "alice@example.com", "password": "secure123", "captcha_token": "optional" }
 ```
 
-**Response** (200):
+Response (200):
 ```json
 {
   "token": "eyJhbGc...",
-  "user": { "id": "uuid", "username": "alice", "email": "alice@example.com", "status": "online", ... }
+  "user": {
+    "id": "uuid",
+    "username": "alice",
+    "avatar_url": null,
+    "status": "online",
+    "dm_privacy": "everyone",
+    "username_changed_at": null
+  }
 }
 ```
 
-**Errors**:
-- `400`: Username/email taken, validation failed
-- `429`: Rate limit exceeded (10 attempts per minute)
-
 ### POST `/api/auth/login`
 
-Login with username/email + password.
-
-**Request**:
+Request:
 ```json
 { "identifier": "alice", "password": "secure123" }
 ```
 
-**Response** (200): Same as register
+Response (200): same shape as register.
 
-**Errors**:
-- `401`: Invalid credentials
-- `429`: Rate limit exceeded
+### POST `/api/auth/logout`
+
+Clears cookie and blacklists current token when available.
+
+Response (200):
+```json
+{}
+```
 
 ### GET `/api/auth/me`
 
-Get current user info.
-
-**Response** (200):
+Response (200): `UserPublic`
 ```json
-{ "id": "uuid", "username": "alice", "email": "alice@example.com", "status": "online", ... }
+{
+  "id": "uuid",
+  "username": "alice",
+  "avatar_url": null,
+  "status": "online",
+  "dm_privacy": "everyone",
+  "username_changed_at": null
+}
 ```
 
 ### PATCH `/api/auth/status`
 
-Update presence status.
-
-**Request**:
+Request:
 ```json
 { "status": "dnd" }
 ```
 
-**Values**: `online`, `idle`, `dnd`, `offline`
+Values: `online`, `idle`, `dnd`, `offline`
 
-**Response** (200): Updated user object
+Response (200): updated `UserPublic`.
 
 ### PATCH `/api/auth/profile`
 
-Update avatar or DM privacy.
+Update username/avatar/privacy.
 
-**Request**:
+Request (example):
 ```json
-{ "avatar_url": "https://cdn.example.com/avatar.png", "dm_privacy": "friends" }
+{
+  "username": "alice_new",
+  "avatar_url": "https://cdn.example.com/avatar.png",
+  "clear_avatar": false,
+  "dm_privacy": "friends"
+}
 ```
 
-**DM privacy values**: `everyone`, `friends`, `server_members`
+`dm_privacy` values: `everyone`, `friends`
 
-**Response** (200): Updated user object
+Response (200): updated `UserPublic`.
 
-### POST `/api/auth/logout`
+### GET `/api/auth/check-username?username=...`
 
-Logout (clears cookie, blacklists JWT).
-
-**Response** (200): `{ "message": "Logged out" }`
+Response (200):
+```json
+{ "available": true }
+```
 
 ### POST `/api/auth/change-password`
 
-Change password (requires re-login).
-
-**Request**:
+Request:
 ```json
-{ "old_password": "secure123", "new_password": "newsecure456" }
+{ "old_password": "old", "new_password": "newpassword123" }
 ```
 
-**Response** (200): Cookie cleared, client must re-login
+Response (200):
+```json
+{ "message": "Password changed successfully" }
+```
+
+### POST `/api/auth/forgot-password`
+
+Request:
+```json
+{ "email": "alice@example.com" }
+```
+
+Response (200):
+```json
+{ "message": "If an account with that email exists, we have sent a password reset link." }
+```
+
+### POST `/api/auth/reset-password`
+
+Request:
+```json
+{ "token": "reset-token", "new_password": "newpassword123" }
+```
+
+Response (200):
+```json
+{ "message": "Password has been successfully reset. You can now log in." }
+```
+
+### GET `/api/auth/google`
+### GET `/api/auth/google/callback`
+
+Google OAuth redirect/callback endpoints (when configured).
 
 ## Servers
 
 ### GET `/api/servers`
 
-List user's servers.
-
-**Response** (200):
+Response (200):
 ```json
 [
-  { "id": "uuid", "name": "My Server", "owner_id": "uuid", "icon_url": null, "invite_code": "abc123", ... }
+  {
+    "id": "uuid",
+    "name": "My Server",
+    "icon_url": null,
+    "owner_id": "uuid",
+    "invite_code": "abc123",
+    "created_at": "2026-03-13T00:00:00Z",
+    "member_count": 4
+  }
 ]
-```
-
-### GET `/api/servers/:id`
-
-Get server details + members.
-
-**Response** (200):
-```json
-{
-  "id": "uuid",
-  "name": "My Server",
-  "members": [
-    { "user_id": "uuid", "username": "alice", "avatar_url": null, "role": "owner", "status": "online" }
-  ],
-  ...
-}
 ```
 
 ### POST `/api/servers`
 
-Create a new server.
-
-**Request**:
+Request:
 ```json
-{ "name": "My Server" }
+{ "name": "My Server", "icon_url": null }
 ```
 
-**Response** (201): Server object
+Response (200): `Server`
 
-### PATCH `/api/servers/:id`
+### GET `/api/servers/:server_id`
 
-Update server name or icon.
-
-**Request**:
+Response (200):
 ```json
-{ "name": "Renamed Server", "icon_url": "https://..." }
+{
+  "id": "uuid",
+  "name": "My Server",
+  "icon_url": null,
+  "owner_id": "uuid",
+  "invite_code": "abc123",
+  "created_at": "2026-03-13T00:00:00Z",
+  "my_permissions": 1153,
+  "members": [
+    {
+      "user_id": "uuid",
+      "username": "alice",
+      "avatar_url": null,
+      "role": "owner",
+      "status": "online",
+      "role_color": "#5865F2"
+    }
+  ]
+}
 ```
 
-**Authorization**: Owner or moderator
+### PATCH `/api/servers/:server_id`
 
-**Response** (200): Updated server object
+Requires `MANAGE_SERVER`.
+
+Request:
+```json
+{ "name": "Renamed", "icon_url": "https://...", "clear_icon": false }
+```
+
+Response (200): updated `Server`.
+
+### DELETE `/api/servers/:server_id`
+
+Owner only.
+
+Response (200):
+```json
+{ "message": "Server deleted" }
+```
 
 ### POST `/api/servers/join`
 
-Join server via invite code.
-
-**Request**:
+Request:
 ```json
 { "invite_code": "abc123" }
 ```
 
-**Response** (200): Server object
+Response (200): `Server`
 
-**Errors**:
-- `404`: Invalid invite code
-- `400`: Already a member
+### POST `/api/servers/:server_id/leave`
 
-### POST `/api/servers/:id/leave`
-
-Leave a server.
-
-**Response** (200): `{ "message": "Left server" }`
-
-**Note**: Owner cannot leave (must delete server or transfer ownership)
-
-### DELETE `/api/servers/:id`
-
-Delete a server (owner only).
-
-**Response** (200): `{ "message": "Server deleted" }`
-
-### GET `/api/servers/:id/channels`
-
-List channels in a server.
-
-**Response** (200):
+Response (200):
 ```json
-[
-  { "id": "uuid", "name": "general", "channel_type": "text", "position": 0, ... }
-]
+{ "message": "Left server" }
 ```
 
-### PATCH `/api/servers/:server_id/members/:user_id/role`
+### GET `/api/servers/:server_id/channels`
 
-Change member role (owner/moderator only).
+Response (200): `Channel[]`
 
-**Request**:
+### GET `/api/servers/:server_id/roles`
+### POST `/api/servers/:server_id/roles`
+### PATCH `/api/servers/:server_id/roles/:role_id`
+### DELETE `/api/servers/:server_id/roles/:role_id`
+### PATCH `/api/servers/:server_id/roles/reorder`
+
+Role management endpoints (requires `MANAGE_ROLES`; owner-only constraints apply for some operations).
+
+Create request example:
 ```json
-{ "role": "moderator" }
+{ "name": "Moderator", "color": "#5865F2", "permissions": 6992 }
 ```
 
-**Values**: `moderator`, `member`
+Reorder request example:
+```json
+{ "role_ids": ["uuid-role-1", "uuid-role-2"] }
+```
 
-**Response** (200): `{ "message": "Role updated" }`
+### GET `/api/servers/:server_id/members/:user_id/roles`
+
+Response (200):
+```json
+["uuid-role-1", "uuid-role-2"]
+```
+
+### PUT `/api/servers/:server_id/members/:user_id/roles`
+
+Request:
+```json
+{ "role_ids": ["uuid-role-1", "uuid-role-2"] }
+```
+
+Response (200):
+```json
+{ "message": "Member roles updated" }
+```
+
+Legacy compat endpoint:
+- `PATCH /api/servers/:server_id/members/:user_id/role`
 
 ### DELETE `/api/servers/:server_id/members/:user_id`
 
-Kick member (owner/moderator only).
+Requires `KICK_MEMBERS`.
 
-**Response** (200): `{ "message": "Member kicked" }`
+Response (200):
+```json
+{ "message": "Member kicked" }
+```
+
+### GET `/api/servers/:server_id/audit-log`
+
+Requires `VIEW_AUDIT_LOG`.
+
+Response (200): audit entries
+```json
+[
+  {
+    "id": "uuid",
+    "at": "2026-03-13T00:00:00Z",
+    "actor_id": "uuid",
+    "server_id": "uuid",
+    "action": "member_role_change",
+    "resource_type": "user",
+    "resource_id": "uuid",
+    "details": {},
+    "actor_username": "admin",
+    "resource_username": "member"
+  }
+]
+```
 
 ## Channels
 
 ### POST `/api/channels`
 
-Create a channel.
+Requires `MANAGE_CHANNELS`.
 
-**Request**:
+Request:
 ```json
-{ "server_id": "uuid", "name": "general", "channel_type": "text" }
+{ "server_id": "uuid", "name": "general", "channel_type": "text", "category": "Text Channels" }
 ```
 
-**Channel types**: `text`, `voice`
+Response (200): `Channel`
 
-**Authorization**: Server member
+### PATCH `/api/channels/:channel_id`
 
-**Response** (201): Channel object
+Requires `MANAGE_CHANNELS`.
 
-### DELETE `/api/channels/:id`
-
-Delete a channel (owner/moderator only).
-
-**Response** (200): `{ "message": "Channel deleted" }`
-
-### PATCH `/api/channels/:id`
-
-Rename a channel.
-
-**Request**:
+Request:
 ```json
 { "name": "new-name" }
 ```
 
-**Response** (200): Updated channel object
+Response (200): updated `Channel`
+
+### DELETE `/api/channels/:channel_id`
+
+Requires `MANAGE_CHANNELS`.
+
+Response (200):
+```json
+{ "message": "Channel deleted" }
+```
 
 ### PATCH `/api/channels/reorder`
 
-Reorder channels.
-
-**Request**:
+Request:
 ```json
-{ "server_id": "uuid", "channel_ids": ["uuid1", "uuid2", "uuid3"] }
+{ "server_id": "uuid", "channel_ids": ["uuid1", "uuid2"] }
 ```
 
-**Response** (200): `{ "message": "Channels reordered" }`
+Response (200):
+```json
+{ "message": "Channels reordered" }
+```
 
-## Messages
+### GET `/api/channels/:channel_id/overrides`
+### PUT `/api/channels/:channel_id/overrides/:role_id`
+### DELETE `/api/channels/:channel_id/overrides/:role_id`
 
-### GET `/api/messages/:channel_id`
+Channel role override management (`allow`/`deny` bitmasks), requires `MANAGE_CHANNELS`.
 
-Load messages (paginated).
+## Messages (Server Channels)
 
-**Query params**:
-- `limit` (default: 50, max: 100)
-- `before` (message UUID, for pagination)
+### GET `/api/messages/:channel_id?before=<uuid>&limit=<n>`
 
-**Response** (200):
+Response (200): `MessageWithAuthor[]`
 ```json
 [
-  { "id": "uuid", "content": "Hello", "author_id": "uuid", "author_username": "alice", "created_at": "...", ... }
+  {
+    "id": "uuid",
+    "channel_id": "uuid",
+    "content": "Hello",
+    "attachments": null,
+    "edited_at": null,
+    "created_at": "2026-03-13T00:00:00Z",
+    "author": {
+      "user_id": "uuid",
+      "username": "alice",
+      "avatar_url": null,
+      "role_color": "#5865F2"
+    }
+  }
 ]
 ```
 
-**Order**: Newest first (reverse chronological)
+### GET `/api/messages/:channel_id/search?q=<term>&limit=<n>`
+
+Response (200): `MessageWithAuthor[]`
 
 ### POST `/api/messages/:channel_id`
 
-Send a message.
-
-**Request**:
+Request:
 ```json
-{ "content": "Hello world!", "attachments": null }
+{ "content": "Hello world", "attachments": null }
 ```
 
-**Rate limit**: 30 messages per 10 seconds
-
-**Response** (201): Message object (also broadcast via WebSocket)
+Response (200): `MessageWithAuthor`
 
 ### PATCH `/api/messages/item/:message_id`
 
-Edit a message (author only).
-
-**Request**:
+Request:
 ```json
 { "content": "Edited content" }
 ```
 
-**Response** (200): Updated message object
+Response (200): `MessageWithAuthor`
 
 ### DELETE `/api/messages/item/:message_id`
 
-Delete a message (author/owner/moderator).
+Response (200):
+```json
+{ "message": "Deleted", "id": "uuid" }
+```
 
-**Response** (200): `{ "message": "Message deleted", "id": "uuid" }`
+### GET `/api/messages/:channel_id/pins`
+
+Response (200): `MessageWithAuthor[]`
+
+### POST `/api/messages/:channel_id/pins`
+
+Request:
+```json
+{ "message_id": "uuid" }
+```
+
+Response (200): pinned `MessageWithAuthor`
+
+### DELETE `/api/messages/:channel_id/pins/:message_id`
+
+Response (200):
+```json
+{ "ok": true }
+```
 
 ## Friends
 
 ### GET `/api/friends`
 
-List friends.
-
-**Response** (200):
-```json
-[
-  { "id": "uuid", "username": "bob", "avatar_url": null, "status": "online" }
-]
-```
+Response (200): `FriendUser[]`
 
 ### GET `/api/friends/requests`
 
-List friend requests (incoming + outgoing).
-
-**Response** (200):
+Response (200):
 ```json
 {
-  "incoming": [
-    { "id": "uuid", "requester_id": "uuid", "requester_username": "bob", ... }
-  ],
-  "outgoing": [...]
+  "incoming": [],
+  "outgoing": []
 }
 ```
 
 ### POST `/api/friends/requests`
 
-Send friend request.
-
-**Request**:
+Request:
 ```json
 { "username": "bob" }
 ```
 
-**Response** (201): `{ "message": "Friend request sent" }`
+Response (200):
+```json
+{ "message": "Friend request sent" }
+```
 
-**Errors**:
-- `404`: User not found
-- `400`: Already friends or request pending
-
-### POST `/api/friends/requests/:id/accept`
-
-Accept friend request.
-
-**Response** (200): `{ "message": "Friend request accepted" }`
-
-### POST `/api/friends/requests/:id/reject`
-
-Reject friend request.
-
-**Response** (200): `{ "message": "Friend request rejected" }`
-
+### POST `/api/friends/requests/:request_id/accept`
+### POST `/api/friends/requests/:request_id/reject`
 ### DELETE `/api/friends/:friend_id`
 
-Remove friend.
-
-**Response** (200): `{ "message": "Friend removed" }`
+Responses (200):
+```json
+{ "message": "Friend request accepted" }
+```
+```json
+{ "message": "Friend request rejected" }
+```
+```json
+{ "message": "Friend removed" }
+```
 
 ## Direct Messages
 
 ### GET `/api/dm/channels`
 
-List DM channels.
-
-**Response** (200):
-```json
-[
-  {
-    "id": "uuid",
-    "peer_id": "uuid",
-    "peer_username": "bob",
-    "peer_avatar_url": null,
-    "peer_status": "online",
-    "last_message_at": "2026-03-03T12:00:00Z"
-  }
-]
-```
+Response (200): `DmChannelInfo[]`
 
 ### POST `/api/dm/channels/:peer_id`
 
-Get or create DM channel with a user.
+Get or create channel with peer.
 
-**Response** (200): DM channel object
+Response (200): `DmChannelInfo`
 
-**Authorization**: DM privacy check applies
+### GET `/api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
 
-### GET `/api/dm/messages/:channel_id`
+Response (200): `MessageWithAuthor[]`
 
-Load DM messages (same as server messages).
+### GET `/api/dm/messages/:channel_id/search?q=<term>&limit=<n>`
 
-**Query params**: `limit`, `before`
-
-**Response** (200): Array of messages
+Response (200): `MessageWithAuthor[]`
 
 ### POST `/api/dm/messages/:channel_id`
 
-Send DM.
-
-**Request**:
+Request:
 ```json
-{ "content": "Hi!", "attachments": null }
+{ "content": "Hi", "attachments": null }
 ```
 
-**Response** (201): Message object
+Response (200): `MessageWithAuthor`
 
 ### PATCH `/api/dm/messages/item/:message_id`
 
-Edit DM (author only).
+Request:
+```json
+{ "content": "Edited DM" }
+```
 
-**Response** (200): Updated message
+Response (200): `MessageWithAuthor`
 
 ### DELETE `/api/dm/messages/item/:message_id`
 
-Delete DM (author only).
-
-**Response** (200): `{ "message": "Message deleted" }`
+Response (200):
+```json
+{ "message": "DM message deleted", "id": "uuid" }
+```
 
 ### GET `/api/dm/channels/:channel_id/read-state`
 
-Get peer's last-read message.
-
-**Response** (200):
+Response (200):
 ```json
-{ "peer_last_read_message_id": "uuid" }
+{ "peer_last_read_message_id": "uuid-or-null" }
+```
+
+### GET `/api/dm/channels/:channel_id/pins`
+### POST `/api/dm/channels/:channel_id/pins`
+### DELETE `/api/dm/channels/:channel_id/pins/:message_id`
+
+Pin/unpin DM messages.
+
+Unpin response (200):
+```json
+{ "ok": true }
 ```
 
 ## WebRTC
 
 ### GET `/api/webrtc/turn-credentials`
 
-Get TURN server credentials for NAT traversal.
-
-**Response** (200):
+Response (200):
 ```json
 {
   "urls": ["turn:turn.example.com:3478"],
-  "username": "1234567890:uuid",
-  "credential": "base64secret"
+  "username": "1700000000:user-uuid",
+  "credential": "base64signature"
 }
 ```
 
-**TTL**: 1 hour (credentials expire)
+If TURN is not configured:
+```json
+{ "urls": [] }
+```
 
-### GET `/api/webrtc/livekit-token?channel_id=...`
+### GET `/api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
 
-Get LiveKit access token for voice channel.
-
-**Query params**:
-- `channel_id` (required, voice channel UUID)
-
-**Response** (200):
+Response (200):
 ```json
 {
   "ws_url": "wss://livekit.example.com",
-  "token": "eyJhbGc...",
+  "token": "jwt",
   "room": "channel-uuid",
   "identity": "user-uuid"
 }
 ```
 
-**Authorization**: Must be member of channel's server
-
-**TTL**: 1 hour
-
 ## Health
 
 ### GET `/health`
 
-Liveness/readiness check.
-
-**Response** (200):
+Healthy response (200):
 ```json
 { "status": "ok", "database": "connected" }
 ```
 
-## Rate Limits
+Unhealthy response (503):
+```json
+{ "status": "unhealthy", "database": "disconnected" }
+```
 
-- **Auth endpoints**: 10 requests per minute per IP
-- **Message send**: 30 messages per 10 seconds per user
-- **General**: No explicit limit (rely on reverse proxy)
+## Rate Limits (Current)
+
+- Register: per-email + per-IP protection
+- Login: per-identifier
+- Profile update: 12/min per user
+- Change password: 5/hour per user
+- Friend request: 10/min per user
+- DM channel create: 5/min per user
+- Message send: configured per user (`MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`)
+- WS connect: 3/10s per user
 
 ## Error Responses
 
-All errors return JSON:
-
+Errors are JSON:
 ```json
 { "error": "Human-readable message" }
 ```
 
-**Status codes**:
-- `400`: Bad request, validation error
-- `401`: Unauthorized (missing/invalid JWT)
-- `403`: Forbidden (insufficient permissions)
-- `404`: Not found
-- `429`: Rate limit exceeded
-- `500`: Internal server error
+Common statuses:
+- `400` invalid request/validation
+- `401` unauthorized
+- `403` forbidden
+- `404` not found
+- `429` too many requests
+- `500` internal error

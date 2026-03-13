@@ -90,7 +90,7 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 }
 ```
 
-**Backend panics on startup** if config is insecure.
+**Backend fails fast on startup** if config is insecure.
 
 ### Cookie Security
 
@@ -110,28 +110,27 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 
 ### Implementation
 
-In-memory counters (DashMap):
+Rate limits are enforced with Redis sliding windows (`ZSET` based):
 
 ```rust
-pub fn enforce_rate_limit(
-    limits: &DashMap<String, Vec<Instant>>,
+pub async fn enforce_rate_limit(
+    redis: &redis::Client,
     key: String,
-    max: usize,
+    max_requests: usize,
     window: Duration,
-    error_msg: &str,
+    message: &str,
 ) -> Result<(), AppError> {
-    let now = Instant::now();
-    let mut entry = limits.entry(key).or_default();
-    entry.retain(|t| now.duration_since(*t) < window);
-    if entry.len() >= max {
-        return Err(AppError::RateLimit(error_msg.to_string()));
+    let mut conn = redis.get_multiplexed_async_connection().await?;
+    // trim window -> count -> insert -> expire
+    let current: isize = conn.zcard(format!("rate:{}", key)).await?;
+    if current >= max_requests as isize {
+        return Err(AppError::TooManyRequests(message.to_string()));
     }
-    entry.push(now);
     Ok(())
 }
 ```
 
-**Future**: Migrate to Redis for multi-pod deployments (horizontal scaling).
+This keeps enforcement consistent across instances and avoids per-process counters.
 
 ## JWT Blacklist
 

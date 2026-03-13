@@ -6338,6 +6338,12 @@ a.community-open-btn:hover {
   border-bottom: none;
 }
 
+.server-settings-audit-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
 .server-settings-overview-grid {
   display: grid;
   grid-template-columns: 1fr;

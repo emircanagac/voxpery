@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react'
+import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
@@ -11,6 +11,9 @@ import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
+import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
+import ServerRolesSidebar from '../components/ServerRolesSidebar'
+import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
 import { MessageSquare, Mic } from 'lucide-react'
 
@@ -162,6 +165,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const { connect, send, subscribe, isConnected } = useSocketStore()
     const [showUnsavedServerSettingsConfirm, setShowUnsavedServerSettingsConfirm] = useState(false)
     const [serverRoles, setServerRoles] = useState<ServerRole[]>([])
+    const [visibleRoleCount, setVisibleRoleCount] = useState(40)
     const [rolesLoading, setRolesLoading] = useState(false)
     const [rolesError, setRolesError] = useState<string | null>(null)
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
@@ -173,6 +177,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
+    const memberUsernameById = useMemo(() => {
+        const byId = new Map<string, string>()
+        for (const member of members) byId.set(member.user_id, member.username)
+        return byId
+    }, [members])
+    const visibleServerRoles = useMemo(
+        () => serverRoles.slice(0, Math.min(visibleRoleCount, serverRoles.length)),
+        [serverRoles, visibleRoleCount]
+    )
+    const hasMoreServerRoles = visibleServerRoles.length < serverRoles.length
 
     // Refs to avoid stale closures in WebSocket handlers
     const activeChannelIdRef = useRef(activeChannelId)
@@ -964,6 +978,161 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }, [showServerSettings, serverSettingsTab])
 
+    useEffect(() => {
+        setVisibleRoleCount(40)
+    }, [serverSettingsServerId, serverRoles])
+
+    const handleCreateRoleDraft = () => {
+        setRolesError(null)
+        setSelectedRoleId('new')
+        setRoleEditName('')
+        setRoleEditPermissions(0)
+        setRoleEditColor(null)
+    }
+
+    const handleSelectRole = (role: ServerRole) => {
+        if (selectedRoleId === role.id) {
+            // Toggle off: collapse editor for this role.
+            setSelectedRoleId(null)
+            setRoleEditName('')
+            setRoleEditPermissions(0)
+            return
+        }
+        setSelectedRoleId(role.id)
+        setRoleEditName(role.name)
+        setRoleEditPermissions(role.permissions)
+        setRoleEditColor(role.color)
+    }
+
+    const handleDropRole = async (targetRoleId: string) => {
+        if (!draggingRoleId || !settingsServer) return
+        if (draggingRoleId === targetRoleId) return
+        const fromIndex = serverRoles.findIndex((r) => r.id === draggingRoleId)
+        const toIndex = serverRoles.findIndex((r) => r.id === targetRoleId)
+        if (fromIndex === -1 || toIndex === -1) return
+
+        const next = [...serverRoles]
+        const [moved] = next.splice(fromIndex, 1)
+        next.splice(toIndex, 0, moved)
+        setServerRoles(next)
+        setDraggingRoleId(null)
+        try {
+            await serverApi.reorderRoles(
+                settingsServer.id,
+                next.map((r) => r.id),
+                token,
+            )
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Failed to reorder roles.'
+            setRolesError(message)
+        }
+    }
+
+    const handleToggleRolePermission = (bit: number, isFullAdmin: boolean, checked: boolean) => {
+        setRoleEditPermissions((prev) => {
+            const ADMIN_MASK =
+                PERM_VIEW_SERVER |
+                PERM_MANAGE_SERVER |
+                PERM_MANAGE_ROLES |
+                PERM_MANAGE_CHANNELS |
+                PERM_KICK_MEMBERS |
+                PERM_BAN_MEMBERS |
+                PERM_VIEW_AUDIT_LOG |
+                PERM_SEND_MESSAGES |
+                PERM_MANAGE_MESSAGES |
+                PERM_MANAGE_PINS |
+                PERM_CONNECT_VOICE |
+                PERM_MUTE_MEMBERS |
+                PERM_DEAFEN_MEMBERS |
+                PERM_MANAGE_WEBHOOKS
+            if (isFullAdmin && !checked) {
+                return prev & ~ADMIN_MASK
+            }
+            let next = checked ? prev | bit : prev & ~bit
+            if ((next & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER) {
+                next |= ADMIN_MASK
+            }
+            return next
+        })
+    }
+
+    const handleCancelRoleEdit = () => {
+        setSelectedRoleId(null)
+        setRoleEditName('')
+        setRoleEditPermissions(0)
+        setRoleEditColor(null)
+    }
+
+    const handleSaveRole = async () => {
+        if (!settingsServer) return
+        try {
+            const existing = selectedRoleId
+                ? serverRoles.find((r) => r.id === selectedRoleId)
+                : undefined
+            if (!existing) {
+                await serverApi.createRole(
+                    settingsServer.id,
+                    roleEditName.trim(),
+                    roleEditPermissions,
+                    token,
+                    roleEditColor,
+                )
+            } else {
+                await serverApi.updateRole(
+                    settingsServer.id,
+                    existing.id,
+                    {
+                        name: roleEditName.trim(),
+                        permissions: roleEditPermissions,
+                        color: roleEditColor,
+                    },
+                    token,
+                )
+            }
+            const roles = await serverApi.listRoles(
+                settingsServer.id,
+                token,
+            )
+            setServerRoles(roles)
+            handleCancelRoleEdit()
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Failed to save role.'
+            setRolesError(message)
+        }
+    }
+
+    const handleServerSettingsProfileRender = useCallback(
+        (
+            id: string,
+            phase: 'mount' | 'update' | 'nested-update',
+            actualDuration: number,
+            baseDuration: number,
+            startTime: number,
+            commitTime: number,
+        ) => {
+            const store = ((window as unknown as { __voxperyProfile?: Array<Record<string, unknown>> }).__voxperyProfile ??= [])
+            store.push({
+                id,
+                phase,
+                actualDuration,
+                baseDuration,
+                startTime,
+                commitTime,
+                at: Date.now(),
+            })
+            if (store.length > 400) {
+                store.splice(0, store.length - 400)
+            }
+        },
+        []
+    )
+
     const refreshServerList = useCallback(async () => {
         if (!isLoggedIn) return []
         const allServers = await serverApi.list(token)
@@ -1534,6 +1703,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
                                         </nav>
 
+                                        <Profiler id="ServerSettings" onRender={handleServerSettingsProfileRender}>
                                         <div className="server-settings-content">
                                             {serverSettingsTab === 'overview' && (
                                                 <section className="server-settings-card">
@@ -1702,69 +1872,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         </div>
                                                     )}
                                                     {!auditLogLoading && auditLogEntries && auditLogEntries.length > 0 && (
-                                                        <div className="server-settings-audit-list">
-                                                            {auditLogEntries.map((entry) => {
-                                                                const actorName = entry.actor_username ?? members.find((m) => m.user_id === entry.actor_id)?.username ?? 'Unknown User'
-                                                                const targetName = entry.resource_username ?? (entry.resource_id ? members.find((m) => m.user_id === entry.resource_id)?.username : null)
-                                                                const details = entry.details as Record<string, unknown> | null | undefined
-                                                                
-                                                                let actionText = entry.action
-                                                                let targetDesc = targetName
-
-                                                                switch (entry.action) {
-                                                                    case 'channel_create':
-                                                                        actionText = 'Created channel'
-                                                                        targetDesc = details?.name ? `#${details.name}` : 'Unknown Channel'
-                                                                        break
-                                                                    case 'channel_delete':
-                                                                        actionText = 'Deleted channel'
-                                                                        targetDesc = details?.name ? `#${details.name}` : 'Unknown Channel'
-                                                                        break
-                                                                    case 'channel_rename':
-                                                                        actionText = 'Renamed channel'
-                                                                        targetDesc = details?.old_name && details?.new_name ? `#${details.old_name} → #${details.new_name}` : 'Unknown Channel'
-                                                                        break
-                                                                    case 'server_update':
-                                                                        actionText = 'Updated server settings'
-                                                                        targetDesc = null
-                                                                        break
-                                                                    case 'member_kick':
-                                                                        actionText = 'Kicked member'
-                                                                        break
-                                                                    case 'member_role_change':
-                                                                        actionText = 'Updated member roles'
-                                                                        break
-                                                                    case 'message_pin':
-                                                                        actionText = 'Pinned a message'
-                                                                        targetDesc = details?.channel_id ? `in a channel` : null
-                                                                        break
-                                                                    case 'message_unpin':
-                                                                        actionText = 'Unpinned a message'
-                                                                        targetDesc = details?.channel_id ? `in a channel` : null
-                                                                        break
-                                                                }
-
-                                                                return (
-                                                                    <div
-                                                                        key={entry.id}
-                                                                        className="server-settings-audit-row"
-                                                                    >
-                                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                                                                                <strong style={{ color: 'var(--text-normal)' }}>{actorName}</strong>
-                                                                                <span style={{ color: 'var(--text-muted)' }}>{actionText}</span>
-                                                                                {targetDesc && (
-                                                                                    <strong style={{ color: 'var(--text-normal)' }}>{targetDesc}</strong>
-                                                                                )}
-                                                                            </div>
-                                                                            <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                                                                {new Date(entry.at).toLocaleString()}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            })}
-                                                        </div>
+                                                        <ServerSettingsAuditLog
+                                                            entries={auditLogEntries}
+                                                            memberUsernameById={memberUsernameById}
+                                                        />
                                                     )}
                                                 </section>
                                             )}
@@ -1778,373 +1889,57 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         </div>
                                                     )}
                                                     <div className="server-roles-layout">
-                                                        <div className="server-roles-sidebar">
-                                                            <div
-                                                                style={{
-                                                                    display: 'flex',
-                                                                    justifyContent: 'space-between',
-                                                                    alignItems: 'center',
-                                                                    marginBottom: 8,
-                                                                }}
-                                                            >
-                                                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                                    Server roles
-                                                                </span>
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-secondary btn-xs"
-                                                                    style={{
-                                                                        fontSize: 11,
-                                                                        padding: '3px 10px',
-                                                                        borderRadius: 9999,
-                                                                        border: '1px solid rgba(255, 255, 255, 0.14)',
-                                                                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                                                        cursor: 'pointer',
-                                                                    }}
-                                                                    disabled={rolesLoading}
-                                                                    onClick={() => {
-                                                                        setRolesError(null)
-                                                                        setSelectedRoleId('new')
-                                                                        setRoleEditName('')
-                                                                        setRoleEditPermissions(0)
-                                                                        setRoleEditColor(null)
-                                                                    }}
-                                                                >
-                                                                    Create role
-                                                                </button>
-                                                            </div>
-                                                            <div className="server-roles-sidebar-list">
-                                                                {rolesLoading && (
-                                                                    <div
-                                                                        style={{
-                                                                            padding: 8,
-                                                                            fontSize: 12,
-                                                                            color: 'var(--text-muted)',
-                                                                        }}
-                                                                    >
-                                                                        Loading roles…
-                                                                    </div>
-                                                                )}
-                                                                {!rolesLoading &&
-                                                                    serverRoles.map((role) => (
-                                                                        <button
-                                                                            key={role.id}
-                                                                            type="button"
-                                                                            className={`server-role-list-item ${
-                                                                                selectedRoleId === role.id
-                                                                                    ? 'server-role-list-item--active'
-                                                                                    : ''
-                                                                            }`}
-                                                                            style={{
-                                                                                width: '100%',
-                                                                                textAlign: 'left',
-                                                                                cursor: 'grab',
-                                                                            }}
-                                                                            draggable
-                                                                            onDragStart={() => setDraggingRoleId(role.id)}
-                                                                            onDragOver={(e) => {
-                                                                                e.preventDefault()
-                                                                            }}
-                                                                            onDrop={async (e) => {
-                                                                                e.preventDefault()
-                                                                                if (!draggingRoleId || !settingsServer) return
-                                                                                if (draggingRoleId === role.id) return
-                                                                                const fromIndex = serverRoles.findIndex(
-                                                                                    (r) => r.id === draggingRoleId,
-                                                                                )
-                                                                                const toIndex = serverRoles.findIndex(
-                                                                                    (r) => r.id === role.id,
-                                                                                )
-                                                                                if (fromIndex === -1 || toIndex === -1) return
-                                                                                const next = [...serverRoles]
-                                                                                const [moved] = next.splice(fromIndex, 1)
-                                                                                next.splice(toIndex, 0, moved)
-                                                                                setServerRoles(next)
-                                                                                setDraggingRoleId(null)
-                                                                                try {
-                                                                                    await serverApi.reorderRoles(
-                                                                                        settingsServer.id,
-                                                                                        next.map((r) => r.id),
-                                                                                        token,
-                                                                                    )
-                                                                                } catch (err) {
-                                                                                    const message =
-                                                                                        err instanceof Error
-                                                                                            ? err.message
-                                                                                            : 'Failed to reorder roles.'
-                                                                                    setRolesError(message)
-                                                                                }
-                                                                            }}
-                                                                            onClick={() => {
-                                                                                if (selectedRoleId === role.id) {
-                                                                                    // Toggle off: collapse editor for this role.
-                                                                                    setSelectedRoleId(null)
-                                                                                    setRoleEditName('')
-                                                                                    setRoleEditPermissions(0)
-                                                                                } else {
-                                                                                    setSelectedRoleId(role.id)
-                                                                                    setRoleEditName(role.name)
-                                                                                    setRoleEditPermissions(role.permissions)
-                                                                                    setRoleEditColor(role.color)
-                                                                                }
-                                                                            }}
-                                                                        >
-                                                                            {role.name}
-                                                                        </button>
-                                                                    ))}
-                                                                {!rolesLoading && serverRoles.length === 0 && (
-                                                                    <div
-                                                                        style={{
-                                                                            padding: 8,
-                                                                            fontSize: 12,
-                                                                            color: 'var(--text-muted)',
-                                                                        }}
-                                                                    >
-                                                                        No roles yet. Create one to get started.
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                                        <ServerRolesSidebar
+                                                            rolesLoading={rolesLoading}
+                                                            selectedRoleId={selectedRoleId}
+                                                            serverRoles={serverRoles}
+                                                            visibleServerRoles={visibleServerRoles}
+                                                            hasMoreServerRoles={hasMoreServerRoles}
+                                                            onCreateRole={handleCreateRoleDraft}
+                                                            onRoleDragStart={setDraggingRoleId}
+                                                            onRoleDrop={handleDropRole}
+                                                            onRoleSelect={handleSelectRole}
+                                                            onLoadMoreRoles={() => setVisibleRoleCount((prev) => prev + 40)}
+                                                        />
                                                         <div className="server-roles-detail">
-                                                            {selectedRoleId ? (
-                                                                <>
-                                                                    <div className="server-role-editor-meta">
-                                                                        <div>
-                                                                            <label className="server-settings-card__title server-role-editor-label">
-                                                                                Role name
-                                                                            </label>
-                                                                            <input
-                                                                                type="text"
-                                                                                value={roleEditName}
-                                                                                onChange={(e) => setRoleEditName(e.target.value)}
-                                                                                maxLength={64}
-                                                                                placeholder="Role name"
-                                                                                className="server-role-editor-name-input"
-                                                                            />
-                                                                        </div>
-                                                                        <div className="server-role-editor-color-wrap">
-                                                                            <label className="server-settings-card__title server-role-editor-label">
-                                                                                Role color
-                                                                            </label>
-                                                                            <div className="server-role-editor-color-row">
-                                                                                <input
-                                                                                    type="color"
-                                                                                    value={roleEditColor ?? '#ffffff'}
-                                                                                    onChange={(e) => setRoleEditColor(e.target.value)}
-                                                                                    className="server-role-editor-color-input"
-                                                                                />
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-xs"
-                                                                                    style={{ fontSize: 11, padding: '4px 10px' }}
-                                                                                    onClick={() => setRoleEditColor(null)}
-                                                                                >
-                                                                                    Clear color
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="server-role-permissions-wrap">
-                                                                        <div className="server-settings-card__title server-role-editor-label">
-                                                                            Permissions
-                                                                        </div>
-                                                                        <div className="server-role-permissions-groups">
-                                                                            {[
-                                                                                {
-                                                                                    title: 'Server',
-                                                                                    perms: [
-                                                                                        { label: 'Full admin', bit: PERM_MANAGE_SERVER },
-                                                                                        { label: 'Manage roles', bit: PERM_MANAGE_ROLES },
-                                                                                        { label: 'Manage channels', bit: PERM_MANAGE_CHANNELS },
-                                                                                        { label: 'Manage webhooks', bit: PERM_MANAGE_WEBHOOKS },
-                                                                                        { label: 'View audit log', bit: PERM_VIEW_AUDIT_LOG },
-                                                                                    ],
-                                                                                },
-                                                                                {
-                                                                                    title: 'Messages',
-                                                                                    perms: [
-                                                                                        { label: 'Send messages', bit: PERM_SEND_MESSAGES },
-                                                                                        { label: 'Manage messages', bit: PERM_MANAGE_MESSAGES },
-                                                                                        { label: 'Manage pins', bit: PERM_MANAGE_PINS },
-                                                                                    ],
-                                                                                },
-                                                                                {
-                                                                                    title: 'Voice',
-                                                                                    perms: [
-                                                                                        { label: 'Connect to voice', bit: PERM_CONNECT_VOICE },
-                                                                                        { label: 'Mute members', bit: PERM_MUTE_MEMBERS },
-                                                                                        { label: 'Deafen members', bit: PERM_DEAFEN_MEMBERS },
-                                                                                    ],
-                                                                                },
-                                                                                {
-                                                                                    title: 'Moderation',
-                                                                                    perms: [
-                                                                                        { label: 'Kick members', bit: PERM_KICK_MEMBERS },
-                                                                                        { label: 'Ban members', bit: PERM_BAN_MEMBERS },
-                                                                                    ],
-                                                                                },
-                                                                            ].map((group) => (
-                                                                                <section key={group.title} className="server-role-permission-group">
-                                                                                    <div className="server-role-permission-group-title">{group.title}</div>
-                                                                                    <div className="server-role-permission-group-items">
-                                                                                        {group.perms.map((perm) => {
-                                                                                            const isFullAdmin = perm.bit === PERM_MANAGE_SERVER
-                                                                                            const fullAdminOn = (roleEditPermissions & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
-                                                                                            const isDisabled = !isFullAdmin && fullAdminOn
-                                                                                            return (
-                                                                                                <label
-                                                                                                    key={perm.bit}
-                                                                                                    className="server-role-permission-item"
-                                                                                                    style={{ opacity: isDisabled ? 0.85 : 1 }}
-                                                                                                >
-                                                                                                    <input
-                                                                                                        type="checkbox"
-                                                                                                        checked={
-                                                                                                            fullAdminOn && !isFullAdmin
-                                                                                                                ? true
-                                                                                                                : (roleEditPermissions & perm.bit) === perm.bit
-                                                                                                        }
-                                                                                                        disabled={isDisabled}
-                                                                                                        onChange={(e) => {
-                                                                                                            const checked = e.target.checked
-                                                                                                            setRoleEditPermissions((prev) => {
-                                                                                                                const ADMIN_MASK =
-                                                                                                                    PERM_VIEW_SERVER |
-                                                                                                                    PERM_MANAGE_SERVER |
-                                                                                                                    PERM_MANAGE_ROLES |
-                                                                                                                    PERM_MANAGE_CHANNELS |
-                                                                                                                    PERM_KICK_MEMBERS |
-                                                                                                                    PERM_BAN_MEMBERS |
-                                                                                                                    PERM_VIEW_AUDIT_LOG |
-                                                                                                                    PERM_SEND_MESSAGES |
-                                                                                                                    PERM_MANAGE_MESSAGES |
-                                                                                                                    PERM_MANAGE_PINS |
-                                                                                                                    PERM_CONNECT_VOICE |
-                                                                                                                    PERM_MUTE_MEMBERS |
-                                                                                                                    PERM_DEAFEN_MEMBERS |
-                                                                                                                    PERM_MANAGE_WEBHOOKS
-                                                                                                                if (isFullAdmin && !checked) {
-                                                                                                                    return prev & ~ADMIN_MASK
-                                                                                                                }
-                                                                                                                let next = checked ? prev | perm.bit : prev & ~perm.bit
-                                                                                                                if ((next & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER) {
-                                                                                                                    next |= ADMIN_MASK
-                                                                                                                }
-                                                                                                                return next
-                                                                                                            })
-                                                                                                        }}
-                                                                                                    />
-                                                                                                    <span>{perm.label}</span>
-                                                                                                </label>
-                                                                                            )
-                                                                                        })}
-                                                                                    </div>
-                                                                                </section>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="server-role-editor-actions">
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-danger-outline btn-sm"
-                                                                            style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                                                                            disabled={
-                                                                                !selectedRoleId ||
-                                                                                !serverRoles.find((r) => r.id === selectedRoleId)
-                                                                            }
-                                                                            onClick={() => {
-                                                                                if (!selectedRoleId) return
-                                                                                setDeleteRoleConfirmId(selectedRoleId)
-                                                                            }}
-                                                                        >
-                                                                            Delete role
-                                                                        </button>
-                                                                        <div className="server-role-editor-actions-right">
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel"
-                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                                                                                onClick={() => {
-                                                                                    setSelectedRoleId(null)
-                                                                                    setRoleEditName('')
-                                                                                    setRoleEditPermissions(0)
-                                                                                    setRoleEditColor(null)
-                                                                                }}
-                                                                            >
-                                                                                Cancel
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-primary btn-sm server-role-btn-save"
-                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                                                                                disabled={
-                                                                                    !roleEditName.trim() ||
-                                                                                    rolesLoading ||
-                                                                                    !settingsServer
-                                                                                }
-                                                                                onClick={async () => {
-                                                                                    if (!settingsServer) return
-                                                                                    try {
-                                                                                        const existing = selectedRoleId
-                                                                                            ? serverRoles.find(
-                                                                                                  (r) => r.id === selectedRoleId,
-                                                                                              )
-                                                                                            : undefined
-                                                                                        if (!existing) {
-                                                                                            await serverApi.createRole(
-                                                                                                settingsServer.id,
-                                                                                                roleEditName.trim(),
-                                                                                                roleEditPermissions,
-                                                                                                token,
-                                                                                                roleEditColor,
-                                                                                            )
-                                                                                        } else {
-                                                                                            await serverApi.updateRole(
-                                                                                                settingsServer.id,
-                                                                                                selectedRoleId,
-                                                                                                {
-                                                                                                    name: roleEditName.trim(),
-                                                                                                    permissions: roleEditPermissions,
-                                                                                                    color: roleEditColor,
-                                                                                                },
-                                                                                                token,
-                                                                                            )
-                                                                                        }
-                                                                                        const roles = await serverApi.listRoles(
-                                                                                            settingsServer.id,
-                                                                                            token,
-                                                                                        )
-                                                                                        setServerRoles(roles)
-                                                                                        // Collapse editor after successful save;
-                                                                                        // user can re-open by clicking a role.
-                                                                                        setSelectedRoleId(null)
-                                                                                        setRoleEditName('')
-                                                                                        setRoleEditPermissions(0)
-                                                                                        setRoleEditColor(null)
-                                                                                    } catch (err) {
-                                                                                        const message =
-                                                                                            err instanceof Error
-                                                                                                ? err.message
-                                                                                                : 'Failed to save role.'
-                                                                                        setRolesError(message)
-                                                                                    }
-                                                                                }}
-                                                                            >
-                                                                                Save role
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                </>
-                                                            ) : (
-                                                                <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                                                                    Select a role from the list or create a new one.
-                                                                </p>
-                                                            )}
+                                                            <ServerRoleEditor
+                                                                selectedRoleId={selectedRoleId}
+                                                                roleEditName={roleEditName}
+                                                                roleEditColor={roleEditColor}
+                                                                roleEditPermissions={roleEditPermissions}
+                                                                canDeleteRole={!!selectedRoleId && !!serverRoles.find((r) => r.id === selectedRoleId)}
+                                                                canSaveRole={!!roleEditName.trim() && !rolesLoading && !!settingsServer}
+                                                                bits={{
+                                                                    manageServer: PERM_MANAGE_SERVER,
+                                                                    manageRoles: PERM_MANAGE_ROLES,
+                                                                    manageChannels: PERM_MANAGE_CHANNELS,
+                                                                    manageWebhooks: PERM_MANAGE_WEBHOOKS,
+                                                                    viewAuditLog: PERM_VIEW_AUDIT_LOG,
+                                                                    sendMessages: PERM_SEND_MESSAGES,
+                                                                    manageMessages: PERM_MANAGE_MESSAGES,
+                                                                    managePins: PERM_MANAGE_PINS,
+                                                                    connectVoice: PERM_CONNECT_VOICE,
+                                                                    muteMembers: PERM_MUTE_MEMBERS,
+                                                                    deafenMembers: PERM_DEAFEN_MEMBERS,
+                                                                    kickMembers: PERM_KICK_MEMBERS,
+                                                                    banMembers: PERM_BAN_MEMBERS,
+                                                                }}
+                                                                onRoleNameChange={setRoleEditName}
+                                                                onRoleColorChange={setRoleEditColor}
+                                                                onTogglePermission={handleToggleRolePermission}
+                                                                onDeleteRole={() => {
+                                                                    if (!selectedRoleId) return
+                                                                    setDeleteRoleConfirmId(selectedRoleId)
+                                                                }}
+                                                                onCancel={handleCancelRoleEdit}
+                                                                onSave={() => void handleSaveRole()}
+                                                            />
                                                         </div>
                                                     </div>
                                                 </section>
                                             )}
                                         </div>
+                                        </Profiler>
                                     </div>
                                 </div>
 

@@ -311,7 +311,6 @@ export function useLiveKitVoice() {
         // Ignore TURN errors in dev
       }
 
-      console.log('[useLiveKitVoice] Connecting to Room...', { ws_url, iceServers })
       room.on(RoomEvent.TrackPublished, (publication) => {
         if (!publication.isSubscribed) publication.setSubscribed(true)
       })

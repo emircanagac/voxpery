@@ -2,6 +2,7 @@ import { WebSocket } from 'ws'
 
 const API_BASE = process.env.SMOKE_API_URL || 'http://127.0.0.1:3001'
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
+const REQUIRE_SECURITY_HEADERS = process.env.SMOKE_REQUIRE_SECURITY_HEADERS === '1'
 
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -22,6 +23,36 @@ async function api(path, { method = 'GET', body, token } = {}) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+async function checkSecurityHeaders() {
+  const res = await fetch(`${API_BASE}/health`)
+  if (!res.ok) {
+    throw new Error(`GET /health failed (${res.status})`)
+  }
+
+  const header = (name) => (res.headers.get(name) || '').trim()
+  const csp = header('content-security-policy')
+  const xFrameOptions = header('x-frame-options').toUpperCase()
+  const xContentType = header('x-content-type-options').toLowerCase()
+  const referrerPolicy = header('referrer-policy').toLowerCase()
+
+  const missing = []
+  if (!csp || !csp.toLowerCase().includes('default-src')) missing.push('content-security-policy')
+  if (xFrameOptions !== 'DENY') missing.push('x-frame-options=DENY')
+  if (xContentType !== 'nosniff') missing.push('x-content-type-options=nosniff')
+  if (!referrerPolicy) missing.push('referrer-policy')
+
+  if (missing.length > 0) {
+    const msg = `[smoke] security headers missing/invalid: ${missing.join(', ')}`
+    if (REQUIRE_SECURITY_HEADERS) {
+      throw new Error(msg)
+    }
+    console.warn(`${msg} (non-strict mode)`)
+    return
+  }
+
+  console.log('[smoke] security headers OK')
 }
 
 function randomIdentity() {
@@ -70,6 +101,8 @@ function wsSend(ws, type, data) {
 
 async function main() {
   console.log(`[smoke] API: ${API_BASE}`)
+  console.log(`[smoke] require security headers: ${REQUIRE_SECURITY_HEADERS ? 'yes' : 'no'}`)
+  await checkSecurityHeaders()
   const creds = randomIdentity()
 
   console.log('[smoke] register')

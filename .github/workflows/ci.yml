@@ -7,6 +7,42 @@ on:
     branches: [main]
 
 jobs:
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Dependency audit (Rust)
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: apps/server
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web deps
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Dependency audit (web prod deps)
+        working-directory: apps/web
+        run: npm audit --omit=dev --audit-level=high
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
@@ -47,6 +83,10 @@ jobs:
       - name: Install
         working-directory: apps/web
         run: npm ci
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
 
       - name: Build
         working-directory: apps/web

@@ -4,7 +4,7 @@ use axum::{
         Request, State, WebSocketUpgrade,
     },
     http::header,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
 use std::{collections::HashSet, sync::Arc};
@@ -71,10 +71,7 @@ pub async fn ws_handler(
     let using_cookie_auth = query_token.is_empty() && protocol_token.is_none();
 
     if using_cookie_auth && !is_allowed_ws_origin(&req, &state) {
-        return Response::builder()
-            .status(403)
-            .body("Forbidden origin".into())
-            .unwrap();
+        return (axum::http::StatusCode::FORBIDDEN, "Forbidden origin").into_response();
     }
 
     let token: Option<String> = {
@@ -90,20 +87,14 @@ pub async fn ws_handler(
     let token = match token {
         Some(t) => t,
         None => {
-            return Response::builder()
-                .status(401)
-                .body("Unauthorized".into())
-                .unwrap();
+            return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
     };
 
     let claims = match validate_ws_token(&token, &state).await {
         Some(claims) => claims,
         None => {
-            return Response::builder()
-                .status(401)
-                .body("Unauthorized".into())
-                .unwrap();
+            return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
     };
 
@@ -116,10 +107,7 @@ pub async fn ws_handler(
     )
     .await
     {
-        return Response::builder()
-            .status(429)
-            .body(e.to_string().into())
-            .unwrap();
+        return (axum::http::StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response();
     }
 
     let ws = if protocol_token.is_some() {
@@ -247,17 +235,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                     };
 
                     if should_send {
-                        let json = serde_json::to_string(&event).unwrap();
-                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                            break;
+                        match serde_json::to_string(&event) {
+                            Ok(json) => {
+                                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("WS broadcast serialization failed: {}", e);
+                            }
                         }
                     }
                 }
                 // Events from direct channel (targeted to this user)
                 Some(event) = rx.recv() => {
-                    let json = serde_json::to_string(&event).unwrap();
-                    if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                        break;
+                    match serde_json::to_string(&event) {
+                        Ok(json) => {
+                            if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("WS direct serialization failed: {}", e);
+                        }
                     }
                 }
                 else => break,

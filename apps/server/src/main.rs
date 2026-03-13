@@ -22,7 +22,8 @@ async fn main() {
     let config = config::Config::from_env();
 
     if let Err(msg) = validate_security_config(&config.cors_origins, config.cookie_secure) {
-        panic!("{}", msg);
+        tracing::error!("Invalid security configuration: {}", msg);
+        return;
     }
 
     let db = PgPoolOptions::new()
@@ -108,8 +109,16 @@ async fn main() {
         &config.server_host
     };
     let addr = format!("{}:{}", host, config.server_port);
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!("Failed to bind server listener on {}: {}", addr, e);
+            return;
+        }
+    };
     tracing::info!("🚀 Voxpery server running on {}", addr);
 
-    axum::serve(listener, app).await.unwrap();
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!("HTTP server terminated with error: {}", e);
+    }
 }

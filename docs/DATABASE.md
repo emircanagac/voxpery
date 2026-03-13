@@ -65,13 +65,61 @@ User membership in servers.
 CREATE TABLE server_members (
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'moderator', 'member')),
+    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (server_id, user_id)
 );
 
 CREATE INDEX idx_server_members_user ON server_members(user_id);
 CREATE INDEX idx_server_members_role ON server_members(server_id, role);
+```
+
+### `server_roles`
+
+Server-scoped roles with bitmask permissions.
+
+```sql
+CREATE TABLE server_roles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name VARCHAR(64) NOT NULL,
+    color VARCHAR(16),
+    position INTEGER NOT NULL DEFAULT 0,
+    permissions BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX idx_server_roles_server_name
+    ON server_roles(server_id, LOWER(name));
+```
+
+### `server_member_roles`
+
+Many-to-many role assignments per member.
+
+```sql
+CREATE TABLE server_member_roles (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (server_id, user_id, role_id)
+);
+
+CREATE INDEX idx_server_member_roles_user
+    ON server_member_roles(user_id);
+```
+
+### `channel_role_overrides`
+
+Channel-level allow/deny overrides for roles.
+
+```sql
+CREATE TABLE channel_role_overrides (
+    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    allow BIGINT NOT NULL DEFAULT 0,
+    deny BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, role_id)
+);
 ```
 
 ### `channels`
@@ -212,6 +260,9 @@ Versioned SQL files in `apps/server/migrations/`:
 - `005_audit_log.sql` — Moderation log
 - `006_dm_privacy.sql` — DM privacy settings
 - `007_rename_admin_to_moderator.sql` — Rename `admin` role to `moderator`
+- `012_roles_and_permissions.sql` — Bitmask role system (`server_roles`, `server_member_roles`, overrides)
+- `015_collapse_admin_to_member.sql` — Normalize `server_members.role` bridge to `owner/member`
+- `019_seed_everyone_role_and_assign_members.sql` — Seed and assign default `Everyone` role
 
 **Run migrations**: Backend auto-runs on startup via `sqlx::migrate!("./migrations").run(&db).await`.
 
