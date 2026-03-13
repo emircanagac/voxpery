@@ -1214,6 +1214,7 @@ async fn forgot_password(
     Json(body): Json<ForgotPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let email = body.email.trim().to_lowercase();
+    let generic_ok = || Json(serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." }));
     
     enforce_rate_limit(
         &state.redis,
@@ -1223,62 +1224,73 @@ async fn forgot_password(
         "Too many password reset requests. Please check your email or try again later.",
     ).await?;
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE lower(email) = $1")
+    #[derive(sqlx::FromRow)]
+    struct ResetCandidate {
+        id: Uuid,
+        email: String,
+        google_id: Option<String>,
+    }
+
+    let user = sqlx::query_as::<_, ResetCandidate>(
+        "SELECT id, email, google_id FROM users WHERE lower(email) = $1"
+    )
         .bind(&email)
         .fetch_optional(&state.db)
         .await?;
 
-    if let Some(user) = user {
-        if user.google_id.is_some() {
-            // Can't reset password for Google OAuth users
-            return Err(AppError::Validation("This account uses Google Sign-In. Password reset is not available.".into()));
-        }
+    // Always return generic success to prevent account enumeration.
+    let Some(user) = user else {
+        return Ok(generic_ok());
+    };
 
-        // Generate token
-        let token_plain = Uuid::new_v4().to_string();
-        let mut hasher = Sha1::new();
-        hasher.update(token_plain.as_bytes());
-        let token_hash = BASE64.encode(hasher.finalize());
-        let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    // Google Sign-In accounts have no local password to reset.
+    if user.google_id.is_some() {
+        return Ok(generic_ok());
+    }
 
-        // Delete any existing token for this user to respect UNIQUE(user_id) constraint
-        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
-            .bind(user.id)
-            .execute(&state.db)
-            .await?;
+    // Generate token
+    let token_plain = Uuid::new_v4().to_string();
+    let mut hasher = Sha1::new();
+    hasher.update(token_plain.as_bytes());
+    let token_hash = BASE64.encode(hasher.finalize());
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
 
-        // Insert new token
-        sqlx::query(
-            "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)"
-        )
+    // Delete any existing token for this user to respect UNIQUE(user_id) constraint
+    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
         .bind(user.id)
-        .bind(&token_hash)
-        .bind(expires_at)
         .execute(&state.db)
         .await?;
 
-        // Send email
-        if let (Some(host), Some(smtp_user), Some(smtp_pass)) = (&state.smtp_host, &state.smtp_user, &state.smtp_password) {
-            let frontend_url = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
-            let frontend_url = frontend_url.trim_end_matches('/');
-            let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
-            
-            if let Err(e) = crate::services::email::send_password_reset_email(
-                &user.email,
-                &reset_link,
-                host,
-                smtp_user,
-                smtp_pass,
-            ).await {
-                tracing::error!("Failed to send password reset email: {}", e);
-            }
-        } else {
-            tracing::warn!("SMTP is not configured! Password reset email not sent. Token: {}", token_plain);
+    // Insert new token
+    sqlx::query(
+        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)"
+    )
+    .bind(user.id)
+    .bind(&token_hash)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await?;
+
+    // Send email
+    if let (Some(host), Some(smtp_user), Some(smtp_pass)) = (&state.smtp_host, &state.smtp_user, &state.smtp_password) {
+        let frontend_url = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
+        let frontend_url = frontend_url.trim_end_matches('/');
+        let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
+
+        if let Err(e) = crate::services::email::send_password_reset_email(
+            &user.email,
+            &reset_link,
+            host,
+            smtp_user,
+            smtp_pass,
+        ).await {
+            tracing::error!("Failed to send password reset email: {}", e);
         }
+    } else {
+        tracing::warn!("SMTP is not configured! Password reset email not sent. Token: {}", token_plain);
     }
 
-    // Always return success to prevent email enumeration
-    Ok(Json(serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." })))
+    Ok(generic_ok())
 }
 
 /// POST /api/auth/reset-password
