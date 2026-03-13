@@ -68,9 +68,9 @@ export function useWebrtcDiagnostics(options: {
             setPingMs(null)
             return
         }
-        // Voice quality should reflect media path RTT first (RTC),
-        // then fall back to signaling/API RTT (WS) when RTC sample is unavailable.
-        setPingMs(rtcPingMs ?? wsPingMs)
+        // UI "ping" indicator keeps WS-first behavior for stable perceived values.
+        // RTC and WS values are still exposed separately in diagnostics.
+        setPingMs(wsPingMs ?? rtcPingMs)
     }, [joinedChannelId, rtcPingMs, wsPingMs])
 
     useEffect(() => {
