@@ -854,7 +854,15 @@ async fn list_channels(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(channels))
+    let mut visible = Vec::with_capacity(channels.len());
+    for channel in channels {
+        let perms = permissions::get_user_channel_permissions(&state.db, channel.id, claims.sub).await?;
+        if perms.contains(Permissions::VIEW_SERVER) {
+            visible.push(channel);
+        }
+    }
+
+    Ok(Json(visible))
 }
 
 /// PATCH /api/servers/:server_id/members/:user_id/role — owner can make/remove admins.

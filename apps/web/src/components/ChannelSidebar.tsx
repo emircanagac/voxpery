@@ -172,6 +172,11 @@ export default function ChannelSidebar({
     })
 
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
+    const closeAllContextMenus = () => {
+        setContextMenu(null)
+        setCategoryMenu(null)
+        setParticipantMenu(null)
+    }
 
     useEffect(() => {
         if (!contextMenu && !participantMenu && !categoryMenu) return
@@ -364,7 +369,7 @@ export default function ChannelSidebar({
                                 if (!canManageChannels) return
                                 e.preventDefault()
                                 const pos = clampMenuPosition(e.clientX, e.clientY, 210, 100)
-                                setContextMenu(null)
+                                closeAllContextMenus()
                                 setCategoryMenu({ category, x: pos.x, y: pos.y })
                             }}
                             draggable={!!canManageChannels}
@@ -437,6 +442,7 @@ export default function ChannelSidebar({
                                         onContextMenu={(e) => {
                                             if (!canManageChannels) return
                                             e.preventDefault()
+                                            closeAllContextMenus()
                                             setContextMenu({ channelId: ch.id, x: e.clientX, y: e.clientY })
                                         }}
                                         draggable={!!canManageChannels}
@@ -516,7 +522,7 @@ export default function ChannelSidebar({
                                                             const estimatedWidth = 192
                                                             const estimatedHeight = alreadyFriend ? 92 : 130
                                                             const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
-                                                            setContextMenu(null)
+                                                            closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, x: pos.x, y: pos.y })
                                                         }}
                                                     >

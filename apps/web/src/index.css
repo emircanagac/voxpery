@@ -3593,18 +3593,18 @@ body {
 .channel-type-selector {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 6px;
 }
 
 .channel-type-option {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 16px 12px;
-  border-radius: var(--border-radius-md);
-  border: 2px solid rgba(255, 255, 255, 0.08);
+  gap: 6px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   background: var(--bg-input);
   color: var(--text-secondary);
   cursor: pointer;
@@ -3630,13 +3630,55 @@ body {
 }
 
 .channel-type-option .channel-type-option__label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .channel-type-option .channel-type-option__desc {
-  font-size: 12px;
+  font-size: 11px;
   opacity: 0.85;
+}
+
+.channel-type-option svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Create channel / category modal action buttons: flatter + cleaner */
+.modal.modal-create-channel .modal-actions {
+  margin-top: 16px;
+  gap: 10px;
+}
+
+.modal.modal-create-channel .btn {
+  min-width: 128px;
+  height: 38px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.modal.modal-create-channel .btn-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+}
+
+.modal.modal-create-channel .btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.modal.modal-create-channel .btn-primary {
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 70%, white 8%);
+  background: color-mix(in srgb, var(--accent-primary) 74%, #2f6fed 26%);
+  box-shadow: none;
+}
+
+.modal.modal-create-channel .btn-primary:hover {
+  background: color-mix(in srgb, var(--accent-primary) 66%, #2f6fed 34%);
+  box-shadow: none;
 }
 
 .btn {

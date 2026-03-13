@@ -440,8 +440,26 @@ async fn list_categories(
     .fetch_all(&state.db)
     .await?;
 
+    // Return only categories that contain at least one channel visible to the caller.
+    let channels: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT id, category FROM channels WHERE server_id = $1 ORDER BY category, position",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut visible_categories = std::collections::HashSet::new();
+    for (channel_id, category_name) in channels {
+        let Some(category_name) = category_name else { continue };
+        let perms = permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
+        if perms.contains(Permissions::VIEW_SERVER) {
+            visible_categories.insert(category_name);
+        }
+    }
+
     Ok(Json(
         rows.into_iter()
+            .filter(|name| visible_categories.contains(name))
             .map(|name| CategoryNameResponse { name })
             .collect(),
     ))

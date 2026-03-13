@@ -27,8 +27,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-audit
-        run: cargo install --locked cargo-audit
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/server -> target
+
+      - name: Install cargo-audit (prebuilt)
+        uses: taiki-e/install-action@cargo-audit
 
       - name: Dependency audit (Rust)
         working-directory: apps/server
@@ -41,11 +46,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
-      - name: Install web deps
-        working-directory: apps/web
-        run: npm ci
-
-      - name: Dependency audit (web prod deps)
+      - name: Dependency audit (web prod deps, lockfile)
         working-directory: apps/web
         run: npm audit --omit=dev --audit-level=high
 
