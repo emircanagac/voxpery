@@ -598,6 +598,23 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     setShowCameraConfirm(true)
   }
 
+  useEffect(() => {
+    if (!showScreenShareConfirm && !showCameraConfirm) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (showCameraConfirm) {
+        setShowCameraConfirm(false)
+        return
+      }
+      if (showScreenShareConfirm) {
+        setShowScreenShareConfirm(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [showScreenShareConfirm, showCameraConfirm])
+
   const confirmCamera = async () => {
     setShowCameraConfirm(false)
     try {

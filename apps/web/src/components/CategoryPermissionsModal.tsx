@@ -29,12 +29,16 @@ export default function CategoryPermissionsModal({
     const { token } = useAuthStore()
     const [fallbackRoles, setFallbackRoles] = useState<ServerRole[]>([])
     const [overrides, setOverrides] = useState<ChannelOverride[]>([])
+    const [draftOverrides, setDraftOverrides] = useState<Record<string, { allow: number; deny: number }>>({})
+    const [changedRoleIds, setChangedRoleIds] = useState<Set<string>>(new Set())
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
+    const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const effectiveRoles = fallbackRoles.length > 0 ? fallbackRoles : serverRoles
     const activeSelectedRoleId =
         selectedRoleId && effectiveRoles.some((r) => r.id === selectedRoleId) ? selectedRoleId : null
+    const isDirty = changedRoleIds.size > 0
 
     useEffect(() => {
         let active = true
@@ -51,6 +55,10 @@ export default function CategoryPermissionsModal({
                 if (!active) return
                 setOverrides(ovs)
                 setFallbackRoles(roles)
+                setDraftOverrides(
+                    Object.fromEntries(ovs.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+                )
+                setChangedRoleIds(new Set())
             })
             .catch((err) => {
                 if (!active) return
@@ -67,10 +75,17 @@ export default function CategoryPermissionsModal({
 
     const currentOverride = useMemo(() => {
         if (!activeSelectedRoleId) return null
+        const draft = draftOverrides[activeSelectedRoleId]
+        if (draft) return { role_id: activeSelectedRoleId, allow: draft.allow, deny: draft.deny }
         return overrides.find((o) => o.role_id === activeSelectedRoleId) ?? { role_id: activeSelectedRoleId, allow: 0, deny: 0 }
-    }, [activeSelectedRoleId, overrides])
+    }, [activeSelectedRoleId, draftOverrides, overrides])
 
-    const updateOverrideBit = async (bit: number, type: 'allow' | 'deny' | 'inherit') => {
+    const getBaselineOverride = (roleId: string) => {
+        const existing = overrides.find((o) => o.role_id === roleId)
+        return existing ? { allow: existing.allow, deny: existing.deny } : { allow: 0, deny: 0 }
+    }
+
+    const updateOverrideBit = (bit: number, type: 'allow' | 'deny' | 'inherit') => {
         if (!activeSelectedRoleId || !currentOverride) return
         let newAllow = currentOverride.allow
         let newDeny = currentOverride.deny
@@ -84,14 +99,65 @@ export default function CategoryPermissionsModal({
             newAllow &= ~bit
             newDeny &= ~bit
         }
+        setDraftOverrides((prev) => ({
+            ...prev,
+            [activeSelectedRoleId]: { allow: newAllow, deny: newDeny },
+        }))
+        setChangedRoleIds((prev) => {
+            const baseline = getBaselineOverride(activeSelectedRoleId)
+            const changed = baseline.allow !== newAllow || baseline.deny !== newDeny
+            const next = new Set(prev)
+            if (changed) next.add(activeSelectedRoleId)
+            else next.delete(activeSelectedRoleId)
+            return next
+        })
+    }
+
+    const handleCancel = () => {
+        setDraftOverrides(
+            Object.fromEntries(overrides.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+        )
+        setChangedRoleIds(new Set())
+        setError(null)
+    }
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            onClose()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [onClose])
+
+    const handleSave = async () => {
+        if (!isDirty || saving) return
+        setSaving(true)
+        setError(null)
         try {
-            const updated = await channelApi.updateCategoryOverride(serverId, category, activeSelectedRoleId, newAllow, newDeny, token)
-            setOverrides((prev) => {
-                const filtered = prev.filter((o) => o.role_id !== activeSelectedRoleId)
-                return [...filtered, updated]
-            })
+            const updates = Array.from(changedRoleIds)
+            for (const roleId of updates) {
+                const draft = draftOverrides[roleId] ?? { allow: 0, deny: 0 }
+                await channelApi.updateCategoryOverride(
+                    serverId,
+                    category,
+                    roleId,
+                    draft.allow,
+                    draft.deny,
+                    token,
+                )
+            }
+            const refreshed = await channelApi.getCategoryOverrides(serverId, category, token)
+            setOverrides(refreshed)
+            setDraftOverrides(
+                Object.fromEntries(refreshed.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+            )
+            setChangedRoleIds(new Set())
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to update permission override.')
+            setError(err instanceof Error ? err.message : 'Failed to save category permissions.')
+        } finally {
+            setSaving(false)
         }
     }
 
@@ -183,6 +249,24 @@ export default function CategoryPermissionsModal({
                                                         </div>
                                                     )
                                                 })}
+                                                <div className="channel-settings-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm server-role-btn-cancel"
+                                                        onClick={handleCancel}
+                                                        disabled={saving}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm server-role-btn-save"
+                                                        onClick={() => void handleSave()}
+                                                        disabled={!isDirty || saving}
+                                                    >
+                                                        {saving ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                </div>
                                             </>
                                         )}
                                     </div>

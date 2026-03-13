@@ -212,6 +212,17 @@ export default function ServerSidebar({
         }
     }, [draggedServerId])
 
+    useEffect(() => {
+        if (!leaveServerConfirmId) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            setLeaveServerConfirmId(null)
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [leaveServerConfirmId])
+
     const orderedServers = (orderedServerIds.length > 0 ? orderedServerIds : servers.map((s) => s.id))
         .map((id) => servers.find((s) => s.id === id))
         .filter((s): s is NonNullable<typeof s> => !!s)

@@ -2108,6 +2108,23 @@ body {
   user-select: none;
 }
 
+.sensitivity-bar-permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sensitivity-bar-permission-note {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  text-align: right;
+}
+
 .sensitivity-bar-header {
   display: flex;
   align-items: center;
@@ -6548,6 +6565,16 @@ a.community-open-btn:hover {
 .channel-perm-btn.is-allowed {
   background: rgba(49, 191, 131, 0.28);
   color: #d9ffe8;
+}
+
+.channel-settings-actions {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .server-settings-content {

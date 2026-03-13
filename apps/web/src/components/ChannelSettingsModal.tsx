@@ -5,6 +5,39 @@ import { channelApi, serverApi } from '../api'
 import type { ChannelOverride } from '../api'
 import { useAuthStore } from '../stores/auth'
 
+const CHANNEL_NAME_MAX = 32
+const CATEGORY_NAME_MAX = 32
+
+function validateChannelNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Channel name is required.'
+    if (Array.from(value).length > CHANNEL_NAME_MAX) {
+        return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Channel name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Channel name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function validateCategoryNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Category name is required.'
+    if (Array.from(value).length > CATEGORY_NAME_MAX) {
+        return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Category name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Category name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
 interface ChannelSettingsModalProps {
     channel: Channel
     serverRoles: ServerRole[]
@@ -81,6 +114,18 @@ export default function ChannelSettingsModal({
     }
 
     const handleSaveGeneral = async () => {
+        const channelValidation = validateChannelNameInput(name)
+        if (channelValidation) {
+            setError(channelValidation)
+            return
+        }
+        if (category.trim()) {
+            const categoryValidation = validateCategoryNameInput(category)
+            if (categoryValidation) {
+                setError(categoryValidation)
+                return
+            }
+        }
         setSavingGeneral(true)
         setError(null)
         try {
@@ -127,6 +172,20 @@ export default function ChannelSettingsModal({
             setSelectedRoleId(null)
         }
     }, [effectiveRoles, selectedRoleId])
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            if (showDeleteConfirm) {
+                setShowDeleteConfirm(false)
+                return
+            }
+            onClose()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [onClose, showDeleteConfirm])
 
     const currentOverride = useMemo(() => {
         if (!selectedRoleId) return null
@@ -247,6 +306,7 @@ export default function ChannelSettingsModal({
                                                 value={name}
                                                 onChange={e => setName(e.target.value)}
                                                 placeholder="new-channel-name"
+                                                maxLength={CHANNEL_NAME_MAX}
                                             />
                                         </div>
                                         <div className="form-group">
@@ -256,7 +316,7 @@ export default function ChannelSettingsModal({
                                                 value={category}
                                                 onChange={e => setCategory(e.target.value)}
                                                 placeholder="e.g. Squad 1"
-                                                maxLength={64}
+                                                maxLength={CATEGORY_NAME_MAX}
                                             />
                                         </div>
                                         <button

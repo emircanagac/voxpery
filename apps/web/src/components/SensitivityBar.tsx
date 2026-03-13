@@ -61,6 +61,8 @@ export default function SensitivityBar({
 }: SensitivityBarProps) {
     const [micLevel, setMicLevel] = useState(0)         // 0–100 display %
     const [micActive, setMicActive] = useState(false)
+    const [monitorEnabled, setMonitorEnabled] = useState(false)
+    const [monitorState, setMonitorState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'unavailable'>('idle')
     const barRef = useRef<HTMLDivElement>(null)
     const draggingRef = useRef(false)
     const rafRef = useRef<number | null>(null)
@@ -71,12 +73,19 @@ export default function SensitivityBar({
 
     // ── Mic monitoring ──
     useEffect(() => {
+        if (!monitorEnabled) return
         let cancelled = false
         let rnnoiseNode: RnnoiseNode | null = null
         let settingsHandler: (() => void) | null = null
 
         const startMic = async () => {
+            setMonitorState('requesting')
             try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    setMicActive(false)
+                    setMonitorState('unavailable')
+                    return
+                }
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: true,
                     video: false,
@@ -118,6 +127,7 @@ export default function SensitivityBar({
 
                 analyserRef.current = analyser
                 setMicActive(true)
+                setMonitorState('active')
 
                 // Live NS toggle: react to settings changes
                 const onSettingsChanged = () => {
@@ -153,6 +163,7 @@ export default function SensitivityBar({
             } catch {
                 // mic permission denied or unavailable
                 setMicActive(false)
+                setMonitorState('denied')
             }
         }
 
@@ -173,7 +184,7 @@ export default function SensitivityBar({
             contextRef.current = null
             analyserRef.current = null
         }
-    }, [])
+    }, [monitorEnabled])
 
     // ── Threshold bar position + dB display ──
     const thresholdPos = thresholdToBarPosition(threshold)
@@ -230,6 +241,25 @@ export default function SensitivityBar({
 
     return (
         <div className="sensitivity-bar-wrap">
+            {!micActive && (
+                <div className="sensitivity-bar-permission">
+                    <button
+                        type="button"
+                        className="user-toggle"
+                        onClick={() => setMonitorEnabled(true)}
+                        disabled={monitorState === 'requesting'}
+                    >
+                        {monitorState === 'requesting' ? 'Requesting…' : monitorState === 'denied' ? 'Retry mic access' : 'Enable mic test'}
+                    </button>
+                    <span className="sensitivity-bar-permission-note">
+                        {monitorState === 'denied'
+                            ? 'Microphone access denied. Allow it in browser settings and retry.'
+                            : monitorState === 'unavailable'
+                                ? 'Microphone API is not available in this environment.'
+                                : 'Microphone access is only requested when you enable testing.'}
+                    </span>
+                </div>
+            )}
             <div className="sensitivity-bar-header">
                 <span className="sensitivity-bar-title">Input sensitivity ({thresholdDb}dB)</span>
                 <span className="sensitivity-bar-value">

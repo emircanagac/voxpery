@@ -193,6 +193,64 @@ pub async fn get_user_channel_permissions(
     Ok(perms)
 }
 
+/// Compute effective permissions for a user in a category scope.
+///
+/// Algorithm:
+/// 1. Start from server-level permissions.
+/// 2. Apply category role overrides: first DENY, then ALLOW.
+pub async fn get_user_category_permissions(
+    db: &PgPool,
+    server_id: Uuid,
+    category: &str,
+    user_id: Uuid,
+) -> Result<Permissions, AppError> {
+    let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+    let category_name = category.trim();
+    if category_name.is_empty() {
+        return Ok(perms);
+    }
+
+    let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
+        r#"WITH effective_roles AS (
+               SELECT sr.id AS role_id
+               FROM server_roles sr
+               WHERE sr.server_id = $1
+                 AND LOWER(sr.name) = 'everyone'
+               UNION
+               SELECT smr.role_id
+               FROM server_member_roles smr
+               WHERE smr.server_id = $1
+                 AND smr.user_id = $2
+           )
+           SELECT co.allow, co.deny
+           FROM effective_roles er
+           INNER JOIN channel_category_role_overrides co
+             ON co.role_id = er.role_id
+           WHERE co.server_id = $1
+             AND co.category = $3"#,
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .bind(category_name)
+    .fetch_all(db)
+    .await?;
+
+    let mut deny_mask = Permissions::empty();
+    let mut allow_mask = Permissions::empty();
+    for (allow_bits, deny_bits) in category_overrides {
+        if let Some(d) = Permissions::from_bits(deny_bits) {
+            deny_mask |= d;
+        }
+        if let Some(a) = Permissions::from_bits(allow_bits) {
+            allow_mask |= a;
+        }
+    }
+
+    perms.remove(deny_mask);
+    perms |= allow_mask;
+    Ok(perms)
+}
+
 pub async fn ensure_server_permission(
     db: &PgPool,
     server_id: Uuid,

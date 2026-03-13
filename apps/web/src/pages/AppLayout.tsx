@@ -35,7 +35,8 @@ export interface AppLayoutProps {
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 /** Page size for message list (pagination). Must match backend max (100) or less. */
 const MESSAGE_PAGE_SIZE = 50
-const CHANNEL_NAME_MAX = 40
+const CHANNEL_NAME_MAX = 32
+const CATEGORY_NAME_MAX = 32
 
 // Permission bit masks (must stay in sync with backend Permissions flags).
 const PERM_VIEW_SERVER = 1 << 0
@@ -66,6 +67,21 @@ function validateChannelNameInput(raw: string): string | null {
     }
     if (value.includes('  ')) {
         return 'Channel name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function validateCategoryNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Category name is required.'
+    if (Array.from(value).length > CATEGORY_NAME_MAX) {
+        return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Category name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Category name cannot contain consecutive spaces.'
     }
     return null
 }
@@ -523,30 +539,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 }
                 case 'MemberRoleUpdated': {
                     const sid = d.server_id as string | undefined
-                    const uid = d.user_id as string | undefined
-                    const role = d.role as string | undefined
-                    if (!uid || !role || !sid) break
-
-                    const store = useAppStore.getState()
-                    const updateList = (list: typeof store.members) => list.map((m) => m.user_id === uid ? { ...m, role } : m)
-
-                    if (activeServerIdRef.current === sid) {
-                        store.setMembers(updateList(store.members ?? []))
-                    }
-                    const cached = store.membersByServerId[sid] ?? []
-                    if (cached.length > 0) {
-                        store.setMembersForServer(sid, updateList(cached))
-                    }
-                    // If the updated user is the current user, refetch server detail so their UI (sidebar, buttons) updates immediately
-                    const currentUserId = useAuthStore.getState().user?.id
-                    if (uid === currentUserId && activeServerIdRef.current === sid && tokenRef.current) {
-                        serverApi.get(sid, tokenRef.current).then((detail) => {
-                            const s = useAppStore.getState()
-                            s.setMembers(detail.members ?? [])
-                            s.setMembersForServer(sid, detail.members ?? [])
-                            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
-                        }).catch(() => {})
-                    }
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    serverApi.get(sid, t).then((detail) => {
+                        const store = useAppStore.getState()
+                        store.setMembersForServer(sid, detail.members ?? [])
+                        if (activeServerIdRef.current === sid) {
+                            store.setMembers(detail.members ?? [])
+                        }
+                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+                    }).catch(() => {})
                     break
                 }
                 case 'ServerRolesUpdated': {
@@ -560,6 +562,34 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             store.setMembers(detail.members ?? [])
                         }
                         setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+                    }).catch(() => {})
+                    break
+                }
+                case 'ServerChannelsUpdated': {
+                    const sid = d.server_id as string | undefined
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    serverApi.channels(sid, t).then(async (chs) => {
+                        const store = useAppStore.getState()
+                        store.setChannelsForServer(sid, chs)
+                        setChannelServerMap((prev) => {
+                            const next = { ...prev }
+                            for (const ch of chs) next[ch.id] = ch.server_id
+                            return next
+                        })
+
+                        if (activeServerIdRef.current !== sid) return
+
+                        setChannels(chs)
+                        const categories = await channelApi.listCategories(sid, t).catch(() => [])
+                        setChannelCategories(categories.map((c) => c.name))
+
+                        const currentActive = activeChannelIdRef.current
+                        const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
+                        if (!stillValid) {
+                            const target = chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null
+                            store.setActiveChannel(target)
+                        }
                     }).catch(() => {})
                     break
                 }
@@ -1294,6 +1324,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!showServerSettings) return
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                if (
+                    channelSettingsTarget
+                    || categoryPermissionsTarget
+                    || showUnsavedServerSettingsConfirm
+                    || deleteRoleConfirmId
+                    || showDeleteServerConfirm
+                    || showRenameCategory
+                    || deleteCategoryConfirm
+                    || showRenameChannel
+                    || deleteChannelConfirm
+                    || deleteMessageConfirmId
+                ) {
+                    return
+                }
                 e.preventDefault()
                 handleCloseServerSettings()
             }
@@ -1302,7 +1346,130 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         return () => {
             window.removeEventListener('keydown', onKeyDown)
         }
-    }, [showServerSettings, handleCloseServerSettings])
+    }, [
+        showServerSettings,
+        handleCloseServerSettings,
+        channelSettingsTarget,
+        categoryPermissionsTarget,
+        showUnsavedServerSettingsConfirm,
+        deleteRoleConfirmId,
+        showDeleteServerConfirm,
+        showRenameCategory,
+        deleteCategoryConfirm,
+        showRenameChannel,
+        deleteChannelConfirm,
+        deleteMessageConfirmId,
+    ])
+
+    useEffect(() => {
+        if (
+            !showCreateChannel
+            && !showCreateCategory
+            && !showCreateServer
+            && !showJoinServer
+            && !showRenameChannel
+            && !showRenameCategory
+            && !showDeleteServerConfirm
+            && !showUnsavedServerSettingsConfirm
+            && !deleteRoleConfirmId
+            && !deleteMessageConfirmId
+            && !deleteChannelConfirm
+            && !deleteCategoryConfirm
+            && !channelSettingsTarget
+            && !categoryPermissionsTarget
+        ) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            if (deleteCategoryConfirm) {
+                setDeleteCategoryConfirm(null)
+                setDeleteCategoryError(null)
+                return
+            }
+            if (deleteChannelConfirm) {
+                setDeleteChannelConfirm(null)
+                return
+            }
+            if (deleteMessageConfirmId) {
+                setDeleteMessageConfirmId(null)
+                return
+            }
+            if (deleteRoleConfirmId) {
+                setDeleteRoleConfirmId(null)
+                return
+            }
+            if (showUnsavedServerSettingsConfirm) {
+                setShowUnsavedServerSettingsConfirm(false)
+                return
+            }
+            if (showDeleteServerConfirm) {
+                setShowDeleteServerConfirm(false)
+                setDeleteServerError(null)
+                return
+            }
+            if (showRenameCategory) {
+                setShowRenameCategory(false)
+                setRenameCategoryError(null)
+                setRenameCategoryFrom(null)
+                return
+            }
+            if (showRenameChannel) {
+                setShowRenameChannel(false)
+                setRenameChannelError(null)
+                setRenameChannelId(null)
+                return
+            }
+            if (categoryPermissionsTarget) {
+                setCategoryPermissionsTarget(null)
+                return
+            }
+            if (channelSettingsTarget) {
+                setChannelSettingsTarget(null)
+                return
+            }
+            if (showCreateChannel) {
+                setShowCreateChannel(false)
+                setCreateChannelError(null)
+                setCreateChannelCategory('')
+                return
+            }
+            if (showCreateCategory) {
+                setShowCreateCategory(false)
+                setCreateCategoryError(null)
+                return
+            }
+            if (showJoinServer) {
+                setShowJoinServer(false)
+                setJoinServerError(null)
+                return
+            }
+            if (showCreateServer) {
+                setShowCreateServer(false)
+                setCreateServerError(null)
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => {
+            window.removeEventListener('keydown', onKeyDown)
+        }
+    }, [
+        showCreateChannel,
+        showCreateCategory,
+        showCreateServer,
+        showJoinServer,
+        showRenameChannel,
+        showRenameCategory,
+        showDeleteServerConfirm,
+        showUnsavedServerSettingsConfirm,
+        deleteRoleConfirmId,
+        deleteMessageConfirmId,
+        deleteChannelConfirm,
+        deleteCategoryConfirm,
+        channelSettingsTarget,
+        categoryPermissionsTarget,
+        setShowCreateServer,
+        setShowJoinServer,
+    ])
 
     const activeChannel = channels.find((c) => c.id === activeChannelId)
     const channelCategorySuggestions = useMemo(
@@ -1324,6 +1491,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (validationError) {
             setCreateChannelError(validationError)
             return
+        }
+        if (createChannelCategory.trim()) {
+            const categoryValidation = validateCategoryNameInput(createChannelCategory)
+            if (categoryValidation) {
+                setCreateChannelError(categoryValidation)
+                return
+            }
         }
         setCreateChannelError(null)
         try {
@@ -1371,6 +1545,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const handleCreateCategory = async (e: FormEvent) => {
         e.preventDefault()
         if (!isLoggedIn || !activeServerId || !createCategoryName.trim()) return
+        const validationError = validateCategoryNameInput(createCategoryName)
+        if (validationError) {
+            setCreateCategoryError(validationError)
+            return
+        }
         setCreateCategoryError(null)
         try {
             await channelApi.createCategory(activeServerId, createCategoryName.trim(), token)
@@ -1395,8 +1574,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         e.preventDefault()
         if (!isLoggedIn || !activeServerId || !renameCategoryFrom || !renameCategoryName.trim()) return
         const nextName = renameCategoryName.trim()
-        if (nextName.length > 100) {
-            setRenameCategoryError('Category name must be 1-100 characters.')
+        const validationError = validateCategoryNameInput(nextName)
+        if (validationError) {
+            setRenameCategoryError(validationError)
             return
         }
         setRenameCategoryError(null)
@@ -1834,7 +2014,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         onChange={(e) => setCreateChannelCategory(e.target.value)}
                                         placeholder="e.g. Squad 1"
                                         list="channel-category-suggestions"
-                                        maxLength={64}
+                                        maxLength={CATEGORY_NAME_MAX}
                                     />
                                     <datalist id="channel-category-suggestions">
                                         {channelCategorySuggestions.map((category) => (
@@ -1867,7 +2047,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         placeholder="e.g. Squad 1"
                                         autoFocus
                                         required
-                                        maxLength={100}
+                                        maxLength={CATEGORY_NAME_MAX}
                                     />
                                 </div>
                                 <div className="modal-actions">
@@ -2426,7 +2606,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         placeholder="new-category-name"
                                         autoFocus
                                         required
-                                        maxLength={100}
+                                        maxLength={CATEGORY_NAME_MAX}
                                     />
                                 </div>
                                 <div className="modal-actions">

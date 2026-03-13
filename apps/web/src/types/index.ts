@@ -57,6 +57,6 @@ export interface SignalingMessage {
 }
 
 export interface WsEvent {
-    type: 'NewMessage' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'Signal' | 'Pong';
+    type: 'NewMessage' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'Signal' | 'Pong';
     data: unknown;
 }

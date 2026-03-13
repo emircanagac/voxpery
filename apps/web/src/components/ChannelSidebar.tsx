@@ -205,6 +205,17 @@ export default function ChannelSidebar({
         }
     }, [])
 
+    useEffect(() => {
+        if (!pendingVoiceJoin) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            if (!isJoiningVoice) setPendingVoiceJoin(null)
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [pendingVoiceJoin, isJoiningVoice])
+
     const savePeerVolume = (userId: string, volume: number) => {
         const bounded = Math.min(200, Math.max(0, Math.round(volume)))
         const next = { ...peerVolumeByUserId, [userId]: bounded }

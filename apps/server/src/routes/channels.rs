@@ -13,10 +13,12 @@ use crate::{
     models::Channel,
     services::audit,
     services::permissions::{self, Permissions},
+    ws::WsEvent,
     AppState,
 };
 
-const MAX_CHANNEL_NAME_CHARS: usize = 40;
+const MAX_CHANNEL_NAME_CHARS: usize = 32;
+const MAX_CATEGORY_NAME_CHARS: usize = 32;
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -76,14 +78,23 @@ async fn create_channel(
             "Channel type must be 'text' or 'voice'".into(),
         ));
     }
-    let category = body
+    let category_input = body
         .category
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .unwrap_or("Channels")
         .to_string();
-    ensure_category_exists(&state.db, body.server_id, &category).await?;
+    let category = ensure_category_exists(&state.db, body.server_id, &category_input).await?;
+    ensure_channel_name_unique(
+        &state.db,
+        body.server_id,
+        &channel_type,
+        Some(&category),
+        trimmed_name,
+        None,
+    )
+    .await?;
 
     // Get next position
     let max_pos = sqlx::query_scalar::<_, Option<i32>>(
@@ -119,6 +130,10 @@ async fn create_channel(
         Some(serde_json::json!({ "name": channel.name, "type": channel.channel_type, "category": channel.category })),
     )
     .await?;
+
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id: body.server_id });
 
     Ok(Json(channel))
 }
@@ -175,6 +190,10 @@ async fn delete_channel(
         .execute(&state.db)
         .await?;
 
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
+        server_id: channel.server_id,
+    });
+
     Ok(Json(serde_json::json!({ "message": "Channel deleted" })))
 }
 
@@ -200,7 +219,7 @@ async fn rename_channel(
         validate_channel_name(trimmed)?;
     }
 
-    let next_category = body
+    let mut next_category = body
         .category
         .as_deref()
         .map(str::trim)
@@ -208,8 +227,19 @@ async fn rename_channel(
         .map(str::to_string)
         .or_else(|| channel.category.clone());
     if let Some(category_name) = &next_category {
-        ensure_category_exists(&state.db, channel.server_id, category_name).await?;
+        let canonical =
+            ensure_category_exists(&state.db, channel.server_id, category_name).await?;
+        next_category = Some(canonical);
     }
+    ensure_channel_name_unique(
+        &state.db,
+        channel.server_id,
+        &channel.channel_type,
+        next_category.as_deref(),
+        trimmed,
+        Some(channel_id),
+    )
+    .await?;
 
     let updated = sqlx::query_as::<_, Channel>(
         "UPDATE channels SET name = $1, category = $2 WHERE id = $3 RETURNING *",
@@ -235,6 +265,10 @@ async fn rename_channel(
         })),
     )
     .await?;
+
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
+        server_id: channel.server_id,
+    });
 
     Ok(Json(updated))
 }
@@ -294,6 +328,10 @@ async fn reorder_channels(
         *pos += 1;
     }
     tx.commit().await?;
+
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id: body.server_id });
 
     Ok(Json(serde_json::json!({ "message": "Channels reordered" })))
 }
@@ -376,6 +414,10 @@ async fn update_channel_override(
     .fetch_one(&state.db)
     .await?;
 
+    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
+        server_id: channel.server_id,
+    });
+
     Ok(Json(ov))
 }
 
@@ -398,6 +440,14 @@ async fn delete_channel_override(
         .bind(role_id)
         .execute(&state.db)
         .await?;
+
+    let server_id = sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_one(&state.db)
+        .await?;
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -473,23 +523,19 @@ async fn list_categories(
         ));
     }
 
-    // Return only categories that contain at least one channel visible to the caller.
-    let channels: Vec<(Uuid, Option<String>)> = sqlx::query_as(
-        "SELECT id, category FROM channels WHERE server_id = $1 ORDER BY category, position",
-    )
-    .bind(server_id)
-    .fetch_all(&state.db)
-    .await?;
-
+    // Return categories that are visible by effective category-level permission,
+    // including empty categories (important for newly created categories).
     let mut visible_categories = std::collections::HashSet::new();
-    for (channel_id, category_name) in channels {
-        let Some(category_name) = category_name else {
-            continue;
-        };
-        let perms =
-            permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
+    for category_name in &rows {
+        let perms = permissions::get_user_category_permissions(
+            &state.db,
+            server_id,
+            category_name,
+            claims.sub,
+        )
+        .await?;
         if perms.contains(Permissions::VIEW_SERVER) {
-            visible_categories.insert(category_name);
+            visible_categories.insert(category_name.clone());
         }
     }
 
@@ -516,17 +562,17 @@ async fn create_category(
     .await?;
 
     let name = body.name.trim();
-    if name.is_empty() || name.len() > 100 {
-        return Err(AppError::Validation(
-            "Category name must be 1-100 characters".into(),
-        ));
-    }
+    validate_category_name(name)?;
 
     backfill_category_rows(&state.db, server_id).await?;
-    ensure_category_exists(&state.db, server_id, name).await?;
+    let canonical = ensure_category_exists(&state.db, server_id, name).await?;
+
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(CategoryNameResponse {
-        name: name.to_string(),
+        name: canonical,
     }))
 }
 
@@ -583,7 +629,7 @@ async fn delete_category(
         });
 
     if !moving_channel_ids.is_empty() {
-        ensure_category_exists(&state.db, server_id, &move_to).await?;
+        let move_to = ensure_category_exists(&state.db, server_id, &move_to).await?;
 
         let max_target_pos = sqlx::query_scalar::<_, Option<i32>>(
             "SELECT MAX(position) FROM channels WHERE server_id = $1 AND category = $2",
@@ -612,6 +658,10 @@ async fn delete_category(
 
     tx.commit().await?;
 
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
+
     Ok(Json(serde_json::json!({ "message": "Category deleted" })))
 }
 
@@ -635,11 +685,7 @@ async fn rename_category(
     }
 
     let new_name = body.name.trim();
-    if new_name.is_empty() || new_name.len() > 100 {
-        return Err(AppError::Validation(
-            "Category name must be 1-100 characters".into(),
-        ));
-    }
+    validate_category_name(new_name)?;
     if new_name == old_name {
         return Ok(Json(CategoryNameResponse {
             name: new_name.to_string(),
@@ -715,6 +761,10 @@ async fn rename_category(
     )
     .await?;
 
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
+
     Ok(Json(CategoryNameResponse {
         name: new_name.to_string(),
     }))
@@ -769,7 +819,7 @@ async fn update_category_override(
     if category.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
-    ensure_category_exists(&state.db, server_id, category).await?;
+    let category = ensure_category_exists(&state.db, server_id, category).await?;
 
     let role_exists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2",
@@ -791,12 +841,16 @@ async fn update_category_override(
            RETURNING role_id, allow, deny"#,
     )
     .bind(server_id)
-    .bind(category)
+    .bind(&category)
     .bind(role_id)
     .bind(body.allow)
     .bind(body.deny)
     .fetch_one(&state.db)
     .await?;
+
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(ov))
 }
@@ -827,6 +881,10 @@ async fn delete_category_override(
     .bind(role_id)
     .execute(&state.db)
     .await?;
+
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -899,6 +957,10 @@ async fn reorder_categories(
     }
     tx.commit().await?;
 
+    let _ = state
+        .tx
+        .send(WsEvent::ServerChannelsUpdated { server_id });
+
     Ok(Json(
         serde_json::json!({ "message": "Categories reordered" }),
     ))
@@ -936,15 +998,22 @@ async fn ensure_category_exists(
     db: &sqlx::PgPool,
     server_id: Uuid,
     category: &str,
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
     let name = category.trim();
-    if name.is_empty() || name.len() > 100 {
-        return Err(AppError::Validation(
-            "Category name must be 1-100 characters".into(),
-        ));
-    }
+    validate_category_name(name)?;
 
     backfill_category_rows(db, server_id).await?;
+
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2) ORDER BY name LIMIT 1",
+    )
+    .bind(server_id)
+    .bind(name)
+    .fetch_optional(db)
+    .await?;
+    if let Some(existing_name) = existing {
+        return Ok(existing_name);
+    }
 
     let max_pos = sqlx::query_scalar::<_, Option<i32>>(
         "SELECT MAX(position) FROM server_channel_categories WHERE server_id = $1",
@@ -965,7 +1034,7 @@ async fn ensure_category_exists(
     .execute(db)
     .await?;
 
-    Ok(())
+    Ok(name.to_string())
 }
 
 async fn backfill_category_rows(db: &sqlx::PgPool, server_id: Uuid) -> Result<(), AppError> {
@@ -1032,6 +1101,74 @@ fn validate_channel_name(name: &str) -> Result<(), AppError> {
         } else {
             last_was_space = false;
         }
+    }
+
+    Ok(())
+}
+
+fn validate_category_name(name: &str) -> Result<(), AppError> {
+    let len = name.chars().count();
+    if len == 0 || len > MAX_CATEGORY_NAME_CHARS {
+        return Err(AppError::Validation(format!(
+            "Category name must be 1-{} characters",
+            MAX_CATEGORY_NAME_CHARS
+        )));
+    }
+
+    let mut last_was_space = false;
+    for c in name.chars() {
+        let allowed = c.is_alphanumeric() || c == ' ' || c == '-' || c == '_';
+        if !allowed {
+            return Err(AppError::Validation(
+                "Category name can only include letters, numbers, spaces, '-' and '_'".into(),
+            ));
+        }
+        if c == ' ' {
+            if last_was_space {
+                return Err(AppError::Validation(
+                    "Category name cannot contain consecutive spaces".into(),
+                ));
+            }
+            last_was_space = true;
+        } else {
+            last_was_space = false;
+        }
+    }
+
+    Ok(())
+}
+
+async fn ensure_channel_name_unique(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    channel_type: &str,
+    category: Option<&str>,
+    name: &str,
+    exclude_channel_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let exists = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM channels
+        WHERE server_id = $1
+          AND channel_type = $2
+          AND LOWER(COALESCE(category, '')) = LOWER(COALESCE($3, ''))
+          AND LOWER(name) = LOWER($4)
+          AND ($5::UUID IS NULL OR id <> $5)
+        "#,
+    )
+    .bind(server_id)
+    .bind(channel_type)
+    .bind(category)
+    .bind(name)
+    .bind(exclude_channel_id)
+    .fetch_one(db)
+    .await?;
+
+    if exists > 0 {
+        return Err(AppError::Validation(
+            "A channel with this name already exists in this category and channel type".into(),
+        ));
     }
 
     Ok(())
