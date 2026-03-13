@@ -1139,6 +1139,13 @@ body {
   box-shadow: inset 0 0 0 1px rgba(67, 181, 129, 0.18);
 }
 
+.voice-participant-icon-badge.is-server-enforced {
+  border-color: rgba(245, 158, 11, 0.62);
+  background: rgba(245, 158, 11, 0.2);
+  color: #ffd58a;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.24);
+}
+
 .voice-participant-avatar.is-speaking {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
   transform: translateY(-1px);
@@ -3293,9 +3300,42 @@ body {
   font-size: 12px;
 }
 
+.member-volume-menu-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 0;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: default;
+}
+
+.member-volume-menu-section-hint {
+  padding: 0 10px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: default;
+}
+
+.member-volume-menu-divider {
+  margin: 4px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.member-volume-menu-action-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .member-volume-menu-username {
   cursor: default;
   opacity: 0.92;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .member-volume-menu-control {
@@ -5901,6 +5941,19 @@ a.community-open-btn:hover {
   box-shadow: 0 0 14px rgba(240, 71, 71, 0.3);
 }
 
+.callbar-control-btn.is-server-off {
+  background: rgba(245, 158, 11, 0.24);
+  border-color: rgba(245, 158, 11, 0.58);
+  color: #ffd58a;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+.callbar-control-btn.is-server-off:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.34);
+  border-color: rgba(245, 158, 11, 0.72);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.28);
+}
+
 .callbar-control-btn.danger {
   margin-left: 0;
   width: 36px;
@@ -6359,7 +6412,18 @@ a.community-open-btn:hover {
   align-items: start;
 }
 
+.category-permissions-modal {
+  height: auto !important;
+  max-height: min(82vh, 700px);
+}
+
+.category-permissions-modal .server-settings-body {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .category-permissions-modal .server-settings-content {
+  flex: 0 0 auto;
   height: auto;
   overflow: visible;
 }

@@ -1,8 +1,9 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
+import { useSocketStore } from '../stores/socket'
 import { friendApi } from '../api'
 import type { Channel } from '../api'
 import { useToastStore } from '../stores/toast'
@@ -23,8 +24,10 @@ interface ChannelSidebarProps {
     onMoveChannelToCategory?: (channelId: string, targetCategory: string, placement?: 'start' | 'end') => void
     channelCategories?: string[]
     canManageChannels?: boolean
+    canMuteMembers?: boolean
+    canDeafenMembers?: boolean
     unreadByChannel?: Record<string, number>
-    voiceControls?: Record<string, { muted: boolean; deafened: boolean; screenSharing: boolean; cameraOn?: boolean }>
+    voiceControls?: Record<string, { muted: boolean; deafened: boolean; serverMuted?: boolean; serverDeafened?: boolean; screenSharing: boolean; cameraOn?: boolean }>
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
     onReorderChannels?: (draggedChannelId: string, targetChannelId: string, position: 'before' | 'after') => void
@@ -41,6 +44,8 @@ export default function ChannelSidebar({
     onMoveChannelToCategory,
     channelCategories = [],
     canManageChannels,
+    canMuteMembers = false,
+    canDeafenMembers = false,
     unreadByChannel = {},
     voiceControls = {},
     onRenameChannel,
@@ -70,7 +75,7 @@ export default function ChannelSidebar({
     const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
     const [categoryMenu, setCategoryMenu] = useState<{ category: string; x: number; y: number } | null>(null)
-    const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; x: number; y: number } | null>(null)
+    const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; channelId: string; x: number; y: number } | null>(null)
     const [pendingVoiceJoin, setPendingVoiceJoin] = useState<{ id: string; name: string } | null>(null)
     const [isJoiningVoice, setIsJoiningVoice] = useState(false)
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
@@ -95,6 +100,7 @@ export default function ChannelSidebar({
     const menuRef = useRef<HTMLDivElement>(null)
     const participantMenuRef = useRef<HTMLDivElement>(null)
     const sidebarRef = useRef<HTMLDivElement>(null)
+    const sendWs = useSocketStore((s) => s.send)
     const dragPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const suppressDragPreview = (e: DragEvent<HTMLElement>) => {
         if (!dragPreviewCanvasRef.current) {
@@ -518,6 +524,8 @@ export default function ChannelSidebar({
                                                 const isCameraOn = !!control?.cameraOn
                                                 const isDeafened = !!control?.deafened
                                                 const isMuted = !!control?.muted
+                                                const isServerMuted = !!control?.serverMuted
+                                                const isServerDeafened = !!control?.serverDeafened
                                                 const isSpeaking = (isSelf ? voiceLocalSpeaking : voiceSpeakingUserIds.includes(vm.user_id)) && !isMuted && !isDeafened
                                                 return (
                                                     <div
@@ -534,7 +542,7 @@ export default function ChannelSidebar({
                                                             const estimatedHeight = alreadyFriend ? 92 : 130
                                                             const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
-                                                            setParticipantMenu({ userId: vm.user_id, username: vm.username, x: pos.x, y: pos.y })
+                                                            setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
                                                         }}
                                                     >
                                                         <div className={`voice-participant-avatar ${isSpeaking ? 'is-speaking' : ''}`}>
@@ -559,16 +567,25 @@ export default function ChannelSidebar({
                                                                 )}
                                                                 {isDeafened && (
                                                                     <>
-                                                                        <span className="voice-participant-icon-badge" title="Muted">
+                                                                        <span
+                                                                            className={`voice-participant-icon-badge ${isServerDeafened ? 'is-server-enforced' : ''}`}
+                                                                            title={isServerDeafened ? 'Muted by server' : 'Muted by self'}
+                                                                        >
                                                                             <MicOff size={11} />
                                                                         </span>
-                                                                        <span className="voice-participant-icon-badge" title="Deafened">
+                                                                        <span
+                                                                            className={`voice-participant-icon-badge ${isServerDeafened ? 'is-server-enforced' : ''}`}
+                                                                            title={isServerDeafened ? 'Deafened by server' : 'Deafened by self'}
+                                                                        >
                                                                             <VolumeX size={11} />
                                                                         </span>
                                                                     </>
                                                                 )}
                                                                 {isMuted && !isDeafened && (
-                                                                    <span className="voice-participant-icon-badge" title="Muted">
+                                                                    <span
+                                                                        className={`voice-participant-icon-badge ${isServerMuted ? 'is-server-enforced' : ''}`}
+                                                                        title={isServerMuted ? 'Muted by server' : 'Muted by self'}
+                                                                    >
                                                                         <MicOff size={11} />
                                                                     </span>
                                                                 )}
@@ -664,6 +681,14 @@ export default function ChannelSidebar({
                 const isSelf = participantMenu.userId === user?.id
                 const alreadyFriend = friends.some((f) => f.username.toLowerCase() === participantMenu.username.toLowerCase())
                 const currentVolume = peerVolumeByUserId[participantMenu.userId] ?? 100
+                const targetVoice = voiceControls[participantMenu.userId] ?? {
+                    muted: false,
+                    deafened: false,
+                    serverMuted: false,
+                    serverDeafened: false,
+                    screenSharing: false,
+                    cameraOn: false,
+                }
                 if (isSelf) return null
                 return (
                     <div
@@ -688,8 +713,65 @@ export default function ChannelSidebar({
                                 Add Friend
                             </button>
                         )}
+                        {!isSelf && (canMuteMembers || canDeafenMembers) && (
+                            <>
+                                <div className="member-volume-menu-section-label">
+                                    <Shield size={12} />
+                                    Server moderation
+                                </div>
+                                <div className="member-volume-menu-section-hint">Affects everyone in this server</div>
+                            </>
+                        )}
+                        {!isSelf && canMuteMembers && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item"
+                                onClick={() => {
+                                    sendWs('SetVoiceControl', {
+                                        target_user_id: participantMenu.userId,
+                                        muted: !(targetVoice.serverMuted ?? false),
+                                        deafened: targetVoice.serverDeafened ?? false,
+                                        screen_sharing: !!targetVoice.screenSharing,
+                                        camera_on: !!targetVoice.cameraOn,
+                                    })
+                                    setParticipantMenu(null)
+                                }}
+                            >
+                                <span className="member-volume-menu-action-with-icon">
+                                    <MicOff size={12} />
+                                    {(targetVoice.serverMuted ?? false) ? 'Unmute member (server)' : 'Mute member (server)'}
+                                </span>
+                            </button>
+                        )}
+                        {!isSelf && canDeafenMembers && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item"
+                                onClick={() => {
+                                    sendWs('SetVoiceControl', {
+                                        target_user_id: participantMenu.userId,
+                                        muted: targetVoice.serverMuted ?? false,
+                                        deafened: !(targetVoice.serverDeafened ?? false),
+                                        screen_sharing: !!targetVoice.screenSharing,
+                                        camera_on: !!targetVoice.cameraOn,
+                                    })
+                                    setParticipantMenu(null)
+                                }}
+                            >
+                                <span className="member-volume-menu-action-with-icon">
+                                    <VolumeX size={12} />
+                                    {(targetVoice.serverDeafened ?? false) ? 'Undeafen member (server)' : 'Deafen member (server)'}
+                                </span>
+                            </button>
+                        )}
 
+                        <div className="member-volume-menu-divider" />
                         <div className="server-context-menu-item member-volume-menu-control">
+                            <div className="member-volume-menu-section-label">
+                                <Volume2 size={12} />
+                                Local volume
+                            </div>
+                            <div className="member-volume-menu-section-hint">Only affects what you hear</div>
                             <div className="member-volume-menu-label">
                                 Volume: {currentVolume}%{currentVolume > 100 ? ' 🔊' : ''}
                             </div>

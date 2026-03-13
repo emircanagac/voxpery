@@ -614,6 +614,28 @@ export function useLiveKitVoice() {
     await setLocalMicMuted(muted || deafened)
   }, [send, setLocalMicMuted, userId])
 
+  const setMemberVoiceControls = useCallback(
+    (targetUserId: string, next: { muted?: boolean; deafened?: boolean }) => {
+      const store = useAppStore.getState()
+      const current = store.voiceControls[targetUserId] ?? {
+        muted: false,
+        deafened: false,
+        serverMuted: false,
+        serverDeafened: false,
+        screenSharing: false,
+        cameraOn: false,
+      }
+      send('SetVoiceControl', {
+        target_user_id: targetUserId,
+        muted: next.muted ?? current.serverMuted,
+        deafened: next.deafened ?? current.serverDeafened,
+        screen_sharing: !!current.screenSharing,
+        camera_on: !!current.cameraOn,
+      })
+    },
+    [send],
+  )
+
   // Track the last known noise suppression setting so we only react to actual changes.
   const lastNsEnabledRef = useRef<boolean>(
     localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
@@ -721,5 +743,16 @@ export function useLiveKitVoice() {
     },
   }
 
-  return { state, joinVoice, leaveVoice, startScreenShare, stopScreenShare, startCamera, stopCamera, setVoiceControls, playVoiceCue }
+  return {
+    state,
+    joinVoice,
+    leaveVoice,
+    startScreenShare,
+    stopScreenShare,
+    startCamera,
+    stopCamera,
+    setVoiceControls,
+    setMemberVoiceControls,
+    playVoiceCue,
+  }
 }

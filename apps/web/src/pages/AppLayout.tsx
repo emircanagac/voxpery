@@ -627,11 +627,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const user_id = d.user_id as string | undefined
                     const muted = d.muted
                     const deafened = d.deafened
+                    const server_muted = d.server_muted
+                    const server_deafened = d.server_deafened
                     const screen_sharing = d.screen_sharing
                     const camera_on = d.camera_on
                     if (!user_id) break
                     const store = useAppStore.getState()
-                    store.setVoiceControl(user_id, !!muted, !!deafened, !!screen_sharing)
+                    store.setVoiceControl(
+                        user_id,
+                        !!muted,
+                        !!deafened,
+                        !!screen_sharing,
+                        !!server_muted,
+                        !!server_deafened,
+                    )
                     store.setVoiceCamera(user_id, !!camera_on)
                     break
                 }
@@ -968,6 +977,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // Permissions-based gating (backend enforces same).
     const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
     const canSendMessages = (activePerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
+    const canManageMessages = (activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
+    const canManagePins = (activePerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
+    const canMuteMembers = (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
+    const canDeafenMembers = (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
     const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
     const canManageBans = canBanMembers
     const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
@@ -1894,6 +1907,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onMoveChannelToCategory={handleMoveChannelToCategory}
                 channelCategories={channelCategories}
                 canManageChannels={canManageChannels}
+                canMuteMembers={canMuteMembers}
+                canDeafenMembers={canDeafenMembers}
                 unreadByChannel={unreadByChannel}
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
@@ -1929,7 +1944,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 currentUserId={user?.id ?? null}
-                canModerate={canManageChannels}
+                canModerate={canManageMessages}
                 mentionUsers={members.map((member) => ({
                     user_id: member.user_id,
                     username: member.username,
@@ -1943,8 +1958,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 searchQuery={channelSearch}
                 onSearchChange={setChannelSearch}
                 pinnedMessages={channelPins}
-                onPinMessage={canManageChannels ? handlePinChannelMessage : undefined}
-                onUnpinMessage={canManageChannels ? handleUnpinChannelMessage : undefined}
+                onPinMessage={canManagePins ? handlePinChannelMessage : undefined}
+                onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 canSendMessages={canSendMessages}
             />
             <MemberSidebar
@@ -2472,6 +2487,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             {serverSettingsTab === 'roles' && isOwner && (
                                                 <section className="server-settings-card">
                                                     <h3 className="server-settings-card__title">Roles</h3>
+                                                    <p
+                                                        style={{
+                                                            margin: '0 0 10px',
+                                                            color: 'var(--text-secondary)',
+                                                            fontSize: 12,
+                                                        }}
+                                                    >
+                                                        Server owner is system-managed and always has full access.
+                                                    </p>
                                                     {rolesError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {rolesError}

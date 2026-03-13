@@ -107,6 +107,10 @@ pub async fn get_user_channel_permissions(
     };
 
     let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+    // Full admin (MANAGE_SERVER) bypasses channel/category overrides.
+    if perms.contains(Permissions::MANAGE_SERVER) {
+        return Ok(Permissions::all());
+    }
 
     if let Some(category_name) = category.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
         let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
@@ -204,6 +208,10 @@ pub async fn get_user_category_permissions(
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
     let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+    // Full admin (MANAGE_SERVER) bypasses category overrides.
+    if perms.contains(Permissions::MANAGE_SERVER) {
+        return Ok(Permissions::all());
+    }
     let category_name = category.trim();
     if category_name.is_empty() {
         return Ok(perms);

@@ -43,15 +43,19 @@ const MemberItem = memo(function MemberItem({
         : (isOnline ? 'member-name' : 'member-name member-name--default-offline')
 
     const canMakeAdmin =
-        (isOwner && member.role !== 'owner') || (member.user_id === currentUserId && canManageRoles)
+        !isServerOwner &&
+        member.role !== 'owner' &&
+        (isOwner || (canManageRoles && member.user_id !== currentUserId))
     const canAddFriend = member.user_id !== currentUserId && !isFriend
     const canKick =
         canKickAsRole &&
+        !isServerOwner &&
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
     const canBan =
         canBanAsRole &&
+        !isServerOwner &&
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')

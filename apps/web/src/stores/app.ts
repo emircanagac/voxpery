@@ -49,8 +49,8 @@ interface AppState {
     voiceStateServerIds: Record<string, string | null>
     setVoiceStateServerId: (userId: string, serverId: string | null) => void
     // Voice control state (user_id -> mute/deafen)
-    voiceControls: Record<string, { muted: boolean; deafened: boolean; screenSharing: boolean; cameraOn: boolean }>
-    setVoiceControl: (userId: string, muted: boolean, deafened: boolean, screenSharing: boolean) => void
+    voiceControls: Record<string, { muted: boolean; deafened: boolean; serverMuted: boolean; serverDeafened: boolean; screenSharing: boolean; cameraOn: boolean }>
+    setVoiceControl: (userId: string, muted: boolean, deafened: boolean, screenSharing: boolean, serverMuted?: boolean, serverDeafened?: boolean) => void
     setVoiceCamera: (userId: string, cameraOn: boolean) => void
 
     // Voice speaking (for is-speaking halo)
@@ -161,13 +161,15 @@ export const useAppStore = create<AppState>()(
                     voiceStateServerIds: { ...s.voiceStateServerIds, [userId]: serverId },
                 })),
             voiceControls: {},
-            setVoiceControl: (userId, muted, deafened, screenSharing) =>
+            setVoiceControl: (userId, muted, deafened, screenSharing, serverMuted, serverDeafened) =>
                 set((s) => ({
                     voiceControls: {
                         ...s.voiceControls,
                         [userId]: {
                             muted,
                             deafened,
+                            serverMuted: serverMuted ?? s.voiceControls[userId]?.serverMuted ?? false,
+                            serverDeafened: serverDeafened ?? s.voiceControls[userId]?.serverDeafened ?? false,
                             screenSharing,
                             cameraOn: s.voiceControls[userId]?.cameraOn ?? false,
                         },
@@ -180,6 +182,8 @@ export const useAppStore = create<AppState>()(
                         [userId]: {
                             muted: s.voiceControls[userId]?.muted ?? false,
                             deafened: s.voiceControls[userId]?.deafened ?? false,
+                            serverMuted: s.voiceControls[userId]?.serverMuted ?? false,
+                            serverDeafened: s.voiceControls[userId]?.serverDeafened ?? false,
                             screenSharing: s.voiceControls[userId]?.screenSharing ?? false,
                             cameraOn,
                         },

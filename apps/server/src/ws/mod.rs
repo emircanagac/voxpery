@@ -61,8 +61,11 @@ pub enum WsEvent {
     /// Voice control state update (mute/deafen).
     VoiceControlUpdate {
         user_id: Uuid,
+        server_id: Option<Uuid>,
         muted: bool,
         deafened: bool,
+        server_muted: bool,
+        server_deafened: bool,
         screen_sharing: bool,
         camera_on: bool,
     },
@@ -110,6 +113,8 @@ pub enum WsClientMessage {
     LeaveVoice,
     /// Update voice controls.
     SetVoiceControl {
+        #[serde(default)]
+        target_user_id: Option<Uuid>,
         muted: bool,
         deafened: bool,
         screen_sharing: bool,

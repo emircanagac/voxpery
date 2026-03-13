@@ -33,36 +33,37 @@ export default function CategoryPermissionsModal({
     const [changedRoleIds, setChangedRoleIds] = useState<Set<string>>(new Set())
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
     const [addedRoleIds, setAddedRoleIds] = useState<Set<string>>(new Set())
-    const [hiddenRoleIds, setHiddenRoleIds] = useState<Set<string>>(new Set())
+    const [removedRoleIds, setRemovedRoleIds] = useState<Set<string>>(new Set())
     const [roleToAddId, setRoleToAddId] = useState<string>('')
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const effectiveRoles = fallbackRoles.length > 0 ? fallbackRoles : serverRoles
     const everyoneRoleId = effectiveRoles.find(isEveryoneRole)?.id ?? null
-    const overriddenRoleIds = useMemo(
-        () => new Set(overrides.filter((o) => (o.allow | o.deny) !== 0).map((o) => o.role_id)),
-        [overrides],
-    )
+    const overriddenRoleIds = useMemo(() => new Set(overrides.map((o) => o.role_id)), [overrides])
+    const configuredRoleIds = useMemo(() => {
+        const ids = new Set(overriddenRoleIds)
+        for (const roleId of addedRoleIds) ids.add(roleId)
+        for (const roleId of removedRoleIds) ids.delete(roleId)
+        return ids
+    }, [overriddenRoleIds, addedRoleIds, removedRoleIds])
     const visibleRoles = useMemo(
         () =>
             effectiveRoles.filter(
-                (role) =>
-                    (isEveryoneRole(role) || overriddenRoleIds.has(role.id) || addedRoleIds.has(role.id)) &&
-                    !hiddenRoleIds.has(role.id),
+                (role) => isEveryoneRole(role) || configuredRoleIds.has(role.id),
             ),
-        [effectiveRoles, overriddenRoleIds, addedRoleIds, hiddenRoleIds],
+        [effectiveRoles, configuredRoleIds],
     )
     const addableRoles = useMemo(
         () =>
             effectiveRoles.filter(
-                (role) => !isEveryoneRole(role) && !overriddenRoleIds.has(role.id) && !addedRoleIds.has(role.id),
+                (role) => !isEveryoneRole(role) && !configuredRoleIds.has(role.id),
             ),
-        [effectiveRoles, overriddenRoleIds, addedRoleIds],
+        [effectiveRoles, configuredRoleIds],
     )
     const activeSelectedRoleId =
         selectedRoleId && visibleRoles.some((r) => r.id === selectedRoleId) ? selectedRoleId : null
-    const isDirty = changedRoleIds.size > 0
+    const isDirty = changedRoleIds.size > 0 || addedRoleIds.size > 0 || removedRoleIds.size > 0
 
     useEffect(() => {
         let active = true
@@ -84,7 +85,7 @@ export default function CategoryPermissionsModal({
                 )
                 setChangedRoleIds(new Set())
                 setAddedRoleIds(new Set())
-                setHiddenRoleIds(new Set())
+                setRemovedRoleIds(new Set())
                 const defaultRoleId = roles.find((r) => r.name.trim().toLowerCase() === 'everyone')?.id ?? null
                 setSelectedRoleId(defaultRoleId)
             })
@@ -147,7 +148,7 @@ export default function CategoryPermissionsModal({
         )
         setChangedRoleIds(new Set())
         setAddedRoleIds(new Set())
-        setHiddenRoleIds(new Set())
+        setRemovedRoleIds(new Set())
         setRoleToAddId('')
         setSelectedRoleId(everyoneRoleId)
         setError(null)
@@ -168,7 +169,11 @@ export default function CategoryPermissionsModal({
         setSaving(true)
         setError(null)
         try {
-            const updates = Array.from(changedRoleIds)
+            const deletions = Array.from(removedRoleIds).filter((roleId) => roleId !== everyoneRoleId)
+            for (const roleId of deletions) {
+                await channelApi.deleteCategoryOverride(serverId, category, roleId, token)
+            }
+            const updates = Array.from(changedRoleIds).filter((roleId) => !removedRoleIds.has(roleId))
             for (const roleId of updates) {
                 const draft = draftOverrides[roleId] ?? { allow: 0, deny: 0 }
                 await channelApi.updateCategoryOverride(
@@ -187,7 +192,7 @@ export default function CategoryPermissionsModal({
             )
             setChangedRoleIds(new Set())
             setAddedRoleIds(new Set())
-            setHiddenRoleIds(new Set())
+            setRemovedRoleIds(new Set())
             setRoleToAddId('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to save category permissions.')
@@ -198,45 +203,60 @@ export default function CategoryPermissionsModal({
 
     const handleAddRole = () => {
         if (!roleToAddId) return
-        setAddedRoleIds((prev) => {
-            const next = new Set(prev)
-            next.add(roleToAddId)
-            return next
-        })
-        setHiddenRoleIds((prev) => {
-            const next = new Set(prev)
-            next.delete(roleToAddId)
-            return next
-        })
-        setSelectedRoleId(roleToAddId)
-        setRoleToAddId('')
-    }
-
-    const handleRemoveRole = (roleId: string) => {
-        if (roleId === everyoneRoleId) return
-        setAddedRoleIds((prev) => {
+        const roleId = roleToAddId
+        if (!overriddenRoleIds.has(roleId)) {
+            setAddedRoleIds((prev) => {
+                const next = new Set(prev)
+                next.add(roleId)
+                return next
+            })
+        } else {
+            setAddedRoleIds((prev) => {
+                const next = new Set(prev)
+                next.delete(roleId)
+                return next
+            })
+        }
+        setRemovedRoleIds((prev) => {
             const next = new Set(prev)
             next.delete(roleId)
             return next
         })
-        setHiddenRoleIds((prev) => {
-            const next = new Set(prev)
-            next.add(roleId)
-            return next
+        setDraftOverrides((prev) => {
+            if (prev[roleId]) return prev
+            const baseline = getBaselineOverride(roleId)
+            return { ...prev, [roleId]: { allow: baseline.allow, deny: baseline.deny } }
         })
-        const baseline = getBaselineOverride(roleId)
-        const shouldClearOverride = baseline.allow !== 0 || baseline.deny !== 0
-        if (shouldClearOverride) {
-            setDraftOverrides((prev) => ({
-                ...prev,
-                [roleId]: { allow: 0, deny: 0 },
-            }))
+        if (!overriddenRoleIds.has(roleId)) {
             setChangedRoleIds((prev) => {
                 const next = new Set(prev)
                 next.add(roleId)
                 return next
             })
         }
+        setSelectedRoleId(roleId)
+        setRoleToAddId('')
+    }
+
+    const handleRemoveRole = (roleId: string) => {
+        if (roleId === everyoneRoleId) return
+        const wasNewUnsavedRole = addedRoleIds.has(roleId) && !overriddenRoleIds.has(roleId)
+        setAddedRoleIds((prev) => {
+            const next = new Set(prev)
+            next.delete(roleId)
+            return next
+        })
+        setRemovedRoleIds((prev) => {
+            const next = new Set(prev)
+            if (wasNewUnsavedRole) next.delete(roleId)
+            else next.add(roleId)
+            return next
+        })
+        setChangedRoleIds((prev) => {
+            const next = new Set(prev)
+            next.delete(roleId)
+            return next
+        })
         if (selectedRoleId === roleId) setSelectedRoleId(everyoneRoleId)
     }
 

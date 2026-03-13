@@ -36,8 +36,8 @@ pub struct AppState {
     pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::UnboundedSender<ws::WsEvent>>>,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
-    /// Voice controls: user_id -> (muted, deafened, screen_sharing, camera_on)
-    pub voice_controls: DashMap<uuid::Uuid, (bool, bool, bool, bool)>,
+    /// Voice controls: user_id -> (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
+    pub voice_controls: DashMap<uuid::Uuid, (bool, bool, bool, bool, bool, bool)>,
     pub auth_rate_limit_max: usize,
     pub auth_rate_limit_window_secs: u64,
     pub message_rate_limit_max: usize,
