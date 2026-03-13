@@ -142,7 +142,10 @@ fn is_local_origin(origin: &str) -> bool {
 }
 
 /// Validates CORS and cookie security configuration (used at startup).
-pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) -> Result<(), String> {
+pub fn validate_security_config(
+    cors_origins: &[String],
+    cookie_secure: bool,
+) -> Result<(), String> {
     if cors_origins.iter().any(|o| o == "*") {
         return Err(
             "Invalid CORS configuration: CORS_ORIGINS cannot contain '*' when credentials are enabled"
@@ -196,6 +199,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .nest("/api/channels", routes::channels::router(state.clone()))
         .nest("/api/messages", routes::messages::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
+        .nest("/api/webhooks", routes::webhooks::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(map_response(sanitize_verbose_client_errors))
@@ -205,7 +209,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_security_config, should_sanitize_client_error};
+    use super::{should_sanitize_client_error, validate_security_config};
 
     #[test]
     fn rejects_wildcard_cors() {
@@ -244,9 +248,15 @@ mod tests {
 
     #[test]
     fn detects_verbose_client_error_patterns() {
-        assert!(should_sanitize_client_error("UUID parsing failed: invalid length"));
-        assert!(should_sanitize_client_error("number too large to fit in target type"));
-        assert!(should_sanitize_client_error("failed to deserialize JSON body"));
+        assert!(should_sanitize_client_error(
+            "UUID parsing failed: invalid length"
+        ));
+        assert!(should_sanitize_client_error(
+            "number too large to fit in target type"
+        ));
+        assert!(should_sanitize_client_error(
+            "failed to deserialize JSON body"
+        ));
         assert!(!should_sanitize_client_error("Invalid credentials"));
     }
 }

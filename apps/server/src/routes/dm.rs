@@ -99,11 +99,23 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
         .route("/channels/{channel_id}/read-state", get(get_dm_read_state))
-        .route("/channels/{channel_id}/pins", get(list_dm_pins).post(pin_dm_message))
-        .route("/channels/{channel_id}/pins/{message_id}", delete(unpin_dm_message))
-        .route("/messages/{channel_id}", get(get_dm_messages).post(send_dm_message))
+        .route(
+            "/channels/{channel_id}/pins",
+            get(list_dm_pins).post(pin_dm_message),
+        )
+        .route(
+            "/channels/{channel_id}/pins/{message_id}",
+            delete(unpin_dm_message),
+        )
+        .route(
+            "/messages/{channel_id}",
+            get(get_dm_messages).post(send_dm_message),
+        )
         .route("/messages/{channel_id}/search", get(search_dm_messages))
-        .route("/messages/item/{message_id}", patch(edit_dm_message).delete(delete_dm_message))
+        .route(
+            "/messages/item/{message_id}",
+            patch(edit_dm_message).delete(delete_dm_message),
+        )
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
@@ -167,13 +179,12 @@ async fn check_can_dm_peer(
     sender_id: Uuid,
     peer_id: Uuid,
 ) -> Result<(), AppError> {
-    let peer_dm_privacy = sqlx::query_scalar::<_, String>(
-        "SELECT dm_privacy FROM users WHERE id = $1",
-    )
-    .bind(peer_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("User not found".into()))?;
+    let peer_dm_privacy =
+        sqlx::query_scalar::<_, String>("SELECT dm_privacy FROM users WHERE id = $1")
+            .bind(peer_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::NotFound("User not found".into()))?;
 
     match peer_dm_privacy.as_str() {
         "everyone" => {}
@@ -226,7 +237,9 @@ async fn get_or_create_dm_channel(
     Path(peer_id): Path<Uuid>,
 ) -> Result<Json<DmChannelInfo>, AppError> {
     if claims.sub == peer_id {
-        return Err(AppError::Validation("Cannot create DM with yourself".into()));
+        return Err(AppError::Validation(
+            "Cannot create DM with yourself".into(),
+        ));
     }
 
     enforce_rate_limit(
@@ -308,7 +321,10 @@ async fn get_or_create_dm_channel(
     } else {
         "offline".to_string()
     };
-    let info = DmChannelInfo { peer_status, ..info };
+    let info = DmChannelInfo {
+        peer_status,
+        ..info
+    };
 
     Ok(Json(info))
 }
@@ -553,12 +569,11 @@ async fn pin_dm_message(
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
 
-    let msg_channel: Option<Uuid> = sqlx::query_scalar(
-        "SELECT channel_id FROM dm_messages WHERE id = $1",
-    )
-    .bind(body.message_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let msg_channel: Option<Uuid> =
+        sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
+            .bind(body.message_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
     if msg_channel != channel_id {
@@ -598,13 +613,12 @@ async fn unpin_dm_message(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
 
-    let deleted = sqlx::query(
-        "DELETE FROM dm_channel_pins WHERE dm_channel_id = $1 AND dm_message_id = $2",
-    )
-    .bind(channel_id)
-    .bind(message_id)
-    .execute(&state.db)
-    .await?;
+    let deleted =
+        sqlx::query("DELETE FROM dm_channel_pins WHERE dm_channel_id = $1 AND dm_message_id = $2")
+            .bind(channel_id)
+            .bind(message_id)
+            .execute(&state.db)
+            .await?;
 
     if deleted.rows_affected() == 0 {
         return Err(AppError::NotFound("Pinned message not found".into()));
@@ -635,7 +649,9 @@ async fn edit_dm_message(
     let (owner_id, channel_id) = owner;
     check_dm_access(&state, channel_id, claims.sub).await?;
     if owner_id != claims.sub {
-        return Err(AppError::Forbidden("Only author can edit DM message".into()));
+        return Err(AppError::Forbidden(
+            "Only author can edit DM message".into(),
+        ));
     }
 
     let row = sqlx::query_as::<_, DmMessageRow>(
@@ -678,7 +694,9 @@ async fn delete_dm_message(
     let (owner_id, channel_id) = owner;
     check_dm_access(&state, channel_id, claims.sub).await?;
     if owner_id != claims.sub {
-        return Err(AppError::Forbidden("Only author can delete DM message".into()));
+        return Err(AppError::Forbidden(
+            "Only author can delete DM message".into(),
+        ));
     }
 
     sqlx::query("DELETE FROM dm_messages WHERE id = $1")
@@ -686,10 +704,16 @@ async fn delete_dm_message(
         .execute(&state.db)
         .await?;
 
-    Ok(Json(serde_json::json!({ "message": "DM message deleted", "id": message_id })))
+    Ok(Json(
+        serde_json::json!({ "message": "DM message deleted", "id": message_id }),
+    ))
 }
 
-async fn check_dm_access(state: &AppState, channel_id: Uuid, user_id: Uuid) -> Result<(), AppError> {
+async fn check_dm_access(
+    state: &AppState,
+    channel_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
     let is_member = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM dm_channel_members WHERE channel_id = $1 AND user_id = $2",
     )
@@ -722,4 +746,3 @@ async fn mark_dm_read(
     .await?;
     Ok(())
 }
-

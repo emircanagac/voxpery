@@ -48,11 +48,17 @@ impl IntoResponse for AppError {
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
             AppError::Database(e) => {
                 tracing::error!("Database error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
             }
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
             }
         };
 
@@ -77,7 +83,10 @@ mod tests {
             (AppError::NotFound("x".into()), StatusCode::NOT_FOUND),
             (AppError::Forbidden("x".into()), StatusCode::FORBIDDEN),
             (AppError::Validation("x".into()), StatusCode::BAD_REQUEST),
-            (AppError::TooManyRequests("x".into()), StatusCode::TOO_MANY_REQUESTS),
+            (
+                AppError::TooManyRequests("x".into()),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
         ];
         for (err, expected) in test_cases {
             let res = err.into_response();

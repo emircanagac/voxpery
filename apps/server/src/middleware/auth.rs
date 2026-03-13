@@ -14,10 +14,10 @@ use crate::{errors::AppError, AppState};
 /// JWT claims stored in the token.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: Uuid,         // user id
+    pub sub: Uuid, // user id
     pub username: String,
-    pub exp: usize,        // expiration timestamp
-    pub iat: usize,        // issued at
+    pub exp: usize, // expiration timestamp
+    pub iat: usize, // issued at
 }
 
 /// Extract JWT from Cookie header (e.g. "voxpery_token=eyJ..."). Supports cookie-based auth for web.
@@ -36,7 +36,10 @@ fn token_from_cookie<'a>(headers: &'a axum::http::HeaderMap, cookie_name: &str) 
 }
 
 /// Returns JWT from Authorization Bearer or from cookie. Used by require_auth and WebSocket upgrade.
-pub(crate) fn token_from_request(headers: &axum::http::HeaderMap, cookie_name: &str) -> Option<String> {
+pub(crate) fn token_from_request(
+    headers: &axum::http::HeaderMap,
+    cookie_name: &str,
+) -> Option<String> {
     let bearer = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -55,7 +58,8 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let token = token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
+    let token =
+        token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
 
     match crate::services::jwt_blacklist::is_blacklisted(&state.redis, &token).await {
         Ok(true) => return Err(AppError::Unauthorized),

@@ -1,5 +1,7 @@
 //! WebSocket authorization: verify user can subscribe to a channel or join a voice channel.
 
+use crate::errors::AppError;
+use crate::services::permissions::{self, Permissions};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -10,20 +12,17 @@ pub async fn can_subscribe_to_channel(
     db: &PgPool,
     user_id: Uuid,
     channel_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    // Server channel: channels + server_members
-    let server_access: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM channels c
-           INNER JOIN server_members sm ON c.server_id = sm.server_id
-           WHERE c.id = $1 AND sm.user_id = $2"#,
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_one(db)
-    .await?;
+) -> Result<bool, AppError> {
+    // Server channel: require effective VIEW_SERVER permission (includes category/channel overrides).
+    let server_channel_exists: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE id = $1")
+            .bind(channel_id)
+            .fetch_one(db)
+            .await?;
 
-    if server_access > 0 {
-        return Ok(true);
+    if server_channel_exists > 0 {
+        let perms = permissions::get_user_channel_permissions(db, channel_id, user_id).await?;
+        return Ok(perms.contains(Permissions::VIEW_SERVER));
     }
 
     // DM channel: dm_channel_members
@@ -44,16 +43,17 @@ pub async fn can_join_voice_channel(
     db: &PgPool,
     user_id: Uuid,
     channel_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    let count: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM channels c
-           INNER JOIN server_members sm ON c.server_id = sm.server_id
-           WHERE c.id = $1 AND c.channel_type = 'voice' AND sm.user_id = $2"#,
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_one(db)
-    .await?;
+) -> Result<bool, AppError> {
+    let channel_type: Option<String> =
+        sqlx::query_scalar("SELECT channel_type FROM channels WHERE id = $1")
+            .bind(channel_id)
+            .fetch_optional(db)
+            .await?;
 
-    Ok(count > 0)
+    if channel_type.as_deref() != Some("voice") {
+        return Ok(false);
+    }
+
+    let perms = permissions::get_user_channel_permissions(db, channel_id, user_id).await?;
+    Ok(perms.contains(Permissions::VIEW_SERVER) && perms.contains(Permissions::CONNECT_VOICE))
 }

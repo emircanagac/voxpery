@@ -11,11 +11,13 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
-    models::{EditMessageRequest, MessageAuthor, MessageQuery, MessageWithAuthor, SendMessageRequest},
+    models::{
+        EditMessageRequest, MessageAuthor, MessageQuery, MessageWithAuthor, SendMessageRequest,
+    },
     services::{
         attachments::validate_attachments,
-        rate_limit::enforce_rate_limit,
         permissions::{self, Permissions},
+        rate_limit::enforce_rate_limit,
     },
     ws::WsEvent,
     AppState,
@@ -28,10 +30,19 @@ struct PinMessageRequest {
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/item/{message_id}", delete(delete_message).patch(edit_message))
+        .route(
+            "/item/{message_id}",
+            delete(delete_message).patch(edit_message),
+        )
         .route("/{channel_id}/search", get(search_messages))
-        .route("/{channel_id}/pins", get(list_channel_pins).post(pin_channel_message))
-        .route("/{channel_id}/pins/{message_id}", delete(unpin_channel_message))
+        .route(
+            "/{channel_id}/pins",
+            get(list_channel_pins).post(pin_channel_message),
+        )
+        .route(
+            "/{channel_id}/pins/{message_id}",
+            delete(unpin_channel_message),
+        )
         .route("/{channel_id}", get(get_messages).post(send_message))
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
@@ -258,14 +269,19 @@ async fn pin_channel_message(
     Json(body): Json<PinMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
-    check_channel_moderator(&state, channel_id, claims.sub).await?;
-
-    let msg_channel: Option<Uuid> = sqlx::query_scalar(
-        "SELECT channel_id FROM messages WHERE id = $1",
+    permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        Permissions::MANAGE_PINS,
     )
-    .bind(body.message_id)
-    .fetch_optional(&state.db)
     .await?;
+
+    let msg_channel: Option<Uuid> =
+        sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
+            .bind(body.message_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
     if msg_channel != channel_id {
@@ -333,15 +349,19 @@ async fn unpin_channel_message(
     Path((channel_id, message_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
-    check_channel_moderator(&state, channel_id, claims.sub).await?;
-
-    let deleted = sqlx::query(
-        "DELETE FROM channel_pins WHERE channel_id = $1 AND message_id = $2",
+    permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        Permissions::MANAGE_PINS,
     )
-    .bind(channel_id)
-    .bind(message_id)
-    .execute(&state.db)
     .await?;
+
+    let deleted = sqlx::query("DELETE FROM channel_pins WHERE channel_id = $1 AND message_id = $2")
+        .bind(channel_id)
+        .bind(message_id)
+        .execute(&state.db)
+        .await?;
 
     if deleted.rows_affected() == 0 {
         return Err(AppError::NotFound("Pinned message not found".into()));
@@ -456,20 +476,25 @@ async fn delete_message(
     Extension(claims): Extension<Claims>,
     Path(message_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row = sqlx::query_as::<_, (Uuid, Uuid)>(
-        "SELECT channel_id, user_id FROM messages WHERE id = $1",
-    )
-    .bind(message_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("Message not found".into()))?;
+    let row =
+        sqlx::query_as::<_, (Uuid, Uuid)>("SELECT channel_id, user_id FROM messages WHERE id = $1")
+            .bind(message_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::NotFound("Message not found".into()))?;
 
     let (channel_id, author_id) = row;
     check_channel_access(&state, channel_id, claims.sub).await?;
 
     if claims.sub != author_id {
         // Non-authors must have MANAGE_MESSAGES on this channel.
-        permissions::ensure_channel_permission(&state.db, channel_id, claims.sub, Permissions::MANAGE_MESSAGES).await?;
+        permissions::ensure_channel_permission(
+            &state.db,
+            channel_id,
+            claims.sub,
+            Permissions::MANAGE_MESSAGES,
+        )
+        .await?;
     }
 
     sqlx::query("DELETE FROM messages WHERE id = $1")
@@ -482,7 +507,9 @@ async fn delete_message(
         message_id,
     });
 
-    Ok(Json(serde_json::json!({ "message": "Deleted", "id": message_id })))
+    Ok(Json(
+        serde_json::json!({ "message": "Deleted", "id": message_id }),
+    ))
 }
 
 /// PATCH /api/messages/item/:message_id — edit a server channel message (author only).
@@ -492,13 +519,12 @@ async fn edit_message(
     Path(message_id): Path<Uuid>,
     Json(body): Json<EditMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
-    let row = sqlx::query_as::<_, (Uuid, Uuid)>(
-        "SELECT channel_id, user_id FROM messages WHERE id = $1",
-    )
-    .bind(message_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("Message not found".into()))?;
+    let row =
+        sqlx::query_as::<_, (Uuid, Uuid)>("SELECT channel_id, user_id FROM messages WHERE id = $1")
+            .bind(message_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::NotFound("Message not found".into()))?;
 
     let (channel_id, author_id) = row;
     if claims.sub != author_id {
@@ -510,7 +536,9 @@ async fn edit_message(
 
     let content = body.content.trim();
     if content.is_empty() {
-        return Err(AppError::Validation("Message content cannot be empty".into()));
+        return Err(AppError::Validation(
+            "Message content cannot be empty".into(),
+        ));
     }
     if content.len() > 4000 {
         return Err(AppError::Validation(
@@ -518,13 +546,11 @@ async fn edit_message(
         ));
     }
 
-    sqlx::query(
-        "UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2",
-    )
-    .bind(content)
-    .bind(message_id)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2")
+        .bind(content)
+        .bind(message_id)
+        .execute(&state.db)
+        .await?;
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -556,32 +582,6 @@ async fn edit_message(
     });
 
     Ok(Json(msg_with_author))
-}
-
-/// Check if a user is owner or admin of the server that owns the channel.
-async fn check_channel_moderator(
-    state: &AppState,
-    channel_id: Uuid,
-    user_id: Uuid,
-) -> Result<(), AppError> {
-    let role: Option<String> = sqlx::query_scalar(
-        r#"SELECT sm.role FROM channels c
-           INNER JOIN server_members sm ON c.server_id = sm.server_id
-           WHERE c.id = $1 AND sm.user_id = $2"#,
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let can_mod = matches!(role.as_deref(), Some("owner") | Some("admin"));
-    if !can_mod {
-        return Err(AppError::Forbidden(
-            "Only server owners and admins can pin or unpin messages".into(),
-        ));
-    }
-
-    Ok(())
 }
 
 /// Check if a user has access to a channel (via server membership).

@@ -40,14 +40,15 @@ export default function ChannelSettingsModal({
     const [loadingRoles, setLoadingRoles] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [deletingChannel, setDeletingChannel] = useState(false)
-    const effectiveRoles = serverRoles.length > 0 ? serverRoles : fallbackRoles
+    const effectiveRoles = fallbackRoles.length > 0 ? fallbackRoles : serverRoles
 
     const openPermissionsTab = async () => {
         setTab('permissions')
-        if (effectiveRoles.length === 0 && !loadingRoles && channel.server_id) {
+        const hasEveryoneRole = effectiveRoles.some((r) => r.name.trim().toLowerCase() === 'everyone')
+        if ((!hasEveryoneRole || effectiveRoles.length === 0) && !loadingRoles && channel.server_id) {
             setLoadingRoles(true)
             try {
-                const roles = await serverApi.listRoles(channel.server_id, token)
+                const roles = await serverApi.listRoles(channel.server_id, token, { includeSystem: true })
                 setFallbackRoles(roles)
             } catch (e) {
                 console.error(e)

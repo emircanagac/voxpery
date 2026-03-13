@@ -17,10 +17,7 @@ pub enum WsEvent {
         message: MessageWithAuthor,
     },
     /// A message was deleted in a server channel.
-    MessageDeleted {
-        channel_id: Uuid,
-        message_id: Uuid,
-    },
+    MessageDeleted { channel_id: Uuid, message_id: Uuid },
     /// A message was updated (edited) in a server channel.
     MessageUpdated {
         channel_id: Uuid,
@@ -34,14 +31,9 @@ pub enum WsEvent {
         is_typing: bool,
     },
     /// User presence update.
-    PresenceUpdate {
-        user_id: Uuid,
-        status: String,
-    },
+    PresenceUpdate { user_id: Uuid, status: String },
     /// Friend list/request state changed for a user.
-    FriendUpdate {
-        user_id: Uuid,
-    },
+    FriendUpdate { user_id: Uuid },
     /// User joined a server.
     MemberJoined {
         server_id: Uuid,
@@ -49,10 +41,7 @@ pub enum WsEvent {
         username: String,
     },
     /// User left a server.
-    MemberLeft {
-        server_id: Uuid,
-        user_id: Uuid,
-    },
+    MemberLeft { server_id: Uuid, user_id: Uuid },
     /// Member role was updated.
     MemberRoleUpdated {
         server_id: Uuid,
@@ -60,9 +49,7 @@ pub enum WsEvent {
         role: String,
     },
     /// Server roles (name/color/permissions/order) changed; clients should refresh derived UI.
-    ServerRolesUpdated {
-        server_id: Uuid,
-    },
+    ServerRolesUpdated { server_id: Uuid },
     /// Voice channel state update.
     VoiceStateUpdate {
         channel_id: Option<Uuid>, // None if left voice
@@ -78,18 +65,14 @@ pub enum WsEvent {
         camera_on: bool,
     },
     /// User profile details updated (e.g. avatar, username).
-    UserUpdated {
-        user: crate::models::UserPublic,
-    },
+    UserUpdated { user: crate::models::UserPublic },
     /// WebRTC signaling message (Offer, Answer, ICE Candidate).
     Signal {
         sender_id: Uuid,
         signal: SignalingMessage,
     },
     /// Pong response for latency measurement.
-    Pong {
-        sent_at_ms: u64,
-    },
+    Pong { sent_at_ms: u64 },
 }
 
 /// WebRTC signaling data.
@@ -136,7 +119,5 @@ pub enum WsClientMessage {
         signal: SignalingMessage,
     },
     /// Ping request for latency measurement.
-    Ping {
-        sent_at_ms: u64,
-    },
+    Ping { sent_at_ms: u64 },
 }

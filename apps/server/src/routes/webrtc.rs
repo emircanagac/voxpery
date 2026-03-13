@@ -1,15 +1,25 @@
 //! WebRTC-related API: TURN credentials from server env (not in frontend bundle).
 
-use axum::{extract::{Query, State}, middleware, routing::get, Extension, Json, Router};
+use axum::{
+    extract::{Query, State},
+    middleware,
+    routing::get,
+    Extension, Json, Router,
+};
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::{errors::AppError, middleware::auth::{Claims, require_auth}, ws::access::can_join_voice_channel, AppState};
+use crate::{
+    errors::AppError,
+    middleware::auth::{require_auth, Claims},
+    ws::access::can_join_voice_channel,
+    AppState,
+};
 
 #[derive(Debug, Serialize)]
 pub struct TurnCredentialsResponse {
@@ -23,13 +33,17 @@ pub struct TurnCredentialsResponse {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/turn-credentials", get(turn_credentials))
-    .route("/livekit-token", get(livekit_token))
+        .route("/livekit-token", get(livekit_token))
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
 type HmacSha1 = Hmac<Sha1>;
 
-fn generate_turn_credentials(shared_secret: &str, user_id: uuid::Uuid, ttl_secs: u64) -> Result<(String, String), AppError> {
+fn generate_turn_credentials(
+    shared_secret: &str,
+    user_id: uuid::Uuid,
+    ttl_secs: u64,
+) -> Result<(String, String), AppError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
@@ -51,7 +65,11 @@ async fn turn_credentials(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<TurnCredentialsResponse>, AppError> {
-    tracing::info!("User {} ({}) requested TURN credentials", claims.username, claims.sub);
+    tracing::info!(
+        "User {} ({}) requested TURN credentials",
+        claims.username,
+        claims.sub
+    );
 
     let urls: Vec<String> = state
         .turn_urls
@@ -77,11 +95,8 @@ async fn turn_credentials(
         .turn_shared_secret
         .as_deref()
         .ok_or_else(|| AppError::Internal("TURN_SHARED_SECRET not configured".into()))?;
-    let (username, credential) = generate_turn_credentials(
-        shared_secret,
-        claims.sub,
-        state.turn_credential_ttl_secs,
-    )?;
+    let (username, credential) =
+        generate_turn_credentials(shared_secret, claims.sub, state.turn_credential_ttl_secs)?;
 
     Ok(Json(TurnCredentialsResponse {
         urls,

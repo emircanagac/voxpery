@@ -385,8 +385,11 @@ export const serverApi = {
     channels: (serverId: string, token: AuthToken) =>
         apiFetch<Channel[]>(`/api/servers/${serverId}/channels`, { token }),
 
-    listRoles: (serverId: string, token: AuthToken) =>
-        apiFetch<ServerRole[]>(`/api/servers/${serverId}/roles`, { token }),
+    listRoles: (serverId: string, token: AuthToken, opts?: { includeSystem?: boolean }) =>
+        apiFetch<ServerRole[]>(
+            `/api/servers/${serverId}/roles${opts?.includeSystem ? '?include_system=true' : ''}`,
+            { token },
+        ),
 
     createRole: (serverId: string, name: string, permissions: number, token: AuthToken, color?: string | null) =>
         apiFetch<ServerRole>(`/api/servers/${serverId}/roles`, {

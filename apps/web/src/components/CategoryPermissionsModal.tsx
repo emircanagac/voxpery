@@ -32,7 +32,7 @@ export default function CategoryPermissionsModal({
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const effectiveRoles = serverRoles.length > 0 ? serverRoles : fallbackRoles
+    const effectiveRoles = fallbackRoles.length > 0 ? fallbackRoles : serverRoles
     const activeSelectedRoleId =
         selectedRoleId && effectiveRoles.some((r) => r.id === selectedRoleId) ? selectedRoleId : null
 
@@ -45,12 +45,12 @@ export default function CategoryPermissionsModal({
         })
         Promise.all([
             channelApi.getCategoryOverrides(serverId, category, token),
-            serverRoles.length > 0 ? Promise.resolve(serverRoles) : serverApi.listRoles(serverId, token),
+            serverApi.listRoles(serverId, token, { includeSystem: true }),
         ])
             .then(([ovs, roles]) => {
                 if (!active) return
                 setOverrides(ovs)
-                if (serverRoles.length === 0) setFallbackRoles(roles)
+                setFallbackRoles(roles)
             })
             .catch((err) => {
                 if (!active) return

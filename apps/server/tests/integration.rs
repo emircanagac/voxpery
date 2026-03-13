@@ -7,15 +7,15 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use dashmap::DashMap;
 use http_body_util::BodyExt;
 use serde_json::json;
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tower::ServiceExt;
 use uuid::Uuid;
 use voxpery_server::{build_app, run_migrations, AppState};
-use dashmap::DashMap;
-use sqlx::postgres::PgPoolOptions;
-use tokio::sync::broadcast;
 
 fn test_db_url() -> Option<String> {
     dotenvy::dotenv().ok();
@@ -77,17 +77,15 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
     (app, state)
 }
 
-async fn oneshot(
-    app: &mut axum::Router,
-    req: Request<Body>,
-) -> (StatusCode, bytes::Bytes) {
-    let response = app
-        .clone()
-        .oneshot(req)
-        .await
-        .expect("request failed");
+async fn oneshot(app: &mut axum::Router, req: Request<Body>) -> (StatusCode, bytes::Bytes) {
+    let response = app.clone().oneshot(req).await.expect("request failed");
     let status = response.status();
-    let body = response.into_body().collect().await.expect("body collect").to_bytes();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body collect")
+        .to_bytes();
     (status, body)
 }
 
@@ -137,7 +135,12 @@ async fn register_login_me_flow() {
         .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "register failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let token = auth["token"].as_str().expect("token in response");
 
@@ -231,8 +234,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .expect("moderator permissions query should succeed");
 
     assert_eq!(
-        moderator_permissions,
-        6992,
+        moderator_permissions, 6992,
         "default Voxpery Moderator role should use recommended default permissions"
     );
 
@@ -261,8 +263,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .expect("@everyone permissions query should succeed");
 
     assert_eq!(
-        everyone_permissions,
-        1153,
+        everyone_permissions, 1153,
         "@everyone role should use baseline default permissions"
     );
 
@@ -279,7 +280,10 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .fetch_one(&state.db)
     .await
     .expect("member-role mapping query should succeed");
-    assert_eq!(has_everyone_role, 1, "newly joined default member must get @everyone role");
+    assert_eq!(
+        has_everyone_role, 1,
+        "newly joined default member must get @everyone role"
+    );
 }
 
 #[tokio::test]
@@ -322,7 +326,12 @@ async fn create_server_list_servers_get_server() {
         .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "create server: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create server: {}",
+        String::from_utf8_lossy(&body)
+    );
     let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let server_id = server["id"].as_str().unwrap();
 
@@ -376,7 +385,12 @@ async fn create_server_seeds_recommended_moderator_permissions() {
         .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "register failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let token = auth["token"].as_str().unwrap();
     let creator_user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
@@ -391,7 +405,12 @@ async fn create_server_seeds_recommended_moderator_permissions() {
         .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "create server failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
 
@@ -408,8 +427,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .expect("moderator role should exist for newly created server");
 
     assert_eq!(
-        moderator_permissions,
-        6992,
+        moderator_permissions, 6992,
         "new server Moderator role should use recommended default permissions"
     );
 
@@ -435,8 +453,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .await
     .expect("@everyone permissions should be readable");
     assert_eq!(
-        everyone_permissions,
-        1153,
+        everyone_permissions, 1153,
         "new server @everyone role should use baseline default permissions"
     );
 
@@ -451,7 +468,10 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .fetch_one(&state.db)
     .await
     .expect("creator @everyone mapping query should succeed");
-    assert_eq!(creator_has_everyone, 1, "server creator must get @everyone role");
+    assert_eq!(
+        creator_has_everyone, 1,
+        "server creator must get @everyone role"
+    );
 }
 
 #[tokio::test]
@@ -478,7 +498,12 @@ async fn join_server_auto_assigns_everyone_role() {
         .body(Body::from(serde_json::to_vec(&owner_register).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "owner register failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let owner_auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let owner_token = owner_auth["token"].as_str().unwrap();
     let owner_auth_header = format!("Bearer {}", owner_token);
@@ -493,7 +518,12 @@ async fn join_server_auto_assigns_everyone_role() {
         .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "create server failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
     let invite_code = server["invite_code"].as_str().unwrap().to_string();
@@ -514,7 +544,12 @@ async fn join_server_auto_assigns_everyone_role() {
         .body(Body::from(serde_json::to_vec(&member_register).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "member register failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "member register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let member_auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let member_token = member_auth["token"].as_str().unwrap();
     let member_id = Uuid::parse_str(member_auth["user"]["id"].as_str().unwrap()).unwrap();
@@ -530,7 +565,12 @@ async fn join_server_auto_assigns_everyone_role() {
         .body(Body::from(serde_json::to_vec(&join_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "join server failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "join server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
 
     let everyone_role_id: Uuid = sqlx::query_scalar(
         r#"SELECT id FROM server_roles
@@ -553,7 +593,10 @@ async fn join_server_auto_assigns_everyone_role() {
     .await
     .expect("member role assignment query should succeed");
 
-    assert_eq!(member_has_everyone, 1, "joined member should auto-receive @everyone role");
+    assert_eq!(
+        member_has_everyone, 1,
+        "joined member should auto-receive @everyone role"
+    );
 }
 
 #[tokio::test]
@@ -614,7 +657,12 @@ async fn create_channel_list_channels_send_message_list_messages() {
         .body(Body::from(serde_json::to_vec(&channel_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "create channel: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create channel: {}",
+        String::from_utf8_lossy(&body)
+    );
     let channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let channel_id = channel["id"].as_str().unwrap();
 
@@ -628,7 +676,9 @@ async fn create_channel_list_channels_send_message_list_messages() {
     assert_eq!(status, StatusCode::OK);
     let channels: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
     assert!(!channels.is_empty());
-    assert!(channels.iter().any(|c| c["id"].as_str() == Some(channel_id)));
+    assert!(channels
+        .iter()
+        .any(|c| c["id"].as_str() == Some(channel_id)));
 
     // Send message
     let msg_body = json!({ "content": "Hello integration test" });
@@ -640,7 +690,12 @@ async fn create_channel_list_channels_send_message_list_messages() {
         .body(Body::from(serde_json::to_vec(&msg_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "send message: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "send message: {}",
+        String::from_utf8_lossy(&body)
+    );
     let msg: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let message_id = msg["id"].as_str().unwrap();
 
@@ -654,14 +709,19 @@ async fn create_channel_list_channels_send_message_list_messages() {
     assert_eq!(status, StatusCode::OK);
     let messages: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
     assert!(!messages.is_empty());
-    assert!(messages.iter().any(|m| m["id"].as_str() == Some(message_id)));
+    assert!(messages
+        .iter()
+        .any(|m| m["id"].as_str() == Some(message_id)));
     assert!(messages
         .iter()
         .any(|m| m["content"].as_str() == Some("Hello integration test")));
 
     // List messages with before (pagination)
     let req = Request::builder()
-        .uri(format!("/api/messages/{}?before={}&limit=5", channel_id, message_id))
+        .uri(format!(
+            "/api/messages/{}?before={}&limit=5",
+            channel_id, message_id
+        ))
         .header("Authorization", &auth_header)
         .body(Body::empty())
         .unwrap();
@@ -738,7 +798,7 @@ async fn strict_username_validation_rejects_invalid_usernames() {
     for username in invalid_usernames {
         let uid = Uuid::new_v4();
         let email = format!("test-{}@example.com", uid);
-        
+
         let register_body = json!({
             "email": email,
             "username": username,
@@ -776,7 +836,7 @@ async fn roles_and_channel_overrides_flow() {
     let uid = Uuid::new_v4();
     let email = format!("admin-{}@example.com", uid);
     let username = format!("admin_{}", uid.as_u128() % 1_000_000);
-    
+
     // Register owner
     let register_body = json!({
         "email": email,
@@ -852,14 +912,22 @@ async fn roles_and_channel_overrides_flow() {
     });
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/channels/{}/overrides/{}", channel_id, role_id))
+        .uri(format!(
+            "/api/channels/{}/overrides/{}",
+            channel_id, role_id
+        ))
         .header("Authorization", &auth_header)
         .header("content-type", "application/json")
         .body(Body::from(serde_json::to_vec(&override_body).unwrap()))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "channel override failed: {}", String::from_utf8_lossy(&body));
-    
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "channel override failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
     // Get channel overrides
     let req = Request::builder()
         .uri(format!("/api/channels/{}/overrides", channel_id))

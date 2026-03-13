@@ -71,18 +71,15 @@ impl Config {
             });
 
         Self {
-            database_url: std::env::var("DATABASE_URL")
-                .expect("DATABASE_URL must be set"),
+            database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
-            jwt_secret: std::env::var("JWT_SECRET")
-                .expect("JWT_SECRET must be set"),
+            jwt_secret: std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"),
             jwt_expiration: std::env::var("JWT_EXPIRATION")
                 .unwrap_or_else(|_| "86400".into())
                 .parse()
                 .expect("JWT_EXPIRATION must be a number"),
-            server_host: std::env::var("SERVER_HOST")
-                .unwrap_or_else(|_| "0.0.0.0".into()),
+            server_host: std::env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             server_port: std::env::var("SERVER_PORT")
                 .unwrap_or_else(|_| "3001".into())
                 .parse()
@@ -105,28 +102,51 @@ impl Config {
                 .parse()
                 .expect("MESSAGE_RATE_LIMIT_WINDOW_SECS must be a number"),
             admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
-            admin_username: std::env::var("ADMIN_USERNAME").ok().filter(|s| !s.is_empty()),
-            admin_password: std::env::var("ADMIN_PASSWORD").ok().filter(|s| !s.is_empty()),
+            admin_username: std::env::var("ADMIN_USERNAME")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            admin_password: std::env::var("ADMIN_PASSWORD")
+                .ok()
+                .filter(|s| !s.is_empty()),
             cookie_secure: std::env::var("COOKIE_SECURE")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
-            cookie_name: std::env::var("AUTH_COOKIE_NAME").unwrap_or_else(|_| "voxpery_token".into()),
+            cookie_name: std::env::var("AUTH_COOKIE_NAME")
+                .unwrap_or_else(|_| "voxpery_token".into()),
             turn_urls: std::env::var("TURN_URLS").ok().filter(|s| !s.is_empty()),
-            turn_shared_secret: std::env::var("TURN_SHARED_SECRET").ok().filter(|s| !s.is_empty()),
+            turn_shared_secret: std::env::var("TURN_SHARED_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
             turn_credential_ttl_secs: std::env::var("TURN_CREDENTIAL_TTL_SECS")
                 .unwrap_or_else(|_| "3600".into())
                 .parse()
                 .expect("TURN_CREDENTIAL_TTL_SECS must be a number"),
-            livekit_ws_url: std::env::var("LIVEKIT_WS_URL").ok().filter(|s| !s.is_empty()),
-            livekit_api_key: std::env::var("LIVEKIT_API_KEY").ok().filter(|s| !s.is_empty()),
-            livekit_api_secret: std::env::var("LIVEKIT_API_SECRET").ok().filter(|s| !s.is_empty()),
-            google_client_id: std::env::var("GOOGLE_CLIENT_ID").ok().filter(|s| !s.is_empty()),
-            google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
-            public_api_url: std::env::var("PUBLIC_API_URL").ok().filter(|s| !s.is_empty()),
-            turnstile_secret_key: std::env::var("TURNSTILE_SECRET_KEY").ok().filter(|s| !s.is_empty()),
+            livekit_ws_url: std::env::var("LIVEKIT_WS_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            livekit_api_key: std::env::var("LIVEKIT_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            livekit_api_secret: std::env::var("LIVEKIT_API_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            google_client_id: std::env::var("GOOGLE_CLIENT_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            public_api_url: std::env::var("PUBLIC_API_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            turnstile_secret_key: std::env::var("TURNSTILE_SECRET_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
             smtp_host: std::env::var("SMTP_HOST").ok().filter(|s| !s.is_empty()),
             smtp_user: std::env::var("SMTP_USER").ok().filter(|s| !s.is_empty()),
-            smtp_password: std::env::var("SMTP_PASSWORD").ok().filter(|s| !s.is_empty()),
+            smtp_password: std::env::var("SMTP_PASSWORD")
+                .ok()
+                .filter(|s| !s.is_empty()),
         }
     }
 }

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     middleware,
     routing::{delete, get, patch, post},
     Extension, Json, Router,
@@ -14,7 +14,11 @@ use crate::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
         ServerWithMembers,
     },
-    services::{audit, auth::generate_invite_code, permissions::{self, Permissions}},
+    services::{
+        audit,
+        auth::generate_invite_code,
+        permissions::{self, Permissions},
+    },
     ws::WsEvent,
     AppState,
 };
@@ -79,20 +83,47 @@ struct ReorderRolesRequest {
     role_ids: Vec<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct BanMemberRequest {
+    reason: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ServerBanEntry {
+    user_id: Uuid,
+    banned_by: Uuid,
+    reason: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    username: String,
+    banned_by_username: String,
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_servers).post(create_server))
-        .route("/{server_id}", get(get_server).delete(delete_server).patch(update_server))
+        .route(
+            "/{server_id}",
+            get(get_server).delete(delete_server).patch(update_server),
+        )
         .route("/{server_id}/roles", get(list_roles).post(create_role))
         .route("/{server_id}/roles/reorder", patch(reorder_roles))
-        .route("/{server_id}/roles/{role_id}", patch(update_role).delete(delete_role))
+        .route(
+            "/{server_id}/roles/{role_id}",
+            patch(update_role).delete(delete_role),
+        )
         .route("/{server_id}/channels", get(list_channels))
         .route(
             "/{server_id}/members/{user_id}/roles",
             get(list_member_roles).put(update_member_roles),
         )
-        .route("/{server_id}/members/{user_id}/role", patch(update_member_role))
+        .route(
+            "/{server_id}/members/{user_id}/role",
+            patch(update_member_role),
+        )
+        .route("/{server_id}/members/{user_id}/ban", post(ban_member))
         .route("/{server_id}/members/{user_id}", delete(kick_member))
+        .route("/{server_id}/bans", get(list_bans))
+        .route("/{server_id}/bans/{user_id}", delete(unban_member))
         .route("/{server_id}/audit-log", get(get_audit_log))
         .route("/join", post(join_server))
         .route("/{server_id}/leave", post(leave_server))
@@ -132,15 +163,22 @@ fn validate_server_icon_url(icon_url: Option<&str>) -> Result<Option<String>, Ap
         return Ok(None);
     }
     if trimmed.len() > 3_000_000 {
-        return Err(AppError::Validation("Server icon image is too large".into()));
+        return Err(AppError::Validation(
+            "Server icon image is too large".into(),
+        ));
     }
-    let valid_scheme =
-        trimmed.starts_with("data:image/") || trimmed.starts_with("http://") || trimmed.starts_with("https://");
+    let valid_scheme = trimmed.starts_with("data:image/")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://");
     if !valid_scheme {
-        return Err(AppError::Validation("Server icon must be an image URL or data URL".into()));
+        return Err(AppError::Validation(
+            "Server icon must be an image URL or data URL".into(),
+        ));
     }
     if trimmed.to_lowercase().starts_with("data:image/svg+xml") {
-        return Err(AppError::Validation("SVG images are not allowed for server icons (security)".into()));
+        return Err(AppError::Validation(
+            "SVG images are not allowed for server icons (security)".into(),
+        ));
     }
     Ok(Some(trimmed.to_string()))
 }
@@ -215,8 +253,7 @@ async fn create_server(
 
     // Seed a default "Moderator" role for this server (no members yet).
     // Moderators can handle day-to-day moderation but cannot manage server structure/roles.
-    let moderator_perms =
-        PERM_MANAGE_MESSAGES
+    let moderator_perms = PERM_MANAGE_MESSAGES
         | PERM_MANAGE_PINS
         | PERM_KICK_MEMBERS
         | PERM_MUTE_MEMBERS
@@ -233,7 +270,7 @@ async fn create_server(
     .execute(&state.db)
     .await?;
 
-    // Seed default "@everyone" baseline role and assign it to the owner.
+    // Seed default "@everyone" baseline role.
     // Baseline member access: can view server, send messages, and connect voice.
     let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
     sqlx::query(
@@ -247,26 +284,12 @@ async fn create_server(
     .execute(&state.db)
     .await?;
 
-    let everyone_role_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone' LIMIT 1",
-    )
-    .bind(server_id)
-    .fetch_optional(&state.db)
-    .await?;
-    if let Some(role_id) = everyone_role_id {
-        sqlx::query(
-            r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (server_id, user_id, role_id) DO NOTHING"#,
-        )
-        .bind(server_id)
-        .bind(claims.sub)
-        .bind(role_id)
-        .execute(&state.db)
-        .await?;
-    }
-
     Ok(Json(server))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ListRolesQuery {
+    include_system: Option<bool>,
 }
 
 /// GET /api/servers/:server_id — get server details with members.
@@ -331,7 +354,11 @@ async fn get_server(
     let perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
     let my_permissions = perms.bits();
 
-    Ok(Json(ServerDetail { server, my_permissions, members }))
+    Ok(Json(ServerDetail {
+        server,
+        my_permissions,
+        members,
+    }))
 }
 
 /// GET /api/servers/:server_id/roles — list roles for a server (owner only for now).
@@ -339,19 +366,40 @@ async fn list_roles(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(server_id): Path<Uuid>,
+    Query(query): Query<ListRolesQuery>,
 ) -> Result<Json<Vec<ServerRole>>, AppError> {
     // Require MANAGE_ROLES permission (owner implicitly has all permissions).
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_ROLES).await?;
-
-    let roles = sqlx::query_as::<_, ServerRole>(
-        r#"SELECT id, name, color, position, permissions
-           FROM server_roles
-           WHERE server_id = $1
-           ORDER BY position ASC, name ASC"#,
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_ROLES,
     )
-    .bind(server_id)
-    .fetch_all(&state.db)
     .await?;
+
+    let include_system = query.include_system.unwrap_or(false);
+    let roles = if include_system {
+        sqlx::query_as::<_, ServerRole>(
+            r#"SELECT id, name, color, position, permissions
+               FROM server_roles
+               WHERE server_id = $1
+               ORDER BY position ASC, name ASC"#,
+        )
+        .bind(server_id)
+        .fetch_all(&state.db)
+        .await?
+    } else {
+        sqlx::query_as::<_, ServerRole>(
+            r#"SELECT id, name, color, position, permissions
+               FROM server_roles
+               WHERE server_id = $1
+                 AND LOWER(name) <> 'everyone'
+               ORDER BY position ASC, name ASC"#,
+        )
+        .bind(server_id)
+        .fetch_all(&state.db)
+        .await?
+    };
 
     Ok(Json(roles))
 }
@@ -369,8 +417,19 @@ async fn create_role(
             "Role name must be 1-64 characters".into(),
         ));
     }
+    if name.eq_ignore_ascii_case("everyone") {
+        return Err(AppError::Validation(
+            "Role name 'Everyone' is reserved".into(),
+        ));
+    }
 
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_ROLES).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_ROLES,
+    )
+    .await?;
 
     // Next position after existing roles.
     let next_position: i32 = sqlx::query_scalar(
@@ -411,7 +470,9 @@ async fn create_role(
         _ => AppError::from(e),
     })?;
 
-    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    let _ = state
+        .tx
+        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(role))
 }
@@ -427,33 +488,61 @@ async fn reorder_roles(
         return Ok(Json(serde_json::json!({ "message": "Nothing to reorder" })));
     }
 
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_ROLES).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_ROLES,
+    )
+    .await?;
 
     // Parse role IDs and remember order.
     let mut parsed_ids = Vec::<Uuid>::with_capacity(body.role_ids.len());
     for raw in &body.role_ids {
-        let id = Uuid::parse_str(raw).map_err(|_| {
-            AppError::Validation("Invalid role id in reorder request".into())
-        })?;
+        let id = Uuid::parse_str(raw)
+            .map_err(|_| AppError::Validation("Invalid role id in reorder request".into()))?;
         parsed_ids.push(id);
+    }
+
+    // "Everyone" is implicit and not reorderable.
+    let expected_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"SELECT id
+           FROM server_roles
+           WHERE server_id = $1
+             AND LOWER(name) <> 'everyone'"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+    if expected_ids.len() != parsed_ids.len() {
+        return Err(AppError::Validation(
+            "role_ids must include all non-system roles exactly once".into(),
+        ));
+    }
+    let expected_set: std::collections::HashSet<Uuid> = expected_ids.into_iter().collect();
+    let parsed_set: std::collections::HashSet<Uuid> = parsed_ids.iter().copied().collect();
+    if expected_set != parsed_set {
+        return Err(AppError::Validation(
+            "role_ids contains unknown or missing roles".into(),
+        ));
     }
 
     let mut tx = state.db.begin().await?;
 
     for (idx, role_id) in parsed_ids.iter().enumerate() {
-        sqlx::query(
-            "UPDATE server_roles SET position = $1 WHERE id = $2 AND server_id = $3",
-        )
-        .bind(idx as i32)
-        .bind(role_id)
-        .bind(server_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE server_roles SET position = $1 WHERE id = $2 AND server_id = $3")
+            .bind(idx as i32)
+            .bind(role_id)
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     tx.commit().await?;
 
-    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    let _ = state
+        .tx
+        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "message": "Roles reordered" })))
 }
@@ -479,15 +568,28 @@ async fn update_role(
     }
 
     // Ensure role belongs to this server.
-    let exists: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM server_roles WHERE id = $1 AND server_id = $2",
-    )
-    .bind(role_id)
-    .bind(server_id)
-    .fetch_optional(&state.db)
-    .await?;
-    if exists.is_none() {
-        return Err(AppError::NotFound("Role not found".into()));
+    let role_name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM server_roles WHERE id = $1 AND server_id = $2")
+            .bind(role_id)
+            .bind(server_id)
+            .fetch_optional(&state.db)
+            .await?;
+    let role_name = match role_name {
+        Some(name) => name,
+        None => return Err(AppError::NotFound("Role not found".into())),
+    };
+    if role_name.eq_ignore_ascii_case("everyone") {
+        return Err(AppError::Validation(
+            "The Everyone role is system-managed and cannot be edited".into(),
+        ));
+    }
+
+    if let Some(name) = body.name.as_deref().map(str::trim) {
+        if name.eq_ignore_ascii_case("everyone") {
+            return Err(AppError::Validation(
+                "Role name 'Everyone' is reserved".into(),
+            ));
+        }
     }
 
     let mut new_name_opt: Option<String> = None;
@@ -538,7 +640,9 @@ async fn update_role(
         _ => AppError::from(e),
     })?;
 
-    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    let _ = state
+        .tx
+        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(role))
 }
@@ -562,8 +666,24 @@ async fn delete_role(
         ));
     }
 
+    let role_name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM server_roles WHERE id = $1 AND server_id = $2")
+            .bind(role_id)
+            .bind(server_id)
+            .fetch_optional(&state.db)
+            .await?;
+    let role_name = match role_name {
+        Some(name) => name,
+        None => return Err(AppError::NotFound("Role not found".into())),
+    };
+    if role_name.eq_ignore_ascii_case("everyone") {
+        return Err(AppError::Validation(
+            "The Everyone role is system-managed and cannot be deleted".into(),
+        ));
+    }
+
     let result = sqlx::query(
-        "DELETE FROM server_roles WHERE id = $1 AND server_id = $2",
+        "DELETE FROM server_roles WHERE id = $1 AND server_id = $2 AND LOWER(name) <> 'everyone'",
     )
     .bind(role_id)
     .bind(server_id)
@@ -574,7 +694,9 @@ async fn delete_role(
         return Err(AppError::NotFound("Role not found".into()));
     }
 
-    let _ = state.tx.send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    let _ = state
+        .tx
+        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -586,7 +708,13 @@ async fn get_audit_log(
     Path(server_id): Path<Uuid>,
 ) -> Result<Json<Vec<AuditLogEntry>>, AppError> {
     // Require VIEW_AUDIT_LOG permission for audit log access.
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::VIEW_AUDIT_LOG).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_AUDIT_LOG,
+    )
+    .await?;
 
     let rows = sqlx::query_as::<_, AuditLogEntry>(
         r#"SELECT a.id, a.at, a.actor_id, a.server_id, a.action, a.resource_type, a.resource_id, a.details,
@@ -612,13 +740,28 @@ async fn join_server(
 ) -> Result<Json<Server>, AppError> {
     let invite_code = body.invite_code.trim();
     if invite_code.is_empty() || invite_code.len() > 32 {
-        return Err(AppError::Validation("Invite code must be 1-32 characters".into()));
+        return Err(AppError::Validation(
+            "Invite code must be 1-32 characters".into(),
+        ));
     }
     let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE invite_code = $1")
         .bind(invite_code)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound("Invalid invite code".into()))?;
+
+    let is_banned = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_bans WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server.id)
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await?;
+    if is_banned > 0 {
+        return Err(AppError::Forbidden(
+            "You are banned from this server".into(),
+        ));
+    }
 
     // Check if already a member
     let already_member = sqlx::query_scalar::<_, i64>(
@@ -641,7 +784,7 @@ async fn join_server(
     .execute(&state.db)
     .await?;
 
-    // Ensure "@everyone" role exists and auto-assign to newly joined member.
+    // Ensure "@everyone" role exists for baseline permissions.
     let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
     sqlx::query(
         r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
@@ -653,25 +796,6 @@ async fn join_server(
     .bind(everyone_perms)
     .execute(&state.db)
     .await?;
-
-    let everyone_role_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone' LIMIT 1",
-    )
-    .bind(server.id)
-    .fetch_optional(&state.db)
-    .await?;
-    if let Some(role_id) = everyone_role_id {
-        sqlx::query(
-            r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (server_id, user_id, role_id) DO NOTHING"#,
-        )
-        .bind(server.id)
-        .bind(claims.sub)
-        .bind(role_id)
-        .execute(&state.db)
-        .await?;
-    }
 
     // Broadcast MemberJoined event
     let _ = state.tx.send(WsEvent::MemberJoined {
@@ -731,7 +855,9 @@ async fn delete_server(
         .ok_or(AppError::NotFound("Server not found".into()))?;
 
     if server.owner_id != claims.sub {
-        return Err(AppError::Forbidden("Only the owner can delete the server".into()));
+        return Err(AppError::Forbidden(
+            "Only the owner can delete the server".into(),
+        ));
     }
 
     audit::log(
@@ -775,13 +901,21 @@ async fn update_server(
         .ok_or(AppError::NotFound("Server not found".into()))?;
 
     // Require MANAGE_SERVER permission for server settings changes.
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_SERVER).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
 
     let mut next_name = current.name.clone();
     if let Some(name) = body.name {
         let trimmed = name.trim();
         if trimmed.is_empty() || trimmed.len() > 100 {
-            return Err(AppError::Validation("Server name must be 1-100 characters".into()));
+            return Err(AppError::Validation(
+                "Server name must be 1-100 characters".into(),
+            ));
         }
         next_name = trimmed.to_string();
     }
@@ -792,7 +926,9 @@ async fn update_server(
     } else if let Some(icon_url) = body.icon_url {
         let trimmed = icon_url.trim();
         if trimmed.is_empty() {
-            return Err(AppError::Validation("Server icon URL cannot be empty".into()));
+            return Err(AppError::Validation(
+                "Server icon URL cannot be empty".into(),
+            ));
         }
         next_icon = validate_server_icon_url(Some(trimmed))?;
     }
@@ -856,7 +992,8 @@ async fn list_channels(
 
     let mut visible = Vec::with_capacity(channels.len());
     for channel in channels {
-        let perms = permissions::get_user_channel_permissions(&state.db, channel.id, claims.sub).await?;
+        let perms =
+            permissions::get_user_channel_permissions(&state.db, channel.id, claims.sub).await?;
         if perms.contains(Permissions::VIEW_SERVER) {
             visible.push(channel);
         }
@@ -877,7 +1014,13 @@ async fn list_member_roles(
     Extension(claims): Extension<Claims>,
     Path((server_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Uuid>>, AppError> {
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_ROLES).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_ROLES,
+    )
+    .await?;
 
     // Ensure target user is a member of this server.
     let exists = sqlx::query_scalar::<_, i64>(
@@ -892,7 +1035,12 @@ async fn list_member_roles(
     }
 
     let role_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT role_id FROM server_member_roles WHERE server_id = $1 AND user_id = $2",
+        r#"SELECT smr.role_id
+           FROM server_member_roles smr
+           INNER JOIN server_roles sr ON sr.id = smr.role_id
+           WHERE smr.server_id = $1
+             AND smr.user_id = $2
+             AND LOWER(sr.name) <> 'everyone'"#,
     )
     .bind(server_id)
     .bind(user_id)
@@ -914,7 +1062,13 @@ async fn update_member_roles(
     Path((server_id, user_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberRolesRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_ROLES).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_ROLES,
+    )
+    .await?;
 
     let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
         .bind(server_id)
@@ -941,8 +1095,10 @@ async fn update_member_roles(
     }
 
     // Role Hierarchy Security
-    let caller_pos = permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
-    let target_pos = permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
+    let caller_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
+    let target_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
 
     // 1. Cannot modify someone with a higher or equal role.
     if caller_pos >= target_pos && claims.sub != user_id && owner_id != Some(claims.sub) {
@@ -954,21 +1110,27 @@ async fn update_member_roles(
     // 2. Cannot assign or remove roles that are higher or equal to the caller's highest role.
     // First, check the new roles being assigned.
     for role_id in &body.role_ids {
-        let role_pos = sqlx::query_scalar::<_, Option<i32>>(
-            "SELECT position FROM server_roles WHERE id = $1 AND server_id = $2"
+        let role_row = sqlx::query_as::<_, (i32, String)>(
+            "SELECT position, name FROM server_roles WHERE id = $1 AND server_id = $2",
         )
         .bind(role_id)
         .bind(server_id)
         .fetch_optional(&state.db)
-        .await?
-        .flatten();
+        .await?;
 
-        if let Some(pos) = role_pos {
-            if caller_pos >= pos && owner_id != Some(claims.sub) {
-                return Err(AppError::Forbidden(
-                    "You cannot assign a role higher or equal to your own highest role".into(),
-                ));
-            }
+        let (pos, name) = role_row
+            .ok_or_else(|| AppError::Validation("One or more role_ids are invalid".into()))?;
+
+        if name.eq_ignore_ascii_case("everyone") {
+            return Err(AppError::Validation(
+                "The Everyone role is system-managed and cannot be assigned manually".into(),
+            ));
+        }
+
+        if caller_pos >= pos && owner_id != Some(claims.sub) {
+            return Err(AppError::Forbidden(
+                "You cannot assign a role higher or equal to your own highest role".into(),
+            ));
         }
     }
 
@@ -983,16 +1145,18 @@ async fn update_member_roles(
 
     for old_role_id in &old_role_ids {
         if !body.role_ids.contains(old_role_id) {
-            let role_pos = sqlx::query_scalar::<_, Option<i32>>(
-                "SELECT position FROM server_roles WHERE id = $1 AND server_id = $2"
+            let role_row = sqlx::query_as::<_, (i32, String)>(
+                "SELECT position, name FROM server_roles WHERE id = $1 AND server_id = $2",
             )
             .bind(old_role_id)
             .bind(server_id)
             .fetch_optional(&state.db)
-            .await?
-            .flatten();
+            .await?;
 
-            if let Some(pos) = role_pos {
+            if let Some((pos, name)) = role_row {
+                if name.eq_ignore_ascii_case("everyone") {
+                    continue;
+                }
                 if caller_pos >= pos && owner_id != Some(claims.sub) {
                     return Err(AppError::Forbidden(
                         "You cannot remove a role higher or equal to your own highest role".into(),
@@ -1026,14 +1190,12 @@ async fn update_member_roles(
     // All non-owner users are treated as "member"; fine-grained permissions come from roles.
     let new_legacy_role = if is_owner { "owner" } else { "member" };
 
-    sqlx::query(
-        "UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3",
-    )
-    .bind(new_legacy_role)
-    .bind(server_id)
-    .bind(user_id)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3")
+        .bind(new_legacy_role)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
 
     // Audit log: record granular role changes.
     audit::log(
@@ -1058,7 +1220,9 @@ async fn update_member_roles(
         role: new_legacy_role.to_string(),
     });
 
-    Ok(Json(serde_json::json!({ "message": "Member roles updated" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Member roles updated" }),
+    ))
 }
 
 async fn update_member_role(
@@ -1103,22 +1267,19 @@ async fn update_member_role(
         return Err(AppError::NotFound("Member not found".into()));
     }
 
-    let old_role: String = sqlx::query_scalar(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(server_id)
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await?;
+    let old_role: String =
+        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+            .bind(server_id)
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await?;
 
-    sqlx::query(
-        "UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3",
-    )
-    .bind(&body.role)
-    .bind(server_id)
-    .bind(user_id)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3")
+        .bind(&body.role)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
 
     audit::log(
         &state.db,
@@ -1140,6 +1301,194 @@ async fn update_member_role(
     Ok(Json(serde_json::json!({ "message": "Role updated" })))
 }
 
+async fn ban_member(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<BanMemberRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if claims.sub == user_id {
+        return Err(AppError::Validation("Cannot ban yourself".into()));
+    }
+
+    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = $1")
+        .bind(server_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Server not found".into()))?;
+
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::BAN_MEMBERS,
+    )
+    .await?;
+
+    if server.owner_id == user_id {
+        return Err(AppError::Forbidden("Cannot ban the server owner".into()));
+    }
+
+    let target_exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await?;
+    if target_exists == 0 {
+        return Err(AppError::NotFound("User not found".into()));
+    }
+
+    let is_member = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await?;
+    if is_member > 0 {
+        let caller_pos =
+            permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
+        let target_pos =
+            permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
+        if caller_pos >= target_pos {
+            return Err(AppError::Forbidden(
+                "You cannot ban a member with an equal or higher role than yourself".into(),
+            ));
+        }
+    }
+
+    let reason = body
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if let Some(r) = reason {
+        if r.len() > 500 {
+            return Err(AppError::Validation(
+                "Ban reason must be at most 500 characters".into(),
+            ));
+        }
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    sqlx::query(
+        r#"INSERT INTO server_bans (server_id, user_id, banned_by, reason, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (server_id, user_id)
+           DO UPDATE SET banned_by = EXCLUDED.banned_by, reason = EXCLUDED.reason"#,
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .bind(claims.sub)
+    .bind(reason)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2")
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    let removed_member =
+        sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
+            .bind(server_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+            > 0;
+
+    tx.commit().await?;
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "member_ban",
+        "member",
+        Some(user_id),
+        Some(serde_json::json!({ "reason": reason })),
+    )
+    .await?;
+
+    if removed_member {
+        let _ = state.tx.send(WsEvent::MemberLeft { server_id, user_id });
+    }
+
+    Ok(Json(serde_json::json!({
+        "message": "Member banned",
+        "removed_member": removed_member
+    })))
+}
+
+async fn list_bans(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<ServerBanEntry>>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::BAN_MEMBERS,
+    )
+    .await?;
+
+    let rows = sqlx::query_as::<_, ServerBanEntry>(
+        r#"SELECT sb.user_id, sb.banned_by, sb.reason, sb.created_at,
+                  u.username AS username,
+                  ub.username AS banned_by_username
+           FROM server_bans sb
+           INNER JOIN users u ON u.id = sb.user_id
+           INNER JOIN users ub ON ub.id = sb.banned_by
+           WHERE sb.server_id = $1
+           ORDER BY sb.created_at DESC"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+async fn unban_member(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::BAN_MEMBERS,
+    )
+    .await?;
+
+    let result = sqlx::query("DELETE FROM server_bans WHERE server_id = $1 AND user_id = $2")
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Ban entry not found".into()));
+    }
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "member_unban",
+        "member",
+        Some(user_id),
+        None,
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Member unbanned" })))
+}
+
 /// DELETE /api/servers/:server_id/members/:user_id — kick a member (requires KICK_MEMBERS).
 async fn kick_member(
     State(state): State<Arc<AppState>>,
@@ -1156,16 +1505,21 @@ async fn kick_member(
         .await?
         .ok_or(AppError::NotFound("Server not found".into()))?;
 
-    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::KICK_MEMBERS).await?;
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::KICK_MEMBERS,
+    )
+    .await?;
 
     // Target must be a member.
-    let target_role: Option<String> = sqlx::query_scalar(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(server_id)
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let target_role: Option<String> =
+        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+            .bind(server_id)
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     let target_role = match target_role {
         Some(r) => r,
@@ -1179,8 +1533,10 @@ async fn kick_member(
     // Role Hierarchy Security:
     // A user can only kick someone if their highest role position is lower (higher rank)
     // than the target's highest role position.
-    let caller_pos = permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
-    let target_pos = permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
+    let caller_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, claims.sub).await?;
+    let target_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, user_id).await?;
 
     if caller_pos >= target_pos {
         return Err(AppError::Forbidden(
@@ -1205,10 +1561,7 @@ async fn kick_member(
     )
     .await?;
 
-    let _ = state.tx.send(WsEvent::MemberLeft {
-        server_id,
-        user_id,
-    });
+    let _ = state.tx.send(WsEvent::MemberLeft { server_id, user_id });
 
     Ok(Json(serde_json::json!({ "message": "Member kicked" })))
 }

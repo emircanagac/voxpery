@@ -34,23 +34,41 @@ pub async fn get_user_server_permissions(
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
     // Owner always has all permissions.
-    let owner_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT owner_id FROM servers WHERE id = $1",
-    )
-    .bind(server_id)
-    .fetch_optional(db)
-    .await?;
+    let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
+        .bind(server_id)
+        .fetch_optional(db)
+        .await?;
 
     if owner_id.map(|id| id == user_id).unwrap_or(false) {
         return Ok(Permissions::all());
     }
 
+    // Non-members have no server permissions.
+    let is_member: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(db)
+    .await?;
+    if is_member == 0 {
+        return Ok(Permissions::empty());
+    }
+
     // Sum all role permissions with bitwise OR.
+    // "@everyone" is always implicit for all members, even if it's not explicitly assigned.
     let rows: Vec<i64> = sqlx::query_scalar(
         r#"SELECT sr.permissions
+           FROM server_roles sr
+           WHERE sr.server_id = $1
+             AND LOWER(sr.name) = 'everyone'
+           UNION ALL
+           SELECT sr.permissions
            FROM server_member_roles smr
            INNER JOIN server_roles sr ON sr.id = smr.role_id
-           WHERE smr.server_id = $1 AND smr.user_id = $2"#,
+           WHERE smr.server_id = $1
+             AND smr.user_id = $2
+             AND LOWER(sr.name) <> 'everyone'"#,
     )
     .bind(server_id)
     .bind(user_id)
@@ -78,12 +96,11 @@ pub async fn get_user_channel_permissions(
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
     // Resolve server_id and category from channel.
-    let channel_row: Option<(Uuid, Option<String>)> = sqlx::query_as(
-        "SELECT server_id, category FROM channels WHERE id = $1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+    let channel_row: Option<(Uuid, Option<String>)> =
+        sqlx::query_as("SELECT server_id, category FROM channels WHERE id = $1")
+            .bind(channel_id)
+            .fetch_optional(db)
+            .await?;
 
     let (server_id, category) = match channel_row {
         Some(row) => row,
@@ -92,19 +109,24 @@ pub async fn get_user_channel_permissions(
 
     let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
 
-    if let Some(category_name) = category
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
+    if let Some(category_name) = category.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
         let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
-            r#"SELECT co.allow, co.deny
-               FROM server_member_roles smr
+            r#"WITH effective_roles AS (
+                   SELECT sr.id AS role_id
+                   FROM server_roles sr
+                   WHERE sr.server_id = $1
+                     AND LOWER(sr.name) = 'everyone'
+                   UNION
+                   SELECT smr.role_id
+                   FROM server_member_roles smr
+                   WHERE smr.server_id = $1
+                     AND smr.user_id = $2
+               )
+               SELECT co.allow, co.deny
+               FROM effective_roles er
                INNER JOIN channel_category_role_overrides co
-                 ON co.role_id = smr.role_id
-               WHERE smr.server_id = $1
-                 AND smr.user_id = $2
-                 AND co.server_id = $1
+                 ON co.role_id = er.role_id
+               WHERE co.server_id = $1
                  AND co.category = $3"#,
         )
         .bind(server_id)
@@ -129,11 +151,22 @@ pub async fn get_user_channel_permissions(
 
     // Gather all role overrides for roles the user has in this server.
     let overrides: Vec<(i64, i64)> = sqlx::query_as(
-        r#"SELECT cro.allow, cro.deny
-           FROM server_member_roles smr
+        r#"WITH effective_roles AS (
+               SELECT sr.id AS role_id
+               FROM server_roles sr
+               WHERE sr.server_id = $1
+                 AND LOWER(sr.name) = 'everyone'
+               UNION
+               SELECT smr.role_id
+               FROM server_member_roles smr
+               WHERE smr.server_id = $1
+                 AND smr.user_id = $2
+           )
+           SELECT cro.allow, cro.deny
+           FROM effective_roles er
            INNER JOIN channel_role_overrides cro
-             ON cro.role_id = smr.role_id
-           WHERE smr.server_id = $1 AND smr.user_id = $2 AND cro.channel_id = $3"#,
+             ON cro.role_id = er.role_id
+           WHERE cro.channel_id = $3"#,
     )
     .bind(server_id)
     .bind(user_id)
@@ -212,7 +245,7 @@ pub async fn get_user_highest_role_position(
         r#"SELECT MIN(sr.position)
            FROM server_roles sr
            INNER JOIN server_member_roles smr ON sr.id = smr.role_id
-           WHERE smr.server_id = $1 AND smr.user_id = $2"#
+           WHERE smr.server_id = $1 AND smr.user_id = $2"#,
     )
     .bind(server_id)
     .bind(user_id)
@@ -252,4 +285,3 @@ mod tests {
         assert_eq!(p.bits(), 0);
     }
 }
-

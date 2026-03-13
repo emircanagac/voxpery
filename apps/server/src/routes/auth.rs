@@ -15,7 +15,10 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, token_from_request, Claims},
-    models::{AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest, User, UserPublic},
+    models::{
+        AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
+        User, UserPublic,
+    },
     services::auth::{generate_token, hash_password, verify_password},
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
@@ -27,9 +30,7 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
     let max_age = state.jwt_expiration.max(0) as usize;
     let mut cookie = format!(
         "{}={}; HttpOnly; Path=/; SameSite=Lax; Max-Age={}",
-        state.cookie_name,
-        token,
-        max_age
+        state.cookie_name, token, max_age
     );
     if state.cookie_secure {
         cookie.push_str("; Secure");
@@ -43,7 +44,10 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 
 /// Build Set-Cookie value to clear auth cookie.
 fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
-    let cookie = format!("{}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0", state.cookie_name);
+    let cookie = format!(
+        "{}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0",
+        state.cookie_name
+    );
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&cookie) {
         headers.insert(header::SET_COOKIE, v);
@@ -97,7 +101,7 @@ async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let email = body.email.trim().to_lowercase();
-    
+
     // 1) Email-based rate limit
     enforce_rate_limit(
         &state.redis,
@@ -114,7 +118,7 @@ async fn register(
         .or_else(|| headers.get("x-forwarded-for"))
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown_ip");
-        
+
     // Allow max 5 accounts per IP per hour as basic flood protection
     if ip != "unknown_ip" {
         enforce_rate_limit(
@@ -157,42 +161,69 @@ async fn register(
             .map_err(|e| AppError::Internal(format!("CAPTCHA parse error: {}", e)))?;
 
         if !verify_result.success {
-            return Err(AppError::Validation("CAPTCHA verification failed. Are you a robot?".into()));
+            return Err(AppError::Validation(
+                "CAPTCHA verification failed. Are you a robot?".into(),
+            ));
         }
     }
 
     // Validate input
     let username = body.username.trim();
     if username.len() < 3 || username.len() > 32 {
-        return Err(AppError::Validation("Username must be 3-32 characters".into()));
+        return Err(AppError::Validation(
+            "Username must be 3-32 characters".into(),
+        ));
     }
-    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
-        return Err(AppError::Validation("Username cannot start or end with an underscore or period".into()));
+    if username.starts_with('_')
+        || username.starts_with('.')
+        || username.ends_with('_')
+        || username.ends_with('.')
+    {
+        return Err(AppError::Validation(
+            "Username cannot start or end with an underscore or period".into(),
+        ));
     }
-    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
-        return Err(AppError::Validation("Username cannot contain consecutive underscores or periods".into()));
+    if username.contains("__")
+        || username.contains("..")
+        || username.contains("_.")
+        || username.contains("._")
+    {
+        return Err(AppError::Validation(
+            "Username cannot contain consecutive underscores or periods".into(),
+        ));
     }
-    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
+    {
         return Err(AppError::Validation(
             "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
         ));
     }
     if email.len() > 255 {
-        return Err(AppError::Validation("Email must be at most 255 characters".into()));
+        return Err(AppError::Validation(
+            "Email must be at most 255 characters".into(),
+        ));
     }
     if !email.contains('@') || email.find('@').map(|i| i > 0 && i < email.len() - 1) != Some(true) {
-        return Err(AppError::Validation("Email must be a valid format (e.g. user@domain)".into()));
+        return Err(AppError::Validation(
+            "Email must be a valid format (e.g. user@domain)".into(),
+        ));
     }
     if body.password.len() < 8 {
-        return Err(AppError::Validation("Password must be at least 8 characters".into()));
+        return Err(AppError::Validation(
+            "Password must be at least 8 characters".into(),
+        ));
     }
 
     // Check if user already exists
-    let existing = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE email = $1 OR username = $2")
-        .bind(&email)
-        .bind(&username)
-        .fetch_one(&state.db)
-        .await?;
+    let existing = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM users WHERE email = $1 OR username = $2",
+    )
+    .bind(&email)
+    .bind(&username)
+    .fetch_one(&state.db)
+    .await?;
 
     if existing > 0 {
         return Err(AppError::UserAlreadyExists);
@@ -218,13 +249,21 @@ async fn register(
     ensure_default_server_join(&state.db, user.id).await?;
 
     // Generate JWT
-    let token = generate_token(user.id, &user.username, &state.jwt_secret, state.jwt_expiration)?;
+    let token = generate_token(
+        user.id,
+        &user.username,
+        &state.jwt_secret,
+        state.jwt_expiration,
+    )?;
 
     let headers = auth_cookie_header(&state, &token);
-    Ok((headers, Json(AuthResponse {
-        token,
-        user: UserPublic::from(user),
-    })))
+    Ok((
+        headers,
+        Json(AuthResponse {
+            token,
+            user: UserPublic::from(user),
+        }),
+    ))
 }
 
 /// Default Voxpery server invite code.
@@ -244,7 +283,9 @@ const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
 /// Env vars to resolve default Voxpery server owner: ADMIN_EMAIL or ADMIN_USERNAME (seeded admin).
 fn official_owner_lookup() -> (Option<String>, Option<String>) {
     let email = std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty());
-    let username = std::env::var("ADMIN_USERNAME").ok().filter(|s| !s.is_empty());
+    let username = std::env::var("ADMIN_USERNAME")
+        .ok()
+        .filter(|s| !s.is_empty());
     (email, username)
 }
 
@@ -282,18 +323,31 @@ pub async fn ensure_seed_admin(
 ) -> Result<Option<Uuid>, AppError> {
     let username = username.trim();
     if username.len() < 3 || username.len() > 32 {
-        tracing::error!("Seed admin username must be 3-32 characters. Check your ADMIN_USERNAME env var.");
+        tracing::error!(
+            "Seed admin username must be 3-32 characters. Check your ADMIN_USERNAME env var."
+        );
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
-    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+    if username.starts_with('_')
+        || username.starts_with('.')
+        || username.ends_with('_')
+        || username.ends_with('.')
+    {
         tracing::error!("Seed admin username cannot start or end with an underscore or period. Check your ADMIN_USERNAME env var.");
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
-    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+    if username.contains("__")
+        || username.contains("..")
+        || username.contains("_.")
+        || username.contains("._")
+    {
         tracing::error!("Seed admin username cannot contain consecutive underscores or periods. Check your ADMIN_USERNAME env var.");
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
-    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
+    {
         tracing::error!("Seed admin username may only contain lowercase letters, numbers, underscores, and periods. Check your ADMIN_USERNAME env var.");
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
@@ -327,16 +381,12 @@ pub async fn ensure_seed_admin(
 
 /// Ensure the official Voxpery community server exists and add the user to it.
 /// Called on register/login for every user, and at startup with the seeded admin id to create the server.
-pub async fn ensure_default_server_join(
-    db: &sqlx::PgPool,
-    user_id: Uuid,
-) -> Result<(), AppError> {
-    let mut server_id_opt: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM servers WHERE invite_code = $1",
-    )
-    .bind(DEFAULT_SERVER_INVITE_CODE)
-    .fetch_optional(db)
-    .await?;
+pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Result<(), AppError> {
+    let mut server_id_opt: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM servers WHERE invite_code = $1")
+            .bind(DEFAULT_SERVER_INVITE_CODE)
+            .fetch_optional(db)
+            .await?;
 
     // Auto-create default Voxpery server when missing: use official owner if configured, else current user (CI/dev).
     if server_id_opt.is_none() {
@@ -392,76 +442,64 @@ pub async fn ensure_default_server_join(
     }
 
     if let Some(server_id) = server_id_opt {
-            // Ensure default Voxpery server has the seeded Moderator role.
-            // This also backfills older default servers that were created without it.
-            let moderator_perms =
-                PERM_MANAGE_MESSAGES
-                | PERM_MANAGE_PINS
-                | PERM_KICK_MEMBERS
-                | PERM_MUTE_MEMBERS
-                | PERM_DEAFEN_MEMBERS
-                | PERM_VIEW_AUDIT_LOG;
-            sqlx::query(
-                r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+        // Ensure default Voxpery server has the seeded Moderator role.
+        // This also backfills older default servers that were created without it.
+        let moderator_perms = PERM_MANAGE_MESSAGES
+            | PERM_MANAGE_PINS
+            | PERM_KICK_MEMBERS
+            | PERM_MUTE_MEMBERS
+            | PERM_DEAFEN_MEMBERS
+            | PERM_VIEW_AUDIT_LOG;
+        sqlx::query(
+            r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
                    VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
                    ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
-            )
-            .bind(Uuid::new_v4())
-            .bind(server_id)
-            .bind(moderator_perms)
-            .execute(db)
-            .await?;
+        )
+        .bind(Uuid::new_v4())
+        .bind(server_id)
+        .bind(moderator_perms)
+        .execute(db)
+        .await?;
 
-            // Ensure default Voxpery server has an "@everyone" baseline role.
-            // Baseline member access: can view server, send messages, and connect voice.
-            let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
-            sqlx::query(
-                r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+        // Ensure default Voxpery server has an "@everyone" baseline role.
+        // Baseline member access: can view server, send messages, and connect voice.
+        let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
+        sqlx::query(
+            r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
                    VALUES ($1, $2, 'Everyone', NULL, 9999, $3)
                    ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
-            )
-            .bind(Uuid::new_v4())
-            .bind(server_id)
-            .bind(everyone_perms)
-            .execute(db)
-            .await?;
+        )
+        .bind(Uuid::new_v4())
+        .bind(server_id)
+        .bind(everyone_perms)
+        .execute(db)
+        .await?;
 
-            let already = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
-            )
-            .bind(server_id)
-            .bind(user_id)
-            .fetch_one(db)
-            .await?;
-            if already == 0 {
-                sqlx::query(
+        let already = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+        )
+        .bind(server_id)
+        .bind(user_id)
+        .fetch_one(db)
+        .await?;
+        let is_banned = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM server_bans WHERE server_id = $1 AND user_id = $2",
+        )
+        .bind(server_id)
+        .bind(user_id)
+        .fetch_one(db)
+        .await?;
+        if already == 0 && is_banned == 0 {
+            sqlx::query(
                     "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())",
                 )
                 .bind(server_id)
                 .bind(user_id)
                 .execute(db)
                 .await?;
-            }
+        }
 
-            // Auto-assign "@everyone" role to every member joining default Voxpery server.
-            let everyone_role_id: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone' LIMIT 1",
-            )
-            .bind(server_id)
-            .fetch_optional(db)
-            .await?;
-            if let Some(role_id) = everyone_role_id {
-                sqlx::query(
-                    r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
-                       VALUES ($1, $2, $3)
-                       ON CONFLICT (server_id, user_id, role_id) DO NOTHING"#,
-                )
-                .bind(server_id)
-                .bind(user_id)
-                .bind(role_id)
-                .execute(db)
-                .await?;
-            }
+        // "@everyone" is implicit in permission resolution; no explicit member assignment needed.
     }
     Ok(())
 }
@@ -485,10 +523,10 @@ async fn login(
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)",
     )
-        .bind(identifier)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::InvalidCredentials)?;
+    .bind(identifier)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::InvalidCredentials)?;
 
     // Verify password
     if !verify_password(&body.password, &user.password_hash)? {
@@ -510,7 +548,12 @@ async fn login(
     ensure_default_server_join(&state.db, user.id).await?;
 
     // Generate JWT
-    let token = generate_token(user.id, &user.username, &state.jwt_secret, state.jwt_expiration)?;
+    let token = generate_token(
+        user.id,
+        &user.username,
+        &state.jwt_secret,
+        state.jwt_expiration,
+    )?;
 
     let headers = auth_cookie_header(&state, &token);
     let user_public = UserPublic {
@@ -521,18 +564,18 @@ async fn login(
         dm_privacy: user.dm_privacy.clone(),
         username_changed_at: user.username_changed_at,
     };
-    Ok((headers, Json(AuthResponse {
-        token,
-        user: user_public,
-    })))
+    Ok((
+        headers,
+        Json(AuthResponse {
+            token,
+            user: user_public,
+        }),
+    ))
 }
 
 /// POST /api/auth/logout — clears auth cookie (web) and revokes current token when provided.
 /// No auth required; idempotent.
-async fn logout(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
     if let Some(token) = token_from_request(&headers, &state.cookie_name) {
         if let Ok(data) = jsonwebtoken::decode::<Claims>(
             &token,
@@ -566,7 +609,10 @@ async fn google_oauth_start(
     State(state): State<Arc<AppState>>,
     Query(q): Query<GoogleOAuthStartQuery>,
 ) -> impl IntoResponse {
-    let (client_id, _secret) = match (state.google_client_id.as_ref(), state.google_client_secret.as_ref()) {
+    let (client_id, _secret) = match (
+        state.google_client_id.as_ref(),
+        state.google_client_secret.as_ref(),
+    ) {
         (Some(id), Some(sec)) if !id.is_empty() && !sec.is_empty() => (id.as_str(), sec.as_str()),
         _ => {
             return (
@@ -588,12 +634,21 @@ async fn google_oauth_start(
     } else {
         "/"
     };
-    let mut origin = q.origin.as_deref().unwrap_or("http://localhost:5173").trim().to_string();
+    let mut origin = q
+        .origin
+        .as_deref()
+        .unwrap_or("http://localhost:5173")
+        .trim()
+        .to_string();
     if !state.cors_origins.contains(&origin) {
         tracing::warn!("Rejecting unapproved origin for Google OAuth: {}", origin);
-        origin = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
+        origin = state
+            .cors_origins
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "http://localhost:5173".to_string());
     }
-    
+
     let nonce = Uuid::new_v4().to_string();
     let state_param = BASE64.encode(format!("{}\n{}\n{}", nonce, origin, redirect_path));
     let scope = "openid email profile";
@@ -644,7 +699,10 @@ async fn google_oauth_callback(
     Query(q): Query<GoogleOAuthCallbackQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (client_id, client_secret) = match (state.google_client_id.as_ref(), state.google_client_secret.as_ref()) {
+    let (client_id, client_secret) = match (
+        state.google_client_id.as_ref(),
+        state.google_client_secret.as_ref(),
+    ) {
         (Some(id), Some(sec)) if !id.is_empty() && !sec.is_empty() => (id.clone(), sec.clone()),
         _ => {
             return (
@@ -661,7 +719,10 @@ async fn google_oauth_callback(
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
 
-    let decoded_state = q.state.as_ref().and_then(|s| BASE64.decode(s.as_bytes()).ok());
+    let decoded_state = q
+        .state
+        .as_ref()
+        .and_then(|s| BASE64.decode(s.as_bytes()).ok());
     let state_string = decoded_state.and_then(|b| String::from_utf8(b).ok());
 
     let (nonce, origin, redirect_path) = match state_string {
@@ -671,15 +732,28 @@ async fn google_oauth_callback(
             let o = parts.next().unwrap_or("").trim().to_string();
             let r = parts.next().unwrap_or("").trim().to_string();
             if n.is_empty() || o.is_empty() || !r.starts_with('/') {
-                tracing::warn!("OAuth state parsing failed. Parts: n='{}', o='{}', r='{}'", n, o, r);
-                ("".to_string(), "http://localhost:5173".to_string(), "/app/friends".to_string())
+                tracing::warn!(
+                    "OAuth state parsing failed. Parts: n='{}', o='{}', r='{}'",
+                    n,
+                    o,
+                    r
+                );
+                (
+                    "".to_string(),
+                    "http://localhost:5173".to_string(),
+                    "/app/friends".to_string(),
+                )
             } else {
                 (n, o, r)
             }
         }
         None => {
             tracing::warn!("OAuth state was None or decoding failed.");
-            ("".to_string(), "http://localhost:5173".to_string(), "/app/friends".to_string())
+            (
+                "".to_string(),
+                "http://localhost:5173".to_string(),
+                "/app/friends".to_string(),
+            )
         }
     };
 
@@ -703,12 +777,19 @@ async fn google_oauth_callback(
 
     if !is_csrf_valid {
         if !state.cookie_secure && found_oauth_state.is_none() {
-            tracing::debug!("OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev.");
+            tracing::debug!(
+                "OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev."
+            );
         } else {
-            tracing::warn!("OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'", nonce, found_oauth_state);
+            tracing::warn!(
+                "OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'",
+                nonce,
+                found_oauth_state
+            );
             let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
             let clear_cookie = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
-            let mut response = Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            let mut response =
+                Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
             if let Ok(v) = HeaderValue::from_str(clear_cookie) {
                 response.headers_mut().insert(header::SET_COOKIE, v);
             }
@@ -725,12 +806,7 @@ async fn google_oauth_callback(
         ("grant_type", "authorization_code"),
     ];
     let client = reqwest::Client::new();
-    let token_res = match client
-        .post(token_url)
-        .form(&body)
-        .send()
-        .await
-    {
+    let token_res = match client.post(token_url).form(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("Google token exchange failed: {}", e);
@@ -765,7 +841,8 @@ async fn google_oauth_callback(
             Err(e) => {
                 tracing::warn!("Google userinfo parse failed: {}", e);
                 let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
+                    .into_response();
             }
         },
         _ => {
@@ -788,11 +865,13 @@ async fn google_oauth_callback(
         return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
     }
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)")
-        .bind(&google_id)
-        .bind(&email)
-        .fetch_optional(&state.db)
-        .await;
+    let user = sqlx::query_as::<_, User>(
+        "SELECT * FROM users WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)",
+    )
+    .bind(&google_id)
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await;
 
     let user = match user {
         Ok(Some(mut u)) => {
@@ -815,7 +894,13 @@ async fn google_oauth_callback(
                 .to_lowercase();
             let base_username = name
                 .chars()
-                .map(|c| if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' { c } else { '_' })
+                .map(|c| {
+                    if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
                 .collect::<String>();
             let base_username = base_username.trim_matches('_');
             let base_username: String = if base_username.len() >= 3 {
@@ -862,7 +947,8 @@ async fn google_oauth_callback(
                 Ok(u) => u,
                 Err(_) => {
                     let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                    return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+                    return Redirect::temporary(&format!("{}{}", origin, redirect_error))
+                        .into_response();
                 }
             };
             if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
@@ -893,7 +979,12 @@ async fn google_oauth_callback(
 
     let cookie_headers = auth_cookie_header(&state, &token);
     // Put token in fragment so frontend can restore session when cookie is not sent (e.g. cross-origin redirect).
-    let redirect_url = format!("{}{}#token={}", origin, redirect_path, urlencoding::encode(&token));
+    let redirect_url = format!(
+        "{}{}#token={}",
+        origin,
+        redirect_path,
+        urlencoding::encode(&token)
+    );
 
     let mut response = if origin.starts_with("voxpery://") {
         // Desktop UX: Return a nice HTML page that triggers the deep link and tells user to close tab.
@@ -952,7 +1043,7 @@ async fn google_oauth_callback(
         }
     }
     response
-    }
+}
 /// GET /api/auth/me — current user from token (for desktop secure-storage restore).
 async fn get_me(
     State(state): State<Arc<AppState>>,
@@ -995,13 +1086,24 @@ async fn check_username(
     if username.len() < 3 || username.len() > 32 {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
-    if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
+    if username.starts_with('_')
+        || username.starts_with('.')
+        || username.ends_with('_')
+        || username.ends_with('.')
+    {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
-    if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
+    if username.contains("__")
+        || username.contains("..")
+        || username.contains("_.")
+        || username.contains("._")
+    {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
-    if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
+    {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
     let taken = sqlx::query_scalar::<_, i64>(
@@ -1088,13 +1190,28 @@ async fn update_profile(
                     "Username must be 3–32 characters".into(),
                 ));
             }
-            if username.starts_with('_') || username.starts_with('.') || username.ends_with('_') || username.ends_with('.') {
-                return Err(AppError::Validation("Username cannot start or end with an underscore or period".into()));
+            if username.starts_with('_')
+                || username.starts_with('.')
+                || username.ends_with('_')
+                || username.ends_with('.')
+            {
+                return Err(AppError::Validation(
+                    "Username cannot start or end with an underscore or period".into(),
+                ));
             }
-            if username.contains("__") || username.contains("..") || username.contains("_.") || username.contains("._") {
-                return Err(AppError::Validation("Username cannot contain consecutive underscores or periods".into()));
+            if username.contains("__")
+                || username.contains("..")
+                || username.contains("_.")
+                || username.contains("._")
+            {
+                return Err(AppError::Validation(
+                    "Username cannot contain consecutive underscores or periods".into(),
+                ));
             }
-            if !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+            if !username
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
+            {
                 return Err(AppError::Validation(
                     "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
                 ));
@@ -1107,7 +1224,9 @@ async fn update_profile(
             .fetch_one(&state.db)
             .await?;
             if taken > 0 {
-                return Err(AppError::Validation("That username is already taken".into()));
+                return Err(AppError::Validation(
+                    "That username is already taken".into(),
+                ));
             }
             next_username = username.to_string();
         }
@@ -1123,13 +1242,18 @@ async fn update_profile(
         if trimmed.len() > 3_000_000 {
             return Err(AppError::Validation("Avatar image is too large".into()));
         }
-        let valid_scheme =
-            trimmed.starts_with("data:image/") || trimmed.starts_with("http://") || trimmed.starts_with("https://");
+        let valid_scheme = trimmed.starts_with("data:image/")
+            || trimmed.starts_with("http://")
+            || trimmed.starts_with("https://");
         if !valid_scheme {
-            return Err(AppError::Validation("Avatar must be an image URL or data URL".into()));
+            return Err(AppError::Validation(
+                "Avatar must be an image URL or data URL".into(),
+            ));
         }
         if trimmed.to_lowercase().starts_with("data:image/svg+xml") {
-            return Err(AppError::Validation("SVG images are not allowed for avatars (security)".into()));
+            return Err(AppError::Validation(
+                "SVG images are not allowed for avatars (security)".into(),
+            ));
         }
         next_avatar = Some(trimmed);
     }
@@ -1185,7 +1309,9 @@ async fn change_password(
     .await?;
 
     if body.new_password.len() < 8 {
-        return Err(AppError::Validation("New password must be at least 8 characters".into()));
+        return Err(AppError::Validation(
+            "New password must be at least 8 characters".into(),
+        ));
     }
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
@@ -1214,7 +1340,10 @@ async fn change_password(
     }
 
     let out_headers = clear_auth_cookie_header(&state);
-    Ok((out_headers, Json(serde_json::json!({ "message": "Password changed successfully" }))))
+    Ok((
+        out_headers,
+        Json(serde_json::json!({ "message": "Password changed successfully" })),
+    ))
 }
 
 /// POST /api/auth/forgot-password
@@ -1223,15 +1352,20 @@ async fn forgot_password(
     Json(body): Json<ForgotPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let email = body.email.trim().to_lowercase();
-    let generic_ok = || Json(serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." }));
-    
+    let generic_ok = || {
+        Json(
+            serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." }),
+        )
+    };
+
     enforce_rate_limit(
         &state.redis,
         format!("auth:forgot_password:{}", email),
         3,
         Duration::from_secs(3600), // max 3 attempts per hour
         "Too many password reset requests. Please check your email or try again later.",
-    ).await?;
+    )
+    .await?;
 
     #[derive(sqlx::FromRow)]
     struct ResetCandidate {
@@ -1241,11 +1375,11 @@ async fn forgot_password(
     }
 
     let user = sqlx::query_as::<_, ResetCandidate>(
-        "SELECT id, email, google_id FROM users WHERE lower(email) = $1"
+        "SELECT id, email, google_id FROM users WHERE lower(email) = $1",
     )
-        .bind(&email)
-        .fetch_optional(&state.db)
-        .await?;
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await?;
 
     // Always return generic success to prevent account enumeration.
     let Some(user) = user else {
@@ -1272,7 +1406,7 @@ async fn forgot_password(
 
     // Insert new token
     sqlx::query(
-        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)"
+        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
     )
     .bind(user.id)
     .bind(&token_hash)
@@ -1281,8 +1415,14 @@ async fn forgot_password(
     .await?;
 
     // Send email
-    if let (Some(host), Some(smtp_user), Some(smtp_pass)) = (&state.smtp_host, &state.smtp_user, &state.smtp_password) {
-        let frontend_url = state.cors_origins.first().cloned().unwrap_or_else(|| "http://localhost:5173".to_string());
+    if let (Some(host), Some(smtp_user), Some(smtp_pass)) =
+        (&state.smtp_host, &state.smtp_user, &state.smtp_password)
+    {
+        let frontend_url = state
+            .cors_origins
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "http://localhost:5173".to_string());
         let frontend_url = frontend_url.trim_end_matches('/');
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
 
@@ -1292,11 +1432,16 @@ async fn forgot_password(
             host,
             smtp_user,
             smtp_pass,
-        ).await {
+        )
+        .await
+        {
             tracing::error!("Failed to send password reset email: {}", e);
         }
     } else {
-        tracing::warn!("SMTP is not configured! Password reset email not sent. Token: {}", token_plain);
+        tracing::warn!(
+            "SMTP is not configured! Password reset email not sent. Token: {}",
+            token_plain
+        );
     }
 
     Ok(generic_ok())
@@ -1313,10 +1458,13 @@ async fn reset_password(
         5,
         Duration::from_secs(3600),
         "Too many password reset attempts. Please request a new token.",
-    ).await?;
+    )
+    .await?;
 
     if body.new_password.len() < 8 {
-        return Err(AppError::Validation("New password must be at least 8 characters".into()));
+        return Err(AppError::Validation(
+            "New password must be at least 8 characters".into(),
+        ));
     }
 
     let mut hasher = Sha1::new();
@@ -1331,7 +1479,7 @@ async fn reset_password(
     }
 
     let token_row = sqlx::query_as::<_, TokenRow>(
-        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = $1"
+        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = $1",
     )
     .bind(&token_hash)
     .fetch_optional(&state.db)
@@ -1344,29 +1492,33 @@ async fn reset_password(
                 .bind(&token_hash)
                 .execute(&state.db)
                 .await?;
-            return Err(AppError::Validation("Password reset token has expired".into()));
+            return Err(AppError::Validation(
+                "Password reset token has expired".into(),
+            ));
         }
 
         // Token is valid, update password
         let password_hash = hash_password(&body.new_password)?;
-        
+
         // Use a transaction to update password and delete token
         let mut tx = state.db.begin().await?;
-        
+
         sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
             .bind(&password_hash)
             .bind(row.user_id)
             .execute(&mut *tx)
             .await?;
-            
+
         sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
             .bind(row.user_id)
             .execute(&mut *tx)
             .await?;
-            
+
         tx.commit().await?;
 
-        Ok(Json(serde_json::json!({ "message": "Password has been successfully reset. You can now log in." })))
+        Ok(Json(
+            serde_json::json!({ "message": "Password has been successfully reset. You can now log in." }),
+        ))
     } else {
         Err(AppError::Validation("Invalid password reset token".into()))
     }

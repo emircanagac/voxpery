@@ -29,7 +29,10 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
 
 fn is_allowed_ws_origin(req: &Request, state: &AppState) -> bool {
-    let origin = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok());
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok());
     is_allowed_origin_value(origin, &state.cors_origins)
 }
 
@@ -125,7 +128,10 @@ pub struct WsConnectParams {
     pub token: String,
 }
 
-async fn validate_ws_token(token: &str, state: &AppState) -> Option<crate::middleware::auth::Claims> {
+async fn validate_ws_token(
+    token: &str,
+    state: &AppState,
+) -> Option<crate::middleware::auth::Claims> {
     match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
         Ok(true) => return None,
         Ok(false) => {}
@@ -152,11 +158,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
     let (tx, mut rx) = mpsc::unbounded_channel::<WsEvent>();
 
     // Register this session
-    state
-        .sessions
-        .entry(user_id)
-        .or_default()
-        .push(tx.clone());
+    state.sessions.entry(user_id).or_default().push(tx.clone());
 
     // Subscribe to broadcast channel
     let mut broadcast_rx = state.tx.subscribe();
@@ -168,18 +170,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
     let sub_channels = subscribed_channels.clone();
 
     // Do not overwrite persisted status on connect (online/dnd/offline).
-    let current_status = match sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(status)) => status,
-        Ok(None) => "online".to_string(),
-        Err(e) => {
-            tracing::warn!("Failed to read user status on WS connect: {}", e);
-            "online".to_string()
-        }
-    };
+    let current_status =
+        match sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(Some(status)) => status,
+            Ok(None) => "online".to_string(),
+            Err(e) => {
+                tracing::warn!("Failed to read user status on WS connect: {}", e);
+                "online".to_string()
+            }
+        };
     let _ = state.tx.send(WsEvent::PresenceUpdate {
         user_id,
         status: current_status,
@@ -274,7 +277,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
             match msg {
                 Message::Text(text) => {
                     if text.len() > MAX_WS_MESSAGE_BYTES {
-                        tracing::warn!("WebSocket message too large ({} bytes), ignoring", text.len());
+                        tracing::warn!(
+                            "WebSocket message too large ({} bytes), ignoring",
+                            text.len()
+                        );
                         continue;
                     }
                     if let Ok(client_msg) = serde_json::from_str::<WsClientMessage>(&text) {
@@ -282,11 +288,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                             WsClientMessage::Subscribe { channel_ids } => {
                                 let mut allowed: Vec<Uuid> = Vec::new();
                                 for id in channel_ids {
-                                    match can_subscribe_to_channel(&recv_state.db, user_id, id).await
+                                    match can_subscribe_to_channel(&recv_state.db, user_id, id)
+                                        .await
                                     {
                                         Ok(true) => allowed.push(id),
                                         Ok(false) => {
-                                            tracing::debug!("Subscribe denied for channel {} (user {})", id, user_id);
+                                            tracing::debug!(
+                                                "Subscribe denied for channel {} (user {})",
+                                                id,
+                                                user_id
+                                            );
                                         }
                                         Err(e) => {
                                             tracing::warn!("Subscribe access check failed: {}", e);
@@ -305,7 +316,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 // Send current voice occupants for newly subscribed channels,
                                 // so clients can render participant list without having to join.
                                 for cid in newly_added {
-                                    let server_id = server_id_for_channel(&recv_state.db, cid).await;
+                                    let server_id =
+                                        server_id_for_channel(&recv_state.db, cid).await;
                                     for entry in recv_state.voice_sessions.iter() {
                                         let (other_uid, other_cid) = entry.pair();
                                         if *other_cid == cid {
@@ -314,11 +326,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                 user_id: *other_uid,
                                                 server_id,
                                             });
-                                            let (muted, deafened, screen_sharing, camera_on) = recv_state
-                                                .voice_controls
-                                                .get(other_uid)
-                                                .map(|s| *s)
-                                                .unwrap_or((false, false, false, false));
+                                            let (muted, deafened, screen_sharing, camera_on) =
+                                                recv_state
+                                                    .voice_controls
+                                                    .get(other_uid)
+                                                    .map(|s| *s)
+                                                    .unwrap_or((false, false, false, false));
                                             let _ = client_tx.send(WsEvent::VoiceControlUpdate {
                                                 user_id: *other_uid,
                                                 muted,
@@ -341,7 +354,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 is_typing,
                             } => {
                                 if let Ok(true) =
-                                    can_subscribe_to_channel(&recv_state.db, user_id, channel_id).await
+                                    can_subscribe_to_channel(&recv_state.db, user_id, channel_id)
+                                        .await
                                 {
                                     let _ = recv_state.tx.send(WsEvent::Typing {
                                         channel_id,
@@ -352,7 +366,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 }
                             }
                             WsClientMessage::JoinVoice { channel_id } => {
-                                match can_join_voice_channel(&recv_state.db, user_id, channel_id).await
+                                match can_join_voice_channel(&recv_state.db, user_id, channel_id)
+                                    .await
                                 {
                                     Ok(false) => {
                                         tracing::debug!(
@@ -366,13 +381,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     }
                                     Ok(true) => {
                                         // 1. Update voice session
-                                        let _ = recv_state.voice_sessions.insert(user_id, channel_id);
+                                        let _ =
+                                            recv_state.voice_sessions.insert(user_id, channel_id);
                                         let _ = recv_state
                                             .voice_controls
                                             .insert(user_id, (false, false, false, false));
 
                                         // 2. Broadcast join to everyone
-                                        let server_id = server_id_for_channel(&recv_state.db, channel_id).await;
+                                        let server_id =
+                                            server_id_for_channel(&recv_state.db, channel_id).await;
                                         let _ = recv_state.tx.send(WsEvent::VoiceStateUpdate {
                                             channel_id: Some(channel_id),
                                             user_id,
@@ -395,18 +412,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                                     user_id: *other_uid,
                                                     server_id,
                                                 });
-                                                let (muted, deafened, screen_sharing, camera_on) = recv_state
-                                                    .voice_controls
-                                                    .get(other_uid)
-                                                    .map(|s| *s)
-                                                    .unwrap_or((false, false, false, false));
-                                                let _ = client_tx.send(WsEvent::VoiceControlUpdate {
-                                                    user_id: *other_uid,
-                                                    muted,
-                                                    deafened,
-                                                    screen_sharing,
-                                                    camera_on,
-                                                });
+                                                let (muted, deafened, screen_sharing, camera_on) =
+                                                    recv_state
+                                                        .voice_controls
+                                                        .get(other_uid)
+                                                        .map(|s| *s)
+                                                        .unwrap_or((false, false, false, false));
+                                                let _ =
+                                                    client_tx.send(WsEvent::VoiceControlUpdate {
+                                                        user_id: *other_uid,
+                                                        muted,
+                                                        deafened,
+                                                        screen_sharing,
+                                                        camera_on,
+                                                    });
                                             }
                                         }
                                     }
@@ -436,9 +455,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 camera_on,
                             } => {
                                 if recv_state.voice_sessions.contains_key(&user_id) {
-                                    let _ = recv_state
-                                        .voice_controls
-                                        .insert(user_id, (muted, deafened, screen_sharing, camera_on));
+                                    let _ = recv_state.voice_controls.insert(
+                                        user_id,
+                                        (muted, deafened, screen_sharing, camera_on),
+                                    );
                                     let _ = recv_state.tx.send(WsEvent::VoiceControlUpdate {
                                         user_id,
                                         muted,
@@ -453,11 +473,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 signal,
                             } => {
                                 // Only allow Signal to users in the same voice channel (prevents signaling spam).
-                                let sender_channel = recv_state.voice_sessions.get(&user_id).map(|r| *r);
-                                let target_channel = recv_state.voice_sessions.get(&target_user_id).map(|r| *r);
+                                let sender_channel =
+                                    recv_state.voice_sessions.get(&user_id).map(|r| *r);
+                                let target_channel =
+                                    recv_state.voice_sessions.get(&target_user_id).map(|r| *r);
                                 if let (Some(sc), Some(tc)) = (sender_channel, target_channel) {
                                     if sc == tc {
-                                        if let Some(sessions) = recv_state.sessions.get(&target_user_id) {
+                                        if let Some(sessions) =
+                                            recv_state.sessions.get(&target_user_id)
+                                        {
                                             for s in sessions.iter() {
                                                 let _ = s.send(WsEvent::Signal {
                                                     sender_id: user_id,
@@ -504,7 +528,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
             sessions.retain(|s| !s.is_closed());
         }
         // Atomically remove the entry only if it's still empty
-        state.sessions.remove_if(&user_id, |_, senders| senders.is_empty()).is_some()
+        state
+            .sessions
+            .remove_if(&user_id, |_, senders| senders.is_empty())
+            .is_some()
     };
 
     if last_session_gone {
@@ -548,7 +575,10 @@ mod tests {
     #[test]
     fn allows_matching_origin() {
         let allowed = vec!["https://voxpery.com".to_string()];
-        assert!(is_allowed_origin_value(Some("https://voxpery.com"), &allowed));
+        assert!(is_allowed_origin_value(
+            Some("https://voxpery.com"),
+            &allowed
+        ));
     }
 
     #[test]
@@ -560,6 +590,9 @@ mod tests {
     #[test]
     fn rejects_non_matching_origin() {
         let allowed = vec!["https://voxpery.com".to_string()];
-        assert!(!is_allowed_origin_value(Some("https://evil.example"), &allowed));
+        assert!(!is_allowed_origin_value(
+            Some("https://evil.example"),
+            &allowed
+        ));
     }
 }

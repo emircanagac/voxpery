@@ -58,7 +58,9 @@ pub fn generate_invite_code() -> String {
     let chars: Vec<char> = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
         .chars()
         .collect();
-    (0..8).map(|_| chars[rng.gen_range(0..chars.len())]).collect()
+    (0..8)
+        .map(|_| chars[rng.gen_range(0..chars.len())])
+        .collect()
 }
 
 #[cfg(test)]

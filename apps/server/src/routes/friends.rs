@@ -48,8 +48,11 @@ pub struct SendFriendRequestBody {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_friends))
-    .route("/{friend_id}", delete(remove_friend))
-        .route("/requests", get(list_friend_requests).post(send_friend_request))
+        .route("/{friend_id}", delete(remove_friend))
+        .route(
+            "/requests",
+            get(list_friend_requests).post(send_friend_request),
+        )
         .route("/requests/{request_id}/accept", post(accept_friend_request))
         .route("/requests/{request_id}/reject", post(reject_friend_request))
         .route_layer(middleware::from_fn_with_state(state, require_auth))
@@ -148,7 +151,9 @@ async fn send_friend_request(
 
     let username = body.username.trim();
     if username.len() < 3 || username.len() > 32 {
-        return Err(AppError::Validation("Username must be 3-32 characters".into()));
+        return Err(AppError::Validation(
+            "Username must be 3-32 characters".into(),
+        ));
     }
     let target = sqlx::query_as::<_, FriendUser>(
         "SELECT id, username, avatar_url, status FROM users WHERE username = $1",
@@ -192,7 +197,9 @@ async fn send_friend_request(
     .await?;
 
     if pending > 0 {
-        return Err(AppError::Validation("A pending request already exists".into()));
+        return Err(AppError::Validation(
+            "A pending request already exists".into(),
+        ));
     }
 
     sqlx::query(
@@ -207,7 +214,9 @@ async fn send_friend_request(
     notify_friend_update(&state, claims.sub);
     notify_friend_update(&state, target.id);
 
-    Ok(Json(serde_json::json!({ "message": "Friend request sent" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Friend request sent" }),
+    ))
 }
 
 async fn accept_friend_request(
@@ -225,7 +234,9 @@ async fn accept_friend_request(
 
     let (requester_id, receiver_id, status) = req;
     if receiver_id != claims.sub {
-        return Err(AppError::Forbidden("Not allowed to accept this request".into()));
+        return Err(AppError::Forbidden(
+            "Not allowed to accept this request".into(),
+        ));
     }
     if status != "pending" {
         return Err(AppError::Validation("Request is not pending".into()));
@@ -254,7 +265,9 @@ async fn accept_friend_request(
     notify_friend_update(&state, requester_id);
     notify_friend_update(&state, receiver_id);
 
-    Ok(Json(serde_json::json!({ "message": "Friend request accepted" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Friend request accepted" }),
+    ))
 }
 
 async fn reject_friend_request(
@@ -272,7 +285,9 @@ async fn reject_friend_request(
 
     let (_requester_id, receiver_id, status) = req;
     if receiver_id != claims.sub {
-        return Err(AppError::Forbidden("Not allowed to reject this request".into()));
+        return Err(AppError::Forbidden(
+            "Not allowed to reject this request".into(),
+        ));
     }
     if status != "pending" {
         return Err(AppError::Validation("Request is not pending".into()));
@@ -288,7 +303,9 @@ async fn reject_friend_request(
     notify_friend_update(&state, claims.sub);
     notify_friend_update(&state, _requester_id);
 
-    Ok(Json(serde_json::json!({ "message": "Friend request rejected" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Friend request rejected" }),
+    ))
 }
 
 async fn remove_friend(
@@ -334,4 +351,3 @@ async fn remove_friend(
 
     Ok(Json(serde_json::json!({ "message": "Friend removed" })))
 }
-

@@ -8,7 +8,7 @@ pub struct Channel {
     pub id: Uuid,
     pub server_id: Uuid,
     pub name: String,
-    pub channel_type: String,    // "text" or "voice"
+    pub channel_type: String, // "text" or "voice"
     pub category: Option<String>,
     pub position: i32,
     pub created_at: DateTime<Utc>,

@@ -6,7 +6,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use voxpery_server::{config, build_app, routes, validate_security_config, AppState, ws};
+use voxpery_server::{build_app, config, routes, validate_security_config, ws, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -14,7 +14,8 @@ async fn main() {
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "voxpery_server=info,tower_http=info".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "voxpery_server=info,tower_http=info".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -32,8 +33,8 @@ async fn main() {
         .await
         .expect("Failed to connect to database");
 
-    let redis = redis::Client::open(config.redis_url.clone())
-        .expect("Failed to initialize Redis client");
+    let redis =
+        redis::Client::open(config.redis_url.clone()).expect("Failed to initialize Redis client");
     {
         let mut conn = redis
             .get_multiplexed_async_connection()
@@ -92,8 +93,12 @@ async fn main() {
     ) {
         match routes::auth::ensure_seed_admin(&state.db, email, username, password).await {
             Ok(Some(admin_id)) => {
-                if let Err(e) = routes::auth::ensure_default_server_join(&state.db, admin_id).await {
-                    tracing::warn!("Failed to create default Voxpery server with admin owner: {}", e);
+                if let Err(e) = routes::auth::ensure_default_server_join(&state.db, admin_id).await
+                {
+                    tracing::warn!(
+                        "Failed to create default Voxpery server with admin owner: {}",
+                        e
+                    );
                 }
             }
             Ok(None) => {}

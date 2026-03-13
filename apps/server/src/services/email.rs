@@ -1,7 +1,7 @@
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::message::header::ContentType;
 use crate::errors::AppError;
+use lettre::message::header::ContentType;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 pub async fn send_password_reset_email(
     to_email: &str,
@@ -13,7 +13,7 @@ pub async fn send_password_reset_email(
     let from_addr = format!("Voxpery <{}>", smtp_user)
         .parse()
         .map_err(|e| AppError::Internal(format!("Invalid from address: {}", e)))?;
-    
+
     let to_addr = to_email
         .parse()
         .map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
@@ -41,10 +41,11 @@ pub async fn send_password_reset_email(
 
     let creds = Credentials::new(smtp_user.to_string(), smtp_pass.to_string());
 
-    let mailer: AsyncSmtpTransport<Tokio1Executor> = AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
-        .map_err(|e| AppError::Internal(format!("Failed to configure SMTP transport: {}", e)))?
-        .credentials(creds)
-        .build();
+    let mailer: AsyncSmtpTransport<Tokio1Executor> =
+        AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
+            .map_err(|e| AppError::Internal(format!("Failed to configure SMTP transport: {}", e)))?
+            .credentials(creds)
+            .build();
 
     mailer
         .send(email)

@@ -31,13 +31,11 @@ pub fn validate_attachments(attachments: Option<&Value>) -> Result<(), AppError>
         let obj = item.as_object().ok_or_else(|| {
             AppError::Validation(format!("Attachment {} must be an object", i + 1))
         })?;
-        let url = obj
-            .get("url")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::Validation(format!("Attachment {} must have a 'url' string", i + 1)))?;
-        validate_attachment_url(url).map_err(|e| {
-            AppError::Validation(format!("Attachment {}: {}", i + 1, e))
+        let url = obj.get("url").and_then(Value::as_str).ok_or_else(|| {
+            AppError::Validation(format!("Attachment {} must have a 'url' string", i + 1))
         })?;
+        validate_attachment_url(url)
+            .map_err(|e| AppError::Validation(format!("Attachment {}: {}", i + 1, e)))?;
     }
     Ok(())
 }
@@ -58,7 +56,14 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
             ));
         }
         // Extract the MIME type (the part between "data:" and ";" or ",")
-        let mime = rest.split(';').next().unwrap_or("").split(',').next().unwrap_or("").trim();
+        let mime = rest
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim();
 
         // Block dangerous MIME types that can execute scripts
         const BLOCKED_MIMES: &[&str] = &[
@@ -103,7 +108,10 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
             "application/octet-stream",
             "text/plain",
         ];
-        if !ALLOWED_MIMES.iter().any(|allowed| mime.starts_with(allowed)) {
+        if !ALLOWED_MIMES
+            .iter()
+            .any(|allowed| mime.starts_with(allowed))
+        {
             return Err(format!("data: URL MIME type '{}' is not permitted", mime));
         }
         return Ok(());
@@ -113,13 +121,7 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
     if trimmed.len() > MAX_URL_LEN {
         return Err(format!("URL must be at most {} characters", MAX_URL_LEN));
     }
-    const BLOCKED_SCHEMES: &[&str] = &[
-        "javascript:",
-        "vbscript:",
-        "file:",
-        "blob:",
-        "content:",
-    ];
+    const BLOCKED_SCHEMES: &[&str] = &["javascript:", "vbscript:", "file:", "blob:", "content:"];
     for scheme in BLOCKED_SCHEMES {
         if lower.starts_with(scheme) {
             return Err("URL scheme not allowed for attachments".into());
