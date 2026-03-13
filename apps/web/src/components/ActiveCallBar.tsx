@@ -440,10 +440,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         await joinVoice(channelId, { preflightStream: micStream })
-      } catch (err: any) {
+      } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
+        const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
+        const errMessage = err && typeof err === 'object' && 'message' in err ? String((err as { message?: unknown }).message).toLowerCase() : ''
         // Fallback to normal join only if the error is related to microphone permissions/hardware
-        if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError' || err?.message?.toLowerCase().includes('microphone')) {
+        if (errName === 'NotAllowedError' || errName === 'NotFoundError' || errMessage.includes('microphone')) {
           await joinVoice(channelId)
         } else {
           throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
@@ -574,7 +576,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       localStorage.setItem('voxpery-settings-screen-share-quality', screenShareQuality)
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-    } catch { }
+    } catch {
+      void 0
+    }
     try {
       await startScreenShare()
     } catch (e) {

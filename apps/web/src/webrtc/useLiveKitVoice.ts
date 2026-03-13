@@ -307,7 +307,7 @@ export function useLiveKitVoice() {
             credential: turnCreds.credential,
           })
         }
-      } catch (err) {
+      } catch {
         // Ignore TURN errors in dev
       }
 

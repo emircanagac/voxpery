@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { X, Trash2, Shield, Settings } from 'lucide-react'
 import type { Channel, ServerRole } from '../api'
 import { channelApi } from '../api'
@@ -33,15 +33,19 @@ export default function ChannelSettingsModal({
     const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
     const [loadingPerms, setLoadingPerms] = useState(false)
 
-    useEffect(() => {
-        if (tab === 'permissions' && overrides.length === 0) {
-            setLoadingPerms(true)
-            channelApi.getOverrides(channel.id, token)
-                .then((ov) => setOverrides(ov))
-                .catch((e) => console.error(e))
-                .finally(() => setLoadingPerms(false))
+    const openPermissionsTab = async () => {
+        setTab('permissions')
+        if (overrides.length > 0 || loadingPerms) return
+        setLoadingPerms(true)
+        try {
+            const ov = await channelApi.getOverrides(channel.id, token)
+            setOverrides(ov)
+        } catch (e) {
+            console.error(e)
+        } finally {
+            setLoadingPerms(false)
         }
-    }, [tab, channel.id, token, overrides.length])
+    }
 
     const handleSaveGeneral = async () => {
         setSavingGeneral(true)
@@ -122,7 +126,7 @@ export default function ChannelSettingsModal({
                             <Settings size={16} />
                             Overview
                         </button>
-                        <button className={`server-settings-tab ${tab === 'permissions' ? 'active' : ''}`} onClick={() => setTab('permissions')}>
+                        <button className={`server-settings-tab ${tab === 'permissions' ? 'active' : ''}`} onClick={() => { void openPermissionsTab() }}>
                             <Shield size={16} />
                             Permissions
                         </button>

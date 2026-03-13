@@ -10,6 +10,7 @@ import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 
 interface ChannelSidebarProps {
     onOpenServerSettings: () => void
@@ -164,12 +165,13 @@ export default function ChannelSidebar({
         }
     }
 
-    const handleJoinVoice = async (id: string, _name: string) => {
+    const handleJoinVoice = async (id: string) => {
         // Close confirmation immediately after user confirms.
         // Join progress is reflected in call bar status instead of blocking modal.
         setPendingVoiceJoin(null)
         setIsJoiningVoice(true)
-        ;(window as any).__voxperyManualJoinActive = true
+        const manualJoinWindow = window as ManualJoinWindow
+        manualJoinWindow.__voxperyManualJoinActive = true
         setActiveChannel(id)
         const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
 
@@ -183,7 +185,7 @@ export default function ChannelSidebar({
             console.error("Voice join failed:", e)
         } finally {
             setIsJoiningVoice(false)
-            ;(window as any).__voxperyManualJoinActive = false
+            manualJoinWindow.__voxperyManualJoinActive = false
         }
     }
 
@@ -244,7 +246,7 @@ export default function ChannelSidebar({
                                                 }
                                                 // Ask for confirmation or join directly
                                                 if (!voiceJoinConfirmEnabled) {
-                                                    void handleJoinVoice(ch.id, ch.name)
+                                                    void handleJoinVoice(ch.id)
                                                 } else {
                                                     setPendingVoiceJoin({ id: ch.id, name: ch.name })
                                                 }

@@ -95,7 +95,9 @@ export const useAppStore = create<AppState>()(
                         try {
                             const raw = sessionStorage.getItem('voxpery-last-channel-ids')
                             if (raw) stored = (JSON.parse(raw) as Record<string, string>)[id] || null
-                        } catch {}
+                        } catch {
+                            stored = null
+                        }
                         if (stored && cachedChannels.some(c => c.id === stored)) {
                             defaultChannelId = stored
                         } else {

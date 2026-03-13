@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { AuditLogEntry } from '../api'
 
 type ServerSettingsAuditLogProps = {
@@ -51,10 +51,6 @@ function toAuditText(entry: AuditLogEntry, targetName: string | null, details: R
 
 export default function ServerSettingsAuditLog({ entries, memberUsernameById }: ServerSettingsAuditLogProps) {
     const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
-
-    useEffect(() => {
-        setVisibleCount(INITIAL_VISIBLE)
-    }, [entries])
 
     const visibleEntries = useMemo(
         () => entries.slice(0, Math.min(visibleCount, entries.length)),

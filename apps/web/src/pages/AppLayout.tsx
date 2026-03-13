@@ -1873,6 +1873,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     )}
                                                     {!auditLogLoading && auditLogEntries && auditLogEntries.length > 0 && (
                                                         <ServerSettingsAuditLog
+                                                            key={auditLogEntries[0]?.id ?? 'empty-audit'}
                                                             entries={auditLogEntries}
                                                             memberUsernameById={memberUsernameById}
                                                         />
