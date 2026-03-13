@@ -183,6 +183,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [categoryPermissionsTarget, setCategoryPermissionsTarget] = useState<string | null>(null)
     const [deleteCategoryConfirm, setDeleteCategoryConfirm] = useState<string | null>(null)
     const [deleteCategoryError, setDeleteCategoryError] = useState<string | null>(null)
+    const [showRenameCategory, setShowRenameCategory] = useState(false)
+    const [renameCategoryFrom, setRenameCategoryFrom] = useState<string | null>(null)
+    const [renameCategoryName, setRenameCategoryName] = useState('')
+    const [renameCategoryError, setRenameCategoryError] = useState<string | null>(null)
     const [showRenameChannel, setShowRenameChannel] = useState(false)
     const [renameChannelId, setRenameChannelId] = useState<string | null>(null)
     const [renameChannelName, setRenameChannelName] = useState('')
@@ -1380,6 +1384,44 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
+    const openRenameCategoryModal = (category: string) => {
+        setRenameCategoryError(null)
+        setRenameCategoryFrom(category)
+        setRenameCategoryName(category)
+        setShowRenameCategory(true)
+    }
+
+    const handleRenameCategory = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !activeServerId || !renameCategoryFrom || !renameCategoryName.trim()) return
+        const nextName = renameCategoryName.trim()
+        if (nextName.length > 100) {
+            setRenameCategoryError('Category name must be 1-100 characters.')
+            return
+        }
+        setRenameCategoryError(null)
+        try {
+            await channelApi.renameCategory(activeServerId, renameCategoryFrom, nextName, token)
+            const [chs, categories] = await Promise.all([
+                serverApi.channels(activeServerId, token),
+                channelApi.listCategories(activeServerId, token),
+            ])
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+            setChannelCategories(categories.map((c) => c.name))
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setShowRenameCategory(false)
+            setRenameCategoryFrom(null)
+            setRenameCategoryName('')
+        } catch (err: unknown) {
+            setRenameCategoryError(err instanceof Error ? err.message : 'Failed to rename category.')
+        }
+    }
+
     const openRenameChannelModal = (channel: Channel) => {
         setRenameChannelError(null)
         setRenameChannelId(channel.id)
@@ -1619,6 +1661,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
                 onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}
+                onRenameCategory={openRenameCategoryModal}
                 onDeleteCategory={(category) => {
                     setDeleteCategoryError(null)
                     setDeleteCategoryConfirm(category)
@@ -2364,6 +2407,34 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                 }
                             }}
                         />
+                    )}
+
+                    {/* Rename Category Modal */}
+                    {showRenameCategory && (
+                        <div className="modal-overlay" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>
+                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
+                                <h2>Rename Category</h2>
+                                {renameCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Category Name</label>
+                                    <input
+                                        type="text"
+                                        value={renameCategoryName}
+                                        onChange={(e) => setRenameCategoryName(e.target.value)}
+                                        placeholder="new-category-name"
+                                        autoFocus
+                                        required
+                                        maxLength={100}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
                     )}
                     {categoryPermissionsTarget && activeServerId && (
                         <CategoryPermissionsModal

@@ -23,7 +23,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/server/{server_id}/categories", get(list_categories).post(create_category))
         .route(
             "/server/{server_id}/categories/{category}",
-            delete(delete_category),
+            delete(delete_category).patch(rename_category),
         )
         .route(
             "/server/{server_id}/categories/{category}/overrides",
@@ -396,6 +396,11 @@ struct CreateCategoryRequest {
     name: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct RenameCategoryRequest {
+    name: String,
+}
+
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct CategoryOverride {
     role_id: Uuid,
@@ -534,6 +539,101 @@ async fn delete_category(
     tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "message": "Category deleted" })))
+}
+
+async fn rename_category(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, category)): Path<(Uuid, String)>,
+    Json(body): Json<RenameCategoryRequest>,
+) -> Result<Json<CategoryNameResponse>, AppError> {
+    permissions::ensure_server_permission(&state.db, server_id, claims.sub, Permissions::MANAGE_CHANNELS).await?;
+
+    let old_name = category.trim();
+    if old_name.is_empty() {
+        return Err(AppError::Validation("Category name is required".into()));
+    }
+
+    let new_name = body.name.trim();
+    if new_name.is_empty() || new_name.len() > 100 {
+        return Err(AppError::Validation("Category name must be 1-100 characters".into()));
+    }
+    if new_name == old_name {
+        return Ok(Json(CategoryNameResponse {
+            name: new_name.to_string(),
+        }));
+    }
+
+    backfill_category_rows(&state.db, server_id).await?;
+
+    let old_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1 AND name = $2",
+    )
+    .bind(server_id)
+    .bind(old_name)
+    .fetch_one(&state.db)
+    .await?;
+
+    if old_exists == 0 {
+        return Err(AppError::NotFound("Category not found".into()));
+    }
+
+    let new_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1 AND name = $2",
+    )
+    .bind(server_id)
+    .bind(new_name)
+    .fetch_one(&state.db)
+    .await?;
+
+    if new_exists > 0 {
+        return Err(AppError::Validation("Category already exists".into()));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    sqlx::query("UPDATE server_channel_categories SET name = $1 WHERE server_id = $2 AND name = $3")
+        .bind(new_name)
+        .bind(server_id)
+        .bind(old_name)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("UPDATE channels SET category = $1 WHERE server_id = $2 AND category = $3")
+        .bind(new_name)
+        .bind(server_id)
+        .bind(old_name)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        "UPDATE channel_category_role_overrides SET category = $1 WHERE server_id = $2 AND category = $3",
+    )
+    .bind(new_name)
+    .bind(server_id)
+    .bind(old_name)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "category_rename",
+        "category",
+        None,
+        Some(serde_json::json!({
+            "old_name": old_name,
+            "new_name": new_name
+        })),
+    )
+    .await?;
+
+    Ok(Json(CategoryNameResponse {
+        name: new_name.to_string(),
+    }))
 }
 
 async fn list_category_overrides(

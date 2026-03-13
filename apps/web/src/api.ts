@@ -497,6 +497,16 @@ export const channelApi = {
             token,
         }),
 
+    renameCategory: (serverId: string, category: string, name: string, token: AuthToken) =>
+        apiFetch<ChannelCategory>(
+            `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}`,
+            {
+                method: 'PATCH',
+                body: { name },
+                token,
+            },
+        ),
+
     deleteCategory: (serverId: string, category: string, token: AuthToken, moveTo?: string | null) =>
         apiFetch<{ message: string }>(
             `/api/channels/server/${serverId}/categories/${encodeURIComponent(category)}${moveTo ? `?move_to=${encodeURIComponent(moveTo)}` : ''}`,

@@ -17,6 +17,7 @@ interface ChannelSidebarProps {
     onOpenCreateChannel?: () => void
     onOpenCreateCategory?: () => void
     onOpenCategoryPermissions?: (category: string) => void
+    onRenameCategory?: (category: string) => void
     onDeleteCategory?: (category: string) => void
     onReorderCategories?: (draggedCategory: string, targetCategory: string, position: 'before' | 'after') => void
     onMoveChannelToCategory?: (channelId: string, targetCategory: string, placement?: 'start' | 'end') => void
@@ -34,6 +35,7 @@ export default function ChannelSidebar({
     onOpenCreateChannel,
     onOpenCreateCategory,
     onOpenCategoryPermissions,
+    onRenameCategory,
     onDeleteCategory,
     onReorderCategories,
     onMoveChannelToCategory,
@@ -608,6 +610,16 @@ export default function ChannelSidebar({
                     style={{ left: categoryMenu.x, top: categoryMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    <button
+                        type="button"
+                        className="server-context-menu-item"
+                        onClick={() => {
+                            onRenameCategory?.(categoryMenu.category)
+                            setCategoryMenu(null)
+                        }}
+                    >
+                        Rename Category
+                    </button>
                     <button
                         type="button"
                         className="server-context-menu-item"

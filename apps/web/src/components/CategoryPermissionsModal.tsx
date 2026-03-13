@@ -33,11 +33,16 @@ export default function CategoryPermissionsModal({
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const effectiveRoles = serverRoles.length > 0 ? serverRoles : fallbackRoles
+    const activeSelectedRoleId =
+        selectedRoleId && effectiveRoles.some((r) => r.id === selectedRoleId) ? selectedRoleId : null
 
     useEffect(() => {
         let active = true
-        setLoading(true)
-        setError(null)
+        queueMicrotask(() => {
+            if (!active) return
+            setLoading(true)
+            setError(null)
+        })
         Promise.all([
             channelApi.getCategoryOverrides(serverId, category, token),
             serverRoles.length > 0 ? Promise.resolve(serverRoles) : serverApi.listRoles(serverId, token),
@@ -60,19 +65,13 @@ export default function CategoryPermissionsModal({
         }
     }, [serverId, category, token, serverRoles])
 
-    useEffect(() => {
-        if (selectedRoleId && !effectiveRoles.some((r) => r.id === selectedRoleId)) {
-            setSelectedRoleId(null)
-        }
-    }, [selectedRoleId, effectiveRoles])
-
     const currentOverride = useMemo(() => {
-        if (!selectedRoleId) return null
-        return overrides.find((o) => o.role_id === selectedRoleId) ?? { role_id: selectedRoleId, allow: 0, deny: 0 }
-    }, [selectedRoleId, overrides])
+        if (!activeSelectedRoleId) return null
+        return overrides.find((o) => o.role_id === activeSelectedRoleId) ?? { role_id: activeSelectedRoleId, allow: 0, deny: 0 }
+    }, [activeSelectedRoleId, overrides])
 
     const updateOverrideBit = async (bit: number, type: 'allow' | 'deny' | 'inherit') => {
-        if (!selectedRoleId || !currentOverride) return
+        if (!activeSelectedRoleId || !currentOverride) return
         let newAllow = currentOverride.allow
         let newDeny = currentOverride.deny
         if (type === 'allow') {
@@ -86,9 +85,9 @@ export default function CategoryPermissionsModal({
             newDeny &= ~bit
         }
         try {
-            const updated = await channelApi.updateCategoryOverride(serverId, category, selectedRoleId, newAllow, newDeny, token)
+            const updated = await channelApi.updateCategoryOverride(serverId, category, activeSelectedRoleId, newAllow, newDeny, token)
             setOverrides((prev) => {
-                const filtered = prev.filter((o) => o.role_id !== selectedRoleId)
+                const filtered = prev.filter((o) => o.role_id !== activeSelectedRoleId)
                 return [...filtered, updated]
             })
         } catch (err) {
@@ -131,7 +130,7 @@ export default function CategoryPermissionsModal({
                                                 <button
                                                     key={role.id}
                                                     type="button"
-                                                    className={`server-role-list-item ${selectedRoleId === role.id ? 'server-role-list-item--active' : ''}`}
+                                                    className={`server-role-list-item ${activeSelectedRoleId === role.id ? 'server-role-list-item--active' : ''}`}
                                                     onClick={() => setSelectedRoleId(role.id)}
                                                 >
                                                     <span className="channel-settings-role-dot" style={{ backgroundColor: role.color || 'var(--text-normal)' }} />
@@ -141,7 +140,7 @@ export default function CategoryPermissionsModal({
                                         </div>
                                     </div>
                                     <div className="channel-settings-perm-col">
-                                        {!selectedRoleId ? (
+                                        {!activeSelectedRoleId ? (
                                             <div className="role-edit-empty channel-settings-empty">
                                                 Select a role to configure category permissions
                                             </div>
