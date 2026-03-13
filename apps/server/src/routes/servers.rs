@@ -27,6 +27,7 @@ use crate::{
 #[allow(dead_code)] // Used when wiring/tweaking permission checks.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
+const PERM_BAN_MEMBERS: i64 = 1 << 5;
 const PERM_VIEW_AUDIT_LOG: i64 = 1 << 6;
 const PERM_SEND_MESSAGES: i64 = 1 << 7;
 const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
@@ -256,6 +257,7 @@ async fn create_server(
     let moderator_perms = PERM_MANAGE_MESSAGES
         | PERM_MANAGE_PINS
         | PERM_KICK_MEMBERS
+        | PERM_BAN_MEMBERS
         | PERM_MUTE_MEMBERS
         | PERM_DEAFEN_MEMBERS
         | PERM_VIEW_AUDIT_LOG;

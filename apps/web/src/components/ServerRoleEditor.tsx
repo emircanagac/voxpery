@@ -2,12 +2,9 @@ type PermissionBits = {
     manageServer: number
     manageRoles: number
     manageChannels: number
-    manageWebhooks: number
     viewAuditLog: number
-    sendMessages: number
     manageMessages: number
     managePins: number
-    connectVoice: number
     muteMembers: number
     deafenMembers: number
     kickMembers: number
@@ -60,14 +57,12 @@ export default function ServerRoleEditor({
                 { label: 'Full admin', bit: bits.manageServer },
                 { label: 'Manage roles', bit: bits.manageRoles },
                 { label: 'Manage channels', bit: bits.manageChannels },
-                { label: 'Manage webhooks', bit: bits.manageWebhooks },
                 { label: 'View audit log', bit: bits.viewAuditLog },
             ],
         },
         {
             title: 'Messages',
             perms: [
-                { label: 'Send messages', bit: bits.sendMessages },
                 { label: 'Manage messages', bit: bits.manageMessages },
                 { label: 'Manage pins', bit: bits.managePins },
             ],
@@ -75,7 +70,6 @@ export default function ServerRoleEditor({
         {
             title: 'Voice',
             perms: [
-                { label: 'Connect to voice', bit: bits.connectVoice },
                 { label: 'Mute members', bit: bits.muteMembers },
                 { label: 'Deafen members', bit: bits.deafenMembers },
             ],

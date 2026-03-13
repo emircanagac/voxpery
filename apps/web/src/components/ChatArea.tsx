@@ -64,6 +64,7 @@ interface ChatAreaProps {
     pinnedMessages?: MessageWithAuthor[]
     onPinMessage?: (messageId: string) => void
     onUnpinMessage?: (messageId: string) => void
+    canSendMessages?: boolean
 }
 
 export default function ChatArea({
@@ -104,6 +105,7 @@ export default function ChatArea({
     pinnedMessages = [],
     onPinMessage,
     onUnpinMessage,
+    canSendMessages = true,
 }: ChatAreaProps) {
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const setMessagesScrollRef = useCallback(
@@ -313,6 +315,10 @@ export default function ChatArea({
     }
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (!canSendMessages) {
+            e.preventDefault()
+            return
+        }
         if (mentionOpen && mentionSuggestions.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault()
@@ -367,6 +373,7 @@ export default function ChatArea({
     }, [pinnedOpen])
 
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        if (!canSendMessages) return
         const dt = e.clipboardData
         if (!dt) return
         const files: File[] = []
@@ -857,6 +864,7 @@ export default function ChatArea({
                             multiple
                             accept="*/*"
                             style={{ display: 'none' }}
+                            disabled={!canSendMessages}
                             onChange={(e) => onPickAttachments(e.target.files)}
                         />
                     </label>
@@ -864,6 +872,7 @@ export default function ChatArea({
                         ref={textareaRef}
                         className="message-input"
                         value={messageInput}
+                        disabled={!canSendMessages}
                         onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
                         onKeyDown={handleKeyDown}
                         onClick={(e) => syncMentionMenu(messageInput, e.currentTarget.selectionStart)}
@@ -877,19 +886,26 @@ export default function ChatArea({
                             }, 120)
                         }}
                         onPaste={handlePaste}
-                        placeholder={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
+                        placeholder={canSendMessages ? (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`) : `You don't have permission to send messages in #${activeChannel.name}`}
                         rows={1}
                     />
                     <Send
                         size={18}
                         style={{
-                            color: (messageInput.trim() || draftAttachments.length > 0) ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            cursor: (messageInput.trim() || draftAttachments.length > 0) ? 'pointer' : 'default',
+                            color: !canSendMessages ? 'var(--text-muted)' : (messageInput.trim() || draftAttachments.length > 0) ? 'var(--accent-primary)' : 'var(--text-muted)',
+                            cursor: !canSendMessages ? 'not-allowed' : (messageInput.trim() || draftAttachments.length > 0) ? 'pointer' : 'default',
                             flexShrink: 0,
+                            opacity: canSendMessages ? 1 : 0.6,
                         }}
-                        onClick={() => onSendMessage()}
+                        onClick={() => {
+                            if (!canSendMessages) return
+                            onSendMessage()
+                        }}
                     />
                 </div>
+                {!canSendMessages && (
+                    <div className="message-send-disabled-note">You can view messages here, but you cannot send in this channel.</div>
+                )}
                 {draftAttachments.length > 0 && (
                     <div className="dm-draft-attachments">
                         {draftAttachments.map((att, i) => (

@@ -475,6 +475,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     const raw = state.lastError
     const lower = raw.toLowerCase()
     let message = raw
+    let title = 'Voice action failed'
+    let level: 'error' | 'info' = 'error'
+    if (
+      lower.includes('voice access denied')
+      || lower.includes('missing required permission')
+      || lower.includes('forbidden')
+    ) {
+      title = 'Voice access denied'
+      level = 'info'
+      message = "You don't have permission to connect to this voice channel."
+    } else
     if (lower.includes('notallowederror') || lower.includes('permission denied') || lower.includes('permission')) {
       message = 'Permission was blocked. Allow microphone/screen access in browser settings and try again.'
     } else if (lower.includes('notfounderror') || lower.includes('device not found')) {
@@ -484,8 +495,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
 
     pushToast({
-      level: 'error',
-      title: 'Voice action failed',
+      level,
+      title,
       message,
     })
   }, [pushToast, state.lastError])

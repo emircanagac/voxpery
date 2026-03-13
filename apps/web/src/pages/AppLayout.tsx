@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry } from '../api'
+import { serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -52,7 +52,6 @@ const PERM_MANAGE_PINS = 1 << 9
 const PERM_CONNECT_VOICE = 1 << 10
 const PERM_MUTE_MEMBERS = 1 << 11
 const PERM_DEAFEN_MEMBERS = 1 << 12
-const PERM_MANAGE_WEBHOOKS = 1 << 13
 
 const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
 
@@ -180,7 +179,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'bans' | 'danger'>('overview')
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
     const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
@@ -230,11 +229,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [draggingRoleId, setDraggingRoleId] = useState<string | null>(null)
     const [roleEditName, setRoleEditName] = useState('')
     const [roleEditPermissions, setRoleEditPermissions] = useState(0)
+    const [roleEditPreAdminPermissions, setRoleEditPreAdminPermissions] = useState<number | null>(null)
     const [roleEditColor, setRoleEditColor] = useState<string | null>(null)
     const [deleteRoleConfirmId, setDeleteRoleConfirmId] = useState<string | null>(null)
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
+    const [banEntries, setBanEntries] = useState<ServerBanEntry[] | null>(null)
+    const [banEntriesLoading, setBanEntriesLoading] = useState(false)
+    const [banEntriesError, setBanEntriesError] = useState<string | null>(null)
+    const [unbanInFlightUserId, setUnbanInFlightUserId] = useState<string | null>(null)
     const memberUsernameById = useMemo(() => {
         const byId = new Map<string, string>()
         for (const member of members) byId.set(member.user_id, member.username)
@@ -662,6 +666,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const handleSendMessage = async (e?: FormEvent) => {
         e?.preventDefault()
+        if (!canSendMessages) return
         if ((!messageInput.trim() && draftAttachments.length === 0) || !activeChannelId || !isLoggedIn) return
         const bodyText = messageInput.trim()
         const content = replyingTo
@@ -723,6 +728,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const handleRetryMessage = async (clientId: string) => {
+        if (!canSendMessages) return
         if (!activeChannelId || !isLoggedIn) return
         const target = messages.find((m) => m.clientId === clientId)
         if (!target || target.clientStatus !== 'failed') return
@@ -961,6 +967,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const activePerms = activeServerId ? myServerPermissions[activeServerId] ?? 0 : 0
     // Permissions-based gating (backend enforces same).
     const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
+    const canSendMessages = (activePerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
+    const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
+    const canManageBans = canBanMembers
     const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
     const settingsServer = servers.find((s) => s.id === serverSettingsServerId) ?? activeServer
     const settingsServerId = settingsServer?.id ?? null
@@ -1047,12 +1056,33 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         void load()
     }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
+    // Load bans when Bans tab is opened.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'bans') return
+        if (!isLoggedIn || !settingsServerId) return
+        const load = async () => {
+            setBanEntriesLoading(true)
+            setBanEntriesError(null)
+            try {
+                const entries = await serverApi.listBans(settingsServerId, token)
+                setBanEntries(entries)
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to load banned members.'
+                setBanEntriesError(message)
+            } finally {
+                setBanEntriesLoading(false)
+            }
+        }
+        void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
     // When leaving Roles tab or closing Server Settings, drop any unsaved role edits.
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'roles') {
             setSelectedRoleId(null)
             setRoleEditName('')
             setRoleEditPermissions(0)
+            setRoleEditPreAdminPermissions(null)
             setRolesError(null)
         }
     }, [showServerSettings, serverSettingsTab])
@@ -1066,6 +1096,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setSelectedRoleId('new')
         setRoleEditName('')
         setRoleEditPermissions(0)
+        setRoleEditPreAdminPermissions(null)
         setRoleEditColor(null)
     }
 
@@ -1075,11 +1106,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setSelectedRoleId(null)
             setRoleEditName('')
             setRoleEditPermissions(0)
+            setRoleEditPreAdminPermissions(null)
             return
         }
         setSelectedRoleId(role.id)
         setRoleEditName(role.name)
         setRoleEditPermissions(role.permissions)
+        setRoleEditPreAdminPermissions(null)
         setRoleEditColor(role.color)
     }
 
@@ -1111,37 +1144,48 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const handleToggleRolePermission = (bit: number, isFullAdmin: boolean, checked: boolean) => {
-        setRoleEditPermissions((prev) => {
-            const ADMIN_MASK =
-                PERM_VIEW_SERVER |
-                PERM_MANAGE_SERVER |
-                PERM_MANAGE_ROLES |
-                PERM_MANAGE_CHANNELS |
-                PERM_KICK_MEMBERS |
-                PERM_BAN_MEMBERS |
-                PERM_VIEW_AUDIT_LOG |
-                PERM_SEND_MESSAGES |
-                PERM_MANAGE_MESSAGES |
-                PERM_MANAGE_PINS |
-                PERM_CONNECT_VOICE |
-                PERM_MUTE_MEMBERS |
-                PERM_DEAFEN_MEMBERS |
-                PERM_MANAGE_WEBHOOKS
-            if (isFullAdmin && !checked) {
-                return prev & ~ADMIN_MASK
+        const ADMIN_MASK =
+            PERM_VIEW_SERVER |
+            PERM_MANAGE_SERVER |
+            PERM_MANAGE_ROLES |
+            PERM_MANAGE_CHANNELS |
+            PERM_KICK_MEMBERS |
+            PERM_BAN_MEMBERS |
+            PERM_VIEW_AUDIT_LOG |
+            PERM_SEND_MESSAGES |
+            PERM_MANAGE_MESSAGES |
+            PERM_MANAGE_PINS |
+            PERM_CONNECT_VOICE |
+            PERM_MUTE_MEMBERS |
+            PERM_DEAFEN_MEMBERS
+
+        if (isFullAdmin) {
+            if (checked) {
+                // Snapshot current custom set once, so unchecking Full admin can restore it.
+                if ((roleEditPermissions & PERM_MANAGE_SERVER) !== PERM_MANAGE_SERVER) {
+                    setRoleEditPreAdminPermissions(roleEditPermissions)
+                }
+                setRoleEditPermissions(roleEditPermissions | ADMIN_MASK)
+            } else {
+                const restored =
+                    roleEditPreAdminPermissions != null
+                        ? roleEditPreAdminPermissions
+                        : (roleEditPermissions & ~ADMIN_MASK)
+                setRoleEditPermissions(restored)
+                setRoleEditPreAdminPermissions(null)
             }
-            let next = checked ? prev | bit : prev & ~bit
-            if ((next & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER) {
-                next |= ADMIN_MASK
-            }
-            return next
-        })
+            return
+        }
+
+        const next = checked ? roleEditPermissions | bit : roleEditPermissions & ~bit
+        setRoleEditPermissions(next)
     }
 
     const handleCancelRoleEdit = () => {
         setSelectedRoleId(null)
         setRoleEditName('')
         setRoleEditPermissions(0)
+        setRoleEditPreAdminPermissions(null)
         setRoleEditColor(null)
     }
 
@@ -1901,9 +1945,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 pinnedMessages={channelPins}
                 onPinMessage={canManageChannels ? handlePinChannelMessage : undefined}
                 onUnpinMessage={canManageChannels ? handleUnpinChannelMessage : undefined}
+                canSendMessages={canSendMessages}
             />
             <MemberSidebar
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
+                canBanMembers={canBanMembers}
                 canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
             />
 
@@ -2158,6 +2204,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     Audit Log
                                                 </button>
                                             )}
+                                            {(isOwner || canManageBans) && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'bans' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('bans')}
+                                                >
+                                                    Bans
+                                                </button>
+                                            )}
                                             {isOwner && (
                                                 <button
                                                     type="button"
@@ -2349,6 +2406,69 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 </section>
                                             )}
 
+                                            {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (
+                                                <section className="server-settings-card server-settings-card--audit">
+                                                    <h3 className="server-settings-card__title">Banned Users</h3>
+                                                    {banEntriesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {banEntriesError}
+                                                        </div>
+                                                    )}
+                                                    {banEntriesLoading && (
+                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                            Loading banned users...
+                                                        </div>
+                                                    )}
+                                                    {!banEntriesLoading && banEntries && banEntries.length === 0 && (
+                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                            No banned users.
+                                                        </div>
+                                                    )}
+                                                    {!banEntriesLoading && banEntries && banEntries.length > 0 && (
+                                                        <div className="server-settings-ban-list">
+                                                            {banEntries.map((entry) => (
+                                                                <div key={entry.user_id} className="server-settings-ban-row">
+                                                                    <div className="server-settings-ban-meta">
+                                                                        <strong>{entry.username}</strong>
+                                                                        <span>
+                                                                            Banned by {entry.banned_by_username} on {new Date(entry.created_at).toLocaleString()}
+                                                                        </span>
+                                                                        {entry.reason && (
+                                                                            <span className="server-settings-ban-reason">Reason: {entry.reason}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-secondary btn-sm"
+                                                                        disabled={unbanInFlightUserId === entry.user_id}
+                                                                        onClick={async () => {
+                                                                            if (!settingsServerId) return
+                                                                            setUnbanInFlightUserId(entry.user_id)
+                                                                            setBanEntriesError(null)
+                                                                            try {
+                                                                                await serverApi.unbanMember(settingsServerId, entry.user_id, token)
+                                                                                const refreshed = await serverApi.listBans(settingsServerId, token)
+                                                                                setBanEntries(refreshed)
+                                                                            } catch (err) {
+                                                                                const message =
+                                                                                    err instanceof Error
+                                                                                        ? err.message
+                                                                                        : 'Failed to unban member.'
+                                                                                setBanEntriesError(message)
+                                                                            } finally {
+                                                                                setUnbanInFlightUserId(null)
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        {unbanInFlightUserId === entry.user_id ? 'Unbanning...' : 'Unban'}
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </section>
+                                            )}
+
                                             {serverSettingsTab === 'roles' && isOwner && (
                                                 <section className="server-settings-card">
                                                     <h3 className="server-settings-card__title">Roles</h3>
@@ -2382,12 +2502,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                     manageServer: PERM_MANAGE_SERVER,
                                                                     manageRoles: PERM_MANAGE_ROLES,
                                                                     manageChannels: PERM_MANAGE_CHANNELS,
-                                                                    manageWebhooks: PERM_MANAGE_WEBHOOKS,
                                                                     viewAuditLog: PERM_VIEW_AUDIT_LOG,
-                                                                    sendMessages: PERM_SEND_MESSAGES,
                                                                     manageMessages: PERM_MANAGE_MESSAGES,
                                                                     managePins: PERM_MANAGE_PINS,
-                                                                    connectVoice: PERM_CONNECT_VOICE,
                                                                     muteMembers: PERM_MUTE_MEMBERS,
                                                                     deafenMembers: PERM_DEAFEN_MEMBERS,
                                                                     kickMembers: PERM_KICK_MEMBERS,
@@ -2475,6 +2592,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 setSelectedRoleId(next?.id ?? null)
                                                 setRoleEditName(next?.name ?? '')
                                                 setRoleEditPermissions(next?.permissions ?? 0)
+                                                setRoleEditPreAdminPermissions(null)
                                                 setDeleteRoleConfirmId(null)
                                             } catch (err) {
                                                 const message =

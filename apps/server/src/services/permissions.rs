@@ -22,7 +22,6 @@ bitflags::bitflags! {
         const CONNECT_VOICE    = 1 << 10;
         const MUTE_MEMBERS     = 1 << 11;
         const DEAFEN_MEMBERS   = 1 << 12;
-        const MANAGE_WEBHOOKS  = 1 << 13;
     }
 }
 
@@ -333,7 +332,7 @@ mod tests {
         let p = Permissions::all();
         assert!(p.contains(Permissions::VIEW_SERVER));
         assert!(p.contains(Permissions::MANAGE_SERVER));
-        assert!(p.contains(Permissions::MANAGE_WEBHOOKS));
+        assert!(p.contains(Permissions::DEAFEN_MEMBERS));
     }
 
     #[test]

@@ -707,10 +707,15 @@ async fn rename_category(
     }
 
     let new_exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1 AND name = $2",
+        r#"SELECT COUNT(*)
+           FROM server_channel_categories
+           WHERE server_id = $1
+             AND LOWER(name) = LOWER($2)
+             AND name <> $3"#,
     )
     .bind(server_id)
     .bind(new_name)
+    .bind(old_name)
     .fetch_one(&state.db)
     .await?;
 

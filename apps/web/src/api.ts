@@ -349,6 +349,15 @@ export interface ChannelOverride {
     deny: number
 }
 
+export interface ServerBanEntry {
+    user_id: string
+    banned_by: string
+    reason: string | null
+    created_at: string
+    username: string
+    banned_by_username: string
+}
+
 export interface ChannelCategory {
     name: string
 }
@@ -381,6 +390,12 @@ export const serverApi = {
 
     auditLog: (serverId: string, token: AuthToken) =>
         apiFetch<AuditLogEntry[]>(`/api/servers/${serverId}/audit-log`, { token }),
+
+    listBans: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerBanEntry[]>(`/api/servers/${serverId}/bans`, { token }),
+
+    unbanMember: (serverId: string, userId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/bans/${userId}`, { method: 'DELETE', token }),
 
     channels: (serverId: string, token: AuthToken) =>
         apiFetch<Channel[]>(`/api/servers/${serverId}/channels`, { token }),
@@ -439,6 +454,13 @@ export const serverApi = {
 
     kickMember: (serverId: string, userId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}/members/${userId}`, { method: 'DELETE', token }),
+
+    banMember: (serverId: string, userId: string, token: AuthToken, reason?: string) =>
+        apiFetch<void>(`/api/servers/${serverId}/members/${userId}/ban`, {
+            method: 'POST',
+            body: reason ? { reason } : {},
+            token,
+        }),
 }
 
 // ─── Channels ───────────────────────────

@@ -13,9 +13,10 @@ interface MemberItemProps {
     currentUserId?: string
     isFriend: boolean
     canKickAsRole: boolean
+    canBanAsRole: boolean
     canManageRoles: boolean
     myRole: string
-    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean) => void
+    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean) => void
 }
 
 const MemberItem = memo(function MemberItem({
@@ -25,6 +26,7 @@ const MemberItem = memo(function MemberItem({
     currentUserId,
     isFriend,
     canKickAsRole,
+    canBanAsRole,
     canManageRoles,
     myRole,
     onContextMenu
@@ -48,7 +50,12 @@ const MemberItem = memo(function MemberItem({
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
-    const showContextMenu = canMakeAdmin || canAddFriend || canKick
+    const canBan =
+        canBanAsRole &&
+        member.user_id !== currentUserId &&
+        member.role !== 'owner' &&
+        (myRole === 'owner' || member.role === 'member')
+    const showContextMenu = canMakeAdmin || canAddFriend || canKick || canBan
 
     return (
         <div
@@ -56,7 +63,7 @@ const MemberItem = memo(function MemberItem({
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick)
+                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick, canBan)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -83,9 +90,11 @@ const MemberItem = memo(function MemberItem({
 
 export default function MemberSidebar({
     canKickMembers,
+    canBanMembers,
     canManageRolesFromPerms,
 }: {
     canKickMembers: boolean
+    canBanMembers: boolean
     canManageRolesFromPerms: boolean
 }) {
     const { user, token } = useAuthStore()
@@ -103,6 +112,7 @@ export default function MemberSidebar({
         canMakeAdmin: boolean
         canAddFriend: boolean
         canKick: boolean
+        canBan: boolean
     } | null>(null)
     const [roleEditor, setRoleEditor] = useState<{
         userId: string
@@ -113,6 +123,7 @@ export default function MemberSidebar({
         selectedRoleIds: string[]
     } | null>(null)
     const [kickConfirm, setKickConfirm] = useState<{ userId: string; username: string } | null>(null)
+    const [banConfirm, setBanConfirm] = useState<{ userId: string; username: string } | null>(null)
     const menuRef = useRef<HTMLDivElement>(null)
 
     const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
@@ -128,6 +139,7 @@ export default function MemberSidebar({
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
     const canKickAsRole = isOwner || canKickMembers
+    const canBanAsRole = isOwner || canBanMembers
 
     useEffect(() => {
         if (!contextMenu) return
@@ -220,14 +232,34 @@ export default function MemberSidebar({
         [activeServerId, pushToast, setMembers, token],
     )
 
+    const handleBan = useCallback(
+        async (memberUserId: string) => {
+            if (!activeServerId) return
+            setBanConfirm(null)
+            try {
+                await serverApi.banMember(activeServerId, memberUserId, token)
+                const detail = await serverApi.get(activeServerId, token)
+                setMembers(detail.members)
+            } catch (e) {
+                pushToast({
+                    level: 'error',
+                    title: 'Ban failed',
+                    message: e instanceof Error ? e.message : 'Could not ban member.',
+                })
+            }
+        },
+        [activeServerId, pushToast, setMembers, token],
+    )
+
     const handleContextMenu = useCallback((
         e: React.MouseEvent,
         member: MemberItemProps['member'],
         canMakeAdmin: boolean,
         canAddFriend: boolean,
-        canKick: boolean
+        canKick: boolean,
+        canBan: boolean
     ) => {
-        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0)
+        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0)
         const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
         setContextMenu({
             userId: member.user_id,
@@ -238,6 +270,7 @@ export default function MemberSidebar({
             canMakeAdmin,
             canAddFriend,
             canKick,
+            canBan,
         })
     }, [])
 
@@ -269,6 +302,7 @@ export default function MemberSidebar({
                             currentUserId={user?.id}
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
+                            canBanAsRole={canBanAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
@@ -291,6 +325,7 @@ export default function MemberSidebar({
                             currentUserId={user?.id}
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
+                            canBanAsRole={canBanAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             onContextMenu={handleContextMenu}
@@ -340,6 +375,18 @@ export default function MemberSidebar({
                             }}
                         >
                             Kick user
+                        </button>
+                    )}
+                    {contextMenu.canBan && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item danger"
+                            onClick={() => {
+                                setBanConfirm({ userId: contextMenu.userId, username: contextMenu.username })
+                                setContextMenu(null)
+                            }}
+                        >
+                            Ban user
                         </button>
                     )}
                 </div>
@@ -461,6 +508,28 @@ export default function MemberSidebar({
                                 onClick={() => void handleKick(kickConfirm.userId)}
                             >
                                 Kick user
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {banConfirm && (
+                <div className="modal-overlay" onClick={() => setBanConfirm(null)}>
+                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Ban member</h2>
+                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                            Ban <strong>{banConfirm.username}</strong>? They will be removed and blocked from rejoining.
+                        </p>
+                        <div className="modal-actions">
+                            <button type="button" className="btn btn-secondary" onClick={() => setBanConfirm(null)}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger"
+                                onClick={() => void handleBan(banConfirm.userId)}
+                            >
+                                Ban user
                             </button>
                         </div>
                     </div>

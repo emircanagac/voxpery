@@ -199,7 +199,6 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .nest("/api/channels", routes::channels::router(state.clone()))
         .nest("/api/messages", routes::messages::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
-        .nest("/api/webhooks", routes::webhooks::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(map_response(sanitize_verbose_client_errors))

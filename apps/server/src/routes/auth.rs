@@ -272,6 +272,7 @@ const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
 // Keep in sync with routes/servers.rs seeding.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
+const PERM_BAN_MEMBERS: i64 = 1 << 5;
 const PERM_VIEW_AUDIT_LOG: i64 = 1 << 6;
 const PERM_SEND_MESSAGES: i64 = 1 << 7;
 const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
@@ -447,13 +448,15 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         let moderator_perms = PERM_MANAGE_MESSAGES
             | PERM_MANAGE_PINS
             | PERM_KICK_MEMBERS
+            | PERM_BAN_MEMBERS
             | PERM_MUTE_MEMBERS
             | PERM_DEAFEN_MEMBERS
             | PERM_VIEW_AUDIT_LOG;
         sqlx::query(
             r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
                    VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
-                   ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
+                   ON CONFLICT (server_id, LOWER(name))
+                   DO UPDATE SET permissions = (server_roles.permissions | EXCLUDED.permissions)"#,
         )
         .bind(Uuid::new_v4())
         .bind(server_id)
