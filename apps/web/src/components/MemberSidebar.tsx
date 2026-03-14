@@ -350,6 +350,7 @@ export default function MemberSidebar({
     ) => {
         const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0)
         const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
+        setProfileCard(null)
         setContextMenu({
             userId: member.user_id,
             username: member.username,
