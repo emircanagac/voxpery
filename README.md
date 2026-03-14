@@ -153,6 +153,12 @@ cd apps/server && cargo run
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=emircanagac/voxpery&type=Date)](https://star-history.com/#emircanagac/voxpery&Date)
+
+---
+
 ## License
 
 [AGPL-3.0](LICENSE) — Free, open-source, forever. Your data is yours.
