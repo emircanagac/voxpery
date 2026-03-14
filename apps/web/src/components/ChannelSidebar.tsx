@@ -4,7 +4,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { friendApi } from '../api'
 import type { Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
@@ -54,8 +53,8 @@ export default function ChannelSidebar({
     onReorderChannels,
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
-    const { user, token } = useAuthStore()
-    const { servers, activeServerId, activeChannelId, channels, members, voiceStates, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel, friends, setFriends } = useAppStore(
+    const user = useAuthStore((s) => s.user)
+    const { servers, activeServerId, activeChannelId, channels, members, voiceStates, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -66,8 +65,6 @@ export default function ChannelSidebar({
             voiceSpeakingUserIds: s.voiceSpeakingUserIds,
             voiceLocalSpeaking: s.voiceLocalSpeaking,
             setActiveChannel: s.setActiveChannel,
-            friends: s.friends,
-            setFriends: s.setFriends,
         }))
     )
     const pushToast = useToastStore((s) => s.pushToast)
@@ -229,21 +226,6 @@ export default function ChannelSidebar({
         setPeerVolumeByUserId(next)
         localStorage.setItem('voxpery-voice-peer-volume', JSON.stringify(next))
         window.dispatchEvent(new CustomEvent('voxpery-voice-peer-volume-changed'))
-    }
-
-    const handleAddFriend = async (username: string) => {
-        if (!user) return
-        try {
-            await friendApi.sendRequest(username, token)
-            const list = await friendApi.list(token)
-            setFriends(list)
-        } catch (e) {
-            pushToast({
-                level: 'error',
-                title: 'Add friend failed',
-                message: e instanceof Error ? e.message : 'Could not send friend request.',
-            })
-        }
     }
 
     const handleJoinVoice = async (id: string) => {
@@ -550,9 +532,8 @@ export default function ChannelSidebar({
                                                                 setParticipantMenu(null)
                                                                 return
                                                             }
-                                                            const alreadyFriend = friends.some((f) => f.username.toLowerCase() === vm.username.toLowerCase())
                                                             const estimatedWidth = 192
-                                                            const estimatedHeight = alreadyFriend ? 92 : 130
+                                                            const estimatedHeight = (canMuteMembers || canDeafenMembers) ? 206 : 116
                                                             const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
@@ -692,7 +673,6 @@ export default function ChannelSidebar({
 
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
-                const alreadyFriend = friends.some((f) => f.username.toLowerCase() === participantMenu.username.toLowerCase())
                 const currentVolume = peerVolumeByUserId[participantMenu.userId] ?? 100
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
@@ -713,19 +693,6 @@ export default function ChannelSidebar({
                         <div className="server-context-menu-item member-volume-menu-username">
                             {participantMenu.username}
                         </div>
-
-                        {!isSelf && !alreadyFriend && (
-                            <button
-                                type="button"
-                                className="server-context-menu-item"
-                                onClick={() => {
-                                    void handleAddFriend(participantMenu.username)
-                                    setParticipantMenu(null)
-                                }}
-                            >
-                                Add Friend
-                            </button>
-                        )}
                         {!isSelf && (canMuteMembers || canDeafenMembers) && (
                             <>
                                 <div className="member-volume-menu-section-label">

@@ -643,7 +643,11 @@ async fn google_oauth_start(
         .unwrap_or("http://localhost:5173")
         .trim()
         .to_string();
-    if !state.cors_origins.contains(&origin) {
+    // Desktop deep-link callback must be allowed even if CORS_ORIGINS is locked down
+    // to web origins only.
+    if origin.starts_with("voxpery://") {
+        // Keep as-is for desktop OAuth return flow.
+    } else if !state.cors_origins.contains(&origin) {
         tracing::warn!("Rejecting unapproved origin for Google OAuth: {}", origin);
         origin = state
             .cors_origins

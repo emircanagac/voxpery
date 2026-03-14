@@ -3495,6 +3495,24 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.member-role-save-btn {
+  background: #2f6fcb;
+  border: 1px solid #3d7cda;
+  color: #f7fbff;
+}
+
+.member-role-save-btn:hover:not(:disabled) {
+  background: #3b7ad4;
+  border-color: #4b88df;
+  box-shadow: none;
+}
+
+.member-role-save-btn:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-muted);
+}
+
 .member-profile-popout {
   position: fixed;
   z-index: 10020;

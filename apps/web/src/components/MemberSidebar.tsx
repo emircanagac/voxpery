@@ -663,7 +663,7 @@ export default function MemberSidebar({
                             </button>
                             <button
                                 type="button"
-                                className="btn btn-primary"
+                                className="btn member-role-save-btn"
                                 disabled={roleEditor.loading || roleEditor.saving}
                                 onClick={async () => {
                                     if (!activeServerId || !user) return
