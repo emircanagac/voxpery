@@ -19,24 +19,20 @@ env:
 jobs:
   security:
     name: Secret Scan (gitleaks)
+    # Dependabot PR token scope can cause GitHub API 403 in gitleaks action PR mode.
+    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Install gitleaks CLI
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/bin/gitleaks" version
-
       - name: Secret scan (gitleaks)
-        run: gitleaks git --redact --verbose --exit-code 1
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   security-deps:
     name: Dependency Security Audit
