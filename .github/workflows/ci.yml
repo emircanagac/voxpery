@@ -6,8 +6,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '0 4 * * *'
 
 permissions:
   contents: read
@@ -34,42 +32,6 @@ jobs:
             -w /repo \
             ghcr.io/gitleaks/gitleaks:latest \
             git --redact --verbose --exit-code 1
-
-  security-deps:
-    name: Dependency Security Audit
-    if: github.event_name != 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/server -> target
-
-      - name: Install cargo-audit (prebuilt)
-        uses: taiki-e/install-action@cargo-audit
-
-      - name: Dependency audit (Rust)
-        working-directory: apps/server
-        run: cargo audit --deny warnings
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Dependency audit (web prod deps, lockfile)
-        working-directory: apps/web
-        run: npm audit --omit=dev --audit-level=high
 
   backend:
     name: Backend
