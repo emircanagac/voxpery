@@ -1,8 +1,9 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { useSocketStore } from '../stores/socket'
 import { friendApi, serverApi, type ServerRole } from '../api'
-import { useCallback, useEffect, useRef, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
 
@@ -107,11 +108,27 @@ export default function MemberSidebar({
     canManageRolesFromPerms: boolean
 }) {
     const { user, token } = useAuthStore()
-    const { servers, activeServerId, members, setMembers, friends, setFriends } = useAppStore(
-        useShallow((s) => ({ servers: s.servers, activeServerId: s.activeServerId, members: s.members, setMembers: s.setMembers, friends: s.friends, setFriends: s.setFriends }))
+    const { servers, activeServerId, activeChannelId, channels, members, setMembers, friends, setFriends } = useAppStore(
+        useShallow((s) => ({
+            servers: s.servers,
+            activeServerId: s.activeServerId,
+            activeChannelId: s.activeChannelId,
+            channels: s.channels,
+            members: s.members,
+            setMembers: s.setMembers,
+            friends: s.friends,
+            setFriends: s.setFriends,
+        }))
     )
     const pushToast = useToastStore((s) => s.pushToast)
+    const subscribeWs = useSocketStore((s) => s.subscribe)
     const activeServer = servers.find((s) => s.id === activeServerId)
+    const activeChannel = useMemo(
+        () => (activeChannelId ? channels.find((c) => c.id === activeChannelId) ?? null : null),
+        [activeChannelId, channels],
+    )
+    const [channelMembersById, setChannelMembersById] = useState<Record<string, MemberItemProps['member'][]>>({})
+    const [channelScopeRefreshVersion, setChannelScopeRefreshVersion] = useState(0)
     const [contextMenu, setContextMenu] = useState<{
         userId: string
         username: string
@@ -157,6 +174,47 @@ export default function MemberSidebar({
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
     const canKickAsRole = isOwner || canKickMembers
     const canBanAsRole = isOwner || canBanMembers
+
+    useEffect(() => {
+        return subscribeWs((payload: unknown) => {
+            if (!activeServerId || !activeChannelId || !activeChannel || activeChannel.channel_type !== 'text') return
+            const evt = payload as { type?: string; data?: { server_id?: string } }
+            const sid = evt?.data?.server_id
+            if (!sid || sid !== activeServerId) return
+            if (
+                evt.type === 'ServerChannelsUpdated' ||
+                evt.type === 'ServerRolesUpdated' ||
+                evt.type === 'MemberRoleUpdated' ||
+                evt.type === 'MemberJoined' ||
+                evt.type === 'MemberLeft'
+            ) {
+                setChannelScopeRefreshVersion((v) => v + 1)
+            }
+        })
+    }, [activeChannel, activeChannelId, activeServerId, subscribeWs])
+
+    useEffect(() => {
+        if (!activeServerId || !activeChannelId) return
+        if (!activeChannel || activeChannel.channel_type !== 'text') return
+
+        let active = true
+        serverApi
+            .channelMembers(activeServerId, activeChannelId, token)
+            .then((rows) => {
+                if (!active) return
+                setChannelMembersById((prev) => ({
+                    ...prev,
+                    [activeChannelId]: rows,
+                }))
+            })
+            .catch(() => {
+                // Keep fallback rendering from full server member list.
+            })
+
+        return () => {
+            active = false
+        }
+    }, [activeChannel, activeChannelId, activeServerId, channelScopeRefreshVersion, token])
 
     useEffect(() => {
         if (!contextMenu && !profileCard) return
@@ -335,10 +393,14 @@ export default function MemberSidebar({
     const isOnline = (m: { status?: string | null }) =>
         status(m) === 'online' || status(m) === 'dnd'
     const roleOrder = (r: string) => (r === 'owner' ? 0 : r === 'admin' ? 1 : 2)
-    const byRoleThenName = (a: (typeof members)[0], b: (typeof members)[0]) =>
+    const membersForSidebar =
+        activeChannel && activeChannel.channel_type === 'text' && activeChannelId
+            ? (channelMembersById[activeChannelId] ?? members)
+            : members
+    const byRoleThenName = (a: (typeof membersForSidebar)[0], b: (typeof membersForSidebar)[0]) =>
         roleOrder(a.role) - roleOrder(b.role) || a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
-    const onlineMembers = members.filter(isOnline).sort(byRoleThenName)
-    const offlineMembers = members.filter((m) => !isOnline(m)).sort(byRoleThenName)
+    const onlineMembers = membersForSidebar.filter(isOnline).sort(byRoleThenName)
+    const offlineMembers = membersForSidebar.filter((m) => !isOnline(m)).sort(byRoleThenName)
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (

@@ -679,16 +679,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const roomConnected = roomState === 'connected'
   const roomConnecting = state.isJoining || roomState === 'connecting'
   const roomReconnecting = roomState === 'reconnecting'
-  const roomDisconnected = roomState === 'disconnected'
+  const joiningTargetChannelId = state.isJoining ? selectedVoiceChannelId : null
+  const hasActiveVoiceSession = !!(state.joinedChannelId || joiningTargetChannelId)
   const participantIds = new Set(channelParticipants.map((member) => member.user_id))
   if (state.joinedChannelId && user?.id) participantIds.add(user.id)
   const participantCount = participantIds.size
   const participantLabel = `${participantCount}`
-  const connectionLabel = !state.joinedChannelId ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
+  const connectionLabel = !hasActiveVoiceSession ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
   const connectionTitle = roomConnected ? 'Connected' : connectionLabel
-  const pingTooltip = !state.joinedChannelId ? 'Ping: N/A' : state.pingMs != null ? `Ping: ${state.pingMs} ms` : 'Ping: measuring...'
-  const pingStateClass = !state.joinedChannelId || state.pingMs == null ? 'is-unknown' : state.pingMs <= 80 ? 'is-good' : state.pingMs <= 150 ? 'is-mid' : 'is-bad'
-  const connectionStateClass = !state.joinedChannelId || roomDisconnected ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : 'is-connected'
+  const pingTooltip = !hasActiveVoiceSession ? 'Ping: N/A' : state.pingMs != null ? `Ping: ${state.pingMs} ms` : 'Ping: measuring...'
+  const pingStateClass = !hasActiveVoiceSession || state.pingMs == null ? 'is-unknown' : state.pingMs <= 80 ? 'is-good' : state.pingMs <= 150 ? 'is-mid' : 'is-bad'
+  const connectionStateClass = !hasActiveVoiceSession ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : roomConnected ? 'is-connected' : 'is-offline'
 
   const screenShareModal = showScreenShareConfirm && (
     <div className="modal-overlay" onClick={() => setShowScreenShareConfirm(false)}>
@@ -726,7 +727,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     </div>
   )
 
-  const showActiveCallBar = !!(state.joinedChannelId || state.localStream)
+  const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
 
   return (
     <>

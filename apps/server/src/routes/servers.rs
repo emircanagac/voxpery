@@ -114,6 +114,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/{server_id}/channels", get(list_channels))
         .route(
+            "/{server_id}/channels/{channel_id}/members",
+            get(list_channel_visible_members),
+        )
+        .route(
             "/{server_id}/members/{user_id}/roles",
             get(list_member_roles).put(update_member_roles),
         )
@@ -1035,6 +1039,85 @@ struct ChannelWithPermissions {
     position: i32,
     created_at: chrono::DateTime<chrono::Utc>,
     my_permissions: i64,
+}
+
+/// GET /api/servers/:server_id/channels/:channel_id/members
+/// Returns only members who can view the target channel (effective permission scope).
+async fn list_channel_visible_members(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, channel_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Vec<MemberInfo>>, AppError> {
+    let channel_server_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
+            .bind(channel_id)
+            .fetch_optional(&state.db)
+            .await?;
+    match channel_server_id {
+        Some(actual_server_id) if actual_server_id == server_id => {}
+        _ => return Err(AppError::NotFound("Channel not found".into())),
+    }
+
+    permissions::ensure_channel_permission(
+        &state.db,
+        channel_id,
+        claims.sub,
+        Permissions::VIEW_SERVER,
+    )
+    .await?;
+
+    let members = sqlx::query_as::<_, MemberInfo>(
+        r#"SELECT sm.user_id,
+                  u.username,
+                  u.avatar_url,
+                  sm.role,
+                  u.status,
+                  rc.color AS role_color,
+                  rr.role_names AS roles
+           FROM server_members sm
+           INNER JOIN users u ON sm.user_id = u.id
+           LEFT JOIN LATERAL (
+               SELECT sr.color
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND sr.color IS NOT NULL
+               ORDER BY sr.position ASC
+               LIMIT 1
+           ) rc ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(
+                   ARRAY_AGG(sr.name ORDER BY sr.position ASC),
+                   ARRAY[]::text[]
+               ) AS role_names
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND LOWER(sr.name) <> 'everyone'
+           ) rr ON TRUE
+           WHERE sm.server_id = $1
+           ORDER BY sm.role ASC, u.username ASC"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut visible_members = Vec::with_capacity(members.len());
+    for mut member in members {
+        let perms =
+            permissions::get_user_channel_permissions(&state.db, channel_id, member.user_id).await?;
+        if !perms.contains(Permissions::VIEW_SERVER) {
+            continue;
+        }
+        if !state.sessions.contains_key(&member.user_id) {
+            member.status = "offline".to_string();
+        }
+        visible_members.push(member);
+    }
+
+    Ok(Json(visible_members))
 }
 
 /// PATCH /api/servers/:server_id/members/:user_id/role — owner can make/remove admins.
