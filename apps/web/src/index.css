@@ -6215,7 +6215,25 @@ a.community-open-btn:hover {
   box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.24) inset, 0 0 10px rgba(240, 71, 71, 0.2);
 }
 
+.callbar-control-btn-disconnect.is-disconnect-state {
+  background: rgba(233, 69, 96, 0.34);
+  border-color: rgba(233, 69, 96, 0.68);
+  color: #ff8da0;
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.3) inset, 0 0 12px rgba(240, 71, 71, 0.3);
+}
+
+.callbar-control-btn-disconnect.is-disconnect-state:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.42);
+  border-color: rgba(233, 69, 96, 0.8);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.34) inset, 0 0 16px rgba(240, 71, 71, 0.36);
+}
+
 .callbar-control-btn-disconnect.is-live:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.callbar-control-btn-disconnect.is-disconnect-state:disabled {
   opacity: 1;
   cursor: progress;
 }
