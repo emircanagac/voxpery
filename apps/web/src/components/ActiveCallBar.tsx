@@ -687,6 +687,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const participantLabel = `${participantCount}`
   const connectionLabel = !hasActiveVoiceSession ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
   const connectionTitle = roomConnected ? 'Connected' : connectionLabel
+  const isDisconnectVisualActive = state.isJoining || isInThisChannel || !!state.joinedChannelId
   const packetLossPct = state.diagnostics.packetLossPct
   const networkJitterMs = state.diagnostics.jitterMs
   const pingJitterMs = state.diagnostics.pingJitterMs
@@ -956,8 +957,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </span>
                   <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip}><Wifi size={14} /></span>
                 </span>
-                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${(isInThisChannel || state.joinedChannelId) ? 'is-live' : ''}`} title={(isInThisChannel || state.joinedChannelId) ? 'Leave voice channel' : 'Join voice channel'}>
-                  <PhoneOff size={16} style={{ transform: (isInThisChannel || state.joinedChannelId) ? 'none' : 'rotate(135deg)' }} />
+                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live' : ''}`} title={isDisconnectVisualActive ? 'Leave voice channel' : 'Join voice channel'}>
+                  <PhoneOff size={16} style={{ transform: isDisconnectVisualActive ? 'none' : 'rotate(135deg)' }} />
                 </button>
               </div>
             </div>
