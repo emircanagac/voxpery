@@ -687,8 +687,36 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const participantLabel = `${participantCount}`
   const connectionLabel = !hasActiveVoiceSession ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
   const connectionTitle = roomConnected ? 'Connected' : connectionLabel
-  const pingTooltip = !hasActiveVoiceSession ? 'Ping: N/A' : state.pingMs != null ? `Ping: ${state.pingMs} ms` : 'Ping: measuring...'
-  const pingStateClass = !hasActiveVoiceSession || state.pingMs == null ? 'is-unknown' : state.pingMs <= 80 ? 'is-good' : state.pingMs <= 150 ? 'is-mid' : 'is-bad'
+  const packetLossPct = state.diagnostics.packetLossPct
+  const networkJitterMs = state.diagnostics.jitterMs
+  const pingJitterMs = state.diagnostics.pingJitterMs
+  const qualityLevel =
+    !hasActiveVoiceSession || state.pingMs == null
+      ? 'unknown'
+      : (state.pingMs >= 220 || (packetLossPct ?? 0) >= 5 || (networkJitterMs ?? 0) >= 45)
+        ? 'poor'
+        : (state.pingMs >= 120 || (packetLossPct ?? 0) >= 2 || (networkJitterMs ?? 0) >= 25 || (pingJitterMs ?? 0) >= 35)
+          ? 'fair'
+          : 'good'
+  const pingStateClass =
+    qualityLevel === 'good'
+      ? 'is-good'
+      : qualityLevel === 'fair'
+        ? 'is-mid'
+        : qualityLevel === 'poor'
+          ? 'is-bad'
+          : 'is-unknown'
+  const pingTooltip = !hasActiveVoiceSession
+    ? 'Quality: N/A'
+    : [
+      `Quality: ${qualityLevel === 'good' ? 'Good' : qualityLevel === 'fair' ? 'Fair' : qualityLevel === 'poor' ? 'Poor' : 'Measuring'}`,
+      state.pingMs != null ? `Ping: ${state.pingMs} ms` : null,
+      pingJitterMs != null ? `Ping jitter: ${pingJitterMs} ms` : null,
+      networkJitterMs != null ? `Audio jitter: ${networkJitterMs} ms` : null,
+      packetLossPct != null ? `Loss: ${packetLossPct.toFixed(1)}%` : null,
+    ]
+      .filter(Boolean)
+      .join(' • ')
   const connectionStateClass = !hasActiveVoiceSession ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : roomConnected ? 'is-connected' : 'is-offline'
 
   const screenShareModal = showScreenShareConfirm && (

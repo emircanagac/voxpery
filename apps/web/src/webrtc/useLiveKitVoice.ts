@@ -140,13 +140,12 @@ export function useLiveKitVoice() {
     localAudioTrackRef
   })
 
-  const { pingMs, wsPingMs, rtcPingMs } = useWebrtcDiagnostics({
+  const { pingMs, wsPingMs, rtcPingMs, packetLossPct, jitterMs, pingJitterMs } = useWebrtcDiagnostics({
     joinedChannelId,
     isConnected,
     roomRef,
     roomState,
     remoteStreamsVersion,
-    token,
     send,
     subscribe
   })
@@ -737,9 +736,9 @@ export function useLiveKitVoice() {
       voiceMode,
       wsPingMs,
       rtcPingMs,
-      packetLossPct: null,
-      jitterMs: null,
-      pingJitterMs: null,
+      packetLossPct,
+      jitterMs,
+      pingJitterMs,
     },
   }
 
