@@ -65,7 +65,7 @@
     "ws": "^8.19.0"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.57.1",
+    "@rollup/rollup-linux-x64-gnu": "^4.59.0",
     "@rollup/rollup-win32-x64-msvc": "^4.57.1"
   }
 }
