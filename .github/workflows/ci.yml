@@ -16,6 +16,9 @@ permissions:
 jobs:
   security:
     name: Security
+    # gitleaks-action pull_request mode can hit GitHub API 403 on Dependabot PR tokens.
+    # We still run dependency security checks on those PRs via `security-deps`.
+    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
