@@ -19,21 +19,20 @@ env:
 jobs:
   security:
     name: Secret Scan (gitleaks)
-    # gitleaks-action pull_request mode can hit GitHub API 403 on Dependabot PR tokens.
-    # We still run dependency security checks on those PRs via `security-deps`.
-    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Install gitleaks CLI
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
+
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gitleaks git --redact --verbose --exit-code 1
 
   security-deps:
     name: Dependency Security Audit
@@ -61,7 +60,7 @@ jobs:
         run: cargo audit --deny warnings
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -106,7 +105,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
