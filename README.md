@@ -139,6 +139,7 @@ cd apps/server && cargo run
 - **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** — Community standards, enforcement
 - **[ROADMAP.md](docs/ROADMAP.md)** — Feature priorities & roadmap through Q4 2026
 - **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** — Support, governance, and release workflow
+- **[CHANGELOG.md](docs/CHANGELOG.md)** — Notable changes by release
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Production deployment guide
 - **[docs/](docs/)** — Architecture, voice system, API, database, security, development
 

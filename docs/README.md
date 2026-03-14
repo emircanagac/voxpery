@@ -25,3 +25,4 @@ This folder is the source of truth for architecture, development, deployment, an
 - **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — Community behavior and enforcement
 - **[ROADMAP.md](ROADMAP.md)** — Priorities and planned milestones
 - **[PROJECT_OPERATIONS.md](PROJECT_OPERATIONS.md)** — Support, governance, and release process
+- **[CHANGELOG.md](CHANGELOG.md)** — Release notes and notable changes

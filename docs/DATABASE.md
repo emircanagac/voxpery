@@ -122,6 +122,45 @@ CREATE TABLE channel_role_overrides (
 );
 ```
 
+### `server_channel_categories`
+
+Server-level category entities used to group channels and define category ordering.
+
+```sql
+CREATE TABLE server_channel_categories (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    position INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (server_id, name)
+);
+
+CREATE INDEX idx_server_channel_categories_server_position
+    ON server_channel_categories(server_id, position, name);
+```
+
+### `channel_category_role_overrides`
+
+Category-level allow/deny overrides applied to all channels under the category.
+
+```sql
+CREATE TABLE channel_category_role_overrides (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    category VARCHAR(100) NOT NULL,
+    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
+    allow BIGINT NOT NULL DEFAULT 0,
+    deny BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (server_id, category, role_id),
+    FOREIGN KEY (server_id, category)
+        REFERENCES server_channel_categories(server_id, name)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX idx_channel_category_overrides_server_category
+    ON channel_category_role_overrides(server_id, category);
+```
+
 ### `channels`
 
 Text and voice channels within servers.
@@ -263,6 +302,10 @@ Versioned SQL files in `apps/server/migrations/`:
 - `012_roles_and_permissions.sql` — Bitmask role system (`server_roles`, `server_member_roles`, overrides)
 - `015_collapse_admin_to_member.sql` — Normalize `server_members.role` bridge to `owner/member`
 - `019_seed_everyone_role_and_assign_members.sql` — Seed and assign default `Everyone` role
+- `020_channel_categories_and_overrides.sql` — Category tables + category permission overrides
+- `022_channel_name_and_category_uniqueness.sql` — Case-insensitive uniqueness for category and channel names
+- `023_category_override_fk_on_update_cascade.sql` — Category rename-safe FK with `ON UPDATE CASCADE`
+- `025_remove_webhooks_feature.sql` — Remove webhook permission bits/legacy references
 
 **Run migrations**: Backend auto-runs on startup via `sqlx::migrate!("./migrations").run(&db).await`.
 

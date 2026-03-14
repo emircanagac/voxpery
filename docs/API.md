@@ -22,6 +22,22 @@ Server authorization is bitmask-permission based (aggregated from assigned roles
 - Member role assignments: `/api/servers/:server_id/members/:user_id/roles`
 - `Everyone` role is seeded by default per server.
 
+Current permission bits (source of truth: `apps/server/src/services/permissions.rs`):
+
+- `1 << 0` `VIEW_SERVER`
+- `1 << 1` `MANAGE_SERVER` (full admin behavior)
+- `1 << 2` `MANAGE_ROLES`
+- `1 << 3` `MANAGE_CHANNELS`
+- `1 << 4` `KICK_MEMBERS`
+- `1 << 5` `BAN_MEMBERS`
+- `1 << 6` `VIEW_AUDIT_LOG`
+- `1 << 7` `SEND_MESSAGES`
+- `1 << 8` `MANAGE_MESSAGES`
+- `1 << 9` `MANAGE_PINS`
+- `1 << 10` `CONNECT_VOICE`
+- `1 << 11` `MUTE_MEMBERS`
+- `1 << 12` `DEAFEN_MEMBERS`
+
 ## Auth
 
 ### POST `/api/auth/register`

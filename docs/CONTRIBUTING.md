@@ -64,6 +64,16 @@ npm run dev
 
 3. Update documentation if changing functionality
 
+### Documentation Sync (Required)
+
+If your PR changes behavior in auth/permissions/channels/database, update docs in the same PR:
+
+- `docs/API.md` for endpoint/contract changes
+- `docs/DATABASE.md` for schema/migration changes
+- `docs/SECURITY.md` for auth/permission/security behavior changes
+
+This prevents documentation drift on fast-moving features.
+
 ### Git Workflow
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feat/your-feature`
@@ -82,7 +92,7 @@ npm run dev
 ### Medium Priority
 - [ ] PWA support (service worker)
 - [ ] Message editing & deletion
-- [ ] Server roles & permissions
+- [ ] Mobile UI/UX polish
 - [ ] Mobile app (React Native)
 
 ### Low Priority

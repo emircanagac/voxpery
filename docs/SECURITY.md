@@ -30,27 +30,27 @@ Authentication, authorization, CORS policies, and security best practices.
 
 ### Access Control
 
-Every operation checks permissions:
+Every protected operation checks effective permissions:
 
-- **Server membership**: `can_subscribe_to_channel`, `can_join_voice_channel`
-- **Message ownership**: Author can edit/delete own messages
-- **Server ownership**: Owner can delete server, kick members
-- **Moderator**: Can kick members, delete messages, change roles
+- **Server-level bitmask**: computed from `@everyone` + assigned roles
+- **Category/channel overrides**: DENY first, then ALLOW
+- **Owner override**: server owner has full access
+- **Message ownership**: author can edit/delete own messages (non-author moderation requires permission)
 
 **Example**:
 ```rust
-pub async fn can_subscribe_to_channel(db: &PgPool, user_id: Uuid, channel_id: Uuid) -> Result<bool, sqlx::Error> {
-    // Check if user is member of channel's server
-    let count: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM channels c
-           INNER JOIN server_members sm ON c.server_id = sm.server_id
-           WHERE c.id = $1 AND sm.user_id = $2"#
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_one(db)
-    .await?;
-    Ok(count > 0)
+pub async fn ensure_channel_permission(
+    db: &PgPool,
+    channel_id: Uuid,
+    user_id: Uuid,
+    required: Permissions,
+) -> Result<(), AppError> {
+    let perms = get_user_channel_permissions(db, channel_id, user_id).await?;
+    if perms.contains(required) {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden("Missing required permission".into()))
+    }
 }
 ```
 
@@ -257,11 +257,7 @@ add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss:/
 
 ## Audit Logging
 
-**Not yet implemented** (PRs welcome):
-
-- Track sensitive actions (password change, role change, kick)
-- Store in `audit_log` table
-- Include actor, target, timestamp, IP address
+Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, and server settings updates) and exposed via server audit endpoints.
 
 ## Dependency Security
 

@@ -370,7 +370,7 @@ SELECT * FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;
 ## Release Process
 
 1. Bump version in `Cargo.toml` (backend) and `package.json` (frontend)
-2. Update CHANGELOG.md
+2. Update docs/CHANGELOG.md
 3. Tag release: `git tag v1.x.0 && git push --tags`
 4. GitHub Actions builds release artifacts
 5. Deploy to production server (see [Deployment](#deployment))
