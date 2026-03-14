@@ -21,7 +21,7 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/apps/server"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "monday"
       time: "04:15"
       timezone: "UTC"
@@ -39,7 +39,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/apps/web"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "monday"
       time: "04:30"
       timezone: "UTC"
