@@ -10,9 +10,9 @@
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org/)
 [![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg)](https://react.dev/)
 
-*Your data is yours. Voice, text, and encrypted presence.*
+*Your data is yours. Voice, text, and real-time presence.*
 
-**[→ Use at voxpery.com](https://voxpery.com)** · **[Self-host guide](#deployment)** · **[Join community](#community)**
+**[→ Use at voxpery.com](https://voxpery.com)** · **[Self-host guide](#production-deployment)** · **[Join community](#community)**
 
 ![Voxpery Main UI](docs/images/voxpery02.png)
 

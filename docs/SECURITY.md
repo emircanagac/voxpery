@@ -66,7 +66,7 @@ pub async fn ensure_channel_permission(
 ### Configuration
 
 ```bash
-CORS_ORIGINS=https://voxpery.com,https://www.voxpery.com,tauri://localhost
+CORS_ORIGINS=https://voxpery.com,https://www.voxpery.com,tauri://localhost,voxpery://auth
 ```
 
 - **Comma-separated** list of allowed origins
@@ -181,8 +181,8 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 
 ### Path Traversal
 
-- **Avatar URLs**: Validated to be absolute URLs (no `../../etc/passwd`)
-- **Attachment paths**: Not implemented (no file uploads yet)
+- **Avatar URLs**: validated to allowed image URL/data-url schemes.
+- **Attachments**: validated JSON payload with strict URL/data-url checks (no arbitrary server-side file path handling).
 
 ## TLS/SSL
 
@@ -273,7 +273,7 @@ npm audit
 npm audit fix
 ```
 
-**Automated**: Dependabot (GitHub) scans for vulnerabilities weekly.
+**Automated**: Dependabot + CI dependency audit workflow.
 
 ## Compliance
 
@@ -282,3 +282,7 @@ npm audit fix
 - **Privacy**: No biometrics, no hidden telemetry
 
 For privacy policy, see main README or project website.
+
+---
+
+Last verified against code on 2026-03-14.

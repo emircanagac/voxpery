@@ -1,276 +1,170 @@
 # WebSocket Events
 
-Real-time communication via WebSocket: presence, typing indicators, voice state, message notifications.
+Real-time transport for presence, channel updates, typing, and voice state.
 
 ## Connection
 
-- **Endpoint**: `ws://HOST/ws` or `wss://HOST/ws`
-- **Auth**: JWT via Cookie (web) or `Sec-WebSocket-Protocol: voxpery.auth,<token>` (desktop)
-- **Subprotocol**: `voxpery.auth` (desktop only)
-- **Reconnect**: Auto-reconnect with exponential backoff (3s delay)
+- Endpoint: `ws://HOST/ws` or `wss://HOST/ws`
+- Auth:
+  - Web: auth cookie
+  - Desktop: `Sec-WebSocket-Protocol: voxpery.auth,<token>` (or legacy query token)
+- Origin check:
+  - Cookie-auth websocket upgrades require allowed origin.
+- Connection rate limit: `3 / 10s` per user (Redis-backed)
 
-## Protocol
+## Protocol Shape
 
-All messages are JSON:
+All messages are JSON with `type` + `data`:
 
-```typescript
-// Client → Server
-{ "type": "Subscribe", "data": { "channel_ids": ["uuid1", "uuid2"] } }
-
-// Server → Client
-{ "type": "NewMessage", "data": { "channel_id": "uuid", "message": {...} } }
+```json
+{ "type": "Subscribe", "data": { "channel_ids": ["uuid"] } }
 ```
 
-## Client → Server Messages
+## Client -> Server Messages
 
-### Subscribe
-
-Subscribe to events for specific channels (server or DM).
+### `Subscribe`
 
 ```json
 { "type": "Subscribe", "data": { "channel_ids": ["channel-uuid"] } }
 ```
 
-- Authorization: User must be member of channel's server (or DM participant)
-- Effect: Client receives `NewMessage`, `Typing`, etc. for subscribed channels
+Authorization:
 
-### Unsubscribe
+- Server channels: requires effective `VIEW_SERVER` on that channel.
+- DM channels: user must be a member of that DM channel.
 
-Stop receiving events for channels.
+### `Unsubscribe`
 
 ```json
 { "type": "Unsubscribe", "data": { "channel_ids": ["channel-uuid"] } }
 ```
 
-### Typing
-
-Broadcast typing indicator to channel.
+### `Typing`
 
 ```json
 { "type": "Typing", "data": { "channel_id": "uuid", "is_typing": true } }
 ```
 
-- Rate limit: Max 3 per 10s per channel
-- Authorization: Must be subscribed to channel
+Authorization:
 
-### JoinVoice
+- User must be allowed to subscribe to the channel.
 
-Join a voice channel (notifies other users).
+Note:
+
+- There is no dedicated server-side typing throttle in WS handler today; clients should debounce.
+
+### `JoinVoice`
 
 ```json
 { "type": "JoinVoice", "data": { "channel_id": "voice-channel-uuid" } }
 ```
 
-- Authorization: Must be member of channel's server
-- Effect: Backend stores in `voice_sessions`, broadcasts `VoiceStateUpdate`
-- LiveKit connection: Client separately requests LiveKit token via REST API
+Authorization:
 
-### LeaveVoice
+- Channel must be `voice`
+- Effective channel permissions must include both:
+  - `VIEW_SERVER`
+  - `CONNECT_VOICE`
 
-Leave current voice channel.
+### `LeaveVoice`
 
 ```json
 { "type": "LeaveVoice", "data": null }
 ```
 
-- Effect: Clears `voice_sessions` entry, broadcasts `VoiceStateUpdate` with `channel_id: null`
-
-### SetVoiceControl
-
-Update voice controls (mute, deafen, screen sharing).
+### `SetVoiceControl`
 
 ```json
-{ "type": "SetVoiceControl", "data": { "muted": true, "deafened": false, "screen_sharing": false } }
+{
+  "type": "SetVoiceControl",
+  "data": {
+    "target_user_id": "optional-uuid",
+    "muted": false,
+    "deafened": false,
+    "screen_sharing": false,
+    "camera_on": false
+  }
+}
 ```
 
-- Effect: Broadcasts `VoiceControlUpdate` to all users
+Behavior:
 
-### Signal (Legacy WebRTC)
+- Without `target_user_id`, updates self voice controls.
+- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`) and only when both users are in the same voice channel.
 
-**Unused in current implementation** (LiveKit handles signaling internally).
+### `Signal`
 
-### Ping
+Legacy custom signaling event.
 
-Measure WebSocket round-trip time.
+- Only forwarded when sender and target are in the same voice channel.
+- LiveKit handles media signaling in normal voice flow.
+
+### `Ping`
 
 ```json
 { "type": "Ping", "data": { "sent_at_ms": 1234567890 } }
 ```
 
-- Response: Server replies with `Pong` containing same `sent_at_ms`
+## Server -> Client Events
 
-## Server → Client Events
+### Channel/Message
 
-### NewMessage
+- `NewMessage`
+- `MessageUpdated`
+- `MessageDeleted`
+- `Typing`
 
-A message was sent in a subscribed channel.
+### Presence/User
 
-```json
-{
-  "type": "NewMessage",
-  "data": {
-    "channel_id": "uuid",
-    "channel_type": "text",
-    "message": {
-      "id": "uuid",
-      "content": "Hello",
-      "author_id": "uuid",
-      "author_username": "alice",
-      "created_at": "2026-03-03T12:00:00Z",
-      ...
-    }
-  }
-}
-```
+- `PresenceUpdate` (`online`, `dnd`, `offline`)
+- `UserUpdated`
 
-### MessageDeleted
+### Friends
 
-A message was deleted.
+- `FriendUpdate`
 
-```json
-{ "type": "MessageDeleted", "data": { "channel_id": "uuid", "message_id": "uuid" } }
-```
+### Server Membership / Roles / Channels
 
-### MessageUpdated
+- `MemberJoined`
+- `MemberLeft`
+- `MemberRoleUpdated`
+- `ServerRolesUpdated`
+- `ServerChannelsUpdated`
 
-A message was edited.
+### Voice
 
-```json
-{ "type": "MessageUpdated", "data": { "channel_id": "uuid", "message": {...} } }
-```
+- `VoiceStateUpdate`
+  - `channel_id: null` means user left voice.
+- `VoiceControlUpdate`
+  - Includes combined and server-enforced flags:
+    - `muted`
+    - `deafened`
+    - `server_muted`
+    - `server_deafened`
+    - `screen_sharing`
+    - `camera_on`
+    - `server_id`
 
-### Typing
+### Low-level
 
-User started/stopped typing.
+- `Signal`
+- `Pong`
 
-```json
-{ "type": "Typing", "data": { "channel_id": "uuid", "user_id": "uuid", "username": "alice", "is_typing": true } }
-```
+## Voice + LiveKit Flow
 
-### PresenceUpdate
+1. Client sends `JoinVoice` over WS.
+2. Backend validates effective permission and updates `voice_sessions`.
+3. Backend broadcasts voice state/control events.
+4. Client requests `GET /api/webrtc/livekit-token`.
+5. Client connects to LiveKit room.
 
-User status changed (online, idle, dnd, offline).
+## Security Notes
 
-```json
-{ "type": "PresenceUpdate", "data": { "user_id": "uuid", "status": "online" } }
-```
+- `Subscribe` uses permission-aware channel access checks.
+- `JoinVoice` uses permission-aware voice checks.
+- `Signal` forwarding is constrained to same voice channel participants.
+- Max incoming WS text payload is 256 KB.
 
-- Broadcast to all connected users (global event)
-- Status persists in DB; restored on reconnect
+---
 
-### VoiceStateUpdate
-
-User joined/left a voice channel.
-
-```json
-{ "type": "VoiceStateUpdate", "data": { "channel_id": "voice-uuid", "user_id": "uuid", "server_id": "server-uuid" } }
-```
-
-- `channel_id: null` → user left voice
-- Broadcast to all users (so members list updates everywhere)
-
-### VoiceControlUpdate
-
-User toggled mute, deafen, or screen sharing.
-
-```json
-{ "type": "VoiceControlUpdate", "data": { "user_id": "uuid", "muted": true, "deafened": false, "screen_sharing": false } }
-```
-
-### FriendUpdate
-
-Friend request/status changed.
-
-```json
-{ "type": "FriendUpdate", "data": { "user_id": "uuid" } }
-```
-
-- Tells client to refetch friend list (`GET /api/friends`)
-
-### MemberJoined / MemberLeft
-
-User joined/left a server.
-
-```json
-{ "type": "MemberJoined", "data": { "server_id": "uuid", "user_id": "uuid", "username": "alice" } }
-```
-
-### MemberRoleUpdated
-
-User role changed in a server.
-
-```json
-{ "type": "MemberRoleUpdated", "data": { "server_id": "uuid", "user_id": "uuid", "role": "moderator" } }
-```
-
-### UserUpdated
-
-User profile changed (avatar, username).
-
-```json
-{ "type": "UserUpdated", "data": { "user": { "id": "uuid", "username": "alice", "avatar_url": "...", ... } } }
-```
-
-### Pong
-
-Response to client `Ping`.
-
-```json
-{ "type": "Pong", "data": { "sent_at_ms": 1234567890 } }
-```
-
-## Presence System
-
-- **On connect**: Backend broadcasts current user status (from DB)
-- **On disconnect**: Backend sets status to `offline` (DB + broadcast)
-- **Manual status change**: `PATCH /api/auth/status` → backend broadcasts `PresenceUpdate`
-- **Multi-tab**: Status only set to `offline` when last tab closes
-
-## Voice State Sync
-
-### Join Flow
-
-1. Client: `JoinVoice` via WS
-2. Backend: Stores in `voice_sessions`, broadcasts `VoiceStateUpdate` + `VoiceControlUpdate`
-3. Backend: Sends existing participants to joining client (direct via `tx`)
-4. Client: Requests LiveKit token via REST (`GET /api/webrtc/livekit-token`)
-5. Client: Connects to LiveKit Room
-
-### Reconnect Flow (WS drops)
-
-1. WS disconnects → backend clears `voice_sessions` (cleanup on disconnect)
-2. WS reconnects → frontend detects reconnect
-3. Frontend: LiveKit Room still connected? Re-send `JoinVoice` + `SetVoiceControl` via WS
-4. Backend: Restores voice state, broadcasts to others
-
-## Rate Limits
-
-- **Connection**: Max 3 attempts per 10s per user
-- **Typing**: Max 10 per minute per user (enforced client-side)
-- **Subscribe**: No limit (authorization check per channel)
-
-## Message Size Limit
-
-- **Max incoming WS message**: 256 KB (prevents DoS via huge Signal payloads)
-
-## Security
-
-- **Authorization**: Every `Subscribe` checks `can_subscribe_to_channel` (DB query)
-- **Voice access**: `JoinVoice` checks `can_join_voice_channel` (must be server member)
-- **Signal spam**: Only allowed between users in same voice channel
-- **Origin check**: Cookie auth requires valid CORS origin (no cross-origin hijack)
-
-## Debugging
-
-**Client-side**:
-```typescript
-useSocketStore.subscribe((event) => console.log('[WS]', event))
-```
-
-**Backend logs**:
-```
-tracing::info!("WebSocket connected: {} ({})", username, user_id);
-tracing::warn!("Broadcast receiver lagged by {} events", n);
-```
-
-**Network inspector**: Chrome DevTools → Network → WS → Frames
+Last verified against code on 2026-03-14.

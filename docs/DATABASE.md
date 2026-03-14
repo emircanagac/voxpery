@@ -1,398 +1,190 @@
 # Database
 
-Voxpery uses **PostgreSQL 16+** for all persistent data.
+Voxpery uses PostgreSQL 16+ and SQLx migrations in `apps/server/migrations`.
 
 ## Schema Overview
 
 ```
-users ──┬──< server_members ──> servers ──< channels
-        │                                      │
-        ├──< friend_requests                   ├──< messages
-        ├──< friends                           │
-        │                                      │
-        └──< dm_channel_members ──> dm_channels
-                                        │
-                                        └──< dm_messages
-                                        └──< dm_read_state
+users
+ ├─< server_members >─ servers ─< channels ─< messages
+ │                      │           │          ├─< channel_pins
+ │                      │           │          └─< message_reactions
+ │                      │           └─< channel_role_overrides
+ │                      │
+ │                      ├─< server_roles ─< server_member_roles
+ │                      ├─< server_channel_categories ─< channel_category_role_overrides
+ │                      ├─< server_bans
+ │                      └─< audit_log
+ │
+ ├─< friend_requests
+ ├─< friendships
+ ├─< password_reset_tokens
+ │
+ └─< dm_channel_members >─ dm_channels ─< dm_messages ─< dm_message_reactions
+                            ├─< dm_channel_reads
+                            └─< dm_channel_pins
 ```
 
-## Tables
+## Core Tables (Current)
 
 ### `users`
 
-Primary user accounts.
+Key columns:
 
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(32) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,  -- Argon2id
-    status VARCHAR(20) DEFAULT 'online' CHECK (status IN ('online', 'idle', 'dnd', 'offline')),
-    avatar_url TEXT,
-    dm_privacy VARCHAR(20) DEFAULT 'everyone' CHECK (dm_privacy IN ('everyone', 'friends', 'server_members')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_status ON users(status);
-```
+- `id`, `username` (unique), `email` (unique), `password_hash`
+- `avatar_url`
+- `status` (string; runtime uses `online`/`dnd`/`offline`)
+- `dm_privacy` (`everyone` or `friends` in current backend behavior)
+- `google_id` (nullable unique)
+- `username_changed_at`
+- `created_at`
 
 ### `servers`
 
-Discord-like servers (guilds).
-
-```sql
-CREATE TABLE servers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(100) NOT NULL,
-    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    invite_code VARCHAR(16) UNIQUE NOT NULL,  -- For joining via link
-    icon_url TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_servers_owner ON servers(owner_id);
-CREATE INDEX idx_servers_invite_code ON servers(invite_code);
-```
+- `id`, `name`, `icon_url`, `owner_id`, `invite_code`, `created_at`
 
 ### `server_members`
 
-User membership in servers.
-
-```sql
-CREATE TABLE server_members (
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
-    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (server_id, user_id)
-);
-
-CREATE INDEX idx_server_members_user ON server_members(user_id);
-CREATE INDEX idx_server_members_role ON server_members(server_id, role);
-```
+- `server_id`, `user_id`, `role`, `joined_at`
+- Legacy `role` is bridge-level (`owner` / `member`), while effective authorization comes from role bitmasks.
 
 ### `server_roles`
 
-Server-scoped roles with bitmask permissions.
-
-```sql
-CREATE TABLE server_roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    name VARCHAR(64) NOT NULL,
-    color VARCHAR(16),
-    position INTEGER NOT NULL DEFAULT 0,
-    permissions BIGINT NOT NULL DEFAULT 0
-);
-
-CREATE UNIQUE INDEX idx_server_roles_server_name
-    ON server_roles(server_id, LOWER(name));
-```
+- `id`, `server_id`, `name`, `color`, `position`, `permissions` (`BIGINT`)
+- Case-insensitive unique role name per server (`idx_server_roles_server_name`)
 
 ### `server_member_roles`
 
-Many-to-many role assignments per member.
-
-```sql
-CREATE TABLE server_member_roles (
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
-    PRIMARY KEY (server_id, user_id, role_id)
-);
-
-CREATE INDEX idx_server_member_roles_user
-    ON server_member_roles(user_id);
-```
-
-### `channel_role_overrides`
-
-Channel-level allow/deny overrides for roles.
-
-```sql
-CREATE TABLE channel_role_overrides (
-    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
-    allow BIGINT NOT NULL DEFAULT 0,
-    deny BIGINT NOT NULL DEFAULT 0,
-    PRIMARY KEY (channel_id, role_id)
-);
-```
-
-### `server_channel_categories`
-
-Server-level category entities used to group channels and define category ordering.
-
-```sql
-CREATE TABLE server_channel_categories (
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    position INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (server_id, name)
-);
-
-CREATE INDEX idx_server_channel_categories_server_position
-    ON server_channel_categories(server_id, position, name);
-```
-
-### `channel_category_role_overrides`
-
-Category-level allow/deny overrides applied to all channels under the category.
-
-```sql
-CREATE TABLE channel_category_role_overrides (
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    category VARCHAR(100) NOT NULL,
-    role_id UUID NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
-    allow BIGINT NOT NULL DEFAULT 0,
-    deny BIGINT NOT NULL DEFAULT 0,
-    PRIMARY KEY (server_id, category, role_id),
-    FOREIGN KEY (server_id, category)
-        REFERENCES server_channel_categories(server_id, name)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE
-);
-
-CREATE INDEX idx_channel_category_overrides_server_category
-    ON channel_category_role_overrides(server_id, category);
-```
+- Many-to-many mapping for role assignments
+- Primary key: `(server_id, user_id, role_id)`
 
 ### `channels`
 
-Text and voice channels within servers.
+- `id`, `server_id`, `name`, `channel_type` (`text` / `voice`)
+- `category` (nullable string)
+- `position`, `created_at`
 
-```sql
-CREATE TABLE channels (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    channel_type VARCHAR(10) NOT NULL CHECK (channel_type IN ('text', 'voice')),
-    position INT NOT NULL DEFAULT 0,  -- Display order
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+Uniqueness (case-insensitive):
 
-CREATE INDEX idx_channels_server ON channels(server_id, position);
-CREATE INDEX idx_channels_type ON channels(server_id, channel_type);
-```
+- `(server_id, COALESCE(category,''), channel_type, name)` via migration `022`.
+
+### `server_channel_categories`
+
+- Category entities (including empty categories)
+- Primary key: `(server_id, name)`
+- Position-based ordering
+
+### `channel_role_overrides`
+
+- Channel-level permission overrides per role
+- Columns: `channel_id`, `role_id`, `allow`, `deny`
+
+### `channel_category_role_overrides`
+
+- Category-level permission overrides per role
+- Columns: `server_id`, `category`, `role_id`, `allow`, `deny`
+- FK to `(server_id, name)` in `server_channel_categories`
+- Rename-safe FK behavior added in migration `023`.
 
 ### `messages`
 
-Server channel messages.
+- `id`, `channel_id`, `user_id`, `content`, `attachments`, `edited_at`, `created_at`
 
-```sql
-CREATE TABLE messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    author_id UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
-    content TEXT NOT NULL,
-    attachments JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ
-);
+### `message_reactions`
 
-CREATE INDEX idx_messages_channel_time ON messages(channel_id, created_at DESC);
-CREATE INDEX idx_messages_author ON messages(author_id);
-CREATE INDEX idx_messages_content_search ON messages USING gin(to_tsvector('english', content));
-```
+- `message_id`, `user_id`, `emoji`, `created_at`
+- One reaction per `(message_id, user_id, emoji)`
 
-### `friends` & `friend_requests`
+### `channel_pins`
 
-Friend relationships.
+- `channel_id`, `message_id`, `pinned_by_id`, `pinned_at`
 
-```sql
-CREATE TABLE friend_requests (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (requester_id, receiver_id),
-    CHECK (requester_id != receiver_id)
-);
+### `friend_requests`
 
-CREATE TABLE friends (
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    friend_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, friend_id),
-    CHECK (user_id < friend_id)  -- Ensure only one row per friendship
-);
+- `id`, `requester_id`, `receiver_id`, `status`, `created_at`, `responded_at`
 
-CREATE INDEX idx_friends_user ON friends(user_id);
-CREATE INDEX idx_friends_friend ON friends(friend_id);
-```
+### `friendships`
 
-### `dm_channels`, `dm_messages`, `dm_channel_members`
+- Canonicalized pair table (`user_a < user_b`)
+- Primary key `(user_a, user_b)`
 
-Direct messages (1:1).
+### `dm_channels`
 
-```sql
-CREATE TABLE dm_channels (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+- `id`, `created_at`
 
-CREATE TABLE dm_channel_members (
-    channel_id UUID NOT NULL REFERENCES dm_channels(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (channel_id, user_id)
-);
+### `dm_channel_members`
 
-CREATE TABLE dm_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    channel_id UUID NOT NULL REFERENCES dm_channels(id) ON DELETE CASCADE,
-    author_id UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
-    content TEXT NOT NULL,
-    attachments JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ
-);
+- `channel_id`, `user_id`, `joined_at`
 
-CREATE INDEX idx_dm_messages_channel_time ON dm_messages(channel_id, created_at DESC);
-CREATE INDEX idx_dm_channel_members_user ON dm_channel_members(user_id);
-```
+### `dm_messages`
 
-### `dm_read_state`
+- `id`, `channel_id`, `user_id`, `content`, `attachments`, `edited_at`, `created_at`
 
-Tracks last-read message in DM channels.
+### `dm_message_reactions`
 
-```sql
-CREATE TABLE dm_read_state (
-    channel_id UUID NOT NULL REFERENCES dm_channels(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    last_read_message_id UUID REFERENCES dm_messages(id) ON DELETE SET NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (channel_id, user_id)
-);
-```
+- `message_id`, `user_id`, `emoji`, `created_at`
+
+### `dm_channel_reads`
+
+- `channel_id`, `user_id`, `last_read_message_id`, `read_at`
+
+### `dm_channel_pins`
+
+- `dm_channel_id`, `dm_message_id`, `pinned_by_id`, `pinned_at`
 
 ### `audit_log`
 
-Moderation actions (kick, ban, role change).
+- `id`, `at`, `actor_id`, `server_id`, `action`, `resource_type`, `resource_id`, `details`
 
-```sql
-CREATE TABLE audit_log (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    action VARCHAR(50) NOT NULL,  -- 'kick', 'set_role', 'delete_message', etc.
-    target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    details JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+### `server_bans`
 
-CREATE INDEX idx_audit_log_server ON audit_log(server_id, created_at DESC);
-```
+- `server_id`, `user_id`, `banned_by`, `reason`, `created_at`
+
+### `password_reset_tokens`
+
+- `id`, `user_id` (unique), `token_hash`, `expires_at`, `created_at`
+
+## Removed/Deprecated
+
+- `server_webhooks` was created in migration `021` and removed in migration `025`.
+- Webhook permission bit cleanup also happened in migration `025`.
 
 ## Migrations
 
-Versioned SQL files in `apps/server/migrations/`:
+All migrations currently present:
 
-- `001_initial.sql` — Core tables (users, servers, channels, messages)
-- `002_friends.sql` — Friend system
-- `003_dm.sql` — Direct messages
-- `004_dm_reads.sql` — Read state tracking
-- `005_audit_log.sql` — Moderation log
-- `006_dm_privacy.sql` — DM privacy settings
-- `007_rename_admin_to_moderator.sql` — Rename `admin` role to `moderator`
-- `012_roles_and_permissions.sql` — Bitmask role system (`server_roles`, `server_member_roles`, overrides)
-- `015_collapse_admin_to_member.sql` — Normalize `server_members.role` bridge to `owner/member`
-- `019_seed_everyone_role_and_assign_members.sql` — Seed and assign default `Everyone` role
-- `020_channel_categories_and_overrides.sql` — Category tables + category permission overrides
-- `022_channel_name_and_category_uniqueness.sql` — Case-insensitive uniqueness for category and channel names
-- `023_category_override_fk_on_update_cascade.sql` — Category rename-safe FK with `ON UPDATE CASCADE`
-- `025_remove_webhooks_feature.sql` — Remove webhook permission bits/legacy references
+- `001_initial.sql`
+- `002_friends.sql`
+- `003_dm.sql`
+- `004_dm_reads.sql`
+- `005_audit_log.sql`
+- `006_dm_privacy.sql`
+- `007_rename_admin_to_moderator.sql`
+- `008_google_oauth.sql`
+- `009_username_changed_at.sql`
+- `010_pinned_messages.sql`
+- `011_set_idle_status_to_online.sql`
+- `012_roles_and_permissions.sql`
+- `013_backfill_moderator_roles.sql`
+- `014_legacy_role_admin.sql`
+- `015_collapse_admin_to_member.sql`
+- `016_default_moderator_color.sql`
+- `017_password_reset_tokens.sql`
+- `018_update_default_moderator_permissions.sql`
+- `019_seed_everyone_role_and_assign_members.sql`
+- `020_channel_categories_and_overrides.sql`
+- `021_bans_and_webhooks.sql`
+- `022_channel_name_and_category_uniqueness.sql`
+- `023_category_override_fk_on_update_cascade.sql`
+- `024_grant_ban_to_moderator_roles.sql`
+- `025_remove_webhooks_feature.sql`
+- `026_message_reactions.sql`
 
-**Run migrations**: Backend auto-runs on startup via `sqlx::migrate!("./migrations").run(&db).await`.
+## Notes
 
-## Key Queries
+- Source of truth is migrations plus current route/model usage.
+- If docs conflict with SQL in migrations, migrations win.
 
-### Get user's servers
+---
 
-```sql
-SELECT s.*
-FROM servers s
-INNER JOIN server_members sm ON s.id = sm.server_id
-WHERE sm.user_id = $1
-ORDER BY s.created_at;
-```
-
-### Get channels for a server
-
-```sql
-SELECT * FROM channels
-WHERE server_id = $1
-ORDER BY position, created_at;
-```
-
-### Load messages (paginated)
-
-```sql
-SELECT m.*, u.username, u.avatar_url
-FROM messages m
-LEFT JOIN users u ON m.author_id = u.id
-WHERE m.channel_id = $1
-  AND ($2::UUID IS NULL OR m.created_at < (SELECT created_at FROM messages WHERE id = $2))
-ORDER BY m.created_at DESC
-LIMIT $3;
-```
-
-### Check server membership
-
-```sql
-SELECT EXISTS(
-  SELECT 1 FROM server_members
-  WHERE server_id = $1 AND user_id = $2
-);
-```
-
-### Get DM channel between two users
-
-```sql
-SELECT c.id
-FROM dm_channels c
-JOIN dm_channel_members m1 ON c.id = m1.channel_id AND m1.user_id = $1
-JOIN dm_channel_members m2 ON c.id = m2.channel_id AND m2.user_id = $2;
-```
-
-## Performance
-
-- **Indexes**: All foreign keys + query patterns covered
-- **Connection pool**: Max 20 connections (Axum async runtime)
-- **Prepared statements**: SQLx caches at compile-time
-- **Pagination**: Cursor-based (`before` message ID) for infinite scroll
-
-## Backup & Restore
-
-**Backup**:
-```bash
-pg_dump -U voxpery -h localhost voxpery > backup.sql
-```
-
-**Restore**:
-```bash
-psql -U voxpery -h localhost voxpery < backup.sql
-```
-
-**Scheduled backup** (cron):
-```bash
-0 2 * * * pg_dump -U voxpery voxpery | gzip > /backups/voxpery-$(date +\%Y\%m\%d).sql.gz
-```
-
-## Development
-
-**Reset database**:
-```bash
-psql -U postgres -c "DROP DATABASE voxpery;"
-psql -U postgres -c "CREATE DATABASE voxpery;"
-cargo run  # Migrations run on startup
-```
-
-**Query database**:
-```bash
-psql -U voxpery -d voxpery
-```
+Last verified against code on 2026-03-14.

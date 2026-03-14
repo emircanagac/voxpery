@@ -1,31 +1,23 @@
 # API Reference
 
-REST API for authentication, servers, channels, messages, friends, direct messages, and voice tokening.
+REST API for auth, servers, channels/categories, messages/reactions, friends, DMs, and voice tokening.
 
 ## Base URL
 
 - Development: `http://127.0.0.1:3001`
-- Production: `https://api.your-domain.com`
+- Production: your API domain (for example `https://api.example.com`)
 
 ## Authentication
 
-Authenticated endpoints accept:
-
-- Web: httpOnly cookie (`voxpery_token`, configurable)
+- Web: httpOnly cookie (`voxpery_token` by default)
 - Desktop: `Authorization: Bearer <jwt>`
 
 ## Authorization Model
 
-Server authorization is bitmask-permission based (aggregated from assigned roles), not a single moderator/admin flag.
-
-- Roles: `/api/servers/:server_id/roles*`
-- Member role assignments: `/api/servers/:server_id/members/:user_id/roles`
-- `Everyone` role is seeded by default per server.
-
-Current permission bits (source of truth: `apps/server/src/services/permissions.rs`):
+Role/permission system is bitmask-based (`apps/server/src/services/permissions.rs`).
 
 - `1 << 0` `VIEW_SERVER`
-- `1 << 1` `MANAGE_SERVER` (full admin behavior)
+- `1 << 1` `MANAGE_SERVER`
 - `1 << 2` `MANAGE_ROLES`
 - `1 << 3` `MANAGE_CHANNELS`
 - `1 << 4` `KICK_MEMBERS`
@@ -38,580 +30,158 @@ Current permission bits (source of truth: `apps/server/src/services/permissions.
 - `1 << 11` `MUTE_MEMBERS`
 - `1 << 12` `DEAFEN_MEMBERS`
 
-## Auth
-
-### POST `/api/auth/register`
-
-Create account.
-
-Request:
-```json
-{ "username": "alice", "email": "alice@example.com", "password": "secure123", "captcha_token": "optional" }
-```
-
-Response (200):
-```json
-{
-  "token": "eyJhbGc...",
-  "user": {
-    "id": "uuid",
-    "username": "alice",
-    "avatar_url": null,
-    "status": "online",
-    "dm_privacy": "everyone",
-    "username_changed_at": null
-  }
-}
-```
-
-### POST `/api/auth/login`
-
-Request:
-```json
-{ "identifier": "alice", "password": "secure123" }
-```
-
-Response (200): same shape as register.
-
-### POST `/api/auth/logout`
-
-Clears cookie and blacklists current token when available.
-
-Response (200):
-```json
-{}
-```
-
-### GET `/api/auth/me`
-
-Response (200): `UserPublic`
-```json
-{
-  "id": "uuid",
-  "username": "alice",
-  "avatar_url": null,
-  "status": "online",
-  "dm_privacy": "everyone",
-  "username_changed_at": null
-}
-```
-
-### PATCH `/api/auth/status`
-
-Request:
-```json
-{ "status": "dnd" }
-```
-
-Values: `online`, `idle`, `dnd`, `offline`
-
-Response (200): updated `UserPublic`.
-
-### PATCH `/api/auth/profile`
-
-Update username/avatar/privacy.
-
-Request (example):
-```json
-{
-  "username": "alice_new",
-  "avatar_url": "https://cdn.example.com/avatar.png",
-  "clear_avatar": false,
-  "dm_privacy": "friends"
-}
-```
-
-`dm_privacy` values: `everyone`, `friends`
-
-Response (200): updated `UserPublic`.
-
-### GET `/api/auth/check-username?username=...`
-
-Response (200):
-```json
-{ "available": true }
-```
-
-### POST `/api/auth/change-password`
-
-Request:
-```json
-{ "old_password": "old", "new_password": "newpassword123" }
-```
-
-Response (200):
-```json
-{ "message": "Password changed successfully" }
-```
-
-### POST `/api/auth/forgot-password`
-
-Request:
-```json
-{ "email": "alice@example.com" }
-```
-
-Response (200):
-```json
-{ "message": "If an account with that email exists, we have sent a password reset link." }
-```
-
-### POST `/api/auth/reset-password`
-
-Request:
-```json
-{ "token": "reset-token", "new_password": "newpassword123" }
-```
-
-Response (200):
-```json
-{ "message": "Password has been successfully reset. You can now log in." }
-```
-
-### GET `/api/auth/google`
-### GET `/api/auth/google/callback`
-
-Google OAuth redirect/callback endpoints (when configured).
-
-## Servers
-
-### GET `/api/servers`
-
-Response (200):
-```json
-[
-  {
-    "id": "uuid",
-    "name": "My Server",
-    "icon_url": null,
-    "owner_id": "uuid",
-    "invite_code": "abc123",
-    "created_at": "2026-03-13T00:00:00Z",
-    "member_count": 4
-  }
-]
-```
-
-### POST `/api/servers`
-
-Request:
-```json
-{ "name": "My Server", "icon_url": null }
-```
-
-Response (200): `Server`
-
-### GET `/api/servers/:server_id`
-
-Response (200):
-```json
-{
-  "id": "uuid",
-  "name": "My Server",
-  "icon_url": null,
-  "owner_id": "uuid",
-  "invite_code": "abc123",
-  "created_at": "2026-03-13T00:00:00Z",
-  "my_permissions": 1153,
-  "members": [
-    {
-      "user_id": "uuid",
-      "username": "alice",
-      "avatar_url": null,
-      "role": "owner",
-      "status": "online",
-      "role_color": "#5865F2"
-    }
-  ]
-}
-```
-
-### PATCH `/api/servers/:server_id`
-
-Requires `MANAGE_SERVER`.
-
-Request:
-```json
-{ "name": "Renamed", "icon_url": "https://...", "clear_icon": false }
-```
-
-Response (200): updated `Server`.
-
-### DELETE `/api/servers/:server_id`
-
-Owner only.
-
-Response (200):
-```json
-{ "message": "Server deleted" }
-```
-
-### POST `/api/servers/join`
-
-Request:
-```json
-{ "invite_code": "abc123" }
-```
-
-Response (200): `Server`
-
-### POST `/api/servers/:server_id/leave`
-
-Response (200):
-```json
-{ "message": "Left server" }
-```
-
-### GET `/api/servers/:server_id/channels`
-
-Response (200): `Channel[]`
-
-### GET `/api/servers/:server_id/roles`
-### POST `/api/servers/:server_id/roles`
-### PATCH `/api/servers/:server_id/roles/:role_id`
-### DELETE `/api/servers/:server_id/roles/:role_id`
-### PATCH `/api/servers/:server_id/roles/reorder`
-
-Role management endpoints (requires `MANAGE_ROLES`; owner-only constraints apply for some operations).
-
-Create request example:
-```json
-{ "name": "Moderator", "color": "#5865F2", "permissions": 6992 }
-```
-
-Reorder request example:
-```json
-{ "role_ids": ["uuid-role-1", "uuid-role-2"] }
-```
-
-### GET `/api/servers/:server_id/members/:user_id/roles`
-
-Response (200):
-```json
-["uuid-role-1", "uuid-role-2"]
-```
-
-### PUT `/api/servers/:server_id/members/:user_id/roles`
-
-Request:
-```json
-{ "role_ids": ["uuid-role-1", "uuid-role-2"] }
-```
-
-Response (200):
-```json
-{ "message": "Member roles updated" }
-```
-
-Legacy compat endpoint:
-- `PATCH /api/servers/:server_id/members/:user_id/role`
-
-### DELETE `/api/servers/:server_id/members/:user_id`
-
-Requires `KICK_MEMBERS`.
-
-Response (200):
-```json
-{ "message": "Member kicked" }
-```
-
-### GET `/api/servers/:server_id/audit-log`
-
-Requires `VIEW_AUDIT_LOG`.
-
-Response (200): audit entries
-```json
-[
-  {
-    "id": "uuid",
-    "at": "2026-03-13T00:00:00Z",
-    "actor_id": "uuid",
-    "server_id": "uuid",
-    "action": "member_role_change",
-    "resource_type": "user",
-    "resource_id": "uuid",
-    "details": {},
-    "actor_username": "admin",
-    "resource_username": "member"
-  }
-]
-```
-
-## Channels
-
-### POST `/api/channels`
-
-Requires `MANAGE_CHANNELS`.
-
-Request:
-```json
-{ "server_id": "uuid", "name": "general", "channel_type": "text", "category": "Text Channels" }
-```
-
-Response (200): `Channel`
-
-### PATCH `/api/channels/:channel_id`
-
-Requires `MANAGE_CHANNELS`.
-
-Request:
-```json
-{ "name": "new-name" }
-```
-
-Response (200): updated `Channel`
-
-### DELETE `/api/channels/:channel_id`
-
-Requires `MANAGE_CHANNELS`.
-
-Response (200):
-```json
-{ "message": "Channel deleted" }
-```
-
-### PATCH `/api/channels/reorder`
-
-Request:
-```json
-{ "server_id": "uuid", "channel_ids": ["uuid1", "uuid2"] }
-```
-
-Response (200):
-```json
-{ "message": "Channels reordered" }
-```
-
-### GET `/api/channels/:channel_id/overrides`
-### PUT `/api/channels/:channel_id/overrides/:role_id`
-### DELETE `/api/channels/:channel_id/overrides/:role_id`
-
-Channel role override management (`allow`/`deny` bitmasks), requires `MANAGE_CHANNELS`.
-
-## Messages (Server Channels)
-
-### GET `/api/messages/:channel_id?before=<uuid>&limit=<n>`
-
-Response (200): `MessageWithAuthor[]`
-```json
-[
-  {
-    "id": "uuid",
-    "channel_id": "uuid",
-    "content": "Hello",
-    "attachments": null,
-    "edited_at": null,
-    "created_at": "2026-03-13T00:00:00Z",
-    "author": {
-      "user_id": "uuid",
-      "username": "alice",
-      "avatar_url": null,
-      "role_color": "#5865F2"
-    }
-  }
-]
-```
-
-### GET `/api/messages/:channel_id/search?q=<term>&limit=<n>`
-
-Response (200): `MessageWithAuthor[]`
-
-### POST `/api/messages/:channel_id`
-
-Request:
-```json
-{ "content": "Hello world", "attachments": null }
-```
-
-Response (200): `MessageWithAuthor`
-
-### PATCH `/api/messages/item/:message_id`
-
-Request:
-```json
-{ "content": "Edited content" }
-```
-
-Response (200): `MessageWithAuthor`
-
-### DELETE `/api/messages/item/:message_id`
-
-Response (200):
-```json
-{ "message": "Deleted", "id": "uuid" }
-```
-
-### GET `/api/messages/:channel_id/pins`
-
-Response (200): `MessageWithAuthor[]`
-
-### POST `/api/messages/:channel_id/pins`
-
-Request:
-```json
-{ "message_id": "uuid" }
-```
-
-Response (200): pinned `MessageWithAuthor`
-
-### DELETE `/api/messages/:channel_id/pins/:message_id`
-
-Response (200):
-```json
-{ "ok": true }
-```
-
-## Friends
-
-### GET `/api/friends`
-
-Response (200): `FriendUser[]`
-
-### GET `/api/friends/requests`
-
-Response (200):
-```json
-{
-  "incoming": [],
-  "outgoing": []
-}
-```
-
-### POST `/api/friends/requests`
-
-Request:
-```json
-{ "username": "bob" }
-```
-
-Response (200):
-```json
-{ "message": "Friend request sent" }
-```
-
-### POST `/api/friends/requests/:request_id/accept`
-### POST `/api/friends/requests/:request_id/reject`
-### DELETE `/api/friends/:friend_id`
-
-Responses (200):
-```json
-{ "message": "Friend request accepted" }
-```
-```json
-{ "message": "Friend request rejected" }
-```
-```json
-{ "message": "Friend removed" }
-```
-
-## Direct Messages
-
-### GET `/api/dm/channels`
-
-Response (200): `DmChannelInfo[]`
-
-### POST `/api/dm/channels/:peer_id`
-
-Get or create channel with peer.
-
-Response (200): `DmChannelInfo`
-
-### GET `/api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
-
-Response (200): `MessageWithAuthor[]`
-
-### GET `/api/dm/messages/:channel_id/search?q=<term>&limit=<n>`
-
-Response (200): `MessageWithAuthor[]`
-
-### POST `/api/dm/messages/:channel_id`
-
-Request:
-```json
-{ "content": "Hi", "attachments": null }
-```
-
-Response (200): `MessageWithAuthor`
-
-### PATCH `/api/dm/messages/item/:message_id`
-
-Request:
-```json
-{ "content": "Edited DM" }
-```
-
-Response (200): `MessageWithAuthor`
-
-### DELETE `/api/dm/messages/item/:message_id`
-
-Response (200):
-```json
-{ "message": "DM message deleted", "id": "uuid" }
-```
-
-### GET `/api/dm/channels/:channel_id/read-state`
-
-Response (200):
-```json
-{ "peer_last_read_message_id": "uuid-or-null" }
-```
-
-### GET `/api/dm/channels/:channel_id/pins`
-### POST `/api/dm/channels/:channel_id/pins`
-### DELETE `/api/dm/channels/:channel_id/pins/:message_id`
-
-Pin/unpin DM messages.
-
-Unpin response (200):
-```json
-{ "ok": true }
-```
-
-## WebRTC
-
-### GET `/api/webrtc/turn-credentials`
-
-Response (200):
-```json
-{
-  "urls": ["turn:turn.example.com:3478"],
-  "username": "1700000000:user-uuid",
-  "credential": "base64signature"
-}
-```
-
-If TURN is not configured:
-```json
-{ "urls": [] }
-```
-
-### GET `/api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
-
-Response (200):
-```json
-{
-  "ws_url": "wss://livekit.example.com",
-  "token": "jwt",
-  "room": "channel-uuid",
-  "identity": "user-uuid"
-}
-```
+Important behavior:
+
+- Server owner is always effectively full-access.
+- `Everyone` role is seeded by default per server and implicitly included for members.
+- Effective channel permissions are computed as: server roles -> category overrides (deny then allow) -> channel overrides (deny then allow).
+
+## Auth Endpoints
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `offline`)
+- `PATCH /api/auth/profile`
+  - `dm_privacy` values: `everyone`, `friends`
+- `GET /api/auth/check-username?username=...`
+- `POST /api/auth/change-password`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
+- `GET /api/auth/google`
+- `GET /api/auth/google/callback`
+
+Notes:
+
+- `forgot-password` always returns a generic success message to prevent account enumeration.
+- For unknown email (or Google-only account), no reset email is sent.
+
+## Server Endpoints
+
+- `GET /api/servers`
+- `POST /api/servers`
+- `GET /api/servers/:server_id`
+- `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
+- `DELETE /api/servers/:server_id` (owner)
+- `POST /api/servers/join`
+- `POST /api/servers/:server_id/leave`
+- `GET /api/servers/:server_id/channels`
+  - Returns only channels visible to caller (`VIEW_SERVER` at effective channel scope).
+  - Each item includes `my_permissions` bitmask.
+- `GET /api/servers/:server_id/channels/:channel_id/members`
+  - Returns only members who can view that channel.
+
+### Roles
+
+- `GET /api/servers/:server_id/roles`
+  - Supports query `?include_system=true` to include `Everyone`.
+- `POST /api/servers/:server_id/roles`
+- `PATCH /api/servers/:server_id/roles/:role_id`
+- `DELETE /api/servers/:server_id/roles/:role_id`
+- `PATCH /api/servers/:server_id/roles/reorder`
+
+### Member Role Assignment
+
+- `GET /api/servers/:server_id/members/:user_id/roles`
+- `PUT /api/servers/:server_id/members/:user_id/roles`
+- Legacy compatibility: `PATCH /api/servers/:server_id/members/:user_id/role`
+
+### Moderation
+
+- `DELETE /api/servers/:server_id/members/:user_id` (kick, requires `KICK_MEMBERS`)
+- `POST /api/servers/:server_id/members/:user_id/ban` (requires `BAN_MEMBERS`)
+- `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
+- `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
+- `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
+
+## Channel & Category Endpoints
+
+### Channels
+
+- `POST /api/channels` (requires `MANAGE_CHANNELS`)
+  - If `category` is empty/missing, backend uses `General`.
+  - Name uniqueness is enforced by scope: `(server, category, channel_type, case-insensitive name)`.
+- `PATCH /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
+- `DELETE /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
+- `PATCH /api/channels/reorder`
+- `GET /api/channels/:channel_id/overrides`
+- `PUT /api/channels/:channel_id/overrides/:role_id`
+- `DELETE /api/channels/:channel_id/overrides/:role_id`
+
+### Categories
+
+- `GET /api/channels/server/:server_id/categories`
+- `POST /api/channels/server/:server_id/categories`
+- `PATCH /api/channels/server/:server_id/categories/:category`
+- `DELETE /api/channels/server/:server_id/categories/:category`
+  - Optional `move_to` query parameter; channels default-move to `General`.
+  - Deletion is blocked if channels cannot be moved safely.
+- `GET /api/channels/server/:server_id/categories/:category/overrides`
+- `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id`
+- `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id`
+- `PATCH /api/channels/server/:server_id/categories/reorder`
+
+## Message Endpoints (Server Channels)
+
+- `GET /api/messages/:channel_id?before=<uuid>&limit=<n>`
+- `GET /api/messages/:channel_id/search?q=<term>&limit=<n>`
+- `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
+- `PATCH /api/messages/item/:message_id` (author only)
+- `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
+
+### Pins
+
+- `GET /api/messages/:channel_id/pins`
+- `POST /api/messages/:channel_id/pins` (requires `MANAGE_PINS`)
+- `DELETE /api/messages/:channel_id/pins/:message_id` (requires `MANAGE_PINS`)
+
+### Reactions
+
+- `POST /api/messages/item/:message_id/reactions`
+- `DELETE /api/messages/item/:message_id/reactions?emoji=...`
+- Reaction add/remove requires effective `SEND_MESSAGES`.
+
+## Friends Endpoints
+
+- `GET /api/friends`
+- `DELETE /api/friends/:friend_id`
+- `GET /api/friends/requests`
+- `POST /api/friends/requests`
+- `POST /api/friends/requests/:request_id/accept`
+- `POST /api/friends/requests/:request_id/reject`
+
+## Direct Message Endpoints
+
+- `GET /api/dm/channels`
+- `POST /api/dm/channels/:peer_id`
+- `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
+- `GET /api/dm/messages/:channel_id/search?q=<term>&limit=<n>`
+- `POST /api/dm/messages/:channel_id`
+- `PATCH /api/dm/messages/item/:message_id`
+- `DELETE /api/dm/messages/item/:message_id`
+- `GET /api/dm/channels/:channel_id/read-state`
+- `GET /api/dm/channels/:channel_id/pins`
+- `POST /api/dm/channels/:channel_id/pins`
+- `DELETE /api/dm/channels/:channel_id/pins/:message_id`
+- `POST /api/dm/messages/item/:message_id/reactions`
+- `DELETE /api/dm/messages/item/:message_id/reactions?emoji=...`
+
+## WebRTC Endpoints
+
+- `GET /api/webrtc/turn-credentials`
+- `GET /api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
+  - Requires effective voice access (`VIEW_SERVER` + `CONNECT_VOICE` on the target channel).
 
 ## Health
 
-### GET `/health`
+- `GET /health`
+  - `200` when DB connected
+  - `503` when DB disconnected
 
-Healthy response (200):
-```json
-{ "status": "ok", "database": "connected" }
-```
+## Rate Limit Notes
 
-Unhealthy response (503):
-```json
-{ "status": "unhealthy", "database": "disconnected" }
-```
-
-## Rate Limits (Current)
+Current key limits (Redis-backed):
 
 - Register: per-email + per-IP protection
 - Login: per-identifier
@@ -619,20 +189,26 @@ Unhealthy response (503):
 - Change password: 5/hour per user
 - Friend request: 10/min per user
 - DM channel create: 5/min per user
-- Message send: configured per user (`MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`)
+- Message send: `MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`
 - WS connect: 3/10s per user
 
-## Error Responses
+## Error Shape
 
 Errors are JSON:
+
 ```json
 { "error": "Human-readable message" }
 ```
 
 Common statuses:
-- `400` invalid request/validation
+
+- `400` validation/invalid request
 - `401` unauthorized
 - `403` forbidden
 - `404` not found
 - `429` too many requests
 - `500` internal error
+
+---
+
+Last verified against code on 2026-03-14.

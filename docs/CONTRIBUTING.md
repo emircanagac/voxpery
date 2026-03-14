@@ -1,140 +1,82 @@
 # Contributing to Voxpery
 
-Thank you for your interest in contributing to Voxpery! We welcome contributions from everyone.
+Thanks for helping improve Voxpery.
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
-- Rust 1.75+ (backend)
-- Node.js 20+ (frontend)
-- Docker (postgres + redis + livekit)
+- Rust (stable)
+- Node.js `>=20.19.0`
+- Docker
 
-### Local Development Setup
+## Local Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
-
-# Create local env
 cp .env.example .env
-
-# Start infrastructure (postgres + redis + livekit)
 docker compose up -d
+```
 
-# Backend setup
+Run backend:
+
+```bash
 cd apps/server
-cargo build
+cargo run
+```
 
-# Frontend setup
-cd ../web
-npm install
+Run frontend (new terminal):
 
-# Run backend
-cd ../server && cargo run
-
-# Run frontend (in another terminal)
+```bash
 cd apps/web
+npm ci
 npm run dev
 ```
 
-## Development Workflow
+## Before Opening PR
 
-### Code Style
-- **Rust:** Follow `cargo fmt` and `cargo clippy`
-- **TypeScript/React:** Follow ESLint config (`eslint.config.js`)
-- **Commit messages:** Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, etc.)
+Run:
 
-### Before Submitting a PR
-1. Run tests locally
-   ```bash
-   # Frontend
-   npm run test:run
-   npm run build
+```bash
+# backend
+cd apps/server
+cargo check
+cargo test
 
-   # Backend
-   cargo test --lib
-   ```
+# frontend
+cd ../web
+npm run lint
+npm run build
+```
 
-2. Format code
-   ```bash
-   cargo fmt
-   npx eslint . --fix
-   ```
+## Documentation Sync (Required)
 
-3. Update documentation if changing functionality
+If your PR changes auth/permissions/channels/database/ws behavior, update docs in the same PR:
 
-### Documentation Sync (Required)
+- `docs/API.md`
+- `docs/DATABASE.md`
+- `docs/WEBSOCKET_EVENTS.md`
+- `docs/SECURITY.md`
 
-If your PR changes behavior in auth/permissions/channels/database, update docs in the same PR:
+## Git Workflow
 
-- `docs/API.md` for endpoint/contract changes
-- `docs/DATABASE.md` for schema/migration changes
-- `docs/SECURITY.md` for auth/permission/security behavior changes
+1. Create a branch
+2. Commit with conventional commits (`feat:`, `fix:`, `docs:`, `chore:`)
+3. Open PR
+4. Ensure CI passes
 
-This prevents documentation drift on fast-moving features.
+## Current Priority Areas
 
-### Git Workflow
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/your-feature`
-3. Commit changes: `git commit -m "feat: description"`
-4. Push to fork: `git push origin feat/your-feature`
-5. Open a Pull Request
+- Voice/WebRTC automated coverage expansion
+- Desktop release hardening
+- Scaling/self-host operations docs
+- Mobile/responsive UX polish
 
-## Areas We Need Help
+## Community Standards
 
-### High Priority
-- [ ] Voice/WebRTC tests (currently 0% coverage)
-- [ ] Desktop auto-updater implementation
-- [ ] Horizontal scaling guide
-- [ ] Multi-language support (i18n)
-
-### Medium Priority
-- [ ] PWA support (service worker)
-- [ ] Message editing & deletion
-- [ ] Mobile UI/UX polish
-- [ ] Mobile app (React Native)
-
-### Low Priority
-- [ ] Theme customization
-- [ ] Emoji reactions
-- [ ] Message search
-- [ ] Analytics dashboard
-
-## Reporting Bugs
-
-Use the [Bug Report](../.github/ISSUE_TEMPLATE/bug.md) template. Include:
-- Steps to reproduce
-- Expected behavior
-- Actual behavior
-- Screenshots (if relevant)
-- Environment info
-
-## Proposing Features
-
-Use the [Feature Request](../.github/ISSUE_TEMPLATE/feature.md) template. Include:
-- Problem statement
-- Proposed solution
-- Alternative approaches
-- Impact assessment
-
-## Code Review Process
-
-All PRs require:
-1. Passing CI/CD tests
-2. At least 1 approval from maintainers
-3. Updated documentation (if needed)
-4. No merge conflicts
-
-## Community Guidelines
-
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for our community standards.
-
-## Questions?
-
-- Open a [Discussion](https://github.com/emircanagac/voxpery/discussions)
-- Check [README.md](README.md) in this folder for the docs index
+- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Bug report template: [../.github/ISSUE_TEMPLATE/bug.md](../.github/ISSUE_TEMPLATE/bug.md)
+- Feature request template: [../.github/ISSUE_TEMPLATE/feature.md](../.github/ISSUE_TEMPLATE/feature.md)
 
 ---
 
-Thank you for making Voxpery better! 🎉
+Last verified against code on 2026-03-14.
