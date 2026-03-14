@@ -1,5 +1,25 @@
-import { describe, it, expect } from 'vitest'
-import { getAuthErrorMessage, isAuthError } from './api'
+import { beforeEach, describe, it, expect, afterEach } from 'vitest'
+import { createWebSocket, getAuthErrorMessage, isAuthError } from './api'
+
+class MockWebSocket {
+  url: string
+  protocols?: string | string[]
+  constructor(url: string, protocols?: string | string[]) {
+    this.url = url
+    this.protocols = protocols
+  }
+}
+
+const OriginalWebSocket = globalThis.WebSocket
+
+beforeEach(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  globalThis.WebSocket = MockWebSocket as any
+})
+
+afterEach(() => {
+  globalThis.WebSocket = OriginalWebSocket
+})
 
 describe('API Error Handling', () => {
   describe('getAuthErrorMessage', () => {
@@ -45,6 +65,22 @@ describe('API Error Handling', () => {
     it('should not detect non-auth errors', () => {
       expect(isAuthError(new Error('Network error'))).toBe(false)
       expect(isAuthError(new Error('Server error'))).toBe(false)
+    })
+  })
+
+  describe('createWebSocket', () => {
+    it('uses websocket protocol auth when token is provided', () => {
+      const ws = createWebSocket('abc123') as unknown as MockWebSocket
+      expect(ws.url).toMatch(/\/ws$/)
+      expect(ws.url).not.toContain('token=')
+      expect(ws.protocols).toEqual(['voxpery.auth', 'abc123'])
+    })
+
+    it('does not attach token in URL when token is null', () => {
+      const ws = createWebSocket(null) as unknown as MockWebSocket
+      expect(ws.url).toMatch(/\/ws$/)
+      expect(ws.url).not.toContain('token=')
+      expect(ws.protocols).toBeUndefined()
     })
   })
 })
