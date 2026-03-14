@@ -47,7 +47,7 @@ async function register(creds) {
 
 async function openWs(token) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/ws?token=${encodeURIComponent(token)}`)
+    const ws = new WebSocket(`${WS_BASE}/ws`, ['voxpery.auth', token])
     const events = []
     ws.on('error', reject)
     ws.on('open', () => {

@@ -32,7 +32,7 @@ const authSlice = (set: SetState): AuthState => ({
             set({ token, user })
             setSecureToken(token).catch(() => { })
         } else {
-            // Web: store token in localStorage for persistence across page refresh via zustand persist
+            // Web: keep token only in memory; persistence relies on httpOnly cookie session.
             set({ token, user })
         }
     },
@@ -62,8 +62,19 @@ export const useAuthStore = create<AuthState>()(
     persist(authSlice, {
         name: AUTH_STORAGE_KEY,
         storage: createJSONStorage(() => localStorage),
+        version: 2,
+        migrate: (persistedState) => {
+            if (!persistedState || typeof persistedState !== 'object') {
+                return persistedState as AuthState
+            }
+            const stateObj = persistedState as { token?: unknown }
+            return {
+                ...stateObj,
+                token: null,
+            } as AuthState
+        },
         partialize: (state) => ({
-            token: isTauri() ? null : state.token,  // Only persist token on web
+            token: null,
             user: state.user,
         }),
     })

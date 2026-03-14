@@ -9,7 +9,7 @@ Authentication, authorization, CORS policies, and security best practices.
 - **Algorithm**: HS256 (HMAC with SHA-256)
 - **Signing key**: `JWT_SECRET` from environment (never hardcode)
 - **Expiration**: 24 hours (configurable via `JWT_EXPIRATION`)
-- **Claims**: `sub` (user ID), `username`, `exp` (expiration time)
+- **Claims**: `sub` (user ID), `username`, `exp` (expiration time), `ver` (token version)
 
 **Token storage**:
 - **Web**: httpOnly cookie (`Secure` flag in production)
@@ -152,6 +152,8 @@ pub async fn blacklist_token(redis: &redis::Client, token: &str, ttl_secs: i64) 
 **Checked on**:
 - REST API auth middleware
 - WebSocket upgrade
+
+Password changes/resets also increment `users.token_version`, so previously issued tokens for that user are rejected even if they were not individually blacklisted.
 
 ## Input Validation
 

@@ -18,6 +18,8 @@ pub struct Claims {
     pub username: String,
     pub exp: usize, // expiration timestamp
     pub iat: usize, // issued at
+    #[serde(default)]
+    pub ver: i64, // token version snapshot
 }
 
 /// Extract JWT from Cookie header (e.g. "voxpery_token=eyJ..."). Supports cookie-based auth for web.
@@ -51,6 +53,18 @@ pub(crate) fn token_from_request(
         .or_else(|| token_from_cookie(headers, cookie_name).map(ToString::to_string))
 }
 
+pub(crate) async fn claims_match_current_token_version(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    token_version: i64,
+) -> Result<bool, sqlx::Error> {
+    let current = sqlx::query_scalar::<_, i64>("SELECT token_version FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(db)
+        .await?;
+    Ok(matches!(current, Some(v) if v == token_version))
+}
+
 /// Middleware that validates the JWT and injects Claims into request extensions.
 /// Accepts token from Authorization Bearer (desktop) or from httpOnly cookie (web).
 pub async fn require_auth(
@@ -77,6 +91,13 @@ pub async fn require_auth(
     )
     .map_err(|_| AppError::Unauthorized)?
     .claims;
+
+    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
+        .await
+        .map_err(|_| AppError::Unauthorized)?;
+    if !version_ok {
+        return Err(AppError::Unauthorized);
+    }
 
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)

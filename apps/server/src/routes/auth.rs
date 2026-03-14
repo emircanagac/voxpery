@@ -252,6 +252,7 @@ async fn register(
     let token = generate_token(
         user.id,
         &user.username,
+        user.token_version,
         &state.jwt_secret,
         state.jwt_expiration,
     )?;
@@ -554,6 +555,7 @@ async fn login(
     let token = generate_token(
         user.id,
         &user.username,
+        user.token_version,
         &state.jwt_secret,
         state.jwt_expiration,
     )?;
@@ -973,6 +975,7 @@ async fn google_oauth_callback(
     let token = match generate_token(
         user.id,
         &user.username,
+        user.token_version,
         &state.jwt_secret,
         state.jwt_expiration,
     ) {
@@ -1333,7 +1336,7 @@ async fn change_password(
 
     let password_hash = hash_password(&body.new_password)?;
 
-    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+    sqlx::query("UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2")
         .bind(&password_hash)
         .bind(claims.sub)
         .execute(&state.db)
@@ -1446,8 +1449,7 @@ async fn forgot_password(
         }
     } else {
         tracing::warn!(
-            "SMTP is not configured! Password reset email not sent. Token: {}",
-            token_plain
+            "SMTP is not configured! Password reset email not sent."
         );
     }
 
@@ -1510,7 +1512,9 @@ async fn reset_password(
         // Use a transaction to update password and delete token
         let mut tx = state.db.begin().await?;
 
-        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+        )
             .bind(&password_hash)
             .bind(row.user_id)
             .execute(&mut *tx)

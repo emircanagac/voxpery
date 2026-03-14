@@ -32,6 +32,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 pub fn generate_token(
     user_id: Uuid,
     username: &str,
+    token_version: i64,
     secret: &str,
     expiration_secs: i64,
 ) -> Result<String, AppError> {
@@ -41,6 +42,7 @@ pub fn generate_token(
         username: username.to_string(),
         exp: (now + chrono::Duration::seconds(expiration_secs)).timestamp() as usize,
         iat: now.timestamp() as usize,
+        ver: token_version,
     };
 
     encode(
@@ -82,7 +84,8 @@ mod tests {
         let username = "testuser";
         let secret = "test-secret-for-unit-test";
         let expiration_secs = 3600i64;
-        let token = generate_token(user_id, username, secret, expiration_secs).expect("token gen");
+        let token =
+            generate_token(user_id, username, 0, secret, expiration_secs).expect("token gen");
         assert!(!token.is_empty());
         let mut validation = Validation::default();
         validation.validate_exp = true;

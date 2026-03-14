@@ -10,6 +10,8 @@ pub struct User {
     pub email: String,
     #[serde(skip_serializing)]
     pub password_hash: String,
+    #[serde(skip_serializing)]
+    pub token_version: i64,
     pub avatar_url: Option<String>,
     pub status: String,
     pub dm_privacy: String,

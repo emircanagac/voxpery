@@ -45,7 +45,7 @@ async function waitForEvent(events, predicate, label, ms = 10000) {
 
 async function openWs(token) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/ws?token=${encodeURIComponent(token)}`)
+    const ws = new WebSocket(`${WS_BASE}/ws`, ['voxpery.auth', token])
     const events = []
     const onError = (err) => reject(err)
     ws.on('error', onError)

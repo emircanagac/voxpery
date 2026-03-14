@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
+use crate::middleware::auth::claims_match_current_token_version;
 use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
@@ -141,25 +142,21 @@ fn token_from_ws_protocol(headers: &axum::http::HeaderMap) -> Option<String> {
 
 /// GET /ws — Upgrade to WebSocket.
 /// Desktop can send token via `Sec-WebSocket-Protocol: voxpery.auth,<jwt>` (preferred)
-/// or legacy query `?token=`. Web uses cookie auth.
+/// and web uses cookie auth.
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-    axum::extract::Query(params): axum::extract::Query<WsConnectParams>,
     req: Request,
 ) -> Response {
-    let query_token = params.token.trim();
     let protocol_token = token_from_ws_protocol(req.headers());
-    let using_cookie_auth = query_token.is_empty() && protocol_token.is_none();
+    let using_cookie_auth = protocol_token.is_none();
 
     if using_cookie_auth && !is_allowed_ws_origin(&req, &state) {
         return (axum::http::StatusCode::FORBIDDEN, "Forbidden origin").into_response();
     }
 
     let token: Option<String> = {
-        if !query_token.is_empty() {
-            Some(query_token.to_string())
-        } else if let Some(t) = protocol_token.clone() {
+        if let Some(t) = protocol_token.clone() {
             Some(t)
         } else {
             token_from_request(req.headers(), &state.cookie_name)
@@ -201,12 +198,6 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub, claims.username))
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct WsConnectParams {
-    #[serde(default)]
-    pub token: String,
-}
-
 async fn validate_ws_token(
     token: &str,
     state: &AppState,
@@ -221,13 +212,21 @@ async fn validate_ws_token(
     }
 
     use jsonwebtoken::{decode, DecodingKey, Validation};
-    decode::<crate::middleware::auth::Claims>(
+    let claims = decode::<crate::middleware::auth::Claims>(
         token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
         &Validation::default(),
     )
-    .ok()
-    .map(|data| data.claims)
+    .ok()?
+    .claims;
+
+    let version_ok =
+        claims_match_current_token_version(&state.db, claims.sub, claims.ver).await.ok()?;
+    if !version_ok {
+        return None;
+    }
+
+    Some(claims)
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, username: String) {

@@ -7,7 +7,7 @@ Real-time transport for presence, channel updates, typing, and voice state.
 - Endpoint: `ws://HOST/ws` or `wss://HOST/ws`
 - Auth:
   - Web: auth cookie
-  - Desktop: `Sec-WebSocket-Protocol: voxpery.auth,<token>` (or legacy query token)
+  - Desktop: `Sec-WebSocket-Protocol: voxpery.auth,<token>`
 - Origin check:
   - Cookie-auth websocket upgrades require allowed origin.
 - Connection rate limit: `3 / 10s` per user (Redis-backed)

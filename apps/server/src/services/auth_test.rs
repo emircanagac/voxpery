@@ -41,7 +41,7 @@ mod tests {
         let secret = "test_jwt_secret_32_characters!!";
         let expiration = 3600; // 1 hour
 
-        let token = generate_token(user_id, username, secret, expiration);
+        let token = generate_token(user_id, username, 0, secret, expiration);
         assert!(token.is_ok());
 
         let token_str = token.unwrap();
@@ -59,7 +59,7 @@ mod tests {
         let secret = "test_decoding_secret_32_chars!!";
         let expiration = 3600;
 
-        let token = generate_token(user_id, username, secret, expiration).unwrap();
+        let token = generate_token(user_id, username, 0, secret, expiration).unwrap();
 
         let decoded = decode::<Claims>(
             &token,
