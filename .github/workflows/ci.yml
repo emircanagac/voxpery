@@ -29,7 +29,11 @@ jobs:
 
       - name: Install gitleaks CLI
         run: |
-          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/gitleaks" version
 
       - name: Secret scan (gitleaks)
         run: gitleaks git --redact --verbose --exit-code 1
