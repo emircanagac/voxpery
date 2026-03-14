@@ -6238,6 +6238,19 @@ a.community-open-btn:hover {
   cursor: progress;
 }
 
+.callbar-control-btn-disconnect.is-disconnect-pending {
+  background: rgba(233, 69, 96, 0.2);
+  border-color: rgba(233, 69, 96, 0.48);
+  color: rgba(255, 141, 160, 0.78);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.22) inset, 0 0 8px rgba(240, 71, 71, 0.2);
+}
+
+.callbar-control-btn-disconnect.is-disconnect-pending:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.26);
+  border-color: rgba(233, 69, 96, 0.58);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.28) inset, 0 0 10px rgba(240, 71, 71, 0.24);
+}
+
 .callbar-control-btn.danger:hover:not(:disabled) {
   background: rgba(240, 71, 71, 0.35);
   border-color: rgba(240, 71, 71, 0.7);
