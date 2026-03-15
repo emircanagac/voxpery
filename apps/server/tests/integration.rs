@@ -69,9 +69,9 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         turn_urls: None,
         turn_shared_secret: None,
         turn_credential_ttl_secs: 3600,
-        livekit_ws_url: None,
-        livekit_api_key: None,
-        livekit_api_secret: None,
+        livekit_ws_url: Some("wss://livekit.test.local".to_string()),
+        livekit_api_key: Some("test-livekit-key".to_string()),
+        livekit_api_secret: Some("test-livekit-secret".to_string()),
         google_client_id: None,
         google_client_secret: None,
         public_api_url: None,
@@ -145,6 +145,7 @@ async fn health_returns_200_when_db_connected() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
     assert_eq!(json["database"], "connected");
+    assert_eq!(json["redis"], "connected");
 }
 
 #[tokio::test]
@@ -272,7 +273,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .expect("moderator permissions query should succeed");
 
     assert_eq!(
-        moderator_permissions, 6992,
+        moderator_permissions, 7024,
         "default Voxpery Moderator role should use recommended default permissions"
     );
 
@@ -319,8 +320,8 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .await
     .expect("member-role mapping query should succeed");
     assert_eq!(
-        has_everyone_role, 1,
-        "newly joined default member must get @everyone role"
+        has_everyone_role, 0,
+        "@everyone is implicit and should not require explicit member-role row"
     );
 }
 
@@ -465,7 +466,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .expect("moderator role should exist for newly created server");
 
     assert_eq!(
-        moderator_permissions, 6992,
+        moderator_permissions, 7024,
         "new server Moderator role should use recommended default permissions"
     );
 
@@ -507,8 +508,8 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .await
     .expect("creator @everyone mapping query should succeed");
     assert_eq!(
-        creator_has_everyone, 1,
-        "server creator must get @everyone role"
+        creator_has_everyone, 0,
+        "@everyone is implicit and should not require explicit member-role row"
     );
 }
 
@@ -632,8 +633,23 @@ async fn join_server_auto_assigns_everyone_role() {
     .expect("member role assignment query should succeed");
 
     assert_eq!(
-        member_has_everyone, 1,
-        "joined member should auto-receive @everyone role"
+        member_has_everyone, 0,
+        "@everyone is implicit and should not require explicit member-role row"
+    );
+
+    // Joined member must still get baseline permissions from implicit @everyone.
+    // Verify by checking they can view channels for the joined server.
+    let req = Request::builder()
+        .uri(format!("/api/servers/{}/channels", server_id))
+        .header("Authorization", &member_auth_header)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "joined member should be able to view server channels: {}",
+        String::from_utf8_lossy(&body)
     );
 }
 
@@ -684,7 +700,7 @@ async fn create_channel_list_channels_send_message_list_messages() {
     // Create channel (POST /api/channels with server_id, name)
     let channel_body = json!({
         "server_id": server_id,
-        "name": "general",
+        "name": format!("general-{}", uid.as_u128() % 1_000_000),
         "channel_type": "text"
     });
     let req = Request::builder()
@@ -979,6 +995,440 @@ async fn roles_and_channel_overrides_flow() {
     assert_eq!(overrides[0]["role_id"], role_id);
     assert_eq!(overrides[0]["allow"], 128);
     assert_eq!(overrides[0]["deny"], 1);
+}
+
+#[tokio::test]
+async fn category_override_enforces_view_send_and_voice_access() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let owner_uid = Uuid::new_v4();
+    let owner_email = format!("owner-cat-{}@example.com", owner_uid);
+    let owner_username = format!("owner_cat_{}", owner_uid.as_u128() % 1_000_000);
+    let (owner_token, _owner_id) =
+        register_user(&mut app, &owner_email, &owner_username, "password123").await;
+    let owner_auth = format!("Bearer {}", owner_token);
+
+    let member_uid = Uuid::new_v4();
+    let member_email = format!("member-cat-{}@example.com", member_uid);
+    let member_username = format!("member_cat_{}", member_uid.as_u128() % 1_000_000);
+    let (member_token, _member_id) =
+        register_user(&mut app, &member_email, &member_username, "password123").await;
+    let member_auth = format!("Bearer {}", member_token);
+
+    // Create server as owner.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": "Category Override Server" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let invite_code = server["invite_code"].as_str().unwrap().to_string();
+
+    // Join member.
+    let join_req = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "join server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Create text + voice channels under same category.
+    let text_req = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "secret-text",
+                "channel_type": "text",
+                "category": "Secret"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, text_req).await;
+    assert_eq!(status, StatusCode::OK);
+    let text_channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let text_channel_id = text_channel["id"].as_str().unwrap().to_string();
+
+    let voice_req = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "secret-voice",
+                "channel_type": "voice",
+                "category": "Secret"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, voice_req).await;
+    assert_eq!(status, StatusCode::OK);
+    let voice_channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let voice_channel_id = voice_channel["id"].as_str().unwrap().to_string();
+
+    // Verify member can initially see channels.
+    let req = Request::builder()
+        .uri(format!("/api/servers/{}/channels", server_id))
+        .header("Authorization", &member_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let before: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert!(before.iter().any(|c| c["id"] == text_channel_id));
+    assert!(before.iter().any(|c| c["id"] == voice_channel_id));
+
+    // Deny VIEW + SEND + CONNECT for @everyone in category.
+    let everyone_role_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM server_roles WHERE server_id = $1 AND lower(name) = 'everyone' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let deny_bits = 1_i64 | 128_i64 | 1024_i64; // VIEW_SERVER + SEND_MESSAGES + CONNECT_VOICE
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/api/channels/server/{}/categories/{}/overrides/{}",
+            server_id, "Secret", everyone_role_id
+        ))
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "allow": 0, "deny": deny_bits })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "category override failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Member should no longer see channels in that category.
+    let req = Request::builder()
+        .uri(format!("/api/servers/{}/channels", server_id))
+        .header("Authorization", &member_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let after: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert!(!after.iter().any(|c| c["id"] == text_channel_id));
+    assert!(!after.iter().any(|c| c["id"] == voice_channel_id));
+
+    // Member cannot send message anymore.
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}", text_channel_id))
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "should fail" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Member cannot get voice token anymore.
+    let req = Request::builder()
+        .uri(format!(
+            "/api/webrtc/livekit-token?channel_id={}",
+            voice_channel_id
+        ))
+        .header("Authorization", &member_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Owner must still be able to join voice (owner override).
+    let req = Request::builder()
+        .uri(format!(
+            "/api/webrtc/livekit-token?channel_id={}",
+            voice_channel_id
+        ))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner voice token should succeed: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn role_bits_manage_messages_and_pins_are_enforced() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    // Owner
+    let owner_uid = Uuid::new_v4();
+    let (owner_token, owner_id) = register_user(
+        &mut app,
+        &format!("owner-role-{}@example.com", owner_uid),
+        &format!("owner_role_{}", owner_uid.as_u128() % 1_000_000),
+        "password123",
+    )
+    .await;
+    let owner_auth = format!("Bearer {}", owner_token);
+
+    // Moderator-like member (custom role)
+    let mod_uid = Uuid::new_v4();
+    let (mod_token, mod_id) = register_user(
+        &mut app,
+        &format!("mod-role-{}@example.com", mod_uid),
+        &format!("mod_role_{}", mod_uid.as_u128() % 1_000_000),
+        "password123",
+    )
+    .await;
+    let mod_auth = format!("Bearer {}", mod_token);
+
+    // Plain member
+    let user_uid = Uuid::new_v4();
+    let (user_token, _user_id) = register_user(
+        &mut app,
+        &format!("user-role-{}@example.com", user_uid),
+        &format!("user_role_{}", user_uid.as_u128() % 1_000_000),
+        "password123",
+    )
+    .await;
+    let user_auth = format!("Bearer {}", user_token);
+
+    // Create server
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": "Role Permission Server" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = server["id"].as_str().unwrap().to_string();
+    let invite_code = server["invite_code"].as_str().unwrap().to_string();
+
+    // Join both members
+    for auth in [&mod_auth, &user_auth] {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/servers/join")
+            .header("Authorization", auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+            ))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, req).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "join failed: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    // Create role with MANAGE_MESSAGES + MANAGE_PINS
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/servers/{}/roles", server_id))
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "name": "ModLite",
+                "permissions": (256_i64 | 512_i64),
+                "color": "#00aaff"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let role: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let role_id = role["id"].as_str().unwrap();
+
+    // Assign role to mod member
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/servers/{}/members/{}/roles", server_id, mod_id))
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "role_ids": [role_id] })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "assign role failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Create text channel
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "general-role-test",
+                "channel_type": "text"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let channel_id = channel["id"].as_str().unwrap().to_string();
+
+    // Plain user sends a message.
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}", channel_id))
+        .header("Authorization", &user_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "plain message" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let user_msg: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let user_msg_id = user_msg["id"].as_str().unwrap().to_string();
+
+    // Mod role can delete someone else's message (MANAGE_MESSAGES).
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/messages/item/{}", user_msg_id))
+        .header("Authorization", &mod_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "mod delete message failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Mod sends a message for pin checks.
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}", channel_id))
+        .header("Authorization", &mod_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "mod message" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let mod_msg: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let mod_msg_id = mod_msg["id"].as_str().unwrap().to_string();
+
+    // Plain user cannot pin (no MANAGE_PINS).
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}/pins", channel_id))
+        .header("Authorization", &user_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "message_id": mod_msg_id })).unwrap(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Mod can pin.
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}/pins", channel_id))
+        .header("Authorization", &mod_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "message_id": mod_msg_id })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "mod pin failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Plain user cannot unpin.
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/messages/{}/pins/{}", channel_id, mod_msg_id))
+        .header("Authorization", &user_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Mod can unpin.
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/messages/{}/pins/{}", channel_id, mod_msg_id))
+        .header("Authorization", &mod_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "mod unpin failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // owner_id is intentionally unused in assertions, but keeping it ensures register path created owner correctly
+    let _ = owner_id;
 }
 
 #[tokio::test]
