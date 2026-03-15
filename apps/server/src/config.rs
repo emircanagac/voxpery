@@ -58,6 +58,8 @@ pub struct Config {
     pub attachments_max_files_per_request: usize,
     /// Allowed MIME type prefixes/exact values for uploaded files.
     pub attachments_allowed_mime_prefixes: Vec<String>,
+    /// Signed attachment URL lifetime in seconds.
+    pub attachments_url_ttl_secs: u64,
     /// Enable ClamAV scan during upload.
     pub attachments_clamav_enabled: bool,
     /// ClamAV host.
@@ -212,6 +214,10 @@ impl Config {
             .map(|x| x.trim().to_string())
             .filter(|x| !x.is_empty())
             .collect(),
+            attachments_url_ttl_secs: std::env::var("ATTACHMENTS_URL_TTL_SECS")
+                .unwrap_or_else(|_| "900".into())
+                .parse()
+                .expect("ATTACHMENTS_URL_TTL_SECS must be a number"),
             attachments_clamav_enabled: std::env::var("ATTACHMENTS_CLAMAV_ENABLED")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),

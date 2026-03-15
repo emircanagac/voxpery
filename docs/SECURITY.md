@@ -199,6 +199,9 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Storage backends**:
   - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
   - Upload metadata persisted in `uploaded_attachments`
+- **Delivery model**:
+  - Files are not exposed under a permanent public `/uploads` route.
+  - API returns short-lived signed URLs (`/api/attachments/content/:id?exp=...&sig=...`).
 
 ## TLS/SSL
 

@@ -27,9 +27,12 @@ export interface Channel {
 }
 
 export interface Attachment {
+    id?: string;
     url: string;
     type?: string;
     name?: string;
+    size?: number;
+    sha256?: string;
 }
 
 export interface Message {

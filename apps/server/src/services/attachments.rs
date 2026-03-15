@@ -3,6 +3,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use chrono::Datelike;
+use hmac::{Hmac, Mac};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -18,6 +19,9 @@ use crate::{config::Config, errors::AppError};
 
 const MAX_URL_LEN: usize = 2048;
 const DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE: usize = 10;
+const DEFAULT_URL_TTL_SECS: u64 = 15 * 60;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 struct ClamAvConfig {
@@ -33,6 +37,7 @@ pub struct AttachmentService {
     local_dir: PathBuf,
     public_base_url: String,
     key_prefix: String,
+    url_ttl_secs: u64,
     max_file_bytes: usize,
     max_files_per_request: usize,
     allowed_mime_prefixes: Vec<String>,
@@ -43,7 +48,6 @@ pub struct AttachmentService {
 pub struct StoredAttachment {
     pub storage_backend: &'static str,
     pub storage_key: String,
-    pub url: String,
     pub original_name: String,
     pub content_type: String,
     pub size_bytes: i64,
@@ -52,11 +56,23 @@ pub struct StoredAttachment {
 
 #[derive(Debug, Serialize)]
 pub struct AttachmentResponseItem {
+    pub id: Uuid,
     pub url: String,
     #[serde(rename = "type")]
     pub content_type: String,
     pub name: String,
     pub size: i64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UploadedAttachmentRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub storage_key: String,
+    pub original_name: String,
+    pub content_type: String,
+    pub size_bytes: i64,
     pub sha256: String,
 }
 
@@ -70,6 +86,7 @@ impl AttachmentService {
         };
         let max_file_bytes = config.attachments_max_file_bytes;
         let max_files_per_request = config.attachments_max_files_per_request;
+        let url_ttl_secs = config.attachments_url_ttl_secs.max(60);
         let allowed_mime_prefixes = config
             .attachments_allowed_mime_prefixes
             .iter()
@@ -92,6 +109,7 @@ impl AttachmentService {
         Self::new_local(
             PathBuf::from(config.attachments_local_dir.clone()),
             key_prefix,
+            url_ttl_secs,
             max_file_bytes,
             max_files_per_request,
             allowed_mime_prefixes,
@@ -105,6 +123,7 @@ impl AttachmentService {
         Self::new_local(
             base_dir,
             "attachments".to_string(),
+            DEFAULT_URL_TTL_SECS,
             5 * 1024 * 1024,
             4,
             vec![
@@ -131,6 +150,7 @@ impl AttachmentService {
     async fn new_local(
         local_dir: PathBuf,
         key_prefix: String,
+        url_ttl_secs: u64,
         max_file_bytes: usize,
         max_files_per_request: usize,
         allowed_mime_prefixes: Vec<String>,
@@ -150,6 +170,7 @@ impl AttachmentService {
             local_dir,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             key_prefix: normalized_key_prefix,
+            url_ttl_secs: url_ttl_secs.max(60),
             max_file_bytes,
             max_files_per_request,
             allowed_mime_prefixes,
@@ -163,6 +184,256 @@ impl AttachmentService {
 
     pub fn max_files_per_request(&self) -> usize {
         self.max_files_per_request
+    }
+
+    pub fn signed_content_url(&self, attachment_id: Uuid, signing_secret: &str) -> String {
+        let exp = chrono::Utc::now().timestamp() + self.url_ttl_secs as i64;
+        let sig = compute_signature(signing_secret, attachment_id, exp);
+        format!(
+            "{}/api/attachments/content/{}?exp={}&sig={}",
+            self.public_base_url, attachment_id, exp, sig
+        )
+    }
+
+    pub fn verify_signed_content_url(
+        &self,
+        attachment_id: Uuid,
+        exp: i64,
+        sig_hex: &str,
+        signing_secret: &str,
+    ) -> bool {
+        if exp < chrono::Utc::now().timestamp() {
+            return false;
+        }
+        verify_signature(signing_secret, attachment_id, exp, sig_hex)
+    }
+
+    pub async fn normalize_attachments_for_storage(
+        &self,
+        db: &sqlx::PgPool,
+        owner_id: Uuid,
+        attachments: Option<&Value>,
+    ) -> Result<Option<Value>, AppError> {
+        let Some(raw) = attachments else {
+            return Ok(None);
+        };
+        let arr = raw
+            .as_array()
+            .ok_or_else(|| AppError::Validation("Attachments must be an array".into()))?;
+        if arr.len() > DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE {
+            return Err(AppError::Validation(format!(
+                "At most {} attachments allowed",
+                DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE
+            )));
+        }
+
+        let mut normalized = Vec::with_capacity(arr.len());
+        for (idx, item) in arr.iter().enumerate() {
+            let obj = item.as_object().ok_or_else(|| {
+                AppError::Validation(format!("Attachment {} must be an object", idx + 1))
+            })?;
+
+            let attachment_id = obj
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok());
+            let source_url = obj.get("url").and_then(Value::as_str);
+
+            let record = if let Some(id) = attachment_id {
+                self.find_attachment_by_id_for_owner(db, id, owner_id)
+                    .await?
+            } else if let Some(url) = source_url {
+                if let Some(id) = parse_attachment_id_from_content_url(url) {
+                    self.find_attachment_by_id_for_owner(db, id, owner_id)
+                        .await?
+                } else if let Some(storage_key) = parse_storage_key_from_legacy_upload_url(url) {
+                    self.find_attachment_by_storage_key_for_owner(db, &storage_key, owner_id)
+                        .await?
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let Some(record) = record else {
+                return Err(AppError::Validation(format!(
+                    "Attachment {} reference is invalid or unavailable",
+                    idx + 1
+                )));
+            };
+
+            normalized.push(serde_json::json!({
+                "id": record.id,
+                "name": record.original_name,
+                "type": record.content_type,
+                "size": record.size_bytes,
+                "sha256": record.sha256,
+            }));
+        }
+
+        if normalized.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(Value::Array(normalized)))
+        }
+    }
+
+    pub async fn hydrate_attachments_for_output(
+        &self,
+        db: &sqlx::PgPool,
+        signing_secret: &str,
+        attachments: Option<Value>,
+    ) -> Result<Option<Value>, AppError> {
+        let Some(raw) = attachments else {
+            return Ok(None);
+        };
+        let Some(arr) = raw.as_array() else {
+            return Ok(Some(raw));
+        };
+
+        let mut hydrated = Vec::with_capacity(arr.len());
+        for item in arr {
+            let Some(obj) = item.as_object() else {
+                hydrated.push(item.clone());
+                continue;
+            };
+
+            let attachment_id = obj
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok());
+            let source_url = obj.get("url").and_then(Value::as_str);
+
+            let record = if let Some(id) = attachment_id {
+                self.find_attachment_by_id(db, id).await?
+            } else if let Some(url) = source_url {
+                if let Some(id) = parse_attachment_id_from_content_url(url) {
+                    self.find_attachment_by_id(db, id).await?
+                } else if let Some(storage_key) = parse_storage_key_from_legacy_upload_url(url) {
+                    self.find_attachment_by_storage_key(db, &storage_key)
+                        .await?
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(record) = record {
+                hydrated.push(serde_json::json!({
+                    "id": record.id,
+                    "url": self.signed_content_url(record.id, signing_secret),
+                    "type": record.content_type,
+                    "name": record.original_name,
+                    "size": record.size_bytes,
+                    "sha256": record.sha256,
+                }));
+            } else {
+                hydrated.push(item.clone());
+            }
+        }
+
+        Ok(Some(Value::Array(hydrated)))
+    }
+
+    pub async fn get_clean_attachment_by_id(
+        &self,
+        db: &sqlx::PgPool,
+        attachment_id: Uuid,
+    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
+        self.find_attachment_by_id(db, attachment_id).await
+    }
+
+    pub async fn read_local_attachment_bytes(
+        &self,
+        storage_key: &str,
+    ) -> Result<Vec<u8>, AppError> {
+        if storage_key.is_empty()
+            || storage_key.starts_with('/')
+            || storage_key.starts_with('\\')
+            || storage_key.contains("..")
+        {
+            return Err(AppError::Validation(
+                "Invalid attachment storage key".into(),
+            ));
+        }
+        let path = self.local_dir.join(storage_key);
+        fs::read(path)
+            .await
+            .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
+    }
+
+    async fn find_attachment_by_id_for_owner(
+        &self,
+        db: &sqlx::PgPool,
+        attachment_id: Uuid,
+        owner_id: Uuid,
+    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
+        let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
+            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+               FROM uploaded_attachments
+               WHERE id = $1 AND user_id = $2 AND scan_status = 'clean'
+               LIMIT 1"#,
+        )
+        .bind(attachment_id)
+        .bind(owner_id)
+        .fetch_optional(db)
+        .await?;
+        Ok(row)
+    }
+
+    async fn find_attachment_by_storage_key_for_owner(
+        &self,
+        db: &sqlx::PgPool,
+        storage_key: &str,
+        owner_id: Uuid,
+    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
+        let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
+            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+               FROM uploaded_attachments
+               WHERE storage_key = $1 AND user_id = $2 AND scan_status = 'clean'
+               LIMIT 1"#,
+        )
+        .bind(storage_key)
+        .bind(owner_id)
+        .fetch_optional(db)
+        .await?;
+        Ok(row)
+    }
+
+    async fn find_attachment_by_id(
+        &self,
+        db: &sqlx::PgPool,
+        attachment_id: Uuid,
+    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
+        let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
+            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+               FROM uploaded_attachments
+               WHERE id = $1 AND scan_status = 'clean'
+               LIMIT 1"#,
+        )
+        .bind(attachment_id)
+        .fetch_optional(db)
+        .await?;
+        Ok(row)
+    }
+
+    async fn find_attachment_by_storage_key(
+        &self,
+        db: &sqlx::PgPool,
+        storage_key: &str,
+    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
+        let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
+            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+               FROM uploaded_attachments
+               WHERE storage_key = $1 AND scan_status = 'clean'
+               LIMIT 1"#,
+        )
+        .bind(storage_key)
+        .fetch_optional(db)
+        .await?;
+        Ok(row)
     }
 
     pub fn validate_upload_file_meta(
@@ -247,12 +518,9 @@ impl AttachmentService {
         fs::write(&path, bytes)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to write uploaded attachment: {e}")))?;
-        let url = format!("{}/uploads/{}", self.public_base_url, key);
-
         Ok(StoredAttachment {
             storage_backend: "local",
             storage_key: key,
-            url,
             original_name: original_name.to_string(),
             content_type: content_type.to_string(),
             size_bytes: bytes.len() as i64,
@@ -425,6 +693,76 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
         return Err("Attachment URL must use https:// or http://".into());
     }
     Ok(())
+}
+
+fn parse_attachment_id_from_content_url(url: &str) -> Option<Uuid> {
+    let marker = "/api/attachments/content/";
+    let start = url.find(marker)? + marker.len();
+    let rest = &url[start..];
+    let id_part = rest
+        .split(['?', '#', '/'])
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    Uuid::parse_str(id_part).ok()
+}
+
+fn parse_storage_key_from_legacy_upload_url(url: &str) -> Option<String> {
+    let marker = "/uploads/";
+    let start = url.find(marker)? + marker.len();
+    let rest = &url[start..];
+    let key = rest
+        .split(['?', '#'])
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    if key.starts_with('/') || key.contains("..") {
+        return None;
+    }
+    Some(key.to_string())
+}
+
+fn compute_signature(secret: &str, attachment_id: Uuid, exp: i64) -> String {
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any size");
+    mac.update(format!("{}:{}", attachment_id, exp).as_bytes());
+    let sig = mac.finalize().into_bytes();
+    hex_encode(&sig)
+}
+
+fn verify_signature(secret: &str, attachment_id: Uuid, exp: i64, sig_hex: &str) -> bool {
+    let Ok(sig_bytes) = hex_decode(sig_hex) else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any size");
+    mac.update(format!("{}:{}", attachment_id, exp).as_bytes());
+    mac.verify_slice(&sig_bytes).is_ok()
+}
+
+fn hex_decode(input: &str) -> Result<Vec<u8>, ()> {
+    let bytes = input.as_bytes();
+    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
+        return Err(());
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let hi = hex_nibble(bytes[i]).ok_or(())?;
+        let lo = hex_nibble(bytes[i + 1]).ok_or(())?;
+        out.push((hi << 4) | lo);
+        i += 2;
+    }
+    Ok(out)
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + (b - b'a')),
+        b'A'..=b'F' => Some(10 + (b - b'A')),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

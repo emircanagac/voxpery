@@ -106,7 +106,6 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         smtp_password: None,
         smtp_user: None,
         attachment_service: Arc::new(attachment_service),
-        attachment_local_dir: Some(upload_dir.to_string_lossy().to_string()),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
@@ -1832,7 +1831,7 @@ async fn account_delete_endpoint_enforces_privacy() {
 }
 
 #[tokio::test]
-async fn attachment_upload_stores_file_and_returns_public_url() {
+async fn attachment_upload_stores_file_and_returns_signed_url() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
@@ -1873,17 +1872,25 @@ async fn attachment_upload_stores_file_and_returns_public_url() {
     let arr = payload.as_array().expect("upload response must be array");
     assert_eq!(arr.len(), 1);
     let uploaded = &arr[0];
+    let attachment_id = uploaded["id"]
+        .as_str()
+        .expect("attachment id must be present in upload response");
+    Uuid::parse_str(attachment_id).expect("attachment id must be valid uuid");
     let url = uploaded["url"].as_str().unwrap_or_default();
     assert!(
-        url.starts_with("http://localhost:3001/uploads/"),
+        url.contains("/api/attachments/content/"),
         "unexpected upload URL: {url}"
+    );
+    assert!(
+        url.contains("exp=") && url.contains("sig="),
+        "signed URL must include exp/sig query params: {url}"
     );
     assert_eq!(uploaded["type"], "text/plain");
     assert_eq!(uploaded["name"], "hello.txt");
     assert_eq!(uploaded["size"], 27);
 
-    let row: (String, String, String, i64) = sqlx::query_as(
-        r#"SELECT storage_backend, content_type, original_name, size_bytes
+    let row: (String, String, String, i64, String) = sqlx::query_as(
+        r#"SELECT storage_backend, content_type, original_name, size_bytes, storage_key
            FROM uploaded_attachments
            WHERE user_id = $1
            ORDER BY created_at DESC
@@ -1897,6 +1904,49 @@ async fn attachment_upload_stores_file_and_returns_public_url() {
     assert_eq!(row.1, "text/plain");
     assert_eq!(row.2, "hello.txt");
     assert_eq!(row.3, 27);
+
+    let signed_path = url
+        .strip_prefix("http://localhost:3001")
+        .expect("signed URL should use localhost API base")
+        .to_string();
+    let req = Request::builder()
+        .method("GET")
+        .uri(&signed_path)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "signed content URL should serve file");
+    assert_eq!(body, bytes::Bytes::from_static(b"hello from integration test"));
+
+    let tampered_path = if let Some((prefix, sig)) = signed_path.rsplit_once("sig=") {
+        let bad_sig = format!("{}0", &sig[..sig.len().saturating_sub(1)]);
+        format!("{prefix}sig={bad_sig}")
+    } else {
+        panic!("signed URL must include sig param");
+    };
+    let req = Request::builder()
+        .method("GET")
+        .uri(&tampered_path)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "tampered signature must be rejected"
+    );
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/uploads/{}", row.4))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "legacy public /uploads route must be disabled"
+    );
 }
 
 #[tokio::test]

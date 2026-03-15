@@ -13,7 +13,6 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor},
-    services::attachments::validate_attachments,
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
     AppState,
@@ -168,6 +167,19 @@ async fn attach_dm_message_reactions(
 
     for msg in messages.iter_mut() {
         msg.reactions = by_message.remove(&msg.id).unwrap_or_default();
+    }
+    Ok(())
+}
+
+async fn hydrate_dm_attachments(
+    state: &Arc<AppState>,
+    messages: &mut [MessageWithAuthor],
+) -> Result<(), AppError> {
+    for msg in messages.iter_mut() {
+        msg.attachments = state
+            .attachment_service
+            .hydrate_attachments_for_output(&state.db, &state.jwt_secret, msg.attachments.clone())
+            .await?;
     }
     Ok(())
 }
@@ -461,6 +473,7 @@ async fn get_dm_messages(
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_dm_attachments(&state, &mut result).await?;
     if let Some(last) = result.last() {
         mark_dm_read(&state, channel_id, claims.sub, Some(last.id)).await?;
     }
@@ -495,9 +508,11 @@ async fn send_dm_message(
     .await?;
 
     let content = body.content.unwrap_or_default();
-    let has_attachments = body.attachments.as_ref().is_some();
-
-    validate_attachments(body.attachments.as_ref())?;
+    let normalized_attachments = state
+        .attachment_service
+        .normalize_attachments_for_storage(&state.db, claims.sub, body.attachments.as_ref())
+        .await?;
+    let has_attachments = normalized_attachments.is_some();
 
     if content.is_empty() && !has_attachments {
         return Err(AppError::Validation(
@@ -523,12 +538,16 @@ async fn send_dm_message(
     .bind(channel_id)
     .bind(claims.sub)
     .bind(&content)
-    .bind(&body.attachments)
+    .bind(&normalized_attachments)
     .fetch_one(&state.db)
     .await?;
 
     let mut message: MessageWithAuthor = row.into();
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    message.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
+        .await?;
     mark_dm_read(&state, channel_id, claims.sub, Some(message.id)).await?;
     let event = WsEvent::NewMessage {
         channel_id,
@@ -626,6 +645,7 @@ async fn search_dm_messages(
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_dm_attachments(&state, &mut result).await?;
     Ok(Json(result))
 }
 
@@ -651,6 +671,7 @@ async fn list_dm_pins(
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
     attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_dm_attachments(&state, &mut result).await?;
     Ok(Json(result))
 }
 
@@ -698,6 +719,10 @@ async fn pin_dm_message(
 
     let mut message: MessageWithAuthor = row.into();
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    message.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
+        .await?;
     Ok(Json(message))
 }
 
@@ -765,6 +790,10 @@ async fn edit_dm_message(
 
     let mut message: MessageWithAuthor = row.into();
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    message.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
+        .await?;
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
@@ -851,6 +880,10 @@ async fn add_dm_reaction(
 
     let mut message = load_dm_message_with_author(&state.db, message_id).await?;
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    message.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
+        .await?;
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
@@ -888,6 +921,10 @@ async fn remove_dm_reaction(
 
     let mut message = load_dm_message_with_author(&state.db, message_id).await?;
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+    message.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
+        .await?;
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),

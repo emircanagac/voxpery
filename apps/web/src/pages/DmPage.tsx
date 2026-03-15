@@ -10,7 +10,7 @@ import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { openExternalUrl } from '../openExternalUrl'
 
-type AttachmentItem = { name: string; url: string; size: number; type: string }
+type AttachmentItem = { id?: string; name: string; url: string; size: number; type: string }
 type UiDmMessage = MessageWithAuthor & {
   clientId?: string
   clientStatus?: 'sending' | 'failed'
@@ -342,6 +342,7 @@ export default function DmPage() {
     try {
       const uploaded = await attachmentApi.uploadFiles(allowed, token)
       const normalized: AttachmentItem[] = uploaded.map((att) => ({
+        id: att.id,
         name: att.name || 'attachment',
         url: att.url,
         size: typeof att.size === 'number' ? att.size : 0,

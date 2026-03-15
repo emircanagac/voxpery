@@ -1,9 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, Path, Query, State},
+    http::{header, HeaderMap, HeaderValue},
     middleware,
-    routing::post,
+    response::IntoResponse,
+    routing::{get, post},
     Extension, Json, Router,
 };
 use uuid::Uuid;
@@ -16,9 +18,13 @@ use crate::{
 };
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
+    let protected = Router::new()
         .route("/upload", post(upload_attachments))
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let content = Router::new().route("/content/{attachment_id}", get(get_attachment_content));
+
+    protected.merge(content)
 }
 
 /// POST /api/attachments/upload
@@ -75,6 +81,7 @@ async fn upload_attachments(
             .store_file(&file_name, &content_type, &bytes)
             .await?;
 
+        let attachment_id = Uuid::new_v4();
         sqlx::query(
             r#"INSERT INTO uploaded_attachments (
                    id,
@@ -90,7 +97,7 @@ async fn upload_attachments(
                )
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'clean',NOW())"#,
         )
-        .bind(Uuid::new_v4())
+        .bind(attachment_id)
         .bind(claims.sub)
         .bind(stored.storage_backend)
         .bind(&stored.storage_key)
@@ -102,7 +109,10 @@ async fn upload_attachments(
         .await?;
 
         uploaded.push(AttachmentResponseItem {
-            url: stored.url,
+            id: attachment_id,
+            url: state
+                .attachment_service
+                .signed_content_url(attachment_id, &state.jwt_secret),
             content_type: stored.content_type,
             name: stored.original_name,
             size: stored.size_bytes,
@@ -117,4 +127,52 @@ async fn upload_attachments(
     }
 
     Ok(Json(uploaded))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AttachmentContentQuery {
+    exp: i64,
+    sig: String,
+}
+
+async fn get_attachment_content(
+    State(state): State<Arc<AppState>>,
+    Path(attachment_id): Path<Uuid>,
+    Query(query): Query<AttachmentContentQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let allowed = state.attachment_service.verify_signed_content_url(
+        attachment_id,
+        query.exp,
+        &query.sig,
+        &state.jwt_secret,
+    );
+    if !allowed {
+        return Err(AppError::Forbidden("Attachment access denied".into()));
+    }
+
+    let row = state
+        .attachment_service
+        .get_clean_attachment_by_id(&state.db, attachment_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
+
+    let bytes = state
+        .attachment_service
+        .read_local_attachment_bytes(&row.storage_key)
+        .await?;
+
+    let content_type = HeaderValue::from_str(&row.content_type)
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, content_type);
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=300, immutable"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+
+    Ok((headers, bytes))
 }

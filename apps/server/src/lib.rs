@@ -15,7 +15,6 @@ use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 pub mod config;
@@ -64,8 +63,6 @@ pub struct AppState {
     pub smtp_user: Option<String>,
     pub smtp_password: Option<String>,
     pub attachment_service: Arc<services::attachments::AttachmentService>,
-    /// Local upload directory. When present, exposed as /uploads/* static files.
-    pub attachment_local_dir: Option<String>,
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.
@@ -206,7 +203,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
     const BODY_LIMIT: usize = 10 * 1024 * 1024;
 
-    let mut app = Router::new()
+    let app = Router::new()
         .route("/health", get(health_handler))
         .nest("/api/auth", routes::auth::router(state.clone()))
         .nest("/api/friends", routes::friends::router(state.clone()))
@@ -224,10 +221,6 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .layer(map_response(sanitize_verbose_client_errors))
         .layer(TraceLayer::new_for_http())
         .layer(cors);
-
-    if let Some(local_dir) = &state.attachment_local_dir {
-        app = app.nest_service("/uploads", ServeDir::new(local_dir));
-    }
 
     app.with_state(state)
 }

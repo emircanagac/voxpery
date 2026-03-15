@@ -62,9 +62,6 @@ async fn main() {
                 return;
             }
         };
-    let attachment_local_dir = attachment_service
-        .local_storage_dir()
-        .map(|p| p.to_string_lossy().to_string());
 
     let state = Arc::new(AppState {
         db,
@@ -99,7 +96,6 @@ async fn main() {
         smtp_user: config.smtp_user.clone(),
         smtp_password: config.smtp_password.clone(),
         attachment_service,
-        attachment_local_dir,
     });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (

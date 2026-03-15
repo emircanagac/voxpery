@@ -437,6 +437,7 @@ export interface ServerBanEntry {
 }
 
 export interface UploadedAttachment {
+    id: string
     url: string
     type?: string
     name?: string

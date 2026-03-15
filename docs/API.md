@@ -132,8 +132,11 @@ Notes:
 
 - `POST /api/attachments/upload` (auth required)
   - `multipart/form-data` with one or more `files` fields.
-  - Returns uploaded attachment objects with `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert.
+  - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
+  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
+- `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
+  - Public endpoint guarded by signature + expiry.
+  - Intended for rendering attachment media in chat without exposing permanent public file URLs.
 
 ## Message Endpoints (Server Channels)
 
@@ -183,6 +186,7 @@ Notes:
 Attachment note:
 - Message/DM `attachments[].url` only accepts `http://` or `https://`.
 - `data:` URLs are blocked intentionally; upload via `/api/attachments/upload`.
+- Backend canonicalizes attachment references to uploaded IDs and returns fresh signed URLs in message payloads.
 
 ## WebRTC Endpoints
 

@@ -17,7 +17,6 @@ use crate::{
         SendMessageRequest,
     },
     services::{
-        attachments::validate_attachments,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
     },
@@ -177,6 +176,19 @@ async fn attach_message_reactions(
     Ok(())
 }
 
+async fn hydrate_message_attachments(
+    state: &Arc<AppState>,
+    messages: &mut [MessageWithAuthor],
+) -> Result<(), AppError> {
+    for msg in messages.iter_mut() {
+        msg.attachments = state
+            .attachment_service
+            .hydrate_attachments_for_output(&state.db, &state.jwt_secret, msg.attachments.clone())
+            .await?;
+    }
+    Ok(())
+}
+
 /// GET /api/messages/:channel_id?before=uuid&limit=50 — get paginated messages.
 /// Uses a single JOIN query instead of N+1 author lookups.
 async fn get_messages(
@@ -246,6 +258,7 @@ async fn get_messages(
     // Reverse to chronological order and convert to MessageWithAuthor
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_message_attachments(&state, &mut result).await?;
 
     Ok(Json(result))
 }
@@ -296,6 +309,7 @@ async fn search_messages(
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_message_attachments(&state, &mut result).await?;
     Ok(Json(result))
 }
 
@@ -344,6 +358,7 @@ async fn list_channel_pins(
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().map(Into::into).collect();
     attach_message_reactions(&state.db, &mut result, claims.sub).await?;
+    hydrate_message_attachments(&state, &mut result).await?;
     Ok(Json(result))
 }
 
@@ -432,6 +447,14 @@ async fn pin_channel_message(
         claims.sub,
     )
     .await?;
+    msg_with_author.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(
+            &state.db,
+            &state.jwt_secret,
+            msg_with_author.attachments.clone(),
+        )
+        .await?;
 
     Ok(Json(msg_with_author))
 }
@@ -506,9 +529,11 @@ async fn send_message(
     .await?;
 
     let content = body.content.unwrap_or_default();
-    let has_attachments = body.attachments.as_ref().is_some();
-
-    validate_attachments(body.attachments.as_ref())?;
+    let normalized_attachments = state
+        .attachment_service
+        .normalize_attachments_for_storage(&state.db, claims.sub, body.attachments.as_ref())
+        .await?;
+    let has_attachments = normalized_attachments.is_some();
 
     if content.is_empty() && !has_attachments {
         return Err(AppError::Validation(
@@ -548,7 +573,7 @@ async fn send_message(
     .bind(channel_id)
     .bind(claims.sub)
     .bind(&content)
-    .bind(&body.attachments)
+    .bind(&normalized_attachments)
     .fetch_one(&state.db)
     .await?;
 
@@ -559,6 +584,14 @@ async fn send_message(
         claims.sub,
     )
     .await?;
+    msg_with_author.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(
+            &state.db,
+            &state.jwt_secret,
+            msg_with_author.attachments.clone(),
+        )
+        .await?;
 
     // Broadcast to WebSocket subscribers
     let _ = state.tx.send(WsEvent::NewMessage {
@@ -681,6 +714,14 @@ async fn edit_message(
         claims.sub,
     )
     .await?;
+    msg_with_author.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(
+            &state.db,
+            &state.jwt_secret,
+            msg_with_author.attachments.clone(),
+        )
+        .await?;
 
     let _ = state.tx.send(WsEvent::MessageUpdated {
         channel_id,
@@ -761,6 +802,14 @@ async fn add_message_reaction(
         claims.sub,
     )
     .await?;
+    msg_with_author.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(
+            &state.db,
+            &state.jwt_secret,
+            msg_with_author.attachments.clone(),
+        )
+        .await?;
 
     let _ = state.tx.send(WsEvent::MessageUpdated {
         channel_id,
@@ -810,6 +859,14 @@ async fn remove_message_reaction(
         claims.sub,
     )
     .await?;
+    msg_with_author.attachments = state
+        .attachment_service
+        .hydrate_attachments_for_output(
+            &state.db,
+            &state.jwt_secret,
+            msg_with_author.attachments.clone(),
+        )
+        .await?;
 
     let _ = state.tx.send(WsEvent::MessageUpdated {
         channel_id,

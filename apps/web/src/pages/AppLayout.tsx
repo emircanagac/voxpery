@@ -172,7 +172,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
     const [editingContent, setEditingContent] = useState('')
     const [editingReplyQuotePart, setEditingReplyQuotePart] = useState<string | null>(null)
-    const [draftAttachments, setDraftAttachments] = useState<Array<{ name: string; url: string; size: number; type: string }>>([])
+    const [draftAttachments, setDraftAttachments] = useState<Array<{ id?: string; name: string; url: string; size: number; type: string }>>([])
     const [newServerName, setNewServerName] = useState('')
     const [inviteCode, setInviteCode] = useState('')
     const [createServerError, setCreateServerError] = useState<string | null>(null)
@@ -946,6 +946,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         try {
             const uploaded = await attachmentApi.uploadFiles(allowed, token)
             const normalized = uploaded.map((att) => ({
+                id: att.id,
                 name: att.name || 'attachment',
                 url: att.url,
                 size: typeof att.size === 'number' ? att.size : 0,

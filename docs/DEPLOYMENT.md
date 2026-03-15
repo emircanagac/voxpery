@@ -40,11 +40,12 @@ LiveKit note:
 
 Attachments note:
 
-- Uploads are local-only and served from `/uploads/*`.
+- Uploads are local-only and served via signed URLs under `/api/attachments/content/*`.
 - Configure with:
   - `ATTACHMENTS_LOCAL_DIR`
   - `ATTACHMENTS_KEY_PREFIX`
   - `ATTACHMENTS_PUBLIC_BASE_URL`
+  - `ATTACHMENTS_URL_TTL_SECS`
 
 ## 2) Start Full Stack
 

@@ -162,7 +162,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [forwardDmPickerMessageId, setForwardDmPickerMessageId] = useState<string | null>(null)
   const [deleteDmConfirmMessageId, setDeleteDmConfirmMessageId] = useState<string | null>(null)
   const [replyingToDm, setReplyingToDm] = useState<{ id: string; username: string; contentSnippet: string } | null>(null)
-  const [dmDraftAttachments, setDmDraftAttachments] = useState<Array<{ name: string; url: string; size: number; type: string }>>([])
+  const [dmDraftAttachments, setDmDraftAttachments] = useState<Array<{ id?: string; name: string; url: string; size: number; type: string }>>([])
   const forwardDmPickerRef = useRef<HTMLDivElement | null>(null)
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
@@ -484,6 +484,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     try {
       const uploaded = await attachmentApi.uploadFiles(allowed, token)
       const normalized = uploaded.map((att) => ({
+        id: att.id,
         name: att.name || 'attachment',
         url: att.url,
         size: typeof att.size === 'number' ? att.size : 0,
