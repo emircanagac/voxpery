@@ -8,9 +8,11 @@ RUN apt-get update \
 
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo .cargo
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release --locked
+
 COPY migrations migrations
 COPY src src
-
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
