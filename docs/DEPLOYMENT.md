@@ -56,11 +56,8 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Optional malware scan profile (ClamAV):
-
-```bash
-ATTACHMENTS_CLAMAV_ENABLED=1 docker compose --profile security up -d --build
-```
+ClamAV now starts by default in compose.
+To use malware scanning, keep `ATTACHMENTS_CLAMAV_ENABLED=1` in `.env`.
 
 Default ports:
 
