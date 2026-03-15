@@ -40,14 +40,11 @@ LiveKit note:
 
 Attachments note:
 
-- Default backend is `ATTACHMENTS_STORAGE=local` and files are served from `/uploads/*`.
-- For S3/R2 set `ATTACHMENTS_STORAGE=s3` and configure:
-  - `ATTACHMENTS_S3_BUCKET`
-  - `ATTACHMENTS_S3_REGION`
-  - `ATTACHMENTS_S3_ACCESS_KEY_ID`
-  - `ATTACHMENTS_S3_SECRET_ACCESS_KEY`
-  - `ATTACHMENTS_S3_ENDPOINT` (required for R2/S3-compatible endpoints)
-  - `ATTACHMENTS_PUBLIC_BASE_URL` (public CDN/base URL for object keys)
+- Uploads are local-only and served from `/uploads/*`.
+- Configure with:
+  - `ATTACHMENTS_LOCAL_DIR`
+  - `ATTACHMENTS_KEY_PREFIX`
+  - `ATTACHMENTS_PUBLIC_BASE_URL`
 
 ## 2) Start Full Stack
 

@@ -197,8 +197,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
   - Optional ClamAV (`ATTACHMENTS_CLAMAV_ENABLED=1`)
   - `ATTACHMENTS_CLAMAV_FAIL_CLOSED=1` blocks uploads if scanner is unavailable
 - **Storage backends**:
-  - Local filesystem (`ATTACHMENTS_STORAGE=local`)
-  - S3/R2-compatible object storage (`ATTACHMENTS_STORAGE=s3`)
+  - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
   - Upload metadata persisted in `uploaded_attachments`
 
 ## TLS/SSL

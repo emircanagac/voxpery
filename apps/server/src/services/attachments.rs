@@ -2,10 +2,6 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use aws_config::BehaviorVersion;
-use aws_credential_types::Credentials;
-use aws_sdk_s3::{primitives::ByteStream, Client as S3Client};
-use aws_types::region::Region;
 use chrono::Datelike;
 use serde::Serialize;
 use serde_json::Value;
@@ -23,18 +19,6 @@ use crate::{config::Config, errors::AppError};
 const MAX_URL_LEN: usize = 2048;
 const DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE: usize = 10;
 
-#[derive(Debug, Clone, Copy)]
-enum StorageBackendKind {
-    Local,
-    S3,
-}
-
-#[derive(Clone)]
-enum StorageBackend {
-    Local { base_dir: PathBuf },
-    S3 { client: S3Client, bucket: String },
-}
-
 #[derive(Clone)]
 struct ClamAvConfig {
     enabled: bool,
@@ -46,8 +30,7 @@ struct ClamAvConfig {
 
 #[derive(Clone)]
 pub struct AttachmentService {
-    storage_backend_kind: StorageBackendKind,
-    storage: StorageBackend,
+    local_dir: PathBuf,
     public_base_url: String,
     key_prefix: String,
     max_file_bytes: usize,
@@ -79,11 +62,7 @@ pub struct AttachmentResponseItem {
 
 impl AttachmentService {
     pub async fn from_config(config: &Config) -> Result<Self, AppError> {
-        let storage_mode = config.attachments_storage.trim().to_ascii_lowercase();
-        let key_prefix = config
-            .attachments_s3_key_prefix
-            .trim_matches('/')
-            .to_string();
+        let key_prefix = config.attachments_key_prefix.trim_matches('/').to_string();
         let key_prefix = if key_prefix.is_empty() {
             "attachments".to_string()
         } else {
@@ -104,61 +83,6 @@ impl AttachmentService {
             timeout_ms: config.attachments_clamav_timeout_ms,
             fail_closed: config.attachments_clamav_fail_closed,
         };
-
-        if storage_mode == "s3" {
-            let bucket = config
-                .attachments_s3_bucket
-                .clone()
-                .ok_or_else(|| AppError::Internal("ATTACHMENTS_S3_BUCKET is required".into()))?;
-            let region = config
-                .attachments_s3_region
-                .clone()
-                .ok_or_else(|| AppError::Internal("ATTACHMENTS_S3_REGION is required".into()))?;
-            let access_key = config.attachments_s3_access_key_id.clone().ok_or_else(|| {
-                AppError::Internal("ATTACHMENTS_S3_ACCESS_KEY_ID is required".into())
-            })?;
-            let secret_key = config
-                .attachments_s3_secret_access_key
-                .clone()
-                .ok_or_else(|| {
-                    AppError::Internal("ATTACHMENTS_S3_SECRET_ACCESS_KEY is required".into())
-                })?;
-            let public_base_url = config.attachments_public_base_url.clone().ok_or_else(|| {
-                AppError::Internal(
-                    "ATTACHMENTS_PUBLIC_BASE_URL is required when ATTACHMENTS_STORAGE=s3".into(),
-                )
-            })?;
-
-            let mut loader = aws_config::defaults(BehaviorVersion::latest())
-                .region(Region::new(region))
-                .credentials_provider(Credentials::new(
-                    access_key,
-                    secret_key,
-                    None,
-                    None,
-                    "voxpery-attachments",
-                ));
-            if let Some(endpoint) = &config.attachments_s3_endpoint {
-                loader = loader.endpoint_url(endpoint);
-            }
-            let shared_config = loader.load().await;
-            let mut conf_builder = aws_sdk_s3::config::Builder::from(&shared_config);
-            if config.attachments_s3_force_path_style {
-                conf_builder = conf_builder.force_path_style(true);
-            }
-            let client = S3Client::from_conf(conf_builder.build());
-
-            return Ok(Self {
-                storage_backend_kind: StorageBackendKind::S3,
-                storage: StorageBackend::S3 { client, bucket },
-                public_base_url: public_base_url.trim_end_matches('/').to_string(),
-                key_prefix,
-                max_file_bytes,
-                max_files_per_request,
-                allowed_mime_prefixes,
-                scanner,
-            });
-        }
 
         let public_base_url = config
             .attachments_public_base_url
@@ -223,10 +147,7 @@ impl AttachmentService {
         };
 
         Ok(Self {
-            storage_backend_kind: StorageBackendKind::Local,
-            storage: StorageBackend::Local {
-                base_dir: local_dir,
-            },
+            local_dir,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             key_prefix: normalized_key_prefix,
             max_file_bytes,
@@ -237,10 +158,7 @@ impl AttachmentService {
     }
 
     pub fn local_storage_dir(&self) -> Option<PathBuf> {
-        match &self.storage {
-            StorageBackend::Local { base_dir } => Some(base_dir.clone()),
-            StorageBackend::S3 { .. } => None,
-        }
+        Some(self.local_dir.clone())
     }
 
     pub fn max_files_per_request(&self) -> usize {
@@ -320,45 +238,19 @@ impl AttachmentService {
             safe_name
         );
 
-        match &self.storage {
-            StorageBackend::Local { base_dir } => {
-                let path = base_dir.join(&key);
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent).await.map_err(|e| {
-                        AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
-                    })?;
-                }
-                fs::write(&path, bytes).await.map_err(|e| {
-                    AppError::Internal(format!("Failed to write uploaded attachment: {e}"))
-                })?;
-            }
-            StorageBackend::S3 { client, bucket } => {
-                client
-                    .put_object()
-                    .bucket(bucket)
-                    .key(&key)
-                    .content_type(content_type)
-                    .body(ByteStream::from(bytes.to_vec()))
-                    .send()
-                    .await
-                    .map_err(|e| AppError::Internal(format!("S3 upload failed: {e}")))?;
-            }
+        let path = self.local_dir.join(&key);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await.map_err(|e| {
+                AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
+            })?;
         }
-
-        let url = match self.storage_backend_kind {
-            StorageBackendKind::Local => {
-                format!("{}/uploads/{}", self.public_base_url, key)
-            }
-            StorageBackendKind::S3 => {
-                format!("{}/{}", self.public_base_url, key)
-            }
-        };
+        fs::write(&path, bytes)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to write uploaded attachment: {e}")))?;
+        let url = format!("{}/uploads/{}", self.public_base_url, key);
 
         Ok(StoredAttachment {
-            storage_backend: match self.storage_backend_kind {
-                StorageBackendKind::Local => "local",
-                StorageBackendKind::S3 => "s3",
-            },
+            storage_backend: "local",
             storage_key: key,
             url,
             original_name: original_name.to_string(),

@@ -133,7 +133,7 @@ Notes:
 - `POST /api/attachments/upload` (auth required)
   - `multipart/form-data` with one or more `files` fields.
   - Returns uploaded attachment objects with `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local/S3 storage -> metadata insert.
+  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert.
 
 ## Message Endpoints (Server Channels)
 
