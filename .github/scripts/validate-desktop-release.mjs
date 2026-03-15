@@ -60,6 +60,19 @@ if (tauri) {
   if (!Array.isArray(schemes) || !schemes.includes('voxpery')) {
     fail('tauri.conf.json deep-link schemes must include "voxpery"')
   }
+
+  const createUpdaterArtifacts = tauri.bundle?.createUpdaterArtifacts === true
+  const updaterPubkey = tauri.plugins?.updater?.pubkey
+  const hasPlaceholderUpdaterKey =
+    typeof updaterPubkey === 'string' && updaterPubkey.includes('PLACEHOLDER')
+  if (createUpdaterArtifacts && (!updaterPubkey || hasPlaceholderUpdaterKey)) {
+    fail('Updater artifacts are enabled but updater pubkey is missing or placeholder')
+  }
+
+  const signingPrivateKey = process.env.TAURI_SIGNING_PRIVATE_KEY
+  if (createUpdaterArtifacts && !signingPrivateKey) {
+    fail('Updater artifacts are enabled but TAURI_SIGNING_PRIVATE_KEY is not configured')
+  }
 }
 
 requireFile('apps/desktop/src-tauri/icons/icon.ico', 16_000)

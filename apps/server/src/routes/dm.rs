@@ -4,9 +4,9 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{
@@ -254,7 +254,8 @@ async fn list_dm_channels(
     let with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
-            let peer_status = visible_presence(&r.peer_status, state.sessions.contains_key(&r.peer_id));
+            let peer_status =
+                visible_presence(&r.peer_status, state.sessions.contains_key(&r.peer_id));
             DmChannelInfo { peer_status, ..r }
         })
         .collect();
@@ -405,7 +406,10 @@ async fn get_or_create_dm_channel(
     .fetch_one(&state.db)
     .await?;
 
-    let peer_status = visible_presence(&info.peer_status, state.sessions.contains_key(&info.peer_id));
+    let peer_status = visible_presence(
+        &info.peer_status,
+        state.sessions.contains_key(&info.peer_id),
+    );
     let info = DmChannelInfo {
         peer_status,
         ..info

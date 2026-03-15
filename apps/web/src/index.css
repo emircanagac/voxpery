@@ -2043,6 +2043,47 @@ body {
   padding: 0 8px;
 }
 
+.delete-account-modal {
+  max-width: 420px;
+}
+
+.delete-account-modal .pw-change-form {
+  gap: 10px;
+}
+
+.delete-account-modal .delete-account-danger-note {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(240, 71, 71, 0.5);
+  background: rgba(140, 28, 45, 0.3);
+  color: #ffd7dd;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.delete-account-modal .delete-account-input-wrap {
+  background: rgba(8, 14, 30, 0.82);
+  border-color: rgba(167, 188, 255, 0.24);
+  min-height: 38px;
+}
+
+.delete-account-modal .delete-account-input-wrap:focus-within {
+  border-color: rgba(100, 160, 255, 0.72);
+  box-shadow: 0 0 0 2px rgba(100, 160, 255, 0.18);
+}
+
+.delete-account-confirm-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.delete-account-confirm-hint.is-valid {
+  color: #64d7a5;
+}
+
 .pw-modal-footer {
   padding: 10px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -2156,6 +2197,11 @@ body {
   border-color: rgba(92, 160, 255, 0.5);
   background: rgba(67, 132, 230, 0.2);
   color: #e8f1ff;
+}
+
+.user-settings-modal .account-action-btn {
+  width: 112px;
+  min-width: 112px;
 }
 
 .user-settings-modal .btn.btn-primary {

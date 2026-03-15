@@ -42,7 +42,7 @@ Important behavior:
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
-- `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `offline`)
+- `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`
 - `GET /api/auth/check-username?username=...`
@@ -51,6 +51,12 @@ Important behavior:
 - `POST /api/auth/reset-password`
 - `GET /api/auth/google`
 - `GET /api/auth/google/callback`
+- `GET /api/auth/data-export`
+  - GDPR/KVKK data export JSON payload for authenticated user.
+  - Export is intentionally user-readable: internal technical IDs (server/channel/message/friend IDs) are omitted.
+- `DELETE /api/auth/account`
+  - Body: `{ "confirm": "DELETE", "password"?: "..." }`
+  - Permanently deletes account and authored content.
 
 Notes:
 

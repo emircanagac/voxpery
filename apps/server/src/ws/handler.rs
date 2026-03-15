@@ -15,8 +15,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
-use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::claims_match_current_token_version;
+use crate::middleware::auth::token_from_request;
 use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
@@ -228,8 +228,9 @@ async fn validate_ws_token(
     .ok()?
     .claims;
 
-    let version_ok =
-        claims_match_current_token_version(&state.db, claims.sub, claims.ver).await.ok()?;
+    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
+        .await
+        .ok()?;
     if !version_ok {
         return None;
     }

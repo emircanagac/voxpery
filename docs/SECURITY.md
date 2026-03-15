@@ -280,7 +280,7 @@ npm audit fix
 
 ## Compliance
 
-- **GDPR**: User can request data deletion (not yet implemented)
+- **GDPR/KVKK**: Implemented self-service account data export (`GET /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`).
 - **COPPA**: No age verification (assume 13+)
 - **Privacy**: No biometrics, no hidden telemetry
 

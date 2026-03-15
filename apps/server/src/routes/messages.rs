@@ -13,8 +13,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{
-        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary,
-        MessageWithAuthor, SendMessageRequest,
+        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor,
+        SendMessageRequest,
     },
     services::{
         attachments::validate_attachments,

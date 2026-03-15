@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2 } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -79,6 +79,12 @@ export default function UserBar() {
   const [pwShowOld, setPwShowOld] = useState(false)
   const [pwShowNew, setPwShowNew] = useState(false)
   const [showPwModal, setShowPwModal] = useState(false)
+  const [exportingData, setExportingData] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
   const [usernameSaving, setUsernameSaving] = useState(false)
@@ -288,6 +294,61 @@ export default function UserBar() {
       reader.readAsDataURL(file)
     })
     await updateProfileAvatar(dataUrl)
+  }
+
+  const exportMyData = async () => {
+    if (isTauri() && !token) return
+    setExportingData(true)
+    try {
+      const payload = await authApi.exportData(token ?? null)
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const date = new Date().toISOString().slice(0, 10)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `voxpery-data-export-${date}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      pushToast({
+        level: 'info',
+        title: 'Data export ready',
+        message: 'Your account data has been downloaded as JSON.',
+      })
+    } catch (err: unknown) {
+      const message = getAuthErrorMessage(err).message || 'Could not export account data.'
+      pushToast({
+        level: 'error',
+        title: 'Data export failed',
+        message,
+      })
+    } finally {
+      setExportingData(false)
+    }
+  }
+
+  const submitDeleteAccount = async () => {
+    if (isTauri() && !token) return
+    setDeleteSubmitting(true)
+    setDeleteError(null)
+    try {
+      await authApi.deleteAccount(
+        {
+          confirm: deleteConfirm,
+          password: deletePassword.trim() ? deletePassword : undefined,
+        },
+        token ?? null,
+      )
+      setShowDeleteModal(false)
+      disconnect()
+      logout()
+      navigate(ROUTES.login, { replace: true })
+    } catch (err: unknown) {
+      setDeleteError(getAuthErrorMessage(err).message || 'Could not process account deletion request.')
+    } finally {
+      setDeleteSubmitting(false)
+    }
   }
 
   return (
@@ -633,7 +694,7 @@ export default function UserBar() {
                   </div>
                   <button
                     type="button"
-                    className="user-toggle"
+                    className="user-toggle account-action-btn"
                     onClick={() => {
                       setUsernameEdit(user?.username ?? '')
                       setUsernameError(null)
@@ -653,10 +714,44 @@ export default function UserBar() {
                   </div>
                   <button
                     type="button"
-                    className="user-toggle"
+                    className="user-toggle account-action-btn"
                     onClick={() => { setShowPwModal(true); setPwOld(''); setPwNew(''); setPwConfirm(''); setPwError(null); setPwSuccess(false) }}
                   >
                     Change
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Data export</div>
+                    <div className="user-setting-desc">Download your account data in JSON format.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="user-toggle account-action-btn"
+                    onClick={() => void exportMyData()}
+                    disabled={exportingData}
+                  >
+                    <Download size={14} style={{ marginRight: 6 }} />
+                    {exportingData ? 'Exporting…' : 'Export'}
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Delete account</div>
+                    <div className="user-setting-desc">Permanently delete your account and related data.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="user-toggle account-action-btn"
+                    onClick={() => {
+                      setDeletePassword('')
+                      setDeleteConfirm('')
+                      setDeleteError(null)
+                      setShowDeleteModal(true)
+                    }}
+                  >
+                    <Trash2 size={14} style={{ marginRight: 6 }} />
+                    Manage
                   </button>
                 </div>
               </section>
@@ -668,6 +763,72 @@ export default function UserBar() {
                 onClick={() => setShowSettingsPanel(false)}
               >
                 Done
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal pw-modal delete-account-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pw-modal-header">
+              <Trash2 size={20} className="pw-modal-icon" />
+              <h2>Delete account</h2>
+              <p className="pw-modal-subtitle delete-account-danger-note">
+                This action permanently deletes your account. This cannot be undone.
+              </p>
+            </header>
+            <div className="pw-change-form">
+              <div className="pw-field-wrap">
+                <label className="user-setting-title" htmlFor="delete-password">Current password</label>
+                <div className="pw-input-wrap delete-account-input-wrap">
+                  <Lock size={14} className="pw-input-icon" />
+                  <input
+                    id="delete-password"
+                    type="password"
+                    className="pw-input"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="Required for password-based accounts"
+                    autoComplete="current-password"
+                  />
+                </div>
+              </div>
+              <div className="pw-field-wrap">
+                <label className="user-setting-title" htmlFor="delete-confirm">Type DELETE to confirm</label>
+                <div className="pw-input-wrap delete-account-input-wrap">
+                  <Trash2 size={14} className="pw-input-icon" />
+                  <input
+                    id="delete-confirm"
+                    type="text"
+                    className="pw-input"
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    placeholder="DELETE"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className={`delete-account-confirm-hint ${deleteConfirm.trim() === 'DELETE' ? 'is-valid' : ''}`}>
+                  {deleteConfirm.trim() === 'DELETE' ? 'Confirmation text is valid.' : 'Type DELETE exactly to enable the action.'}
+                </div>
+              </div>
+              {deleteError && <div className="pw-error">{deleteError}</div>}
+            </div>
+            <footer className="pw-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={deleteSubmitting || deleteConfirm.trim() !== 'DELETE'}
+                onClick={() => void submitDeleteAccount()}
+              >
+                {deleteSubmitting ? 'Processing…' : 'Delete account'}
               </button>
             </footer>
           </div>

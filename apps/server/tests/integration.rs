@@ -1308,7 +1308,10 @@ async fn role_bits_manage_messages_and_pins_are_enforced() {
     // Assign role to mod member
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/servers/{}/members/{}/roles", server_id, mod_id))
+        .uri(format!(
+            "/api/servers/{}/members/{}/roles",
+            server_id, mod_id
+        ))
         .header("Authorization", &owner_auth)
         .header("content-type", "application/json")
         .body(Body::from(
@@ -1614,6 +1617,210 @@ async fn password_reset_invalidates_old_token() {
 }
 
 #[tokio::test]
+async fn data_export_returns_user_profile_and_messages() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("export-{}@example.com", uid);
+    let username = format!("export_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+    let (token, user_id) = register_user(&mut app, &email, &username, password).await;
+    let auth = format!("Bearer {}", token);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": format!("Export Server {}", uid) })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = server["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": format!("export-chat-{}", uid.as_u128() % 100000),
+                "channel_type": "text"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let text_channel_id = channel["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{}", text_channel_id))
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "export me" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "message send failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "data export failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["account"]["id"], user_id.to_string());
+    assert_eq!(payload["account"]["email"], email);
+    assert!(payload["memberships"].is_array());
+    assert!(payload["server_messages"].is_array());
+    if let Some(first_membership) = payload["memberships"]
+        .as_array()
+        .and_then(|rows| rows.first())
+    {
+        assert!(
+            first_membership.get("server_id").is_none(),
+            "server_id must not be included in export memberships",
+        );
+    }
+    if let Some(first_server_message) = payload["server_messages"]
+        .as_array()
+        .and_then(|rows| rows.first())
+    {
+        assert!(
+            first_server_message.get("server_id").is_none(),
+            "server_id must not be included in exported server messages",
+        );
+        assert!(
+            first_server_message.get("channel_id").is_none(),
+            "channel_id must not be included in exported server messages",
+        );
+        assert!(
+            first_server_message.get("id").is_none(),
+            "message id must not be included in exported server messages",
+        );
+    }
+    let has_exported_message = payload["server_messages"]
+        .as_array()
+        .map(|rows| rows.iter().any(|msg| msg["content"] == "export me"))
+        .unwrap_or(false);
+    assert!(
+        has_exported_message,
+        "export payload should include authored message"
+    );
+}
+
+#[tokio::test]
+async fn account_delete_endpoint_enforces_privacy() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    // Permanent delete flow
+    let del_uid = Uuid::new_v4();
+    let del_email = format!("delete-{}@example.com", del_uid);
+    let del_username = format!("delete_{}", del_uid.as_u128() % 1_000_000);
+    let del_password = "password123";
+    let (del_token, del_user_id) =
+        register_user(&mut app, &del_email, &del_username, del_password).await;
+    let del_auth = format!("Bearer {}", del_token);
+
+    // Create a server so owner transfer path is exercised.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &del_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": format!("Delete Owner {}", del_uid) })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create server before delete failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let created_server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let created_server_id = Uuid::parse_str(created_server["id"].as_str().unwrap()).unwrap();
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/auth/account")
+        .header("Authorization", &del_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "confirm": "DELETE",
+                "password": del_password
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "permanent delete failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/auth/me")
+        .header("Authorization", &del_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let deleted_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+        .bind(del_user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(deleted_count, 0, "user row must be removed after delete");
+
+    let owner_after: Uuid = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
+        .bind(created_server_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_ne!(
+        owner_after, del_user_id,
+        "server ownership must be transferred away from deleted account"
+    );
+}
+
+#[tokio::test]
 async fn websocket_rejects_query_token_but_accepts_protocol_token() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
@@ -1639,10 +1846,9 @@ async fn websocket_rejects_query_token_but_accepts_protocol_token() {
     let mut legacy_req = format!("ws://{}/ws?token={}", addr, token)
         .into_client_request()
         .unwrap();
-    legacy_req.headers_mut().insert(
-        "Origin",
-        HeaderValue::from_static("http://localhost:5173"),
-    );
+    legacy_req
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
     let legacy_err = connect_async(legacy_req)
         .await
         .expect_err("legacy query token must be rejected");

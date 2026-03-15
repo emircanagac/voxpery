@@ -215,6 +215,30 @@ export interface AuthResponse {
     user: UserPublic
 }
 
+export interface DataExportPayload {
+    exported_at: string
+    account: {
+        id: string
+        username: string
+        email: string
+        avatar_url: string | null
+        status: string
+        dm_privacy: 'everyone' | 'friends'
+        created_at: string
+        google_connected: boolean
+    }
+    memberships: unknown[]
+    friends: unknown[]
+    friend_requests: unknown[]
+    server_messages: unknown[]
+    dm_messages: unknown[]
+}
+
+export interface DeleteAccountPayload {
+    confirm: string
+    password?: string
+}
+
 
 
 export const authApi = {
@@ -281,6 +305,19 @@ export const authApi = {
         apiFetch<{ message: string }>('/api/auth/reset-password', {
             method: 'POST',
             body: { token, new_password: newPassword },
+        }),
+
+    exportData: (token: string | null) =>
+        apiFetch<DataExportPayload>('/api/auth/data-export', {
+            method: 'GET',
+            token: token ?? undefined,
+        }),
+
+    deleteAccount: (payload: DeleteAccountPayload, token: string | null) =>
+        apiFetch<{ message: string }>('/api/auth/account', {
+            method: 'DELETE',
+            body: payload,
+            token: token ?? undefined,
         }),
 }
 

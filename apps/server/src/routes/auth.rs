@@ -3,7 +3,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Html, IntoResponse, Redirect},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -202,6 +202,66 @@ struct ChangePasswordRequest {
     new_password: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct DeleteAccountRequest {
+    confirm: String,
+    password: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportAccountRow {
+    id: Uuid,
+    username: String,
+    email: String,
+    avatar_url: Option<String>,
+    status: String,
+    dm_privacy: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    google_connected: bool,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportMembershipRow {
+    server_name: String,
+    joined_at: chrono::DateTime<chrono::Utc>,
+    role: String,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportFriendRow {
+    username: String,
+    avatar_url: Option<String>,
+    status: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportFriendRequestRow {
+    direction: String,
+    other_username: String,
+    status: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportServerMessageRow {
+    channel_name: String,
+    server_name: String,
+    content: String,
+    attachments: Option<serde_json::Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    edited_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ExportDmMessageRow {
+    peer_username: Option<String>,
+    content: String,
+    attachments: Option<serde_json::Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    edited_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .route("/me", get(get_me))
@@ -209,6 +269,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/profile", patch(update_profile))
         .route("/check-username", get(check_username))
         .route("/change-password", post(change_password))
+        .route("/data-export", get(export_my_data))
+        .route("/account", delete(delete_my_account))
         .route_layer(middleware::from_fn_with_state(state, require_auth));
 
     Router::new()
@@ -277,7 +339,10 @@ async fn register(
             .await
             .map_err(|e| {
                 tracing::warn!("Turnstile verify request failed: {}", e);
-                AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+                AppError::Validation(
+                    "CAPTCHA verification service is temporarily unavailable. Please try again."
+                        .into(),
+                )
             })?;
 
         #[derive(serde::Deserialize)]
@@ -290,7 +355,9 @@ async fn register(
         let status = res.status();
         let raw = res.text().await.map_err(|e| {
             tracing::warn!("Turnstile verify response read failed: {}", e);
-            AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+            AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            )
         })?;
 
         if !status.is_success() {
@@ -302,7 +369,9 @@ async fn register(
 
         let verify_result = serde_json::from_str::<TurnstileResponse>(&raw).map_err(|e| {
             tracing::warn!("Turnstile verify JSON parse failed: {}", e);
-            AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+            AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            )
         })?;
 
         if !verify_result.success {
@@ -1510,11 +1579,13 @@ async fn change_password(
 
     let password_hash = hash_password(&body.new_password)?;
 
-    sqlx::query("UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2")
-        .bind(&password_hash)
-        .bind(claims.sub)
-        .execute(&state.db)
-        .await?;
+    sqlx::query(
+        "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+    )
+    .bind(&password_hash)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
 
     // Invalidate the current token if it can be extracted
     if let Some(token) = crate::middleware::auth::token_from_request(&headers, &state.cookie_name) {
@@ -1527,6 +1598,343 @@ async fn change_password(
     Ok((
         out_headers,
         Json(serde_json::json!({ "message": "Password changed successfully" })),
+    ))
+}
+
+async fn ensure_deleted_placeholder_user(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Uuid, AppError> {
+    let existing = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1")
+        .bind("deleted@system.local")
+        .fetch_optional(&mut **tx)
+        .await?;
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+
+    let base = "deleted_system";
+    let mut username = base.to_string();
+    let mut n = 0u32;
+    loop {
+        let taken = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1)",
+        )
+        .bind(&username)
+        .fetch_one(&mut **tx)
+        .await?;
+        if taken == 0 {
+            break;
+        }
+        n += 1;
+        username = format!("{base}{n}");
+    }
+
+    let id = Uuid::new_v4();
+    let password_hash = hash_password(&Uuid::new_v4().to_string())?;
+    sqlx::query(
+        r#"INSERT INTO users
+           (id, username, email, password_hash, avatar_url, status, dm_privacy, created_at, google_id, username_changed_at, token_version)
+           VALUES ($1, $2, $3, $4, NULL, 'invisible', 'friends', NOW(), NULL, NULL, 0)"#,
+    )
+    .bind(id)
+    .bind(username)
+    .bind("deleted@system.local")
+    .bind(password_hash)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(id)
+}
+
+/// GET /api/auth/data-export
+/// GDPR/KVKK: returns JSON export for the authenticated user.
+async fn export_my_data(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<(HeaderMap, Json<serde_json::Value>), AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:data_export:{}", claims.sub),
+        3,
+        Duration::from_secs(15 * 60),
+        "Too many data export requests. Please wait and try again.",
+    )
+    .await?;
+
+    let account = sqlx::query_as::<_, ExportAccountRow>(
+        r#"SELECT id, username, email, avatar_url, status, dm_privacy, created_at,
+                  (google_id IS NOT NULL) AS google_connected
+           FROM users
+           WHERE id = $1"#,
+    )
+    .bind(claims.sub)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("User not found".into()))?;
+
+    let memberships = sqlx::query_as::<_, ExportMembershipRow>(
+        r#"SELECT s.name AS server_name,
+                  sm.joined_at,
+                  sm.role
+           FROM server_members sm
+           INNER JOIN servers s ON s.id = sm.server_id
+           WHERE sm.user_id = $1
+           ORDER BY sm.joined_at DESC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let friends = sqlx::query_as::<_, ExportFriendRow>(
+        r#"SELECT u.username,
+                  u.avatar_url,
+                  u.status,
+                  f.created_at
+           FROM friendships f
+           INNER JOIN users u
+                   ON u.id = CASE WHEN f.user_a = $1 THEN f.user_b ELSE f.user_a END
+           WHERE f.user_a = $1 OR f.user_b = $1
+           ORDER BY f.created_at DESC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let friend_requests = sqlx::query_as::<_, ExportFriendRequestRow>(
+        r#"SELECT CASE WHEN fr.requester_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
+                  CASE WHEN fr.requester_id = $1 THEN ur.username ELSE uq.username END AS other_username,
+                  fr.status,
+                  fr.created_at
+           FROM friend_requests fr
+           INNER JOIN users uq ON uq.id = fr.requester_id
+           INNER JOIN users ur ON ur.id = fr.receiver_id
+           WHERE fr.requester_id = $1 OR fr.receiver_id = $1
+           ORDER BY fr.created_at DESC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let server_messages = sqlx::query_as::<_, ExportServerMessageRow>(
+        r#"SELECT c.name AS channel_name,
+                  s.name AS server_name,
+                  m.content,
+                  m.attachments,
+                  m.created_at,
+                  m.edited_at
+           FROM messages m
+           INNER JOIN channels c ON c.id = m.channel_id
+           INNER JOIN servers s ON s.id = c.server_id
+           WHERE m.user_id = $1
+           ORDER BY m.created_at DESC
+           LIMIT 20000"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let dm_messages = sqlx::query_as::<_, ExportDmMessageRow>(
+        r#"SELECT peer.username AS peer_username,
+                  m.content,
+                  m.attachments,
+                  m.created_at,
+                  m.edited_at
+           FROM dm_messages m
+           LEFT JOIN LATERAL (
+               SELECT u.id, u.username
+               FROM dm_channel_members dcm
+               INNER JOIN users u ON u.id = dcm.user_id
+               WHERE dcm.channel_id = m.channel_id AND dcm.user_id <> $1
+               LIMIT 1
+           ) AS peer ON TRUE
+           WHERE m.user_id = $1
+           ORDER BY m.created_at DESC
+           LIMIT 20000"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let payload = serde_json::json!({
+        "exported_at": chrono::Utc::now().to_rfc3339(),
+        "account": account,
+        "memberships": memberships,
+        "friends": friends,
+        "friend_requests": friend_requests,
+        "server_messages": server_messages,
+        "dm_messages": dm_messages,
+    });
+
+    let date = chrono::Utc::now().format("%Y-%m-%d");
+    let filename = format!("voxpery-data-export-{date}.json");
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
+        headers.insert(header::CONTENT_DISPOSITION, v);
+    }
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+
+    Ok((headers, Json(payload)))
+}
+
+/// DELETE /api/auth/account
+/// GDPR/KVKK:
+/// - permanently remove account + authored content.
+async fn delete_my_account(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
+    Json(body): Json<DeleteAccountRequest>,
+) -> Result<(HeaderMap, Json<serde_json::Value>), AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:delete_account:{}", claims.sub),
+        5,
+        Duration::from_secs(60 * 60),
+        "Too many account deletion attempts. Please wait and try again.",
+    )
+    .await?;
+
+    if body.confirm.trim() != "DELETE" {
+        return Err(AppError::Validation(
+            "Confirmation text must be exactly DELETE".into(),
+        ));
+    }
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("User not found".into()))?;
+
+    let is_oauth_only = user.google_id.is_some() && user.password_hash == "oauth";
+    if !is_oauth_only {
+        let password = body
+            .password
+            .as_deref()
+            .ok_or_else(|| AppError::Validation("Password is required".into()))?;
+        if !verify_password(password, &user.password_hash)? {
+            return Err(AppError::InvalidCredentials);
+        }
+    }
+
+    let mut tx = state.db.begin().await?;
+    let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
+
+    sqlx::query("UPDATE servers SET owner_id = $1 WHERE owner_id = $2")
+        .bind(deleted_placeholder_id)
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
+           SELECT id, $1, 'owner', NOW()
+           FROM servers
+           WHERE owner_id = $1
+           ON CONFLICT (server_id, user_id)
+           DO UPDATE SET role = 'owner'"#,
+    )
+    .bind(deleted_placeholder_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE audit_log SET actor_id = $1 WHERE actor_id = $2")
+        .bind(deleted_placeholder_id)
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE server_bans SET banned_by = $1 WHERE banned_by = $2")
+        .bind(deleted_placeholder_id)
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE channel_pins SET pinned_by_id = $1 WHERE pinned_by_id = $2")
+        .bind(deleted_placeholder_id)
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE dm_channel_pins SET pinned_by_id = $1 WHERE pinned_by_id = $2")
+        .bind(deleted_placeholder_id)
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM message_reactions WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM dm_message_reactions WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM messages WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM dm_messages WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM friend_requests WHERE requester_id = $1 OR receiver_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM friendships WHERE user_a = $1 OR user_b = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM dm_channel_members WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM dm_channels c WHERE NOT EXISTS (SELECT 1 FROM dm_channel_members m WHERE m.channel_id = c.id)")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_member_roles WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_members WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_bans WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    if let Some(token) = token_from_request(&headers, &state.cookie_name) {
+        let _ =
+            crate::services::jwt_blacklist::blacklist_until_exp(&state.redis, &token, claims.exp)
+                .await;
+    }
+
+    state.sessions.remove(&claims.sub);
+    state.voice_sessions.remove(&claims.sub);
+    state.voice_controls.remove(&claims.sub);
+    let _ = state.tx.send(WsEvent::PresenceUpdate {
+        user_id: claims.sub,
+        status: "offline".to_string(),
+    });
+
+    let out_headers = clear_auth_cookie_header(&state);
+    Ok((
+        out_headers,
+        Json(serde_json::json!({
+            "message": "Account permanently deleted"
+        })),
     ))
 }
 
@@ -1622,9 +2030,7 @@ async fn forgot_password(
             tracing::error!("Failed to send password reset email: {}", e);
         }
     } else {
-        tracing::warn!(
-            "SMTP is not configured! Password reset email not sent."
-        );
+        tracing::warn!("SMTP is not configured! Password reset email not sent.");
     }
 
     Ok(generic_ok())
@@ -1689,10 +2095,10 @@ async fn reset_password(
         sqlx::query(
             "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
         )
-            .bind(&password_hash)
-            .bind(row.user_id)
-            .execute(&mut *tx)
-            .await?;
+        .bind(&password_hash)
+        .bind(row.user_id)
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
             .bind(row.user_id)

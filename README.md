@@ -132,6 +132,7 @@ docker compose up -d --build  # Full stack
 - **[ROADMAP.md](docs/ROADMAP.md)** — Feature priorities & roadmap through Q4 2026
 - **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** — Support, governance, and release workflow
 - **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** — Mandatory release sign-off checklist (web + desktop)
+- **[DESKTOP_RELEASE_HARDENING.md](docs/DESKTOP_RELEASE_HARDENING.md)** — Desktop metadata/deep-link/signing hardening policy
 - **[OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md)** — Backup/restore automation, health checks, and production alerting
 - **[CHANGELOG.md](docs/CHANGELOG.md)** — Notable changes by release
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Production deployment guide

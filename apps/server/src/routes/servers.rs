@@ -1116,11 +1116,13 @@ async fn list_channel_visible_members(
     let mut visible_members = Vec::with_capacity(members.len());
     for mut member in members {
         let perms =
-            permissions::get_user_channel_permissions(&state.db, channel_id, member.user_id).await?;
+            permissions::get_user_channel_permissions(&state.db, channel_id, member.user_id)
+                .await?;
         if !perms.contains(Permissions::VIEW_SERVER) {
             continue;
         }
-        member.status = visible_presence(&member.status, state.sessions.contains_key(&member.user_id));
+        member.status =
+            visible_presence(&member.status, state.sessions.contains_key(&member.user_id));
         visible_members.push(member);
     }
 

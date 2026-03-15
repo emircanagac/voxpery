@@ -625,9 +625,7 @@ async fn delete_category(
                 Some(target)
             }
         })
-        .unwrap_or_else(|| {
-            "General".to_string()
-        });
+        .unwrap_or_else(|| "General".to_string());
 
     // Never move channels back into the same category being deleted.
     // If no alternative category exists and the category still has channels,
