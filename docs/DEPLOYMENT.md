@@ -52,6 +52,14 @@ Default ports:
 - Redis: `localhost:6379`
 - LiveKit: `localhost:7880`
 
+Security defaults in compose:
+
+- `web`, `server`, `postgres`, `redis`, `livekit:7880` bind to `127.0.0.1` only
+- Public media ports stay open for LiveKit:
+  - `7881/tcp` (fallback)
+  - `7882/udp`
+  - `50000-50200/udp`
+
 ## 3) Validation Checklist
 
 ```bash

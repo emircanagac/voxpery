@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-voxpery}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
     container_name: voxpery-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,7 +47,9 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env}
     ports:
-      - "7880:7880"
+      # Signal API is reverse-proxied by nginx; keep it localhost-only.
+      - "127.0.0.1:7880:7880"
+      # TCP fallback can stay public for restrictive networks.
       - "7881:7881"
       - "7882:7882/udp"
       - "50000-50200:50000-50200/udp"
@@ -72,7 +74,7 @@ services:
       livekit:
         condition: service_started
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
 
   web:
     build:
@@ -87,7 +89,7 @@ services:
       server:
         condition: service_started
     ports:
-      - "${WEB_PORT:-5173}:80"
+      - "127.0.0.1:${WEB_PORT:-5173}:80"
 
 volumes:
   postgres_data:

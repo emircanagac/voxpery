@@ -245,6 +245,7 @@ add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss:/
 
 - [ ] TLS/SSL enabled (HTTPS)
 - [ ] Firewall configured (only 80/443 open)
+- [ ] If using LiveKit, allow only required RTC ports (`7881/tcp`, `7882/udp`, `50000-50200/udp`)
 - [ ] Database not exposed to internet
 - [ ] Backend binds to localhost (if behind reverse proxy)
 - [ ] Secrets rotated after initial setup
