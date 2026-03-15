@@ -8,6 +8,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use sha1::{Digest, Sha1};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -121,14 +122,16 @@ async fn register(
     .await?;
 
     // 2) IP-based rate limit (Flood protection)
-    let ip = headers
+    let client_ip = headers
         .get("cf-connecting-ip")
         .or_else(|| headers.get("x-forwarded-for"))
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown_ip");
+        .and_then(|raw| raw.split(',').next().map(str::trim))
+        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
+        .map(|ip| ip.to_string());
 
     // Allow max 5 accounts per IP per hour as basic flood protection
-    if ip != "unknown_ip" {
+    if let Some(ip) = client_ip.as_deref() {
         enforce_rate_limit(
             &state.redis,
             format!("auth:register_ip:{}", ip),
@@ -147,13 +150,16 @@ async fn register(
         }
 
         let client = reqwest::Client::new();
+        let mut verify_form = vec![
+            ("secret", secret_key.to_string()),
+            ("response", token.to_string()),
+        ];
+        if let Some(ip) = client_ip.as_deref() {
+            verify_form.push(("remoteip", ip.to_string()));
+        }
         let res = client
             .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-            .form(&[
-                ("secret", secret_key.as_str()),
-                ("response", token),
-                ("remoteip", ip),
-            ])
+            .form(&verify_form)
             .send()
             .await
             .map_err(|e| {
