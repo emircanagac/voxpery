@@ -817,7 +817,10 @@ export default function DmPage() {
                 multiple
                 accept="*/*"
                 style={{ display: 'none' }}
-                onChange={(e) => handleAttachmentPick(e.target.files)}
+                onChange={(e) => {
+                  handleAttachmentPick(e.target.files)
+                  e.currentTarget.value = ''
+                }}
               />
             </label>
             <button

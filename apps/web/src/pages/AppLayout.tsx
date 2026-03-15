@@ -176,6 +176,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [newServerName, setNewServerName] = useState('')
     const [inviteCode, setInviteCode] = useState('')
     const [createServerError, setCreateServerError] = useState<string | null>(null)
+    const [isCreatingServer, setIsCreatingServer] = useState(false)
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
@@ -255,6 +256,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const activeServerIdRef = useRef(activeServerId)
     const tokenRef = useRef(token)
     const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
+    const createServerInFlightRef = useRef(false)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
 
@@ -961,8 +963,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const handleCreateServer = async (e: FormEvent) => {
         e.preventDefault()
+        if (createServerInFlightRef.current) return
         setCreateServerError(null)
         if (!newServerName.trim() || !isLoggedIn) return
+        createServerInFlightRef.current = true
+        setIsCreatingServer(true)
         try {
             const server = await serverApi.create(newServerName, token)
             const allServers = await serverApi.list(token)
@@ -973,6 +978,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to create server.'
             setCreateServerError(message)
+        } finally {
+            createServerInFlightRef.current = false
+            setIsCreatingServer(false)
         }
     }
 
@@ -994,6 +1002,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const openCreateModal = () => {
+        createServerInFlightRef.current = false
+        setIsCreatingServer(false)
         setCreateServerError(null)
         setShowCreateServer(true)
     }
@@ -2042,7 +2052,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 <>
                     {/* Create Server Modal */}
                     {showCreateServer && (
-                        <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(null); }}>
+                        <div
+                            className="modal-overlay"
+                            onClick={() => {
+                                if (isCreatingServer) return
+                                setShowCreateServer(false)
+                                setCreateServerError(null)
+                            }}
+                        >
                             <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
                                 <h2>Create a Server</h2>
                                 {createServerError && (
@@ -2056,12 +2073,26 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         onChange={(e) => setNewServerName(e.target.value)}
                                         placeholder="My Awesome Server"
                                         autoFocus
+                                        disabled={isCreatingServer}
                                         required
                                     />
                                 </div>
                                 <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateServer(false); setCreateServerError(null); }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Create</button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        disabled={isCreatingServer}
+                                        onClick={() => {
+                                            if (isCreatingServer) return
+                                            setShowCreateServer(false)
+                                            setCreateServerError(null)
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button type="submit" className="btn btn-primary" disabled={isCreatingServer}>
+                                        {isCreatingServer ? 'Creating...' : 'Create'}
+                                    </button>
                                 </div>
                             </form>
                         </div>

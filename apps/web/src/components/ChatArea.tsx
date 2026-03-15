@@ -969,7 +969,10 @@ export default function ChatArea({
                             accept="*/*"
                             style={{ display: 'none' }}
                             disabled={!canSendMessages}
-                            onChange={(e) => onPickAttachments(e.target.files)}
+                            onChange={(e) => {
+                                onPickAttachments(e.target.files)
+                                e.currentTarget.value = ''
+                            }}
                         />
                     </label>
                     <button
