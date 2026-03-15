@@ -3745,26 +3745,35 @@ body {
 .auth-btn {
   width: 100%;
   padding: 12px;
-  background: var(--accent-gradient);
-  border: none;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border: 1px solid rgba(147, 197, 253, 0.35);
   border-radius: var(--border-radius-sm);
-  color: white;
+  color: #eff6ff;
   font-family: var(--font-primary);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 650;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
   margin-top: 8px;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
 }
 
 .auth-btn:hover {
-  opacity: 0.9;
-  box-shadow: var(--accent-glow);
+  background: linear-gradient(180deg, #4f8ef8 0%, #2f6eec 100%);
+  border-color: rgba(191, 219, 254, 0.55);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
   transform: translateY(-1px);
 }
 
 .auth-btn:active {
   transform: translateY(0);
+}
+
+.auth-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  box-shadow: none;
+  transform: none;
 }
 
 .auth-divider {

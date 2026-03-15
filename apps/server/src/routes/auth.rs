@@ -156,21 +156,43 @@ async fn register(
             ])
             .send()
             .await
-            .map_err(|e| AppError::Internal(format!("CAPTCHA service error: {}", e)))?;
+            .map_err(|e| {
+                tracing::warn!("Turnstile verify request failed: {}", e);
+                AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+            })?;
 
         #[derive(serde::Deserialize)]
         struct TurnstileResponse {
             success: bool,
+            #[serde(default)]
+            error_codes: Vec<String>,
         }
 
-        let verify_result = res
-            .json::<TurnstileResponse>()
-            .await
-            .map_err(|e| AppError::Internal(format!("CAPTCHA parse error: {}", e)))?;
+        let status = res.status();
+        let raw = res.text().await.map_err(|e| {
+            tracing::warn!("Turnstile verify response read failed: {}", e);
+            AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+        })?;
+
+        if !status.is_success() {
+            tracing::warn!("Turnstile verify non-success status: {}", status);
+            return Err(AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            ));
+        }
+
+        let verify_result = serde_json::from_str::<TurnstileResponse>(&raw).map_err(|e| {
+            tracing::warn!("Turnstile verify JSON parse failed: {}", e);
+            AppError::Validation("CAPTCHA verification service is temporarily unavailable. Please try again.".into())
+        })?;
 
         if !verify_result.success {
+            tracing::warn!(
+                "Turnstile verification failed for register request: {:?}",
+                verify_result.error_codes
+            );
             return Err(AppError::Validation(
-                "CAPTCHA verification failed. Are you a robot?".into(),
+                "CAPTCHA verification failed. Please retry the challenge.".into(),
             ));
         }
     }
