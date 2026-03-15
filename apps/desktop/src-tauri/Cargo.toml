@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Voxpery Desktop — Tauri-based desktop app"
 license = "AGPL-3.0-only"

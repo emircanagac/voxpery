@@ -69,6 +69,13 @@ if (tauri) {
     fail('Updater artifacts are enabled but updater pubkey is missing or placeholder')
   }
 
+  const installerIcon = tauri.bundle?.windows?.nsis?.installerIcon
+  if (installerIcon !== 'icons/icon.ico') {
+    fail(
+      `tauri.conf.json bundle.windows.nsis.installerIcon must be "icons/icon.ico" (found: ${String(installerIcon)})`,
+    )
+  }
+
   const signingPrivateKey = process.env.TAURI_SIGNING_PRIVATE_KEY
   if (createUpdaterArtifacts && !signingPrivateKey) {
     fail('Updater artifacts are enabled but TAURI_SIGNING_PRIVATE_KEY is not configured')

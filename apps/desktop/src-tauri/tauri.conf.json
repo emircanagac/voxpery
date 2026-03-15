@@ -1,6 +1,6 @@
 {
   "productName": "Voxpery",
-    "version": "0.1.0",
+    "version": "0.1.1",
   "identifier": "com.voxpery",
   "build": {
     "frontendDist": "../../web/dist",
@@ -54,6 +54,9 @@
     ],
     "createUpdaterArtifacts": false,
     "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }

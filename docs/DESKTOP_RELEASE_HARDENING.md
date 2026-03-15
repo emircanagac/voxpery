@@ -7,6 +7,7 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - `apps/desktop/src-tauri/tauri.conf.json` must keep:
   - `productName = "Voxpery"`
   - `identifier = "com.voxpery"`
+  - `bundle.windows.nsis.installerIcon = "icons/icon.ico"`
   - `bundle.icon` includes at least:
     - `icons/icon.ico`
     - `icons/icon.icns`
