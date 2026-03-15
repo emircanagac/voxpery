@@ -380,11 +380,14 @@ export default function MemberSidebar({
         const desiredX = (sidebarRect?.left ?? e.clientX) - profileWidth - 12
         const desiredY = itemRect.top - 6
         const pos = clampMenuPosition(desiredX, desiredY, profileWidth, profileHeight)
-        setProfileCard({
-            member,
-            isServerOwner,
-            x: pos.x,
-            y: pos.y,
+        setProfileCard((prev) => {
+            if (prev?.member.user_id === member.user_id) return null
+            return {
+                member,
+                isServerOwner,
+                x: pos.x,
+                y: pos.y,
+            }
         })
     }, [])
 
