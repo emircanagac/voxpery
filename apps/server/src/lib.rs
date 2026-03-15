@@ -15,6 +15,7 @@ use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::trace::TraceLayer;
 
 pub mod config;
 pub mod errors;
@@ -40,6 +41,9 @@ pub struct AppState {
     pub voice_controls: DashMap<uuid::Uuid, (bool, bool, bool, bool, bool, bool)>,
     pub auth_rate_limit_max: usize,
     pub auth_rate_limit_window_secs: u64,
+    pub login_failure_max_attempts: usize,
+    pub login_failure_ip_max_attempts: usize,
+    pub login_failure_window_secs: u64,
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
     pub cookie_secure: bool,
@@ -62,24 +66,32 @@ pub struct AppState {
 
 /// GET /health — liveness/readiness for load balancers and k8s.
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match sqlx::query("SELECT 1").execute(&state.db).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({
-                "status": "ok",
-                "database": "connected"
-            })),
-        )
-            .into_response(),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "status": "unhealthy",
-                "database": "disconnected"
-            })),
-        )
-            .into_response(),
-    }
+    let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
+    let redis_ok = match state.redis.get_multiplexed_async_connection().await {
+        Ok(mut conn) => redis::cmd("PING")
+            .query_async(&mut conn)
+            .await
+            .map(|pong: String| pong.eq_ignore_ascii_case("pong"))
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+
+    let overall_ok = db_ok && redis_ok;
+    let status = if overall_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status,
+        Json(json!({
+            "status": if overall_ok { "ok" } else { "unhealthy" },
+            "database": if db_ok { "connected" } else { "disconnected" },
+            "redis": if redis_ok { "connected" } else { "disconnected" }
+        })),
+    )
+        .into_response()
 }
 
 pub fn should_sanitize_client_error(body: &str) -> bool {
@@ -202,6 +214,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(map_response(sanitize_verbose_client_errors))
+        .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)
 }

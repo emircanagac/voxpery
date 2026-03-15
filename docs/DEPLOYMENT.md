@@ -59,6 +59,7 @@ Security defaults in compose:
   - `7881/tcp` (fallback)
   - `7882/udp`
   - `50000-50200/udp`
+- Container logs use rotation (`max-size=10m`, `max-file=5`) to avoid disk growth
 
 ## 3) Validation Checklist
 
@@ -107,8 +108,25 @@ web:
 ## 6) Backups
 
 ```bash
-docker compose exec postgres pg_dump -U ${POSTGRES_USER:-voxpery} ${POSTGRES_DB:-voxpery} > backup-$(date +%F).sql
+./scripts/ops/db_backup.sh
 ```
+
+Restore (explicit confirmation required):
+
+```bash
+RESTORE_CONFIRM=YES ./scripts/ops/db_restore.sh backups/postgres/<backup-file>.sql.gz
+```
+
+Healthcheck:
+
+```bash
+./scripts/ops/stack_healthcheck.sh
+./scripts/ops/critical_log_scan.sh
+```
+
+For production operations, alerting and restore drill checklist, see:
+
+- `docs/OPERATIONS_RUNBOOK.md`
 
 ## Notes
 

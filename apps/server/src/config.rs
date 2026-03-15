@@ -10,6 +10,9 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub auth_rate_limit_max: usize,
     pub auth_rate_limit_window_secs: u64,
+    pub login_failure_max_attempts: usize,
+    pub login_failure_ip_max_attempts: usize,
+    pub login_failure_window_secs: u64,
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
     /// Optional admin account for default setup. If all three are set, a user is created at startup (if none with that email exists) and becomes owner of the default Voxpery server.
@@ -93,6 +96,18 @@ impl Config {
                 .unwrap_or_else(|_| "60".into())
                 .parse()
                 .expect("AUTH_RATE_LIMIT_WINDOW_SECS must be a number"),
+            login_failure_max_attempts: std::env::var("LOGIN_FAILURE_MAX_ATTEMPTS")
+                .unwrap_or_else(|_| "8".into())
+                .parse()
+                .expect("LOGIN_FAILURE_MAX_ATTEMPTS must be a number"),
+            login_failure_ip_max_attempts: std::env::var("LOGIN_FAILURE_IP_MAX_ATTEMPTS")
+                .unwrap_or_else(|_| "20".into())
+                .parse()
+                .expect("LOGIN_FAILURE_IP_MAX_ATTEMPTS must be a number"),
+            login_failure_window_secs: std::env::var("LOGIN_FAILURE_WINDOW_SECS")
+                .unwrap_or_else(|_| "900".into())
+                .parse()
+                .expect("LOGIN_FAILURE_WINDOW_SECS must be a number"),
             message_rate_limit_max: std::env::var("MESSAGE_RATE_LIMIT_MAX")
                 .unwrap_or_else(|_| "30".into())
                 .parse()

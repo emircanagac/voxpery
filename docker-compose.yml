@@ -2,6 +2,12 @@
 # Starts: Postgres + Redis + LiveKit + Rust backend + React web app
 # Usage: docker compose up -d --build
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -13,6 +19,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-voxpery}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    logging: *default-logging
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,6 +34,7 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    logging: *default-logging
     volumes:
       - redis_data:/data
     healthcheck:
@@ -53,6 +61,7 @@ services:
       - "7881:7881"
       - "7882:7882/udp"
       - "50000-50200:50000-50200/udp"
+    logging: *default-logging
     configs:
       - source: livekit_config
         target: /etc/livekit.yaml
@@ -75,6 +84,7 @@ services:
         condition: service_started
     ports:
       - "127.0.0.1:3001:3001"
+    logging: *default-logging
 
   web:
     build:
@@ -90,6 +100,7 @@ services:
         condition: service_started
     ports:
       - "127.0.0.1:${WEB_PORT:-5173}:80"
+    logging: *default-logging
 
 volumes:
   postgres_data:

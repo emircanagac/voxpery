@@ -176,15 +176,16 @@ Notes:
 ## Health
 
 - `GET /health`
-  - `200` when DB connected
-  - `503` when DB disconnected
+  - `200` when DB + Redis connected
+  - `503` when any critical dependency is unhealthy
 
 ## Rate Limit Notes
 
 Current key limits (Redis-backed):
 
 - Register: per-email + per-IP protection
-- Login: per-identifier
+- Login: per-identifier + per-IP protection
+- Login brute-force lock: temporary lockout per identifier and per IP after repeated failed attempts
 - Profile update: 12/min per user
 - Change password: 5/hour per user
 - Friend request: 10/min per user

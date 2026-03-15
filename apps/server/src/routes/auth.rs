@@ -7,6 +7,7 @@ use axum::{
     Extension, Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use redis::AsyncCommands;
 use sha1::{Digest, Sha1};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -62,6 +63,124 @@ fn visible_presence_from_preference(status: &str) -> &'static str {
         "invisible" | "offline" => "offline",
         _ => "online",
     }
+}
+
+fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.split(',').next().map(str::trim))
+        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
+        .map(|ip| ip.to_string())
+}
+
+fn login_failure_user_key(identifier: &str) -> String {
+    format!("auth:login_fail:user:{identifier}")
+}
+
+fn login_failure_ip_key(ip: &str) -> String {
+    format!("auth:login_fail:ip:{ip}")
+}
+
+async fn ensure_login_not_temporarily_locked(
+    state: &Arc<AppState>,
+    identifier: &str,
+    client_ip: Option<&str>,
+) -> Result<(), AppError> {
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
+
+    let user_key = login_failure_user_key(identifier);
+    let user_failures: i64 = conn.get(&user_key).await.unwrap_or(0);
+    if user_failures >= state.login_failure_max_attempts as i64 {
+        return Err(AppError::TooManyRequests(
+            "Too many login attempts. Please wait and try again.".into(),
+        ));
+    }
+
+    if let Some(ip) = client_ip {
+        let ip_key = login_failure_ip_key(ip);
+        let ip_failures: i64 = conn.get(&ip_key).await.unwrap_or(0);
+        if ip_failures >= state.login_failure_ip_max_attempts as i64 {
+            return Err(AppError::TooManyRequests(
+                "Too many login attempts. Please wait and try again.".into(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn record_login_failure(
+    state: &Arc<AppState>,
+    identifier: &str,
+    client_ip: Option<&str>,
+) -> Result<(), AppError> {
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
+
+    let user_key = login_failure_user_key(identifier);
+    let user_failures: i64 = conn
+        .incr(&user_key, 1)
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis increment failed: {e}")))?;
+    if user_failures == 1 {
+        let _: bool = conn
+            .expire(&user_key, state.login_failure_window_secs as i64)
+            .await
+            .map_err(|e| AppError::Internal(format!("Redis expire failed: {e}")))?;
+    }
+
+    if let Some(ip) = client_ip {
+        let ip_key = login_failure_ip_key(ip);
+        let ip_failures: i64 = conn
+            .incr(&ip_key, 1)
+            .await
+            .map_err(|e| AppError::Internal(format!("Redis increment failed: {e}")))?;
+        if ip_failures == 1 {
+            let _: bool = conn
+                .expire(&ip_key, state.login_failure_window_secs as i64)
+                .await
+                .map_err(|e| AppError::Internal(format!("Redis expire failed: {e}")))?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn clear_login_failures(
+    state: &Arc<AppState>,
+    identifier: &str,
+    client_ip: Option<&str>,
+) -> Result<(), AppError> {
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
+
+    let user_key = login_failure_user_key(identifier);
+    let _: i64 = conn
+        .del(&user_key)
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis delete failed: {e}")))?;
+
+    if let Some(ip) = client_ip {
+        let ip_key = login_failure_ip_key(ip);
+        let _: i64 = conn
+            .del(&ip_key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Redis delete failed: {e}")))?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -122,13 +241,7 @@ async fn register(
     .await?;
 
     // 2) IP-based rate limit (Flood protection)
-    let client_ip = headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|raw| raw.split(',').next().map(str::trim))
-        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
-        .map(|ip| ip.to_string());
+    let client_ip = extract_client_ip(&headers);
 
     // Allow max 5 accounts per IP per hour as basic flood protection
     if let Some(ip) = client_ip.as_deref() {
@@ -547,31 +660,54 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
 /// POST /api/auth/login
 async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
+    let identifier = body.identifier.trim().to_lowercase();
+    let client_ip = extract_client_ip(&headers);
+
     enforce_rate_limit(
         &state.redis,
-        format!("auth:login:{}", body.identifier.trim().to_lowercase()),
+        format!("auth:login:{identifier}"),
         state.auth_rate_limit_max,
         Duration::from_secs(state.auth_rate_limit_window_secs),
         "Too many login attempts. Please wait and try again.",
     )
     .await?;
 
+    if let Some(ip) = client_ip.as_deref() {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:login_ip:{ip}"),
+            state.login_failure_ip_max_attempts,
+            Duration::from_secs(state.login_failure_window_secs),
+            "Too many login attempts. Please wait and try again.",
+        )
+        .await?;
+    }
+
+    ensure_login_not_temporarily_locked(&state, &identifier, client_ip.as_deref()).await?;
+
     // Find user by email or username (case-insensitive)
-    let identifier = body.identifier.trim();
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)",
     )
-    .bind(identifier)
+    .bind(&identifier)
     .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::InvalidCredentials)?;
+    .await?;
+
+    let Some(user) = user else {
+        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
+        return Err(AppError::InvalidCredentials);
+    };
 
     // Verify password
     if !verify_password(&body.password, &user.password_hash)? {
+        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     }
+
+    clear_login_failures(&state, &identifier, client_ip.as_deref()).await?;
 
     // Ensure user is in official Voxpery community on login as well
     ensure_default_server_join(&state.db, user.id).await?;
