@@ -1,7 +1,6 @@
-# Voxpery — Production-ready infrastructure stack (Postgres + Redis + LiveKit SFU)
-# Usage: docker compose up -d
-# Note: Backend (Rust) and Web (Node + Nginx) are expected to run on the host.
-# See docs/hosting.md for detailed deployment instructions.
+# Voxpery — Full stack Docker Compose
+# Starts: Postgres + Redis + LiveKit + Rust backend + React web app
+# Usage: docker compose up -d --build
 
 services:
   postgres:
@@ -10,19 +9,18 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-voxpery}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-voxpery}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U voxpery"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voxpery} -d ${POSTGRES_DB:-voxpery}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # Redis is required by LiveKit for distributed state and room management
   redis:
     image: redis:7-alpine
     container_name: voxpery-redis
@@ -35,36 +33,62 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # LiveKit SFU: Handles WebRTC signaling and media routing
-  # Uses network_mode: host so LiveKit sees real network interfaces and public IP directly.
-  # This eliminates Docker NAT overhead and ensures correct ICE candidate advertisement.
+  # LiveKit runs on bridge networking for cross-platform Docker compatibility.
   livekit:
     image: livekit/livekit-server:latest
     container_name: voxpery-livekit
     restart: unless-stopped
-    network_mode: host
     depends_on:
       redis:
         condition: service_healthy
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env file}
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET}"
-      # Dev default is false; set true in production when clients connect over public internet.
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env}
       LIVEKIT_RTC_USE_EXTERNAL_IP: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
-    # LiveKit uses: 7880 (WS), 7881 (TCP), 7882 (UDP), 50000-50200 (media UDP)
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "50000-50200:50000-50200/udp"
     configs:
       - source: livekit_config
         target: /etc/livekit.yaml
     command: ["--config", "/etc/livekit.yaml"]
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: voxpery-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+    container_name: voxpery-web
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-5173}:80"
 
 volumes:
   postgres_data:
@@ -77,18 +101,15 @@ configs:
       log_level: info
 
       rtc:
-        # UDP port range must match the exposed ports in the docker service definition
         port_range_start: 50000
         port_range_end: 50200
         udp_port: 7882
         tcp_port: 7881
-        # Enables direct client-to-server UDP for media, bypassing reverse proxies (NAT Traversal)
-        # Note: use_external_ip is injected dynamically via environment variable
         use_external_ip: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
 
-      # network_mode: host means Redis is on localhost, not Docker DNS
+      # LiveKit and Redis are on the same Compose network.
       redis:
-        address: localhost:6379
+        address: redis:6379
 
-      # Security Note: API keys are securely loaded from the LIVEKIT_KEYS environment variable.
-      # Do not hardcode credentials in this configuration block.
+      keys:
+        "${LIVEKIT_API_KEY:-devkey}": "${LIVEKIT_API_SECRET}"

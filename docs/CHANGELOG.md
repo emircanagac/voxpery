@@ -10,9 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - PR template for contribution quality and security checks.
 - Dependabot configuration for GitHub Actions, Rust, and web dependencies.
+- Release smoke checklist doc for mandatory web + desktop release sign-off.
 
 ### Changed
 - Documentation sync guidance strengthened to reduce permission/schema drift.
+- Desktop release workflow now runs preflight metadata/icon validation and requires checklist confirmation on manual release runs.
 
 ## [0.1.0] - 2026-03-14
 

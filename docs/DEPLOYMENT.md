@@ -1,22 +1,17 @@
 # Deployment Guide
 
-This guide reflects the **current repository structure**:
+This repository now supports a **full Docker Compose deployment**:
 
-- `docker-compose.yml` manages **infrastructure only** (`postgres`, `redis`, `livekit`)
-- backend (`apps/server`) runs as a host process/service
-- frontend (`apps/web`) builds to static files and is served by Nginx
-
-If you need a fully containerized API/web deployment, create separate Dockerfiles and orchestrator manifests first.
+- `postgres`
+- `redis`
+- `livekit`
+- `server` (Rust backend)
+- `web` (React static build served by Nginx)
 
 ## Prerequisites
 
-- Ubuntu 22.04+ (or equivalent Linux host)
 - Docker Engine + Docker Compose v2
-- Rust 1.75+
-- Node.js 20+
-- Nginx
-- Domain + DNS control
-- TLS certificates (Let's Encrypt recommended)
+- A copied `.env` file from `.env.example`
 
 ## 1) Prepare Environment
 
@@ -26,221 +21,83 @@ cd voxpery
 cp .env.example .env
 ```
 
-Update `.env`:
+Edit `.env` and set strong production values at minimum:
+
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
+- `LIVEKIT_API_SECRET`
+- `ADMIN_PASSWORD`
+- `COOKIE_SECURE=1` (when using HTTPS)
+- `CORS_ORIGINS` with your production origins only
+- `VITE_API_URL` (public backend URL used by frontend build)
+
+## 2) Start Full Stack
 
 ```bash
-# Database / cache
-DATABASE_URL=postgresql://voxpery:<STRONG_PASSWORD>@127.0.0.1:5432/voxpery
-REDIS_URL=redis://127.0.0.1:6379
-
-# Backend
-SERVER_HOST=127.0.0.1
-SERVER_PORT=3001
-JWT_SECRET=<RANDOM_32+_BYTE_SECRET>
-CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com,https://app.your-domain.com
-COOKIE_SECURE=1
-
-# LiveKit
-LIVEKIT_WS_URL=wss://livekit.your-domain.com
-LIVEKIT_API_KEY=<LIVEKIT_KEY>
-LIVEKIT_API_SECRET=<LIVEKIT_SECRET>
-
-# Frontend
-VITE_API_URL=https://api.your-domain.com
-```
-
-Notes:
-- `CORS_ORIGINS` must never contain `*`.
-- For non-local origins, `COOKIE_SECURE=1` is required.
-- `LIVEKIT_API_SECRET` must match the secret used by your LiveKit server.
-
-## 2) Start Infrastructure
-
-```bash
-docker compose up -d
+docker compose up -d --build
 docker compose ps
 ```
 
-Expected services: `postgres`, `redis`, `livekit`.
+Default ports:
 
-## 3) Build and Run Backend
+- Web: `http://localhost:${WEB_PORT:-5173}`
+- API: `http://localhost:3001`
+- Postgres: `localhost:5432`
+- Redis: `localhost:6379`
+- LiveKit: `localhost:7880`
 
-```bash
-cd apps/server
-cargo build --release
-```
-
-Create a systemd unit:
-
-```ini
-# /etc/systemd/system/voxpery-server.service
-[Unit]
-Description=Voxpery Backend
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/voxpery/apps/server
-EnvironmentFile=/opt/voxpery/.env
-ExecStart=/opt/voxpery/apps/server/target/release/voxpery-server
-Restart=always
-RestartSec=3
-User=www-data
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable + start:
+## 3) Validation Checklist
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now voxpery-server
-sudo systemctl status voxpery-server
-```
-
-## 4) Build Frontend
-
-```bash
-cd apps/web
-npm ci
-npm run build
-```
-
-Output directory: `apps/web/dist`.
-
-## 5) Configure Nginx
-
-```nginx
-upstream voxpery_api {
-    server 127.0.0.1:3001;
-}
-
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 80;
-    server_name api.your-domain.com;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-
-    root /opt/voxpery/apps/web/dist;
-    index index.html;
-
-    location / {
-        try_files $uri /index.html;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    server_name api.your-domain.com;
-
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-
-    location / {
-        proxy_pass http://voxpery_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket upgrade support
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-## 6) TLS Setup (Let's Encrypt)
-
-```bash
-sudo apt update
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com -d api.your-domain.com
-```
-
-(If LiveKit is exposed via `livekit.your-domain.com`, include it in cert issuance too.)
-
-## 7) Validation Checklist
-
-```bash
-# Infra
-docker compose ps
-
-# Backend health
-curl -f https://api.your-domain.com/health
-
-# Frontend
-curl -I https://your-domain.com
+curl -f http://localhost:3001/health
+curl -I http://localhost:${WEB_PORT:-5173}
 ```
 
 Manual checks:
-- Register/login works in web app
-- Channel messaging works
-- Voice join works (LiveKit)
-- Logout invalidates session
 
-## 8) Operations
+- Register/login works
+- Server/channel/category permissions work
+- Voice join works
+- Moderation actions (kick/ban) work
 
-### Logs
-
-```bash
-docker compose logs -f
-sudo journalctl -u voxpery-server -f
-```
-
-### Update Procedure
+## 4) Updating
 
 ```bash
-cd /opt/voxpery
 git pull
-
-docker compose up -d
-
-cd apps/web && npm ci && npm run build
-cd ../server && cargo build --release
-sudo systemctl restart voxpery-server
+docker compose up -d --build
 ```
 
-### Backup (PostgreSQL)
+## 5) DockerHub (Optional, Recommended for Production)
+
+You can prebuild and push images, then use `image:` in compose.
+
+Example:
 
 ```bash
-docker compose exec postgres pg_dump -U voxpery voxpery > /var/backups/voxpery-$(date +%F).sql
+docker build -t <dockerhub-user>/voxpery-server:v0.1.0 ./apps/server
+docker build -t <dockerhub-user>/voxpery-web:v0.1.0 ./apps/web
+docker push <dockerhub-user>/voxpery-server:v0.1.0
+docker push <dockerhub-user>/voxpery-web:v0.1.0
 ```
 
-## Common Issues
+Then switch compose services from `build:` to:
 
-### CORS errors in browser
+```yaml
+server:
+  image: <dockerhub-user>/voxpery-server:v0.1.0
 
-- Ensure frontend domain is listed in `CORS_ORIGINS`
-- Ensure `COOKIE_SECURE=1` in production (HTTPS)
+web:
+  image: <dockerhub-user>/voxpery-web:v0.1.0
+```
 
-### API unavailable behind Nginx
+## 6) Backups
 
-- Verify backend is running on `127.0.0.1:3001`
-- Check `voxpery-server` service status and logs
+```bash
+docker compose exec postgres pg_dump -U ${POSTGRES_USER:-voxpery} ${POSTGRES_DB:-voxpery} > backup-$(date +%F).sql
+```
 
-### Voice connection fails
+## Notes
 
-- Verify `LIVEKIT_WS_URL` is reachable from clients
-- Verify `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` match server config
-- Deploy the full `apps/web/dist` (including `dist/assets/`). If the browser requests a worklet script under `/assets/*` and the server returns `index.html` (SPA fallback), voice will fail with errors like "unexpected token: keyword 'class'". Ensure Nginx (or your host) serves real files from `dist` so `/assets/*.js` are the built JS chunks, not the SPA shell.
-
----
-
-For contributor setup (local dev), see [DEVELOPMENT.md](DEVELOPMENT.md).
-For project overview, see [../README.md](../README.md).
+- LiveKit runs on bridge networking with explicit port mappings for cross-platform compatibility.
+- Backend migrations run automatically on startup.
+- Frontend is built at image build time, so changing `VITE_API_URL` requires rebuilding the `web` image.

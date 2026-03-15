@@ -53,11 +53,12 @@ Voxpery follows Semantic Versioning:
 ### Release Checklist
 
 1. Ensure CI is green on release branch/tag.
-2. Validate critical paths: auth, messaging+websocket, voice join/leave.
-3. Update docs for behavior changes.
-4. Update changelog entry.
-5. Create Git tag (for example `v1.4.0`).
-6. Publish GitHub Release notes.
+2. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
+3. Validate critical paths: auth, messaging+websocket, voice join/leave.
+4. Update docs for behavior changes.
+5. Update changelog entry.
+6. Create Git tag (for example `v1.4.0`).
+7. Publish GitHub Release notes.
 
 ### Changelog Sections
 

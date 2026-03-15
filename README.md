@@ -77,7 +77,7 @@
 
 ### For Self-Hosters: Deploy Your Own
 
-**Easiest:** Start infra with Docker Compose, then run backend + web apps
+**Easiest:** Run the full stack with Docker Compose
 
 ```bash
 git clone https://github.com/emircanagac/voxpery.git
@@ -86,21 +86,15 @@ cd voxpery
 # Copy and edit environment
 cp .env.example .env
 
-# Start infrastructure only (postgres + redis + livekit)
-docker compose up -d
-
-# Run backend
-cd apps/server && cargo run
-
-# Run frontend (new terminal)
-cd apps/web && npm run dev
+# Start full stack (postgres + redis + livekit + backend + web)
+docker compose up -d --build
 
 # Open http://localhost:5173
 ```
 
 **Need production setup?** → See [**Deployment Guide**](docs/DEPLOYMENT.md)
-- Nginx + TLS setup
-- systemd backend service
+- Full Docker Compose deployment
+- Reverse proxy/TLS options
 - Backup and operations checklist
 
 **For developers:** See [Contributing Guide](docs/CONTRIBUTING.md)
@@ -118,16 +112,14 @@ cargo tauri dev
 
 See [**docs/DEPLOYMENT.md**](docs/DEPLOYMENT.md) for complete setup guide covering:
 
-- **Docker Compose** — Infrastructure stack (Postgres, Redis, LiveKit)
-- **Host services** — Rust backend as `systemd` service + React static build
-- **Nginx + TLS** — Reverse proxy and certificate setup
+- **Docker Compose** — Full stack (Postgres, Redis, LiveKit, backend, web)
+- **DockerHub option** — Prebuilt image workflow for production
+- **Nginx + TLS** — Reverse proxy and certificate setup (optional, for domain deployment)
 - **Troubleshooting** — Health checks, backups, monitoring, performance tuning
 
 **TL;DR local setup:**
 ```bash
-docker compose up -d  # Postgres + Redis + LiveKit
-cd apps/web && npm run dev
-cd apps/server && cargo run
+docker compose up -d --build  # Full stack
 # Open http://localhost:5173
 ```
 
@@ -139,6 +131,7 @@ cd apps/server && cargo run
 - **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** — Community standards, enforcement
 - **[ROADMAP.md](docs/ROADMAP.md)** — Feature priorities & roadmap through Q4 2026
 - **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** — Support, governance, and release workflow
+- **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** — Mandatory release sign-off checklist (web + desktop)
 - **[CHANGELOG.md](docs/CHANGELOG.md)** — Notable changes by release
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Production deployment guide
 - **[docs/](docs/)** — Architecture, voice system, API, database, security, development

@@ -1,0 +1,6 @@
+target
+tests
+node_modules
+.git
+.env
+.env.*

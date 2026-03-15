@@ -18,6 +18,14 @@ on:
           - windows
           - macos
           - linux
+      smoke_checklist_confirmed:
+        description: 'I completed docs/RELEASE_SMOKE_TEST_CHECKLIST.md for this candidate release'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
   push:
     tags:
       - 'v*'
@@ -26,7 +34,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Validate desktop metadata and icon bundle
+        run: node .github/scripts/validate-desktop-release.mjs
+
+      - name: Verify smoke checklist confirmation (manual runs)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.smoke_checklist_confirmed != 'yes'
+        run: |
+          echo "::error::Please complete docs/RELEASE_SMOKE_TEST_CHECKLIST.md and rerun with smoke_checklist_confirmed=yes."
+          exit 1
+
   build-desktop:
+    needs: preflight
     permissions:
       contents: write
     strategy:
