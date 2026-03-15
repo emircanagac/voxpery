@@ -46,7 +46,6 @@ services:
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env}
-      LIVEKIT_RTC_USE_EXTERNAL_IP: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
     ports:
       - "7880:7880"
       - "7881:7881"
@@ -105,7 +104,10 @@ configs:
         port_range_end: 50200
         udp_port: 7882
         tcp_port: 7881
-        use_external_ip: ${LIVEKIT_RTC_USE_EXTERNAL_IP:-false}
+        # Use deterministic node IP in all environments (no auto external IP discovery).
+        use_external_ip: false
+        # Set this in .env for production (server public IPv4).
+        node_ip: ${LIVEKIT_NODE_IP:-}
 
       # LiveKit and Redis are on the same Compose network.
       redis:

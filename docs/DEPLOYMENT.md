@@ -26,10 +26,16 @@ Edit `.env` and set strong production values at minimum:
 - `POSTGRES_PASSWORD`
 - `JWT_SECRET`
 - `LIVEKIT_API_SECRET`
+- `LIVEKIT_NODE_IP` (server public IPv4)
 - `ADMIN_PASSWORD`
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
 - `VITE_API_URL` (public backend URL used by frontend build)
+
+LiveKit note:
+
+- Compose uses `use_external_ip: false` (deterministic mode).
+- Set `LIVEKIT_NODE_IP` in production to avoid external IP discovery failures in containerized deployments.
 
 ## 2) Start Full Stack
 
