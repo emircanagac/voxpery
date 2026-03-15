@@ -54,6 +54,17 @@ async fn main() {
     tracing::info!("Database connected and migrations applied");
 
     let (tx, _rx) = broadcast::channel::<ws::WsEvent>(4096);
+    let attachment_service =
+        match voxpery_server::services::attachments::AttachmentService::from_config(&config).await {
+            Ok(service) => Arc::new(service),
+            Err(e) => {
+                tracing::error!("Attachment service initialization failed: {}", e);
+                return;
+            }
+        };
+    let attachment_local_dir = attachment_service
+        .local_storage_dir()
+        .map(|p| p.to_string_lossy().to_string());
 
     let state = Arc::new(AppState {
         db,
@@ -87,6 +98,8 @@ async fn main() {
         smtp_host: config.smtp_host.clone(),
         smtp_user: config.smtp_user.clone(),
         smtp_password: config.smtp_password.clone(),
+        attachment_service,
+        attachment_local_dir,
     });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (

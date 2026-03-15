@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -904,21 +904,32 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const handleAttachmentPick = async (files: FileList | null) => {
         if (!files) return
-        const list = Array.from(files).slice(0, 4)
-        const next: Array<{ name: string; url: string; size: number; type: string }> = []
+        const incoming = Array.from(files)
+        const remainingSlots = Math.max(0, 4 - draftAttachments.length)
+        if (remainingSlots === 0) {
+            pushToast({
+                level: 'error',
+                title: 'Upload blocked',
+                message: 'Maximum 4 attachments per message.',
+            })
+            return
+        }
+        const list = incoming.slice(0, remainingSlots)
+        if (incoming.length > remainingSlots) {
+            pushToast({
+                level: 'error',
+                title: 'Upload blocked',
+                message: 'Maximum 4 attachments per message.',
+            })
+        }
+        const allowed: File[] = []
         const oversized: string[] = []
         for (const f of list) {
             if (f.size > MAX_ATTACHMENT_BYTES) {
                 oversized.push(f.name)
                 continue
             }
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader()
-                reader.onload = () => resolve(String(reader.result))
-                reader.onerror = () => reject(reader.error)
-                reader.readAsDataURL(f)
-            })
-            next.push({ name: f.name, size: f.size, type: f.type, url: dataUrl })
+            allowed.push(f)
         }
         if (oversized.length > 0) {
             const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
@@ -928,7 +939,24 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 message: `Maximum ${maxMb} MB per file. Too large: ${oversized.join(', ')}`,
             })
         }
-        setDraftAttachments((prev) => [...prev, ...next].slice(0, 4))
+        if (allowed.length === 0) return
+
+        try {
+            const uploaded = await attachmentApi.uploadFiles(allowed, token)
+            const normalized = uploaded.map((att) => ({
+                name: att.name || 'attachment',
+                url: att.url,
+                size: typeof att.size === 'number' ? att.size : 0,
+                type: att.type || 'application/octet-stream',
+            }))
+            setDraftAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Upload failed',
+                message: err instanceof Error ? err.message : 'Could not upload attachment(s).',
+            })
+        }
     }
 
     const handleCreateServer = async (e: FormEvent) => {

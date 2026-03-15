@@ -15,6 +15,7 @@ use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 pub mod config;
@@ -62,6 +63,9 @@ pub struct AppState {
     pub smtp_host: Option<String>,
     pub smtp_user: Option<String>,
     pub smtp_password: Option<String>,
+    pub attachment_service: Arc<services::attachments::AttachmentService>,
+    /// Local upload directory. When present, exposed as /uploads/* static files.
+    pub attachment_local_dir: Option<String>,
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.
@@ -202,21 +206,30 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
     const BODY_LIMIT: usize = 10 * 1024 * 1024;
 
-    Router::new()
+    let mut app = Router::new()
         .route("/health", get(health_handler))
         .nest("/api/auth", routes::auth::router(state.clone()))
         .nest("/api/friends", routes::friends::router(state.clone()))
         .nest("/api/dm", routes::dm::router(state.clone()))
         .nest("/api/servers", routes::servers::router(state.clone()))
         .nest("/api/channels", routes::channels::router(state.clone()))
+        .nest(
+            "/api/attachments",
+            routes::attachments::router(state.clone()),
+        )
         .nest("/api/messages", routes::messages::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(map_response(sanitize_verbose_client_errors))
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .with_state(state)
+        .layer(cors);
+
+    if let Some(local_dir) = &state.attachment_local_dir {
+        app = app.nest_service("/uploads", ServeDir::new(local_dir));
+    }
+
+    app.with_state(state)
 }
 
 #[cfg(test)]

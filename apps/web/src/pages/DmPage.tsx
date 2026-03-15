@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Edit3, Paperclip, Reply, Save, Send, Share2, Trash2, Volume2, X, Smile } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
-import { dmApi, type DmChannel, type MessageWithAuthor } from '../api'
+import { attachmentApi, dmApi, type DmChannel, type MessageWithAuthor } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
@@ -303,21 +303,32 @@ export default function DmPage() {
 
   const handleAttachmentPick = async (files: FileList | null) => {
     if (!files) return
-    const list = Array.from(files).slice(0, 4)
-    const next: AttachmentItem[] = []
+    const incoming = Array.from(files)
+    const remainingSlots = Math.max(0, 4 - attachments.length)
+    if (remainingSlots === 0) {
+      pushToast({
+        level: 'error',
+        title: 'Upload blocked',
+        message: 'Maximum 4 attachments per message.',
+      })
+      return
+    }
+    const list = incoming.slice(0, remainingSlots)
+    if (incoming.length > remainingSlots) {
+      pushToast({
+        level: 'error',
+        title: 'Upload blocked',
+        message: 'Maximum 4 attachments per message.',
+      })
+    }
+    const allowed: File[] = []
     const oversized: string[] = []
     for (const f of list) {
       if (f.size > MAX_ATTACHMENT_BYTES) {
         oversized.push(f.name)
         continue
       }
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(f)
-      })
-      next.push({ name: f.name, size: f.size, type: f.type, url: dataUrl })
+      allowed.push(f)
     }
     if (oversized.length > 0) {
       const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
@@ -327,7 +338,23 @@ export default function DmPage() {
         message: `Maximum ${maxMb} MB per file. Too large: ${oversized.join(', ')}`,
       })
     }
-    setAttachments((prev) => [...prev, ...next].slice(0, 4))
+    if (allowed.length === 0) return
+    try {
+      const uploaded = await attachmentApi.uploadFiles(allowed, token)
+      const normalized: AttachmentItem[] = uploaded.map((att) => ({
+        name: att.name || 'attachment',
+        url: att.url,
+        size: typeof att.size === 'number' ? att.size : 0,
+        type: att.type || 'application/octet-stream',
+      }))
+      setAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'Upload failed',
+        message: err instanceof Error ? err.message : 'Could not upload attachment(s).',
+      })
+    }
   }
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {

@@ -31,17 +31,35 @@ Edit `.env` and set strong production values at minimum:
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
 - `VITE_API_URL` (public backend URL used by frontend build)
+- `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)
 
 LiveKit note:
 
 - Compose uses `use_external_ip: false` (deterministic mode).
 - Set `LIVEKIT_NODE_IP` in production to avoid external IP discovery failures in containerized deployments.
 
+Attachments note:
+
+- Default backend is `ATTACHMENTS_STORAGE=local` and files are served from `/uploads/*`.
+- For S3/R2 set `ATTACHMENTS_STORAGE=s3` and configure:
+  - `ATTACHMENTS_S3_BUCKET`
+  - `ATTACHMENTS_S3_REGION`
+  - `ATTACHMENTS_S3_ACCESS_KEY_ID`
+  - `ATTACHMENTS_S3_SECRET_ACCESS_KEY`
+  - `ATTACHMENTS_S3_ENDPOINT` (required for R2/S3-compatible endpoints)
+  - `ATTACHMENTS_PUBLIC_BASE_URL` (public CDN/base URL for object keys)
+
 ## 2) Start Full Stack
 
 ```bash
 docker compose up -d --build
 docker compose ps
+```
+
+Optional malware scan profile (ClamAV):
+
+```bash
+ATTACHMENTS_CLAMAV_ENABLED=1 docker compose --profile security up -d --build
 ```
 
 Default ports:

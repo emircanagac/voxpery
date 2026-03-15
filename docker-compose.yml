@@ -43,6 +43,13 @@ services:
       timeout: 5s
       retries: 10
 
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: voxpery-clamav
+    restart: unless-stopped
+    profiles: ["security"]
+    logging: *default-logging
+
   # LiveKit runs on bridge networking for cross-platform Docker compatibility.
   livekit:
     image: livekit/livekit-server:latest
@@ -75,6 +82,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      ATTACHMENTS_LOCAL_DIR: /home/voxpery/attachments
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +94,8 @@ services:
     ports:
       - "127.0.0.1:3001:3001"
     logging: *default-logging
+    volumes:
+      - attachments_data:/home/voxpery/attachments
 
   web:
     build:
@@ -105,6 +116,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  attachments_data:
 
 configs:
   livekit_config:

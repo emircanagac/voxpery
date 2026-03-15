@@ -40,6 +40,11 @@ reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
 bitflags = "2"
 lettre = { version = "0.11.19", features = ["tokio1", "tokio1-native-tls", "builder"] }
+aws-config = "1.8"
+aws-sdk-s3 = "1.66"
+aws-credential-types = "1.2"
+aws-types = "1.3"
+sha2 = "0.10"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

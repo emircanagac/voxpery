@@ -215,6 +215,46 @@ export interface AuthResponse {
     user: UserPublic
 }
 
+async function apiMultipartFetch<T>(path: string, formData: FormData, token?: string | null): Promise<T> {
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const url = `${effectiveApiBase()}${path}`
+    let res: Response
+    try {
+        res = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: formData,
+            credentials: isTauri() ? 'omit' : 'include',
+        })
+    } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        if (isNetworkError(err) || isTauri()) {
+            if (isTauri()) {
+                const apiHint = ` (API: ${getApiBase()})`
+                throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${detail}`)
+            }
+            throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${detail}`)
+        }
+        throw err
+    }
+
+    if (!res.ok) {
+        const text = await res.text()
+        let message: string
+        try {
+            const json = JSON.parse(text) as { error?: string }
+            message = json.error || text || `HTTP ${res.status}`
+        } catch {
+            message = text || `HTTP ${res.status}`
+        }
+        throw new Error(message)
+    }
+
+    return res.json()
+}
+
 export interface DataExportPayload {
     exported_at: string
     account: {
@@ -394,6 +434,14 @@ export interface ServerBanEntry {
     created_at: string
     username: string
     banned_by_username: string
+}
+
+export interface UploadedAttachment {
+    url: string
+    type?: string
+    name?: string
+    size?: number
+    sha256?: string
 }
 
 export interface ChannelCategory {
@@ -613,6 +661,14 @@ export const channelApi = {
             },
         ),
     }
+
+export const attachmentApi = {
+    uploadFiles: (files: File[], token: AuthToken) => {
+        const form = new FormData()
+        for (const file of files) form.append('files', file, file.name)
+        return apiMultipartFetch<UploadedAttachment[]>('/api/attachments/upload', form, token)
+    },
+}
 
 // ─── Friends ───────────────────────────
 

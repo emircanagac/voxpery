@@ -63,6 +63,15 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
 
     run_migrations(&db).await.expect("Failed to run migrations");
 
+    let upload_dir =
+        std::env::temp_dir().join(format!("voxpery-attachments-test-{}", Uuid::new_v4()));
+    let attachment_service =
+        voxpery_server::services::attachments::AttachmentService::new_local_for_tests(
+            upload_dir.clone(),
+        )
+        .await
+        .expect("Failed to init test attachment service");
+
     let (tx, _rx) = broadcast::channel(256);
     let state = Arc::new(AppState {
         db,
@@ -96,6 +105,8 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         smtp_host: None,
         smtp_password: None,
         smtp_user: None,
+        attachment_service: Arc::new(attachment_service),
+        attachment_local_dir: Some(upload_dir.to_string_lossy().to_string()),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
@@ -1818,6 +1829,74 @@ async fn account_delete_endpoint_enforces_privacy() {
         owner_after, del_user_id,
         "server ownership must be transferred away from deleted account"
     );
+}
+
+#[tokio::test]
+async fn attachment_upload_stores_file_and_returns_public_url() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("upload-{}@example.com", uid);
+    let username = format!("upload_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+    let (token, user_id) = register_user(&mut app, &email, &username, password).await;
+    let auth = format!("Bearer {}", token);
+
+    let boundary = format!("----voxperyboundary{}", Uuid::new_v4());
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"hello.txt\"\r\nContent-Type: text/plain\r\n\r\nhello from integration test\r\n--{boundary}--\r\n"
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body.into_bytes()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "upload failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let arr = payload.as_array().expect("upload response must be array");
+    assert_eq!(arr.len(), 1);
+    let uploaded = &arr[0];
+    let url = uploaded["url"].as_str().unwrap_or_default();
+    assert!(
+        url.starts_with("http://localhost:3001/uploads/"),
+        "unexpected upload URL: {url}"
+    );
+    assert_eq!(uploaded["type"], "text/plain");
+    assert_eq!(uploaded["name"], "hello.txt");
+    assert_eq!(uploaded["size"], 27);
+
+    let row: (String, String, String, i64) = sqlx::query_as(
+        r#"SELECT storage_backend, content_type, original_name, size_bytes
+           FROM uploaded_attachments
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(row.0, "local");
+    assert_eq!(row.1, "text/plain");
+    assert_eq!(row.2, "hello.txt");
+    assert_eq!(row.3, 27);
 }
 
 #[tokio::test]

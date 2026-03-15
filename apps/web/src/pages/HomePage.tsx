@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Activity, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
+  attachmentApi,
   dmApi,
   friendApi,
   serverApi,
@@ -444,21 +445,32 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const handleDmAttachmentPick = async (files: FileList | null) => {
     if (!files) return
-    const list = Array.from(files).slice(0, 4)
-    const next: Array<{ name: string; url: string; size: number; type: string }> = []
+    const incoming = Array.from(files)
+    const remainingSlots = Math.max(0, 4 - dmDraftAttachments.length)
+    if (remainingSlots === 0) {
+      pushToast({
+        level: 'error',
+        title: 'Upload blocked',
+        message: 'Maximum 4 attachments per message.',
+      })
+      return
+    }
+    const list = incoming.slice(0, remainingSlots)
+    if (incoming.length > remainingSlots) {
+      pushToast({
+        level: 'error',
+        title: 'Upload blocked',
+        message: 'Maximum 4 attachments per message.',
+      })
+    }
+    const allowed: File[] = []
     const oversized: string[] = []
     for (const f of list) {
       if (f.size > MAX_ATTACHMENT_BYTES) {
         oversized.push(f.name)
         continue
       }
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(f)
-      })
-      next.push({ name: f.name, size: f.size, type: f.type, url: dataUrl })
+      allowed.push(f)
     }
     if (oversized.length > 0) {
       const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
@@ -468,7 +480,23 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         message: `Maximum ${maxMb} MB per file. Too large: ${oversized.join(', ')}`,
       })
     }
-    setDmDraftAttachments((prev) => [...prev, ...next].slice(0, 4))
+    if (allowed.length === 0) return
+    try {
+      const uploaded = await attachmentApi.uploadFiles(allowed, token)
+      const normalized = uploaded.map((att) => ({
+        name: att.name || 'attachment',
+        url: att.url,
+        size: typeof att.size === 'number' ? att.size : 0,
+        type: att.type || 'application/octet-stream',
+      }))
+      setDmDraftAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'Upload failed',
+        message: err instanceof Error ? err.message : 'Could not upload attachment(s).',
+      })
+    }
   }
 
   const handleSendDm = async () => {

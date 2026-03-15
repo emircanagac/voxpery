@@ -184,7 +184,22 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 ### Path Traversal
 
 - **Avatar URLs**: validated to allowed image URL/data-url schemes.
-- **Attachments**: validated JSON payload with strict URL/data-url checks (no arbitrary server-side file path handling).
+- **Attachments**: message payload URLs are restricted to `http(s)` only; `data:` URLs are blocked for new messages.
+
+### File Upload Security
+
+- **Upload endpoint**: `POST /api/attachments/upload` (`multipart/form-data`, auth required)
+- **Validation**:
+  - per-file size limit (`ATTACHMENTS_MAX_FILE_BYTES`)
+  - per-request file count limit (`ATTACHMENTS_MAX_FILES_PER_REQUEST`)
+  - MIME allowlist (`ATTACHMENTS_ALLOWED_MIME_PREFIXES`)
+- **Malware scan**:
+  - Optional ClamAV (`ATTACHMENTS_CLAMAV_ENABLED=1`)
+  - `ATTACHMENTS_CLAMAV_FAIL_CLOSED=1` blocks uploads if scanner is unavailable
+- **Storage backends**:
+  - Local filesystem (`ATTACHMENTS_STORAGE=local`)
+  - S3/R2-compatible object storage (`ATTACHMENTS_STORAGE=s3`)
+  - Upload metadata persisted in `uploaded_attachments`
 
 ## TLS/SSL
 
@@ -288,4 +303,4 @@ For privacy policy, see main README or project website.
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-03-16.

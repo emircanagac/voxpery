@@ -22,6 +22,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --uid 10001 voxpery
+RUN mkdir -p /home/voxpery/attachments && chown -R voxpery:voxpery /home/voxpery
 
 COPY --from=builder /app/target/release/voxpery-server /usr/local/bin/voxpery-server
 

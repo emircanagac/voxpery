@@ -1,18 +1,487 @@
-//! Attachment URL validation to prevent XSS (javascript:, data:, etc.) in message attachments.
-//! Allows http/https URLs and safe base64 data: URLs (images, video, audio, pdf, text/plain).
+//! Attachment upload, storage, malware scanning, and URL validation.
 
+use std::{path::PathBuf, time::Duration};
+
+use aws_config::BehaviorVersion;
+use aws_credential_types::Credentials;
+use aws_sdk_s3::{primitives::ByteStream, Client as S3Client};
+use aws_types::region::Region;
+use chrono::Datelike;
+use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    time::timeout,
+};
+use uuid::Uuid;
 
-use crate::errors::AppError;
+use crate::{config::Config, errors::AppError};
 
 const MAX_URL_LEN: usize = 2048;
-/// Base64-encoded files can be large; 12 MB covers the frontend's 8 MB file limit + ~33% base64 overhead.
-const MAX_DATA_URL_LEN: usize = 12 * 1024 * 1024;
-const MAX_ATTACHMENTS: usize = 10;
+const DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE: usize = 10;
 
-/// Validates the attachments JSON before persisting. Rejects any attachment with a URL
-/// that could lead to XSS (e.g. javascript:, dangerous data: MIME types) or that is not http(s) or safe data:.
-/// Returns Ok(()) if valid; Err(AppError::Validation(...)) otherwise.
+#[derive(Debug, Clone, Copy)]
+enum StorageBackendKind {
+    Local,
+    S3,
+}
+
+#[derive(Clone)]
+enum StorageBackend {
+    Local { base_dir: PathBuf },
+    S3 { client: S3Client, bucket: String },
+}
+
+#[derive(Clone)]
+struct ClamAvConfig {
+    enabled: bool,
+    host: String,
+    port: u16,
+    timeout_ms: u64,
+    fail_closed: bool,
+}
+
+#[derive(Clone)]
+pub struct AttachmentService {
+    storage_backend_kind: StorageBackendKind,
+    storage: StorageBackend,
+    public_base_url: String,
+    key_prefix: String,
+    max_file_bytes: usize,
+    max_files_per_request: usize,
+    allowed_mime_prefixes: Vec<String>,
+    scanner: ClamAvConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredAttachment {
+    pub storage_backend: &'static str,
+    pub storage_key: String,
+    pub url: String,
+    pub original_name: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AttachmentResponseItem {
+    pub url: String,
+    #[serde(rename = "type")]
+    pub content_type: String,
+    pub name: String,
+    pub size: i64,
+    pub sha256: String,
+}
+
+impl AttachmentService {
+    pub async fn from_config(config: &Config) -> Result<Self, AppError> {
+        let storage_mode = config.attachments_storage.trim().to_ascii_lowercase();
+        let key_prefix = config
+            .attachments_s3_key_prefix
+            .trim_matches('/')
+            .to_string();
+        let key_prefix = if key_prefix.is_empty() {
+            "attachments".to_string()
+        } else {
+            key_prefix
+        };
+        let max_file_bytes = config.attachments_max_file_bytes;
+        let max_files_per_request = config.attachments_max_files_per_request;
+        let allowed_mime_prefixes = config
+            .attachments_allowed_mime_prefixes
+            .iter()
+            .map(|v| v.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+
+        let scanner = ClamAvConfig {
+            enabled: config.attachments_clamav_enabled,
+            host: config.attachments_clamav_host.clone(),
+            port: config.attachments_clamav_port,
+            timeout_ms: config.attachments_clamav_timeout_ms,
+            fail_closed: config.attachments_clamav_fail_closed,
+        };
+
+        if storage_mode == "s3" {
+            let bucket = config
+                .attachments_s3_bucket
+                .clone()
+                .ok_or_else(|| AppError::Internal("ATTACHMENTS_S3_BUCKET is required".into()))?;
+            let region = config
+                .attachments_s3_region
+                .clone()
+                .ok_or_else(|| AppError::Internal("ATTACHMENTS_S3_REGION is required".into()))?;
+            let access_key = config.attachments_s3_access_key_id.clone().ok_or_else(|| {
+                AppError::Internal("ATTACHMENTS_S3_ACCESS_KEY_ID is required".into())
+            })?;
+            let secret_key = config
+                .attachments_s3_secret_access_key
+                .clone()
+                .ok_or_else(|| {
+                    AppError::Internal("ATTACHMENTS_S3_SECRET_ACCESS_KEY is required".into())
+                })?;
+            let public_base_url = config.attachments_public_base_url.clone().ok_or_else(|| {
+                AppError::Internal(
+                    "ATTACHMENTS_PUBLIC_BASE_URL is required when ATTACHMENTS_STORAGE=s3".into(),
+                )
+            })?;
+
+            let mut loader = aws_config::defaults(BehaviorVersion::latest())
+                .region(Region::new(region))
+                .credentials_provider(Credentials::new(
+                    access_key,
+                    secret_key,
+                    None,
+                    None,
+                    "voxpery-attachments",
+                ));
+            if let Some(endpoint) = &config.attachments_s3_endpoint {
+                loader = loader.endpoint_url(endpoint);
+            }
+            let shared_config = loader.load().await;
+            let mut conf_builder = aws_sdk_s3::config::Builder::from(&shared_config);
+            if config.attachments_s3_force_path_style {
+                conf_builder = conf_builder.force_path_style(true);
+            }
+            let client = S3Client::from_conf(conf_builder.build());
+
+            return Ok(Self {
+                storage_backend_kind: StorageBackendKind::S3,
+                storage: StorageBackend::S3 { client, bucket },
+                public_base_url: public_base_url.trim_end_matches('/').to_string(),
+                key_prefix,
+                max_file_bytes,
+                max_files_per_request,
+                allowed_mime_prefixes,
+                scanner,
+            });
+        }
+
+        let public_base_url = config
+            .attachments_public_base_url
+            .clone()
+            .or_else(|| config.public_api_url.clone())
+            .unwrap_or_else(|| "http://localhost:3001".to_string());
+        Self::new_local(
+            PathBuf::from(config.attachments_local_dir.clone()),
+            key_prefix,
+            max_file_bytes,
+            max_files_per_request,
+            allowed_mime_prefixes,
+            scanner,
+            public_base_url,
+        )
+        .await
+    }
+
+    pub async fn new_local_for_tests(base_dir: PathBuf) -> Result<Self, AppError> {
+        Self::new_local(
+            base_dir,
+            "attachments".to_string(),
+            5 * 1024 * 1024,
+            4,
+            vec![
+                "image/".to_string(),
+                "video/".to_string(),
+                "audio/".to_string(),
+                "application/pdf".to_string(),
+                "text/plain".to_string(),
+                "application/zip".to_string(),
+                "application/octet-stream".to_string(),
+            ],
+            ClamAvConfig {
+                enabled: false,
+                host: "clamav".to_string(),
+                port: 3310,
+                timeout_ms: 5000,
+                fail_closed: true,
+            },
+            "http://localhost:3001".to_string(),
+        )
+        .await
+    }
+
+    async fn new_local(
+        local_dir: PathBuf,
+        key_prefix: String,
+        max_file_bytes: usize,
+        max_files_per_request: usize,
+        allowed_mime_prefixes: Vec<String>,
+        scanner: ClamAvConfig,
+        public_base_url: String,
+    ) -> Result<Self, AppError> {
+        fs::create_dir_all(&local_dir).await.map_err(|e| {
+            AppError::Internal(format!("Failed to create attachment directory: {e}"))
+        })?;
+        let normalized_key_prefix = if key_prefix.trim_matches('/').is_empty() {
+            "attachments".to_string()
+        } else {
+            key_prefix.trim_matches('/').to_string()
+        };
+
+        Ok(Self {
+            storage_backend_kind: StorageBackendKind::Local,
+            storage: StorageBackend::Local {
+                base_dir: local_dir,
+            },
+            public_base_url: public_base_url.trim_end_matches('/').to_string(),
+            key_prefix: normalized_key_prefix,
+            max_file_bytes,
+            max_files_per_request,
+            allowed_mime_prefixes,
+            scanner,
+        })
+    }
+
+    pub fn local_storage_dir(&self) -> Option<PathBuf> {
+        match &self.storage {
+            StorageBackend::Local { base_dir } => Some(base_dir.clone()),
+            StorageBackend::S3 { .. } => None,
+        }
+    }
+
+    pub fn max_files_per_request(&self) -> usize {
+        self.max_files_per_request
+    }
+
+    pub fn validate_upload_file_meta(
+        &self,
+        content_type: &str,
+        size_bytes: usize,
+    ) -> Result<(), AppError> {
+        if size_bytes == 0 {
+            return Err(AppError::Validation("Attachment cannot be empty".into()));
+        }
+        if size_bytes > self.max_file_bytes {
+            let max_mb = self.max_file_bytes / (1024 * 1024);
+            return Err(AppError::Validation(format!(
+                "Attachment file is too large (max {max_mb} MB)"
+            )));
+        }
+
+        let normalized = content_type.trim().to_ascii_lowercase();
+        if !self
+            .allowed_mime_prefixes
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+        {
+            return Err(AppError::Validation(format!(
+                "Attachment type '{content_type}' is not allowed"
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub async fn scan_file_bytes(&self, bytes: &[u8]) -> Result<(), AppError> {
+        if !self.scanner.enabled {
+            return Ok(());
+        }
+
+        match self.scan_with_clamav(bytes).await {
+            Ok(ScanResult::Clean) => Ok(()),
+            Ok(ScanResult::Infected(signature)) => Err(AppError::Validation(format!(
+                "Attachment blocked by malware scanner ({signature})"
+            ))),
+            Err(err) => {
+                tracing::warn!("Attachment malware scan unavailable: {}", err);
+                if self.scanner.fail_closed {
+                    Err(AppError::Internal(
+                        "Attachment scan service unavailable; try again later".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    pub async fn store_file(
+        &self,
+        original_name: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<StoredAttachment, AppError> {
+        self.validate_upload_file_meta(content_type, bytes.len())?;
+        self.scan_file_bytes(bytes).await?;
+
+        let now = chrono::Utc::now();
+        let safe_name = sanitize_file_name(original_name);
+        let object_id = Uuid::new_v4();
+        let key = format!(
+            "{}/{:04}/{:02}/{}-{}",
+            self.key_prefix,
+            now.year(),
+            now.month(),
+            object_id,
+            safe_name
+        );
+
+        match &self.storage {
+            StorageBackend::Local { base_dir } => {
+                let path = base_dir.join(&key);
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).await.map_err(|e| {
+                        AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
+                    })?;
+                }
+                fs::write(&path, bytes).await.map_err(|e| {
+                    AppError::Internal(format!("Failed to write uploaded attachment: {e}"))
+                })?;
+            }
+            StorageBackend::S3 { client, bucket } => {
+                client
+                    .put_object()
+                    .bucket(bucket)
+                    .key(&key)
+                    .content_type(content_type)
+                    .body(ByteStream::from(bytes.to_vec()))
+                    .send()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("S3 upload failed: {e}")))?;
+            }
+        }
+
+        let url = match self.storage_backend_kind {
+            StorageBackendKind::Local => {
+                format!("{}/uploads/{}", self.public_base_url, key)
+            }
+            StorageBackendKind::S3 => {
+                format!("{}/{}", self.public_base_url, key)
+            }
+        };
+
+        Ok(StoredAttachment {
+            storage_backend: match self.storage_backend_kind {
+                StorageBackendKind::Local => "local",
+                StorageBackendKind::S3 => "s3",
+            },
+            storage_key: key,
+            url,
+            original_name: original_name.to_string(),
+            content_type: content_type.to_string(),
+            size_bytes: bytes.len() as i64,
+            sha256: hex_encode(&Sha256::digest(bytes)),
+        })
+    }
+
+    async fn scan_with_clamav(&self, bytes: &[u8]) -> Result<ScanResult, String> {
+        let addr = format!("{}:{}", self.scanner.host, self.scanner.port);
+        let mut stream = timeout(
+            Duration::from_millis(self.scanner.timeout_ms),
+            TcpStream::connect(&addr),
+        )
+        .await
+        .map_err(|_| "ClamAV connect timeout".to_string())?
+        .map_err(|e| format!("ClamAV connect failed: {e}"))?;
+
+        timeout(
+            Duration::from_millis(self.scanner.timeout_ms),
+            stream.write_all(b"zINSTREAM\0"),
+        )
+        .await
+        .map_err(|_| "ClamAV command timeout".to_string())?
+        .map_err(|e| format!("ClamAV command write failed: {e}"))?;
+
+        for chunk in bytes.chunks(8192) {
+            let len = (chunk.len() as u32).to_be_bytes();
+            timeout(
+                Duration::from_millis(self.scanner.timeout_ms),
+                stream.write_all(&len),
+            )
+            .await
+            .map_err(|_| "ClamAV chunk header timeout".to_string())?
+            .map_err(|e| format!("ClamAV chunk header write failed: {e}"))?;
+            timeout(
+                Duration::from_millis(self.scanner.timeout_ms),
+                stream.write_all(chunk),
+            )
+            .await
+            .map_err(|_| "ClamAV chunk write timeout".to_string())?
+            .map_err(|e| format!("ClamAV chunk write failed: {e}"))?;
+        }
+
+        timeout(
+            Duration::from_millis(self.scanner.timeout_ms),
+            stream.write_all(&0u32.to_be_bytes()),
+        )
+        .await
+        .map_err(|_| "ClamAV final chunk timeout".to_string())?
+        .map_err(|e| format!("ClamAV final chunk write failed: {e}"))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("ClamAV flush failed: {e}"))?;
+
+        let mut response = Vec::with_capacity(128);
+        timeout(
+            Duration::from_millis(self.scanner.timeout_ms),
+            stream.read_to_end(&mut response),
+        )
+        .await
+        .map_err(|_| "ClamAV response timeout".to_string())?
+        .map_err(|e| format!("ClamAV response read failed: {e}"))?;
+
+        let text = String::from_utf8_lossy(&response).replace('\0', "");
+        let normalized = text.to_ascii_uppercase();
+        if normalized.contains("FOUND") {
+            let signature = text.trim().to_string();
+            return Ok(ScanResult::Infected(signature));
+        }
+        if normalized.contains("OK") {
+            return Ok(ScanResult::Clean);
+        }
+
+        Err(format!("Unexpected ClamAV response: {}", text.trim()))
+    }
+}
+
+enum ScanResult {
+    Clean,
+    Infected(String),
+}
+
+fn sanitize_file_name(input: &str) -> String {
+    let fallback = "file.bin".to_string();
+    let candidate = input.trim();
+    if candidate.is_empty() {
+        return fallback;
+    }
+
+    let sanitized = candidate
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+
+    if sanitized.is_empty() {
+        fallback
+    } else {
+        sanitized
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{:02x}", b);
+    }
+    out
+}
+
+/// Validates the attachments JSON before persisting.
+/// Rejects unsafe URLs and blocks `data:` URLs to force server-side scanned uploads.
 pub fn validate_attachments(attachments: Option<&Value>) -> Result<(), AppError> {
     let Some(att) = attachments else {
         return Ok(());
@@ -21,10 +490,10 @@ pub fn validate_attachments(attachments: Option<&Value>) -> Result<(), AppError>
         Some(a) => a,
         None => return Err(AppError::Validation("Attachments must be an array".into())),
     };
-    if arr.len() > MAX_ATTACHMENTS {
+    if arr.len() > DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE {
         return Err(AppError::Validation(format!(
             "At most {} attachments allowed",
-            MAX_ATTACHMENTS
+            DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE
         )));
     }
     for (i, item) in arr.iter().enumerate() {
@@ -47,77 +516,10 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
     }
     let lower = trimmed.to_lowercase();
 
-    // data: URLs use a much larger limit to accommodate base64-encoded files.
-    if let Some(rest) = lower.strip_prefix("data:") {
-        if trimmed.len() > MAX_DATA_URL_LEN {
-            return Err(format!(
-                "Attachment file is too large (max {} MB)",
-                MAX_DATA_URL_LEN / (1024 * 1024)
-            ));
-        }
-        // Extract the MIME type (the part between "data:" and ";" or ",")
-        let mime = rest
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .split(',')
-            .next()
-            .unwrap_or("")
-            .trim();
-
-        // Block dangerous MIME types that can execute scripts
-        const BLOCKED_MIMES: &[&str] = &[
-            "text/html",
-            "text/javascript",
-            "application/javascript",
-            "application/x-javascript",
-            "application/xhtml+xml",
-            "image/svg+xml", // SVG can contain inline scripts
-            "text/xml",
-            "application/xml",
-        ];
-        for blocked in BLOCKED_MIMES {
-            if mime == *blocked {
-                return Err(format!("data: URL MIME type '{}' is not allowed", mime));
-            }
-        }
-
-        // Allowlist of safe MIME type prefixes
-        const ALLOWED_MIMES: &[&str] = &[
-            "image/png",
-            "image/jpeg",
-            "image/jpg",
-            "image/gif",
-            "image/webp",
-            "image/bmp",
-            "image/ico",
-            "image/x-icon",
-            "image/tiff",
-            "image/avif",
-            "video/mp4",
-            "video/webm",
-            "video/ogg",
-            "audio/mpeg",
-            "audio/mp3",
-            "audio/ogg",
-            "audio/wav",
-            "audio/webm",
-            "audio/aac",
-            "application/pdf",
-            "application/zip",
-            "application/octet-stream",
-            "text/plain",
-        ];
-        if !ALLOWED_MIMES
-            .iter()
-            .any(|allowed| mime.starts_with(allowed))
-        {
-            return Err(format!("data: URL MIME type '{}' is not permitted", mime));
-        }
-        return Ok(());
+    if lower.starts_with("data:") {
+        return Err("data: URLs are not allowed. Upload files via /api/attachments/upload".into());
     }
 
-    // For all other URLs: only allow http/https, with a reasonable length limit
     if trimmed.len() > MAX_URL_LEN {
         return Err(format!("URL must be at most {} characters", MAX_URL_LEN));
     }
@@ -150,26 +552,8 @@ mod tests {
     }
 
     #[test]
-    fn allows_image_data_url() {
+    fn rejects_data_urls() {
         let v = serde_json::json!([{ "url": "data:image/png;base64,iVBORw0KGgo=" }]);
-        assert!(validate_attachments(Some(&v)).is_ok());
-    }
-
-    #[test]
-    fn allows_jpeg_data_url() {
-        let v = serde_json::json!([{ "url": "data:image/jpeg;base64,/9j/4AAQSkZJRg==" }]);
-        assert!(validate_attachments(Some(&v)).is_ok());
-    }
-
-    #[test]
-    fn rejects_html_data_url() {
-        let v = serde_json::json!([{ "url": "data:text/html,<script>alert(1)</script>" }]);
-        assert!(validate_attachments(Some(&v)).is_err());
-    }
-
-    #[test]
-    fn rejects_svg_data_url() {
-        let v = serde_json::json!([{ "url": "data:image/svg+xml,<svg><script>alert(1)</script></svg>" }]);
         assert!(validate_attachments(Some(&v)).is_err());
     }
 
@@ -188,5 +572,11 @@ mod tests {
     #[test]
     fn allows_none() {
         assert!(validate_attachments(None).is_ok());
+    }
+
+    #[test]
+    fn sanitizes_filename() {
+        assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
+        assert_eq!(sanitize_file_name(""), "file.bin");
     }
 }

@@ -128,6 +128,13 @@ Notes:
 - `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id`
 - `PATCH /api/channels/server/:server_id/categories/reorder`
 
+## Attachment Upload Endpoint
+
+- `POST /api/attachments/upload` (auth required)
+  - `multipart/form-data` with one or more `files` fields.
+  - Returns uploaded attachment objects with `url`, `type`, `name`, `size`, `sha256`.
+  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local/S3 storage -> metadata insert.
+
 ## Message Endpoints (Server Channels)
 
 - `GET /api/messages/:channel_id?before=<uuid>&limit=<n>`
@@ -172,6 +179,10 @@ Notes:
 - `DELETE /api/dm/channels/:channel_id/pins/:message_id`
 - `POST /api/dm/messages/item/:message_id/reactions`
 - `DELETE /api/dm/messages/item/:message_id/reactions?emoji=...`
+
+Attachment note:
+- Message/DM `attachments[].url` only accepts `http://` or `https://`.
+- `data:` URLs are blocked intentionally; upload via `/api/attachments/upload`.
 
 ## WebRTC Endpoints
 
@@ -218,4 +229,4 @@ Common statuses:
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-03-16.
