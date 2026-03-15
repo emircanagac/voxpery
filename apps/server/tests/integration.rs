@@ -1,5 +1,5 @@
 //! API integration tests. Require a running PostgreSQL and env vars:
-//! - DATABASE_URL
+//! - DATABASE_URL (or TEST_DATABASE_URL)
 //! - JWT_SECRET (or set in .env)
 //!
 //! Run with: `cargo test --test integration` (from apps/server).
@@ -24,15 +24,32 @@ use voxpery_server::{build_app, run_migrations, AppState};
 
 fn test_db_url() -> Option<String> {
     dotenvy::dotenv().ok();
-    std::env::var("DATABASE_URL").ok()
+    let raw = std::env::var("TEST_DATABASE_URL")
+        .ok()
+        .or_else(|| std::env::var("DATABASE_URL").ok())?;
+    Some(normalize_compose_host(raw, "postgres", "127.0.0.1"))
 }
 
 fn jwt_secret() -> String {
     std::env::var("JWT_SECRET").unwrap_or_else(|_| "test-jwt-secret-change-in-production".into())
 }
 
+fn normalize_compose_host(url: String, service_host: &str, fallback_host: &str) -> String {
+    let at_pattern = format!("@{service_host}:");
+    let scheme_port_pattern = format!("://{service_host}:");
+    let scheme_path_pattern = format!("://{service_host}/");
+
+    url.replace(&at_pattern, &format!("@{fallback_host}:"))
+        .replace(&scheme_port_pattern, &format!("://{fallback_host}:"))
+        .replace(&scheme_path_pattern, &format!("://{fallback_host}/"))
+}
+
 fn redis_client() -> redis::Client {
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let redis_url = std::env::var("TEST_REDIS_URL")
+        .ok()
+        .or_else(|| std::env::var("REDIS_URL").ok())
+        .unwrap_or_else(|| "redis://localhost:6379".into());
+    let redis_url = normalize_compose_host(redis_url, "redis", "127.0.0.1");
     redis::Client::open(redis_url).expect("Failed to create Redis client for integration tests")
 }
 
