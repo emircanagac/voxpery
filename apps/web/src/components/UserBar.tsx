@@ -24,7 +24,6 @@ const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
-const LAST_STATUS_KEY = 'voxpery-last-status'
 
 function getInitial(name: string) {
   return name.charAt(0).toUpperCase()
@@ -32,8 +31,14 @@ function getInitial(name: string) {
 
 function statusLabel(status?: string) {
   if (status === 'dnd') return 'Do Not Disturb'
-  if (status === 'offline') return 'Offline'
+  if (status === 'invisible' || status === 'offline') return 'Invisible'
   return 'Online'
+}
+
+function statusDescription(status: 'online' | 'dnd' | 'invisible') {
+  if (status === 'dnd') return 'You will not receive notifications.'
+  if (status === 'invisible') return 'You appear offline to others.'
+  return null
 }
 
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
@@ -164,7 +169,7 @@ export default function UserBar() {
     }
   }, [showSettingsPanel])
 
-  const updateMyStatus = async (status: 'online' | 'dnd' | 'offline') => {
+  const updateMyStatus = async (status: 'online' | 'dnd' | 'invisible') => {
     if (isTauri() && !token) return
     flushSync(() => {
       setShowStatusMenu(false)
@@ -174,11 +179,6 @@ export default function UserBar() {
     try {
       const updated = await authApi.updateStatus(status, token ?? null)
       setUserStatus(updated.status)
-      try {
-        localStorage.setItem(LAST_STATUS_KEY, updated.status)
-      } catch {
-        // ignore
-      }
     } catch (err: unknown) {
       setStatusError(err instanceof Error ? err.message : 'Failed to update status')
       setShowStatusMenu(true)
@@ -341,21 +341,26 @@ export default function UserBar() {
             <div className="user-status-popover-error">{statusError}</div>
           )}
           <div className="user-status-list">
-            {(['online', 'dnd', 'offline'] as const).map((status) => (
+            {(['online', 'dnd', 'invisible'] as const).map((status) => (
               <button
                 key={status}
                 type="button"
-                className={`user-status-option user-status-option-${status} ${user?.status === status ? 'active' : ''}`}
+                className={`user-status-option user-status-option-${status} ${((user?.status === 'offline' && status === 'invisible') || user?.status === status) ? 'active' : ''}`}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => updateMyStatus(status)}
                 disabled={statusSaving}
-                aria-pressed={user?.status === status}
+                aria-pressed={(user?.status === 'offline' && status === 'invisible') || user?.status === status}
               >
                 <span className="user-status-option-icon" aria-hidden>
                   <span className={`user-status-option-dot ${status}`} />
                 </span>
-                <span className="user-status-option-label">{statusLabel(status)}</span>
-                {user?.status === status && (
+                <span className="user-status-option-meta">
+                  <span className="user-status-option-label">{statusLabel(status)}</span>
+                  {statusDescription(status) && (
+                    <span className="user-status-option-description">{statusDescription(status)}</span>
+                  )}
+                </span>
+                {((user?.status === 'offline' && status === 'invisible') || user?.status === status) && (
                   <span className="user-status-option-check" aria-hidden>✓</span>
                 )}
               </button>

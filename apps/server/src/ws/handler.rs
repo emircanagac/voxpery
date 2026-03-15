@@ -52,6 +52,14 @@ fn voice_control_event_from_state(
     }
 }
 
+fn visible_presence_from_preference(status: &str) -> &'static str {
+    match status.to_ascii_lowercase().as_str() {
+        "dnd" => "dnd",
+        "invisible" | "offline" => "offline",
+        _ => "online",
+    }
+}
+
 async fn users_share_server(db: &sqlx::PgPool, a_user_id: Uuid, b_user_id: Uuid) -> bool {
     if a_user_id == b_user_id {
         return true;
@@ -270,7 +278,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
         };
     let _ = state.tx.send(WsEvent::PresenceUpdate {
         user_id,
-        status: current_status,
+        status: visible_presence_from_preference(&current_status).to_string(),
     });
 
     tracing::info!("WebSocket connected: {} ({})", username, user_id);
@@ -743,14 +751,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
     };
 
     if last_session_gone {
-        // Update presence to offline (DB + broadcast)
-        if let Err(e) = sqlx::query("UPDATE users SET status = 'offline' WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await
-        {
-            tracing::warn!("Failed to set user offline in DB: {}", e);
-        }
+        // Runtime presence becomes offline when the last active websocket session is gone.
+        // Do not mutate users.status here; that column stores user preference.
         let _ = state.tx.send(WsEvent::PresenceUpdate {
             user_id,
             status: "offline".to_string(),

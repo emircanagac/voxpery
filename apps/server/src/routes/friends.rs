@@ -58,6 +58,17 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
+fn visible_presence(status: &str, has_session: bool) -> String {
+    if !has_session {
+        return "offline".to_string();
+    }
+    match status.to_ascii_lowercase().as_str() {
+        "dnd" => "dnd".to_string(),
+        "invisible" | "offline" => "offline".to_string(),
+        _ => "online".to_string(),
+    }
+}
+
 fn notify_friend_update(state: &AppState, user_id: Uuid) {
     if let Some(sessions) = state.sessions.get(&user_id) {
         for sender in sessions.iter() {
@@ -86,11 +97,7 @@ async fn list_friends(
     let with_presence: Vec<FriendUser> = rows
         .into_iter()
         .map(|r| {
-            let status = if state.sessions.contains_key(&r.id) {
-                r.status
-            } else {
-                "offline".to_string()
-            };
+            let status = visible_presence(&r.status, state.sessions.contains_key(&r.id));
             FriendUser { status, ..r }
         })
         .collect();

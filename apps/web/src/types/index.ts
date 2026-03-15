@@ -2,7 +2,7 @@ export interface User {
     id: string;
     username: string;
     avatar_url?: string;
-    status: 'online' | 'dnd' | 'offline';
+    status: 'online' | 'dnd' | 'offline' | 'invisible';
     dm_privacy?: 'everyone' | 'friends';
     /** ISO date when user last changed username; used for 30-day change limit. */
     username_changed_at?: string | null;

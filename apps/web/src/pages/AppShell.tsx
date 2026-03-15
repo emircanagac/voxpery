@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
@@ -7,16 +7,13 @@ import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
-import { authApi, dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
+import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 
-const LAST_STATUS_KEY = 'voxpery-last-status'
-
 export default function AppShell() {
-  const { user, setUserStatus } = useAuthStore()
+  const { user } = useAuthStore()
   const myStatus = useAuthStore((s) => s.user?.status)
   const token = useAuthStore((s) => s.token)
-  const statusRestoredRef = useRef(false)
   const { connect, subscribe, send, isConnected } = useSocketStore()
   const {
     setVoiceState,
@@ -53,26 +50,6 @@ export default function AppShell() {
     if (!user) return
     connect(token ?? null)
   }, [connect, token, user])
-
-  // Restore last chosen status after F5 or re-login, once WS is connected (so we overwrite backend's "online" if user had "offline").
-  useEffect(() => {
-    if (!user || statusRestoredRef.current || !isConnected) return
-    const last = localStorage.getItem(LAST_STATUS_KEY)
-    const valid = last === 'online' || last === 'dnd' || last === 'offline'
-    if (!valid) {
-      statusRestoredRef.current = true
-      return
-    }
-    if (user.status === last) {
-      statusRestoredRef.current = true
-      return
-    }
-    statusRestoredRef.current = true
-    authApi.updateStatus(last as 'online' | 'dnd' | 'offline', token ?? null).then(
-      (updated) => setUserStatus(updated.status),
-      () => { },
-    )
-  }, [token, user, setUserStatus, isConnected])
 
   useEffect(() => {
     if (!user) return

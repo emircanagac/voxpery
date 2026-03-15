@@ -55,6 +55,14 @@ fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
     headers
 }
 
+fn visible_presence_from_preference(status: &str) -> &'static str {
+    match status.to_ascii_lowercase().as_str() {
+        "dnd" => "dnd",
+        "invisible" | "offline" => "offline",
+        _ => "online",
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct UpdateStatusRequest {
     status: String,
@@ -369,7 +377,7 @@ pub async fn ensure_seed_admin(
     let id = Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO users (id, username, email, password_hash, status, created_at)
-           VALUES ($1, $2, $3, $4, 'offline', NOW())"#,
+           VALUES ($1, $2, $3, $4, 'invisible', NOW())"#,
     )
     .bind(id)
     .bind(&username)
@@ -537,17 +545,6 @@ async fn login(
         return Err(AppError::InvalidCredentials);
     }
 
-    // Set status to 'online' on login only if user did not explicitly choose 'offline' (respect last choice).
-    let status_after_login = if user.status.eq_ignore_ascii_case("offline") {
-        user.status.clone()
-    } else {
-        sqlx::query("UPDATE users SET status = 'online' WHERE id = $1")
-            .bind(user.id)
-            .execute(&state.db)
-            .await?;
-        "online".to_string()
-    };
-
     // Ensure user is in official Voxpery community on login as well
     ensure_default_server_join(&state.db, user.id).await?;
 
@@ -565,7 +562,9 @@ async fn login(
         id: user.id,
         username: user.username.clone(),
         avatar_url: user.avatar_url.clone(),
-        status: status_after_login,
+        // Status is a user preference source-of-truth (online/dnd/offline).
+        // Runtime connectivity is represented via WebSocket presence events.
+        status: user.status.clone(),
         dm_privacy: user.dm_privacy.clone(),
         username_changed_at: user.username_changed_at,
     };
@@ -1132,10 +1131,20 @@ async fn update_status(
     Extension(claims): Extension<Claims>,
     Json(body): Json<UpdateStatusRequest>,
 ) -> Result<Json<UserPublic>, AppError> {
-    let status = body.status.trim().to_lowercase();
-    if !matches!(status.as_str(), "online" | "dnd" | "offline") {
+    let input = body.status.trim().to_lowercase();
+    let status = match input.as_str() {
+        "online" => "online",
+        "dnd" => "dnd",
+        "invisible" | "offline" => "invisible", // backward-compatible old client value
+        _ => {
+            return Err(AppError::Validation(
+                "Status must be one of: online, dnd, invisible".into(),
+            ))
+        }
+    };
+    if !matches!(status, "online" | "dnd" | "invisible") {
         return Err(AppError::Validation(
-            "Status must be one of: online, dnd, offline".into(),
+            "Status must be one of: online, dnd, invisible".into(),
         ));
     }
 
@@ -1145,14 +1154,15 @@ async fn update_status(
            WHERE id = $2
            RETURNING *"#,
     )
-    .bind(&status)
+    .bind(status)
     .bind(claims.sub)
     .fetch_one(&state.db)
     .await?;
 
+    let visible_presence = visible_presence_from_preference(status).to_string();
     let _ = state.tx.send(WsEvent::PresenceUpdate {
         user_id: claims.sub,
-        status,
+        status: visible_presence,
     });
 
     Ok(Json(UserPublic::from(user)))

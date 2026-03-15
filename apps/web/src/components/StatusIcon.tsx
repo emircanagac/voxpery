@@ -1,11 +1,12 @@
 import { Circle, BellOff, Ghost } from 'lucide-react'
 
-export type StatusValue = 'online' | 'dnd' | 'offline'
+export type StatusValue = 'online' | 'dnd' | 'offline' | 'invisible'
 
 const STATUS_ICONS: Record<StatusValue, typeof Circle> = {
   online: Circle,
   dnd: BellOff,
   offline: Ghost,
+  invisible: Ghost,
 }
 
 interface StatusIconProps {

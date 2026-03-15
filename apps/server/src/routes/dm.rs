@@ -201,6 +201,17 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
+fn visible_presence(status: &str, has_session: bool) -> String {
+    if !has_session {
+        return "offline".to_string();
+    }
+    match status.to_ascii_lowercase().as_str() {
+        "dnd" => "dnd".to_string(),
+        "invisible" | "offline" => "offline".to_string(),
+        _ => "online".to_string(),
+    }
+}
+
 async fn list_dm_channels(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -243,11 +254,7 @@ async fn list_dm_channels(
     let with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
-            let peer_status = if state.sessions.contains_key(&r.peer_id) {
-                r.peer_status
-            } else {
-                "offline".to_string()
-            };
+            let peer_status = visible_presence(&r.peer_status, state.sessions.contains_key(&r.peer_id));
             DmChannelInfo { peer_status, ..r }
         })
         .collect();
@@ -398,11 +405,7 @@ async fn get_or_create_dm_channel(
     .fetch_one(&state.db)
     .await?;
 
-    let peer_status = if state.sessions.contains_key(&info.peer_id) {
-        info.peer_status.clone()
-    } else {
-        "offline".to_string()
-    };
+    let peer_status = visible_presence(&info.peer_status, state.sessions.contains_key(&info.peer_id));
     let info = DmChannelInfo {
         peer_status,
         ..info

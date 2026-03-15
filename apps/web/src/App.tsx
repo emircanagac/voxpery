@@ -153,28 +153,7 @@ function App() {
 
     authApi
       .getMe(token)
-      .then(async (freshUser) => {
-        // Try to restore last status
-        let last: 'online' | 'dnd' | 'offline' | null = null
-        try {
-          const raw = localStorage.getItem('voxpery-last-status')
-          if (raw === 'online' || raw === 'dnd' || raw === 'offline') {
-            last = raw
-          }
-        } catch {
-          // ignore
-        }
-
-        if (last && freshUser.status !== last) {
-          try {
-            const updated = await authApi.updateStatus(last, token)
-            setUser(updated)
-            return
-          } catch {
-            // fallback to fresh user
-          }
-        }
-
+      .then((freshUser) => {
         setUser(freshUser)
       })
       .catch((err) => {

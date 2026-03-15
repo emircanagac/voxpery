@@ -135,6 +135,17 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
+fn visible_presence(status: &str, has_session: bool) -> String {
+    if !has_session {
+        return "offline".to_string();
+    }
+    match status.to_ascii_lowercase().as_str() {
+        "dnd" => "dnd".to_string(),
+        "invisible" | "offline" => "offline".to_string(),
+        _ => "online".to_string(),
+    }
+}
+
 /// GET /api/servers — list all servers the user is a member of.
 /// Uses a single JOIN+GROUP BY query instead of N+1.
 async fn list_servers(
@@ -363,9 +374,7 @@ async fn get_server(
 
     // Use live WebSocket sessions for online/offline (same as friends list).
     for m in &mut members {
-        if !state.sessions.contains_key(&m.user_id) {
-            m.status = "offline".to_string();
-        }
+        m.status = visible_presence(&m.status, state.sessions.contains_key(&m.user_id));
     }
 
     // Compute effective permissions for the current user in this server.
@@ -1111,9 +1120,7 @@ async fn list_channel_visible_members(
         if !perms.contains(Permissions::VIEW_SERVER) {
             continue;
         }
-        if !state.sessions.contains_key(&member.user_id) {
-            member.status = "offline".to_string();
-        }
+        member.status = visible_presence(&member.status, state.sessions.contains_key(&member.user_id));
         visible_members.push(member);
     }
 
