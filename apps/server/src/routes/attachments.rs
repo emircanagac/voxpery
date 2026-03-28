@@ -13,7 +13,11 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
-    services::{attachments::AttachmentResponseItem, rate_limit::enforce_rate_limit},
+    services::{
+        attachments::AttachmentResponseItem,
+        permissions::{self, Permissions},
+        rate_limit::enforce_rate_limit,
+    },
     AppState,
 };
 
@@ -22,7 +26,9 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/upload", post(upload_attachments))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
-    let content = Router::new().route("/content/{attachment_id}", get(get_attachment_content));
+    let content = Router::new()
+        .route("/content/{attachment_id}", get(get_attachment_content))
+        .route_layer(middleware::from_fn_with_state(state, require_auth));
 
     protected.merge(content)
 }
@@ -137,6 +143,7 @@ struct AttachmentContentQuery {
 
 async fn get_attachment_content(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Path(attachment_id): Path<Uuid>,
     Query(query): Query<AttachmentContentQuery>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -149,6 +156,7 @@ async fn get_attachment_content(
     if !allowed {
         return Err(AppError::Forbidden("Attachment access denied".into()));
     }
+    ensure_attachment_view_access(&state, claims.sub, attachment_id).await?;
 
     let row = state
         .attachment_service
@@ -175,4 +183,64 @@ async fn get_attachment_content(
     );
 
     Ok((headers, bytes))
+}
+
+async fn ensure_attachment_view_access(
+    state: &Arc<AppState>,
+    viewer_id: Uuid,
+    attachment_id: Uuid,
+) -> Result<(), AppError> {
+    let attachment_id_text = attachment_id.to_string();
+
+    let owned = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM uploaded_attachments ua
+               WHERE ua.id = $1 AND ua.user_id = $2 AND ua.scan_status = 'clean'
+           )"#,
+    )
+    .bind(attachment_id)
+    .bind(viewer_id)
+    .fetch_one(&state.db)
+    .await?;
+    if owned {
+        return Ok(());
+    }
+
+    let channel_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT DISTINCT m.channel_id
+           FROM messages m
+           WHERE m.attachments @> jsonb_build_array(jsonb_build_object('id', $1::text))"#,
+    )
+    .bind(&attachment_id_text)
+    .fetch_all(&state.db)
+    .await?;
+    for channel_id in channel_ids {
+        let perms = permissions::get_user_channel_permissions(&state.db, channel_id, viewer_id).await?;
+        if perms.contains(Permissions::VIEW_SERVER) {
+            return Ok(());
+        }
+    }
+
+    let has_dm_access = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM dm_messages m
+               INNER JOIN dm_channel_members dcm
+                       ON dcm.channel_id = m.channel_id
+                      AND dcm.user_id = $2
+               WHERE m.attachments @> jsonb_build_array(jsonb_build_object('id', $1::text))
+           )"#,
+    )
+    .bind(&attachment_id_text)
+    .bind(viewer_id)
+    .fetch_one(&state.db)
+    .await?;
+    if has_dm_access {
+        return Ok(());
+    }
+
+    Err(AppError::Forbidden(
+        "You do not have permission to view this attachment".into(),
+    ))
 }

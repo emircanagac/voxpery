@@ -351,7 +351,23 @@ export default function UserBar() {
     }
   }
 
-  const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password === false
+  const openPasswordModal = async () => {
+    setPwOld('')
+    setPwNew('')
+    setPwConfirm('')
+    setPwError(null)
+    setPwSuccess(false)
+    try {
+      const freshUser = await authApi.getMe(token ?? null)
+      if (token) setAuth(token, freshUser)
+      else setUser(freshUser)
+    } catch {
+      // Modal can still open with current in-memory user state.
+    }
+    setShowPwModal(true)
+  }
+
+  const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
 
   return (
     <div className="user-bar-wrap" ref={statusToggleRef}>
@@ -721,7 +737,7 @@ export default function UserBar() {
                   <button
                     type="button"
                     className="user-toggle account-action-btn"
-                    onClick={() => { setShowPwModal(true); setPwOld(''); setPwNew(''); setPwConfirm(''); setPwError(null); setPwSuccess(false) }}
+                    onClick={() => void openPasswordModal()}
                   >
                     {isGoogleOnlyAccount ? 'Set password' : 'Change'}
                   </button>

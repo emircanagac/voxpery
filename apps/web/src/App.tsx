@@ -47,10 +47,6 @@ function App() {
   const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
   const [restoring, setRestoring] = useState(true)
-  const [isGoogleRedirecting, setIsGoogleRedirecting] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return !!(window.location.hash && /#token=([^&]+)/.test(window.location.hash))
-  })
   const validatedSessionRef = useRef(false)
 
   // Desktop: restore from secure storage. Web: zustand persist handles restoration.
@@ -107,33 +103,13 @@ function App() {
     }
   }, [])
 
-  // Web: after Google OAuth we get token in hash #token=... (cookie may not be sent). Restore session from it first.
+  // Web: cookie-based session restore/validation.
   useEffect(() => {
     if (restoring || isTauri()) return
     // Always validate web cookie session on startup, even when user is restored from localStorage.
     // Otherwise stale user state can show "logged in" while all protected data requests fail.
     if (validatedSessionRef.current) return
     if (loggingOut) return
-    const hash = window.location.hash
-    const tokenMatch = hash && /#token=([^&]+)/.exec(hash)
-    if (tokenMatch) {
-      const tokenFromHash = decodeURIComponent(tokenMatch[1])
-      window.history.replaceState(null, '', window.location.pathname + window.location.search)
-      // Prevent the second useEffect from firing immediately by setting validation ref
-      validatedSessionRef.current = true
-      authApi
-        .getMe(tokenFromHash)
-        .then((freshUser) => {
-          useAuthStore.getState().setAuth(tokenFromHash, freshUser)
-        })
-        .catch(() => {
-            validatedSessionRef.current = false // reset on failure
-        })
-        .finally(() => {
-          setIsGoogleRedirecting(false)
-        })
-      return
-    }
     validatedSessionRef.current = true
     authApi
       .getMe(null)
@@ -175,7 +151,7 @@ function App() {
       })
   }, [restoring, user, token, setUser, logout])
 
-  if (restoring || isGoogleRedirecting) {
+  if (restoring) {
     return <GlobalLoading label="Loading…" description="Please wait." />
   }
 

@@ -57,6 +57,10 @@ fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
     headers
 }
 
+fn clear_oauth_state_cookie_header() -> &'static str {
+    "oauth_state=; HttpOnly; Path=/; SameSite=None; Secure; Max-Age=0"
+}
+
 fn visible_presence_from_preference(status: &str) -> &'static str {
     match status.to_ascii_lowercase().as_str() {
         "dnd" => "dnd",
@@ -1102,7 +1106,7 @@ async fn google_oauth_callback(
                 found_oauth_state
             );
             let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
-            let clear_cookie = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
+            let clear_cookie = clear_oauth_state_cookie_header();
             let mut response =
                 Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
             if let Ok(v) = HeaderValue::from_str(clear_cookie) {
@@ -1294,13 +1298,17 @@ async fn google_oauth_callback(
     };
 
     let cookie_headers = auth_cookie_header(&state, &token);
-    // Put token in fragment so frontend can restore session when cookie is not sent (e.g. cross-origin redirect).
-    let redirect_url = format!(
-        "{}{}#token={}",
-        origin,
-        redirect_path,
-        urlencoding::encode(&token)
-    );
+    // Web callback is cookie-only. Desktop deep-link keeps token fragment because it does not use browser cookies.
+    let redirect_url = if origin.starts_with("voxpery://") {
+        format!(
+            "{}{}#token={}",
+            origin,
+            redirect_path,
+            urlencoding::encode(&token)
+        )
+    } else {
+        format!("{}{}", origin, redirect_path)
+    };
 
     let mut response = if origin.starts_with("voxpery://") {
         // Desktop UX: Return a nice HTML page that triggers the deep link and tells user to close tab.
@@ -1345,7 +1353,7 @@ async fn google_oauth_callback(
         Redirect::temporary(&redirect_url).into_response()
     };
 
-    let clear_oauth_state = "oauth_state=; HttpOnly; Path=/; Max-Age=0";
+    let clear_oauth_state = clear_oauth_state_cookie_header();
     if let Ok(v) = HeaderValue::from_str(clear_oauth_state) {
         response.headers_mut().insert(header::SET_COOKIE, v);
     }
