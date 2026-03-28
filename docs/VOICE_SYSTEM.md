@@ -176,6 +176,7 @@ await room.localParticipant.publishTrack(videoTrack, {
 1. Check browser permissions (allow microphone)
 2. Verify device in OS settings
 3. Try another browser (Firefox, Chrome, Edge)
+4. Linux desktop: ensure `xdg-desktop-portal` + one backend (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` are installed/running, then restart Voxpery.
 
 ### Echo or feedback
 

@@ -35,6 +35,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.
 - [ ] Session is restored after OAuth callback (user ends in authenticated app state).
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
+- [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
 - [ ] Voice join succeeds after permission grant.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).

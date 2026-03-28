@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
+import { isTauri } from '../secureStorage'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -81,6 +82,38 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     navigate('/servers')
   }
   const pushToast = useToastStore((s) => s.pushToast)
+  const isLinuxDesktop = useMemo(
+    () => isTauri() && typeof navigator !== 'undefined' && /linux/i.test(navigator.userAgent),
+    []
+  )
+  const mapMicPreflightError = useCallback((err: unknown): string | null => {
+    const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
+    const errMessage = err && typeof err === 'object' && 'message' in err
+      ? String((err as { message?: unknown }).message).toLowerCase()
+      : ''
+
+    const isPermissionError =
+      errName === 'NotAllowedError' ||
+      errMessage.includes('permission denied') ||
+      errMessage.includes('notallowederror') ||
+      errMessage.includes('microphone permission denied')
+
+    if (isPermissionError) {
+      return isLinuxDesktop
+        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
+        : 'Permission was blocked. Allow microphone/screen access in system or browser settings and try again.'
+    }
+    if (errName === 'NotFoundError' || errMessage.includes('device not found') || errMessage.includes('no microphone')) {
+      return 'No microphone device detected. Connect a microphone and retry.'
+    }
+    if (errName === 'NotReadableError' || errMessage.includes('in use by another app')) {
+      return 'Microphone is in use by another app. Close other voice apps and retry.'
+    }
+    if (errMessage.includes('microphone access is not supported')) {
+      return 'Microphone capture is not available in this runtime. Update your desktop runtime or use the latest Voxpery desktop build.'
+    }
+    return null
+  }, [isLinuxDesktop])
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
   const localControl = user?.id ? voiceControls[user.id] : null
@@ -446,14 +479,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         await joinVoice(channelId, { preflightStream: micStream })
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
-        const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
-        const errMessage = err && typeof err === 'object' && 'message' in err ? String((err as { message?: unknown }).message).toLowerCase() : ''
-        // Fallback to normal join only if the error is related to microphone permissions/hardware
-        if (errName === 'NotAllowedError' || errName === 'NotFoundError' || errMessage.includes('microphone')) {
-          await joinVoice(channelId)
-        } else {
-          throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
+        const message = mapMicPreflightError(err)
+        if (message) {
+          pushToast({ level: 'error', title: 'Microphone access required', message })
+          return
         }
+        throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
       }
     }
     ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice = joinFn
@@ -462,7 +493,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
       }
     }
-  }, [joinVoice, leaveVoice, state.isJoining, state.joinedChannelId])
+  }, [joinVoice, leaveVoice, mapMicPreflightError, pushToast, state.isJoining, state.joinedChannelId])
 
   useEffect(() => {
     if (!blockedAutoJoinChannelId) return
@@ -494,7 +525,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       message = "You don't have permission to connect to this voice channel."
     } else
     if (lower.includes('notallowederror') || lower.includes('permission denied') || lower.includes('permission')) {
-      message = 'Permission was blocked. Allow microphone/screen access in browser settings and try again.'
+      message = isLinuxDesktop
+        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
+        : 'Permission was blocked. Allow microphone/screen access in system or browser settings and try again.'
     } else if (lower.includes('notfounderror') || lower.includes('device not found')) {
       message = 'No microphone device detected. Connect a microphone and retry.'
     } else if (lower.includes('websocket is not connected')) {
@@ -506,7 +539,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       title,
       message,
     })
-  }, [pushToast, state.lastError])
+  }, [isLinuxDesktop, pushToast, state.lastError])
 
   const toggleMute = () => {
     const stream = localStreamRef.current ?? state.localStream
@@ -533,9 +566,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       await joinVoice(channelId, { preflightStream: stream })
-    } catch {
+    } catch (err: unknown) {
       stream?.getTracks().forEach((t) => t.stop())
-      await joinVoice(channelId)
+      const message = mapMicPreflightError(err)
+      if (message) {
+        pushToast({ level: 'error', title: 'Microphone access required', message })
+        return
+      }
+      throw err
     }
   }
 
