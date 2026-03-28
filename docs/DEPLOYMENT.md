@@ -73,16 +73,23 @@ Security defaults in compose:
   - `7882/udp`
   - `50000-50200/udp`
 - Container logs use rotation (`max-size=10m`, `max-file=5`) to avoid disk growth
-- LiveKit is cgroup-limited by default via `.env`:
-  - `LIVEKIT_CPUS_LIMIT`
-  - `LIVEKIT_MEM_LIMIT`
-  - `LIVEKIT_PIDS_LIMIT`
-  - `LIVEKIT_NOFILE_SOFT_LIMIT` / `LIVEKIT_NOFILE_HARD_LIMIT`
 
 Important:
 
+- LiveKit limits are optional in `docker-compose.yml`.
+- If `LIVEKIT_CPUS_LIMIT`, `LIVEKIT_MEM_LIMIT`, `LIVEKIT_PIDS_LIMIT` are unset in `.env`, no cgroup limits are applied.
 - These limits reduce single-host blast radius (LiveKit cannot consume all CPU/RAM/PIDs).
 - They do **not** protect against upstream bandwidth saturation from large volumetric UDP floods.
+- To activate limits in production, set these keys in `.env`:
+  - `LIVEKIT_CPUS_LIMIT`
+  - `LIVEKIT_MEM_LIMIT`
+  - `LIVEKIT_PIDS_LIMIT`
+
+Recommended starting values:
+
+- `LIVEKIT_CPUS_LIMIT=4.0`
+- `LIVEKIT_MEM_LIMIT=3g`
+- `LIVEKIT_PIDS_LIMIT=1024`
 
 ## 3) Validation Checklist
 
