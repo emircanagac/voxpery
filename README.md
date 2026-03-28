@@ -23,15 +23,17 @@
 
 ## Why Voxpery?
 
+Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or self-host the same stack for full data ownership.
+
 | Feature | Voxpery | Discord | Slack | Mattermost |
 |---------|---------|---------|-------|-----------|
-| **Open Source** | ✅ AGPL-3.0 | ❌ Proprietary | ❌ Proprietary | ✅ |
-| **Self-hostable** | ✅ Full | ❌ No | ❌ No | ✅ |
-| **Privacy** | ✅ No tracking | ❌ Analytics | ❌ Analytics | ✅ |
-| **Voice calling** | ✅ LiveKit SFU | ✅ | ⚠️ Limited | ⚠️ Limited |
-| **Lightweight desktop** | ✅ Tauri (50MB) | ❌ Electron (200MB) | ❌ Electron | ❌ Electron |
-| **Free forever** | ✅ Yes | ⚠️ Freemium | ❌ Paid | ⚠️ OSS |
-| **Source code** | ✅ Public | ❌ Hidden | ❌ Hidden | ✅ Public |
+| **Open-source model** | ✅ AGPL-3.0 | ❌ Proprietary | ❌ Proprietary | ⚠️ Open-core |
+| **Self-hostable** | ✅ Full stack | ❌ No | ❌ No | ✅ Yes |
+| **Data control / privacy** | ✅ Self-host + no telemetry by default | ⚠️ SaaS data collection policies | ⚠️ SaaS data collection policies | ✅ Strong self-host control |
+| **Voice calling** | ✅ LiveKit SFU | ✅ Native voice | ⚠️ Huddles (free plan limits) | ✅ Calls plugin |
+| **Desktop app stack** | ✅ Tauri | ⚠️ Proprietary desktop client | ⚠️ Electron desktop client | ⚠️ Electron desktop client |
+| **Pricing model** | ✅ OSS / self-host free | ⚠️ Freemium (Nitro) | ⚠️ Freemium + paid tiers | ⚠️ OSS + paid enterprise tiers |
+| **Source code visibility** | ✅ Public repo | ❌ Core closed | ❌ Core closed | ✅ Public repo (open-core) |
 
 ---
 
