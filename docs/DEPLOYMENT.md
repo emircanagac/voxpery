@@ -73,6 +73,16 @@ Security defaults in compose:
   - `7882/udp`
   - `50000-50200/udp`
 - Container logs use rotation (`max-size=10m`, `max-file=5`) to avoid disk growth
+- LiveKit is cgroup-limited by default via `.env`:
+  - `LIVEKIT_CPUS_LIMIT`
+  - `LIVEKIT_MEM_LIMIT`
+  - `LIVEKIT_PIDS_LIMIT`
+  - `LIVEKIT_NOFILE_SOFT_LIMIT` / `LIVEKIT_NOFILE_HARD_LIMIT`
+
+Important:
+
+- These limits reduce single-host blast radius (LiveKit cannot consume all CPU/RAM/PIDs).
+- They do **not** protect against upstream bandwidth saturation from large volumetric UDP floods.
 
 ## 3) Validation Checklist
 

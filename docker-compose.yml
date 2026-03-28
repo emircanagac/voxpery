@@ -54,6 +54,13 @@ services:
     image: livekit/livekit-server:latest
     container_name: voxpery-livekit
     restart: unless-stopped
+    cpus: "${LIVEKIT_CPUS_LIMIT:-2.0}"
+    mem_limit: "${LIVEKIT_MEM_LIMIT:-1536m}"
+    pids_limit: ${LIVEKIT_PIDS_LIMIT:-512}
+    ulimits:
+      nofile:
+        soft: ${LIVEKIT_NOFILE_SOFT_LIMIT:-65536}
+        hard: ${LIVEKIT_NOFILE_HARD_LIMIT:-65536}
     depends_on:
       redis:
         condition: service_healthy
