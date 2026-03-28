@@ -69,12 +69,6 @@
           "voxpery"
         ]
       }
-    },
-    "updater": {
-      "pubkey": "PLACEHOLDER_REPLACE_WITH_PUBLIC_KEY_AFTER_tauri_signer_generate",
-      "endpoints": [
-        "https://releases.example.com/{{target}}/{{arch}}/{{current_version}}"
-      ]
     }
   }
 }

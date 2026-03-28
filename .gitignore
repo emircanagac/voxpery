@@ -2,6 +2,7 @@
 target/
 **/target/
 **/*.rs.bk
+.cargo-home/
 # Cargo.lock is committed for server/desktop for reproducible builds
 
 # Node
@@ -11,6 +12,7 @@ dist/
 **/dist/
 .vite/
 **/.vite/
+.npm-cache/
 
 # Environment
 .env

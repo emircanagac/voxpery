@@ -294,6 +294,13 @@ export const authApi = {
             body: { identifier, password },
         }),
 
+    /** Desktop-only: exchange short-lived OAuth code from deep-link into JWT + user payload. */
+    exchangeDesktopOAuthCode: (code: string) =>
+        apiFetch<AuthResponse>('/api/auth/google/desktop-exchange', {
+            method: 'POST',
+            body: { code },
+        }),
+
     /** token optional: web uses httpOnly cookie when null. */
     updateStatus: (status: 'online' | 'dnd' | 'invisible', token: string | null) =>
         apiFetch<UserPublic>('/api/auth/status', {

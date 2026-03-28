@@ -30,7 +30,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo" \
             -w /repo \
-            ghcr.io/gitleaks/gitleaks:latest \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 \
             git --redact --verbose --exit-code 1
 
   backend:

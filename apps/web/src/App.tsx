@@ -61,14 +61,13 @@ function App() {
       const handleDeepLinkUrl = (url: string) => {
         try {
           const parsed = new URL(url)
-          const tokenMatch = parsed.hash && /#token=([^&]+)/.exec(parsed.hash)
-          if (tokenMatch) {
-            const tokenFromHash = decodeURIComponent(tokenMatch[1])
+          const code = parsed.searchParams.get('code')
+          if (code) {
             authApi
-              .getMe(tokenFromHash)
-              .then((freshUser) => {
-                useAuthStore.getState().setAuth(tokenFromHash, freshUser)
-                setSecureToken(tokenFromHash).catch(() => {})
+              .exchangeDesktopOAuthCode(code)
+              .then((auth) => {
+                useAuthStore.getState().setAuth(auth.token, auth.user)
+                setSecureToken(auth.token).catch(() => {})
               })
               .catch((err) => {
                  console.error("Deep link auth error:", err)

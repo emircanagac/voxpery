@@ -216,7 +216,8 @@ async fn ensure_attachment_view_access(
     .fetch_all(&state.db)
     .await?;
     for channel_id in channel_ids {
-        let perms = permissions::get_user_channel_permissions(&state.db, channel_id, viewer_id).await?;
+        let perms =
+            permissions::get_user_channel_permissions(&state.db, channel_id, viewer_id).await?;
         if perms.contains(Permissions::VIEW_SERVER) {
             return Ok(());
         }

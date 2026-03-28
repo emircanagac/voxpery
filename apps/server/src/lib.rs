@@ -87,9 +87,7 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     (
         status,
         Json(json!({
-            "status": if overall_ok { "ok" } else { "unhealthy" },
-            "database": if db_ok { "connected" } else { "disconnected" },
-            "redis": if redis_ok { "connected" } else { "disconnected" }
+            "status": if overall_ok { "ok" } else { "unhealthy" }
         })),
     )
         .into_response()

@@ -16,7 +16,9 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, token_from_request, Claims},
+    middleware::auth::{
+        claims_match_current_token_version, require_auth, token_from_request, Claims,
+    },
     models::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
         User, UserPublic,
@@ -44,6 +46,9 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
     headers
 }
 
+const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
+const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
+
 /// Build Set-Cookie value to clear auth cookie.
 fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
     let cookie = format!(
@@ -57,8 +62,120 @@ fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
     headers
 }
 
-fn clear_oauth_state_cookie_header() -> &'static str {
-    "oauth_state=; HttpOnly; Path=/; SameSite=None; Secure; Max-Age=0"
+fn is_desktop_oauth_origin(origin: &str) -> bool {
+    origin.trim_end_matches('/') == DESKTOP_OAUTH_ORIGIN
+}
+
+fn normalize_oauth_origin(state: &AppState, origin: &str) -> String {
+    let requested = origin.trim();
+    if is_desktop_oauth_origin(requested) {
+        return DESKTOP_OAUTH_ORIGIN.to_string();
+    }
+    if state
+        .cors_origins
+        .iter()
+        .any(|allowed| allowed == requested)
+    {
+        return requested.to_string();
+    }
+    tracing::warn!(
+        "Rejecting unapproved origin for Google OAuth: {}",
+        requested
+    );
+    state
+        .cors_origins
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "http://localhost:5173".to_string())
+}
+
+fn oauth_state_cookie_header(state: &AppState, nonce: &str) -> String {
+    let mut cookie = format!("oauth_state={nonce}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax");
+    if state.cookie_secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+fn clear_oauth_state_cookie_header(state: &AppState) -> String {
+    let mut cookie = "oauth_state=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax".to_string();
+    if state.cookie_secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+fn append_query_param(path: &str, key: &str, value: &str) -> String {
+    let (base, fragment) = match path.split_once('#') {
+        Some((before, after)) => (before, Some(after)),
+        None => (path, None),
+    };
+    let separator = if base.contains('?') { '&' } else { '?' };
+    let mut out = format!(
+        "{}{}{}={}",
+        base,
+        separator,
+        key,
+        urlencoding::encode(value)
+    );
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
+}
+
+fn desktop_oauth_code_key(code: &str) -> String {
+    format!("auth:oauth:desktop_code:{code}")
+}
+
+async fn issue_desktop_oauth_code(state: &Arc<AppState>, token: &str) -> Result<String, AppError> {
+    let code = Uuid::new_v4().simple().to_string();
+    let key = desktop_oauth_code_key(&code);
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
+    let _: () = conn
+        .set_ex(&key, token, DESKTOP_OAUTH_CODE_TTL_SECS)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to store desktop OAuth code: {e}")))?;
+    Ok(code)
+}
+
+async fn consume_desktop_oauth_code(
+    state: &Arc<AppState>,
+    code: &str,
+) -> Result<Option<String>, AppError> {
+    let key = desktop_oauth_code_key(code);
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
+
+    let token = match redis::cmd("GETDEL")
+        .arg(&key)
+        .query_async::<Option<String>>(&mut conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => {
+            let fallback: Option<String> = conn
+                .get(&key)
+                .await
+                .map_err(|e| AppError::Internal(format!("Redis get failed: {e}")))?;
+            if fallback.is_some() {
+                let _: i64 = conn
+                    .del(&key)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Redis delete failed: {e}")))?;
+            }
+            fallback
+        }
+    };
+    Ok(token)
 }
 
 fn visible_presence_from_preference(status: &str) -> &'static str {
@@ -290,6 +407,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
         .route("/google", get(google_oauth_start))
+        .route(
+            "/google/desktop-exchange",
+            post(google_oauth_desktop_exchange),
+        )
         .route("/google/callback", get(google_oauth_callback))
         .merge(protected)
 }
@@ -949,24 +1070,13 @@ async fn google_oauth_start(
     } else {
         "/"
     };
-    let mut origin = q
+    let origin = q
         .origin
         .as_deref()
         .unwrap_or("http://localhost:5173")
         .trim()
         .to_string();
-    // Desktop deep-link callback must be allowed even if CORS_ORIGINS is locked down
-    // to web origins only.
-    if origin.starts_with("voxpery://") {
-        // Keep as-is for desktop OAuth return flow.
-    } else if !state.cors_origins.contains(&origin) {
-        tracing::warn!("Rejecting unapproved origin for Google OAuth: {}", origin);
-        origin = state
-            .cors_origins
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "http://localhost:5173".to_string());
-    }
+    let origin = normalize_oauth_origin(&state, &origin);
 
     let nonce = Uuid::new_v4().to_string();
     let state_param = BASE64.encode(format!("{}\n{}\n{}", nonce, origin, redirect_path));
@@ -979,10 +1089,7 @@ async fn google_oauth_start(
         urlencoding::encode(&state_param),
     );
 
-    let cookie = format!(
-        "oauth_state={}; HttpOnly; Path=/; Max-Age=600; SameSite=None; Secure",
-        nonce
-    );
+    let cookie = oauth_state_cookie_header(&state, &nonce);
     let mut response = Redirect::temporary(&url).into_response();
     if let Ok(v) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(header::SET_COOKIE, v);
@@ -995,6 +1102,61 @@ async fn google_oauth_start(
 struct GoogleOAuthCallbackQuery {
     code: String,
     state: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GoogleOAuthDesktopExchangeRequest {
+    code: String,
+}
+
+/// POST /api/auth/google/desktop-exchange — exchange short-lived desktop OAuth code for JWT.
+async fn google_oauth_desktop_exchange(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<GoogleOAuthDesktopExchangeRequest>,
+) -> Result<Json<AuthResponse>, AppError> {
+    let code = body.code.trim();
+    if code.len() != 32 || !code.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::Validation("Invalid desktop OAuth code".into()));
+    }
+
+    let token = consume_desktop_oauth_code(&state, code)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+
+    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, &token).await {
+        Ok(true) => return Err(AppError::Unauthorized),
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!("Redis JWT blacklist check failed: {}", e);
+            return Err(AppError::Unauthorized);
+        }
+    }
+
+    let claims = jsonwebtoken::decode::<Claims>(
+        &token,
+        &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &jsonwebtoken::Validation::default(),
+    )
+    .map_err(|_| AppError::Unauthorized)?
+    .claims;
+
+    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
+        .await
+        .map_err(|_| AppError::Unauthorized)?;
+    if !version_ok {
+        return Err(AppError::Unauthorized);
+    }
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+
+    Ok(Json(AuthResponse {
+        token,
+        user: UserPublic::from(user),
+    }))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1075,6 +1237,7 @@ async fn google_oauth_callback(
             )
         }
     };
+    let origin = normalize_oauth_origin(&state, &origin);
 
     let mut is_csrf_valid = false;
     let mut found_oauth_state = None;
@@ -1095,25 +1258,19 @@ async fn google_oauth_callback(
     }
 
     if !is_csrf_valid {
-        if !state.cookie_secure && found_oauth_state.is_none() {
-            tracing::debug!(
-                "OAuth CSRF cookie missing on insecure localhost, allowing bypass for local dev."
-            );
-        } else {
-            tracing::warn!(
-                "OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'",
-                nonce,
-                found_oauth_state
-            );
-            let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
-            let clear_cookie = clear_oauth_state_cookie_header();
-            let mut response =
-                Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
-            if let Ok(v) = HeaderValue::from_str(clear_cookie) {
-                response.headers_mut().insert(header::SET_COOKIE, v);
-            }
-            return response;
+        tracing::warn!(
+            "OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'",
+            nonce,
+            found_oauth_state
+        );
+        let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
+        let clear_cookie = clear_oauth_state_cookie_header(&state);
+        let mut response =
+            Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        if let Ok(v) = HeaderValue::from_str(&clear_cookie) {
+            response.headers_mut().insert(header::SET_COOKIE, v);
         }
+        return response;
     }
 
     let token_url = "https://oauth2.googleapis.com/token";
@@ -1298,19 +1455,24 @@ async fn google_oauth_callback(
     };
 
     let cookie_headers = auth_cookie_header(&state, &token);
-    // Web callback is cookie-only. Desktop deep-link keeps token fragment because it does not use browser cookies.
-    let redirect_url = if origin.starts_with("voxpery://") {
-        format!(
-            "{}{}#token={}",
-            origin,
-            redirect_path,
-            urlencoding::encode(&token)
-        )
+    let is_desktop = is_desktop_oauth_origin(&origin);
+    let redirect_url = if is_desktop {
+        let exchange_code = match issue_desktop_oauth_code(&state, &token).await {
+            Ok(code) => code,
+            Err(e) => {
+                tracing::warn!("Failed to issue desktop OAuth code: {}", e);
+                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
+                    .into_response();
+            }
+        };
+        let path_with_code = append_query_param(&redirect_path, "code", &exchange_code);
+        format!("{}{}", DESKTOP_OAUTH_ORIGIN, path_with_code)
     } else {
         format!("{}{}", origin, redirect_path)
     };
 
-    let mut response = if origin.starts_with("voxpery://") {
+    let mut response = if is_desktop {
         // Desktop UX: Return a nice HTML page that triggers the deep link and tells user to close tab.
         let html = format!(
             r#"<!DOCTYPE html>
@@ -1353,8 +1515,8 @@ async fn google_oauth_callback(
         Redirect::temporary(&redirect_url).into_response()
     };
 
-    let clear_oauth_state = clear_oauth_state_cookie_header();
-    if let Ok(v) = HeaderValue::from_str(clear_oauth_state) {
+    let clear_oauth_state = clear_oauth_state_cookie_header(&state);
+    if let Ok(v) = HeaderValue::from_str(&clear_oauth_state) {
         response.headers_mut().insert(header::SET_COOKIE, v);
     }
 

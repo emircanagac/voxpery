@@ -1,7 +1,7 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "default",
-    "description": "Default capabilities for main window including updater and process restart",
+    "description": "Default capabilities for main window including process restart",
     "windows": [
         "main"
     ],
@@ -15,7 +15,6 @@
         "core:resources:default",
         "core:menu:default",
         "core:tray:default",
-        "updater:default",
         "process:allow-restart",
         "secure-storage:default",
         "opener:default",
