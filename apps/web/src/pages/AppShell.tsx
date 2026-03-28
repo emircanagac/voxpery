@@ -95,9 +95,37 @@ export default function AppShell() {
           if (!user_id || !status) return
           const store = useAppStore.getState()
           const members = store.members ?? []
-          store.setMembers(
-            members.map((m) => (m.user_id === user_id ? { ...m, status } : m)),
-          )
+          if (members.some((m) => m.user_id === user_id)) {
+            store.setMembers(
+              members.map((m) => (m.user_id === user_id ? { ...m, status } : m)),
+            )
+          }
+
+          Object.entries(store.membersByServerId ?? {}).forEach(([serverId, serverMembers]) => {
+            if (!serverMembers.some((member) => member.user_id === user_id)) return
+            store.setMembersForServer(
+              serverId,
+              serverMembers.map((member) =>
+                member.user_id === user_id ? { ...member, status } : member,
+              ),
+            )
+          })
+
+          const currentFriends = store.friends ?? []
+          if (currentFriends.some((f) => f.id === user_id)) {
+            setFriends(
+              currentFriends.map((f: Friend) => (f.id === user_id ? { ...f, status } : f)),
+            )
+          }
+
+          const currentDmChannels = store.dmChannels ?? []
+          if (currentDmChannels.some((c) => c.peer_id === user_id)) {
+            setDmChannels(
+              currentDmChannels.map((c: DmChannel) =>
+                c.peer_id === user_id ? { ...c, peer_status: status } : c,
+              ),
+            )
+          }
         }
         if (e?.type === 'VoiceControlUpdate') {
           const { user_id, muted, deafened, server_muted, server_deafened, screen_sharing, camera_on } = e.data ?? {}

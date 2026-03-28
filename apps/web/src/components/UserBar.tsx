@@ -351,6 +351,8 @@ export default function UserBar() {
     }
   }
 
+  const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password === false
+
   return (
     <div className="user-bar-wrap" ref={statusToggleRef}>
       <div className="user-panel">
@@ -710,14 +712,18 @@ export default function UserBar() {
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Password</div>
-                    <div className="user-setting-desc">Update your account password.</div>
+                    <div className="user-setting-desc">
+                      {isGoogleOnlyAccount
+                        ? 'Add a local password to sign in with email and password.'
+                        : 'Update your account password.'}
+                    </div>
                   </div>
                   <button
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => { setShowPwModal(true); setPwOld(''); setPwNew(''); setPwConfirm(''); setPwError(null); setPwSuccess(false) }}
                   >
-                    Change
+                    {isGoogleOnlyAccount ? 'Set password' : 'Change'}
                   </button>
                 </div>
                 <div className="user-setting-row">
@@ -998,28 +1004,34 @@ export default function UserBar() {
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Lock size={20} className="pw-modal-icon" />
-              <h2>Change password</h2>
-              <p className="pw-modal-subtitle">You will be logged out after changing your password.</p>
+              <h2>{isGoogleOnlyAccount ? 'Set password' : 'Change password'}</h2>
+              <p className="pw-modal-subtitle">
+                {isGoogleOnlyAccount
+                  ? 'Set a password so you can sign in with email and password too.'
+                  : 'You will be logged out after changing your password.'}
+              </p>
             </header>
             <div className="pw-change-form">
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="pw-old">Current password</label>
-                <div className="pw-input-wrap">
-                  <Lock size={14} className="pw-input-icon" />
-                  <input
-                    id="pw-old"
-                    type={pwShowOld ? 'text' : 'password'}
-                    className="pw-input"
-                    placeholder="Enter current password"
-                    value={pwOld}
-                    onChange={(e) => { setPwOld(e.target.value); setPwError(null); setPwSuccess(false) }}
-                    autoComplete="current-password"
-                  />
-                  <button type="button" className="pw-eye-btn" onClick={() => setPwShowOld(v => !v)} tabIndex={-1} aria-label="Toggle visibility">
-                    {pwShowOld ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
+              {!isGoogleOnlyAccount && (
+                <div className="pw-field-wrap">
+                  <label className="user-setting-title" htmlFor="pw-old">Current password</label>
+                  <div className="pw-input-wrap">
+                    <Lock size={14} className="pw-input-icon" />
+                    <input
+                      id="pw-old"
+                      type={pwShowOld ? 'text' : 'password'}
+                      className="pw-input"
+                      placeholder="Enter current password"
+                      value={pwOld}
+                      onChange={(e) => { setPwOld(e.target.value); setPwError(null); setPwSuccess(false) }}
+                      autoComplete="current-password"
+                    />
+                    <button type="button" className="pw-eye-btn" onClick={() => setPwShowOld(v => !v)} tabIndex={-1} aria-label="Toggle visibility">
+                      {pwShowOld ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="pw-field-wrap">
                 <label className="user-setting-title" htmlFor="pw-new">New password</label>
                 <div className="pw-input-wrap">
@@ -1063,7 +1075,11 @@ export default function UserBar() {
                 )}
               </div>
               {pwError && <div className="pw-error">{pwError}</div>}
-              {pwSuccess && <div className="pw-success">Password changed! Redirecting to login…</div>}
+              {pwSuccess && (
+                <div className="pw-success">
+                  {isGoogleOnlyAccount ? 'Password set successfully.' : 'Password changed! Redirecting to login…'}
+                </div>
+              )}
             </div>
             <footer className="pw-modal-footer">
               <button
@@ -1076,29 +1092,40 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={pwSaving || pwNew.length < 8 || pwNew !== pwConfirm || !pwOld}
+                disabled={pwSaving || pwNew.length < 8 || pwNew !== pwConfirm || (!isGoogleOnlyAccount && !pwOld)}
                 onClick={async () => {
                   setPwSaving(true)
                   setPwError(null)
                   try {
-                    await authApi.changePassword(pwOld, pwNew, token ?? null)
-                    setPwSuccess(true)
-                    setPwOld(''); setPwNew(''); setPwConfirm('')
-                    setTimeout(() => {
-                      disconnect()
-                      logout()
-                      navigate(ROUTES.login, { replace: true })
-                    }, 1500)
+                    if (isGoogleOnlyAccount) {
+                      const auth = await authApi.setPassword(pwNew, token ?? null)
+                      if (token) setAuth(auth.token, auth.user)
+                      else setUser(auth.user)
+                      setPwSuccess(true)
+                      setPwOld(''); setPwNew(''); setPwConfirm('')
+                      setTimeout(() => {
+                        setShowPwModal(false)
+                      }, 900)
+                    } else {
+                      await authApi.changePassword(pwOld, pwNew, token ?? null)
+                      setPwSuccess(true)
+                      setPwOld(''); setPwNew(''); setPwConfirm('')
+                      setTimeout(() => {
+                        disconnect()
+                        logout()
+                        navigate(ROUTES.login, { replace: true })
+                      }, 1500)
+                    }
                   } catch (err: unknown) {
                     const errorObj = err as Record<string, Record<string, Record<string, string>>>
-                    const msg = errorObj?.response?.data?.message || (err as Error)?.message || 'Password change failed'
+                    const msg = errorObj?.response?.data?.message || (err as Error)?.message || (isGoogleOnlyAccount ? 'Set password failed' : 'Password change failed')
                     setPwError(msg)
                   } finally {
                     setPwSaving(false)
                   }
                 }}
               >
-                {pwSaving ? 'Changing…' : 'Confirm'}
+                {pwSaving ? (isGoogleOnlyAccount ? 'Saving…' : 'Changing…') : 'Confirm'}
               </button>
             </footer>
           </div>

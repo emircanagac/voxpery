@@ -243,6 +243,66 @@ export default function MemberSidebar({
 
     const canManageRoles = isOwner || canManageRolesFromPerms
 
+    const patchScopedMembers = useCallback(
+        (userId: string, patch: Partial<MemberItemProps['member']>) => {
+            if (!userId) return
+            setChannelMembersById((prev) => {
+                let changed = false
+                const next: Record<string, MemberItemProps['member'][]> = {}
+                for (const [channelId, scopedMembers] of Object.entries(prev)) {
+                    let scopedChanged = false
+                    const patched = scopedMembers.map((member) => {
+                        if (member.user_id !== userId) return member
+                        scopedChanged = true
+                        changed = true
+                        return { ...member, ...patch }
+                    })
+                    next[channelId] = scopedChanged ? patched : scopedMembers
+                }
+                return changed ? next : prev
+            })
+            setProfileCard((prev) =>
+                prev && prev.member.user_id === userId
+                    ? { ...prev, member: { ...prev.member, ...patch } }
+                    : prev,
+            )
+        },
+        [],
+    )
+
+    useEffect(() => {
+        return subscribeWs((payload: unknown) => {
+            const evt = payload as {
+                type?: string
+                data?: {
+                    user_id?: string
+                    status?: string
+                    user?: { id?: string; username?: string; avatar_url?: string | null; status?: string }
+                }
+            }
+
+            if (evt?.type === 'PresenceUpdate') {
+                const userId = evt.data?.user_id
+                const status = evt.data?.status
+                if (!userId || !status) return
+                patchScopedMembers(userId, { status })
+                return
+            }
+
+            if (evt?.type === 'UserUpdated') {
+                const updated = evt.data?.user
+                const userId = updated?.id
+                if (!userId) return
+                const patch: Partial<MemberItemProps['member']> = {}
+                if (typeof updated.username === 'string') patch.username = updated.username
+                if ('avatar_url' in (updated ?? {})) patch.avatar_url = updated.avatar_url ?? null
+                if (typeof updated.status === 'string') patch.status = updated.status
+                if (Object.keys(patch).length === 0) return
+                patchScopedMembers(userId, patch)
+            }
+        })
+    }, [patchScopedMembers, subscribeWs])
+
     const openRoleEditor = useCallback(
         async (memberUserId: string, username: string) => {
             if (!user || !activeServerId || !canManageRoles) return

@@ -203,6 +203,11 @@ struct ChangePasswordRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct SetPasswordRequest {
+    new_password: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct DeleteAccountRequest {
     confirm: String,
     password: Option<String>,
@@ -268,6 +273,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/status", patch(update_status))
         .route("/profile", patch(update_profile))
         .route("/check-username", get(check_username))
+        .route("/set-password", post(set_password))
         .route("/change-password", post(change_password))
         .route("/data-export", get(export_my_data))
         .route("/account", delete(delete_my_account))
@@ -770,6 +776,12 @@ async fn login(
         return Err(AppError::InvalidCredentials);
     };
 
+    // OAuth-only accounts do not have a local password yet.
+    if user.password_hash == "oauth" {
+        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
+        return Err(AppError::InvalidCredentials);
+    }
+
     // Verify password
     if !verify_password(&body.password, &user.password_hash)? {
         record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
@@ -791,21 +803,83 @@ async fn login(
     )?;
 
     let headers = auth_cookie_header(&state, &token);
-    let user_public = UserPublic {
-        id: user.id,
-        username: user.username.clone(),
-        avatar_url: user.avatar_url.clone(),
-        // Status is a user preference source-of-truth (online/dnd/offline).
-        // Runtime connectivity is represented via WebSocket presence events.
-        status: user.status.clone(),
-        dm_privacy: user.dm_privacy.clone(),
-        username_changed_at: user.username_changed_at,
-    };
+    let user_public = UserPublic::from(user);
     Ok((
         headers,
         Json(AuthResponse {
             token,
             user: user_public,
+        }),
+    ))
+}
+
+/// POST /api/auth/set-password
+/// Allows Google-only users to add a local password for the first time.
+async fn set_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<SetPasswordRequest>,
+) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:set_password:{}", claims.sub),
+        5,
+        Duration::from_secs(60 * 60),
+        "Too many password set attempts. Please wait.",
+    )
+    .await?;
+
+    if body.new_password.len() < 8 {
+        return Err(AppError::Validation(
+            "New password must be at least 8 characters".into(),
+        ));
+    }
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("User not found".into()))?;
+
+    if user.google_id.is_none() {
+        return Err(AppError::Validation(
+            "This account is not connected to Google Sign-In.".into(),
+        ));
+    }
+    if user.password_hash != "oauth" {
+        return Err(AppError::Validation(
+            "Password is already set. Use change password.".into(),
+        ));
+    }
+
+    let password_hash = hash_password(&body.new_password)?;
+    sqlx::query(
+        "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+    )
+    .bind(&password_hash)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
+
+    let updated = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .fetch_one(&state.db)
+        .await?;
+
+    let token = generate_token(
+        updated.id,
+        &updated.username,
+        updated.token_version,
+        &state.jwt_secret,
+        state.jwt_expiration,
+    )?;
+    let headers = auth_cookie_header(&state, &token);
+
+    Ok((
+        headers,
+        Json(AuthResponse {
+            token,
+            user: UserPublic::from(updated),
         }),
     ))
 }

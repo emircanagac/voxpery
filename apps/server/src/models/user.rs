@@ -28,6 +28,10 @@ pub struct UserPublic {
     pub avatar_url: Option<String>,
     pub status: String,
     pub dm_privacy: String,
+    /// True when this account is connected to Google OAuth.
+    pub google_connected: bool,
+    /// True when this account has a local password hash (can login with email/password).
+    pub has_password: bool,
     /// When the user last changed their username (for 30-day change limit). Frontend uses this to show "next change allowed" before save.
     pub username_changed_at: Option<DateTime<Utc>>,
 }
@@ -40,6 +44,8 @@ impl From<User> for UserPublic {
             avatar_url: u.avatar_url,
             status: u.status,
             dm_privacy: u.dm_privacy,
+            google_connected: u.google_id.is_some(),
+            has_password: u.password_hash != "oauth",
             username_changed_at: u.username_changed_at,
         }
     }

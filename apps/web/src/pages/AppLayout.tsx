@@ -563,6 +563,46 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     })
                     break
                 }
+                case 'UserUpdated': {
+                    const updated = d.user as { id?: string; username?: string; avatar_url?: string | null; status?: string } | undefined
+                    const user_id = updated?.id
+                    if (!user_id) break
+                    const store = useAppStore.getState()
+
+                    const members = store.members ?? []
+                    if (members.some((m) => m.user_id === user_id)) {
+                        store.setMembers(
+                            members.map((m) =>
+                                m.user_id === user_id
+                                    ? {
+                                        ...m,
+                                        username: updated.username ?? m.username,
+                                        avatar_url: updated.avatar_url ?? null,
+                                        status: updated.status ?? m.status,
+                                    }
+                                    : m,
+                            ),
+                        )
+                    }
+
+                    Object.entries(store.membersByServerId ?? {}).forEach(([sid, cache]) => {
+                        if (!cache.some((m) => m.user_id === user_id)) return
+                        store.setMembersForServer(
+                            sid,
+                            cache.map((m) =>
+                                m.user_id === user_id
+                                    ? {
+                                        ...m,
+                                        username: updated.username ?? m.username,
+                                        avatar_url: updated.avatar_url ?? null,
+                                        status: updated.status ?? m.status,
+                                    }
+                                    : m,
+                            ),
+                        )
+                    })
+                    break
+                }
                 case 'MemberJoined': {
                     const eventSid = d.server_id as string | undefined
                     if (!eventSid) break

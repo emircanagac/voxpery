@@ -335,6 +335,14 @@ export const authApi = {
             token: token ?? undefined,
         }),
 
+    /** Set local password for Google-only accounts. Returns refreshed auth payload. */
+    setPassword: (newPassword: string, token: string | null) =>
+        apiFetch<AuthResponse>('/api/auth/set-password', {
+            method: 'POST',
+            body: { new_password: newPassword },
+            token: token ?? undefined,
+        }),
+
     forgotPassword: (email: string) =>
         apiFetch<{ message: string }>('/api/auth/forgot-password', {
             method: 'POST',

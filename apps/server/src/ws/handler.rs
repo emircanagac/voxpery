@@ -60,30 +60,44 @@ fn visible_presence_from_preference(status: &str) -> &'static str {
     }
 }
 
-async fn users_share_server(db: &sqlx::PgPool, a_user_id: Uuid, b_user_id: Uuid) -> bool {
+async fn users_share_server_or_are_friends(
+    db: &sqlx::PgPool,
+    a_user_id: Uuid,
+    b_user_id: Uuid,
+) -> bool {
     if a_user_id == b_user_id {
         return true;
     }
     sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS (
-            SELECT 1
-            FROM servers s
-            WHERE
-                (
-                    s.owner_id = $1
-                    OR EXISTS (
-                        SELECT 1 FROM server_members sm1
-                        WHERE sm1.server_id = s.id AND sm1.user_id = $1
+        r#"SELECT (
+            EXISTS (
+                SELECT 1
+                FROM servers s
+                WHERE
+                    (
+                        s.owner_id = $1
+                        OR EXISTS (
+                            SELECT 1 FROM server_members sm1
+                            WHERE sm1.server_id = s.id AND sm1.user_id = $1
+                        )
                     )
-                )
-                AND
-                (
-                    s.owner_id = $2
-                    OR EXISTS (
-                        SELECT 1 FROM server_members sm2
-                        WHERE sm2.server_id = s.id AND sm2.user_id = $2
+                    AND
+                    (
+                        s.owner_id = $2
+                        OR EXISTS (
+                            SELECT 1 FROM server_members sm2
+                            WHERE sm2.server_id = s.id AND sm2.user_id = $2
+                        )
                     )
-                )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM friendships f
+                WHERE
+                    (f.user_a = $1 AND f.user_b = $2)
+                    OR
+                    (f.user_a = $2 AND f.user_b = $1)
+            )
         )"#,
     )
     .bind(a_user_id)
@@ -322,10 +336,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                             *target_user_id == user_id
                         }
                         WsEvent::PresenceUpdate { user_id: changed_user_id, .. } => {
-                            users_share_server(&send_state.db, user_id, *changed_user_id).await
+                            users_share_server_or_are_friends(
+                                &send_state.db,
+                                user_id,
+                                *changed_user_id,
+                            )
+                            .await
                         }
                         WsEvent::UserUpdated { user } => {
-                            users_share_server(&send_state.db, user_id, user.id).await
+                            users_share_server_or_are_friends(&send_state.db, user_id, user.id)
+                                .await
                         }
                         WsEvent::MemberJoined { server_id, .. }
                         | WsEvent::MemberLeft { server_id, .. }

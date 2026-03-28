@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tower::ServiceExt;
 use uuid::Uuid;
-use voxpery_server::{build_app, run_migrations, AppState};
+use voxpery_server::{build_app, run_migrations, services::auth::generate_token, AppState};
 
 fn test_db_url() -> Option<String> {
     dotenvy::dotenv().ok();
@@ -1533,6 +1533,127 @@ async fn password_change_invalidates_old_token() {
 }
 
 #[tokio::test]
+async fn google_only_user_can_set_password_and_login() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let email = format!("oauth-setpw-{}@example.com", uid);
+    let username = format!("oauthset_{}", uid.as_u128() % 1_000_000);
+    let google_id = format!("google-{}", uid);
+    let new_password = "newpassword123";
+
+    sqlx::query(
+        r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, created_at, token_version)
+           VALUES ($1, $2, $3, 'oauth', 'online', 'friends', $4, NOW(), 0)"#,
+    )
+    .bind(user_id)
+    .bind(&username)
+    .bind(&email)
+    .bind(&google_id)
+    .execute(&state.db)
+    .await
+    .expect("failed to seed oauth-only test user");
+
+    // Password login must fail before set-password.
+    let login_before_body = json!({
+        "identifier": email,
+        "password": "whatever123"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&login_before_body).expect("serialize login before body"),
+        ))
+        .expect("build login before request");
+    let (status, _body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let old_token = generate_token(
+        user_id,
+        &username,
+        0,
+        &state.jwt_secret,
+        state.jwt_expiration,
+    )
+    .expect("generate old token");
+    let old_auth = format!("Bearer {old_token}");
+
+    let set_password_body = json!({
+        "new_password": new_password
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/set-password")
+        .header("Authorization", &old_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&set_password_body).expect("serialize set-password body"),
+        ))
+        .expect("build set-password request");
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "set-password failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let auth: serde_json::Value =
+        serde_json::from_slice(&body).expect("parse set-password response");
+    let new_token = auth["token"].as_str().expect("set-password token");
+    assert_eq!(auth["user"]["google_connected"], true);
+    assert_eq!(auth["user"]["has_password"], true);
+
+    // Old token must be invalid after token_version bump.
+    let req = Request::builder()
+        .uri("/api/auth/me")
+        .header("Authorization", &old_auth)
+        .body(Body::empty())
+        .expect("build old /me request");
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // New token must work.
+    let req = Request::builder()
+        .uri("/api/auth/me")
+        .header("Authorization", format!("Bearer {new_token}"))
+        .body(Body::empty())
+        .expect("build new /me request");
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let me: serde_json::Value = serde_json::from_slice(&body).expect("parse /me response");
+    assert_eq!(me["has_password"], true);
+    assert_eq!(me["google_connected"], true);
+
+    // Password login now succeeds.
+    let login_after_body = json!({
+        "identifier": email,
+        "password": new_password
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&login_after_body).expect("serialize login after body"),
+        ))
+        .expect("build login after request");
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "login after set-password failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
 async fn password_reset_invalidates_old_token() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
@@ -1915,8 +2036,15 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
         .body(Body::empty())
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
-    assert_eq!(status, StatusCode::OK, "signed content URL should serve file");
-    assert_eq!(body, bytes::Bytes::from_static(b"hello from integration test"));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "signed content URL should serve file"
+    );
+    assert_eq!(
+        body,
+        bytes::Bytes::from_static(b"hello from integration test")
+    );
 
     let tampered_path = if let Some((prefix, sig)) = signed_path.rsplit_once("sig=") {
         let bad_sig = format!("{}0", &sig[..sig.len().saturating_sub(1)]);
