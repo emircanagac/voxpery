@@ -45,13 +45,14 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 - 👥 **Friends & social** — Add friends, see status, mutual presence
 
 ### Security & Privacy
-- 🔒 **Military-grade auth** — JWT + Argon2, httpOnly cookies (XSS-safe)
+- 🔒 **Secure auth defaults** — JWT + Argon2id, httpOnly cookies, Google OAuth support
 - 🛡️ **No tracking** — Zero analytics, zero telemetry, zero ads
 - 🏠 **Self-hosted** — Full control of your data, run on your server
+- 📎 **Scoped attachment access** — Signed URLs + server/DM viewer authorization
 - 🔐 **Open source** — Audit-ready code, AGPL license
 
 ### Performance
-- ⚡ **Lightweight** — 50MB Tauri desktop (vs 200MB Electron)
+- ⚡ **Lightweight desktop client** — Tauri-based app with low runtime overhead
 - 🚀 **Fast deployment** — Docker Compose, one command
 - 📦 **Scalable** — PostgreSQL + Redis, horizontal scaling ready
 
@@ -66,7 +67,7 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 | Cache    | Redis |
 | Voice    | LiveKit SFU |
 | Frontend | React 19, TypeScript 5, Vite 7 |
-| Auth     | JWT, Argon2; httpOnly cookie |
+| Auth     | JWT, Argon2id, httpOnly cookie, Google OAuth |
 
 ## Quick Start
 
@@ -94,6 +95,8 @@ docker compose up -d --build
 # Open http://localhost:5173
 ```
 
+Note: ClamAV runs in Compose by default. File scanning is controlled by `ATTACHMENTS_CLAMAV_ENABLED` in `.env`.
+
 **Need production setup?** → See [**Deployment Guide**](docs/DEPLOYMENT.md)
 - Full Docker Compose deployment
 - Reverse proxy/TLS options
@@ -104,7 +107,13 @@ docker compose up -d --build
 ### Desktop App
 
 ```bash
-cd apps/desktop
+# Terminal 1: run web dev server used by Tauri devUrl
+cd apps/web
+npm ci
+npm run dev
+
+# Terminal 2: run desktop shell
+cd apps/desktop/src-tauri
 cargo tauri dev
 ```
 
