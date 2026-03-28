@@ -29,13 +29,19 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/server -> target
+          workspaces: |
+            apps/server -> target
+            apps/desktop/src-tauri -> target
 
       - name: Install cargo-audit (prebuilt)
         uses: taiki-e/install-action@cargo-audit
 
       - name: Dependency audit (Rust)
         working-directory: apps/server
+        run: cargo audit --deny warnings
+
+      - name: Dependency audit (desktop Rust)
+        working-directory: apps/desktop/src-tauri
         run: cargo audit --deny warnings
 
       - name: Setup Node
