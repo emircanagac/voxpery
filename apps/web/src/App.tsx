@@ -43,6 +43,7 @@ function AuthRedirect() {
 function App() {
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
+  const loggingOut = useAuthStore((s) => s.loggingOut)
   const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
   const [restoring, setRestoring] = useState(true)
@@ -109,8 +110,10 @@ function App() {
   // Web: after Google OAuth we get token in hash #token=... (cookie may not be sent). Restore session from it first.
   useEffect(() => {
     if (restoring || isTauri()) return
-    if (user != null) return
-    if (useAuthStore.getState().loggingOut) return
+    // Always validate web cookie session on startup, even when user is restored from localStorage.
+    // Otherwise stale user state can show "logged in" while all protected data requests fail.
+    if (validatedSessionRef.current) return
+    if (loggingOut) return
     const hash = window.location.hash
     const tokenMatch = hash && /#token=([^&]+)/.exec(hash)
     if (tokenMatch) {
@@ -137,8 +140,16 @@ function App() {
       .then((freshUser) => {
         useAuthStore.getState().setUser(freshUser)
       })
-      .catch(() => {})
-  }, [restoring, user])
+      .catch((err) => {
+        // Expired/invalid cookie: clear stale persisted user so UI returns to login.
+        if (isAuthError(err)) {
+          logout()
+        } else {
+          // transient network/server issue: allow a later retry
+          validatedSessionRef.current = false
+        }
+      })
+  }, [restoring, loggingOut, logout])
 
   // Validate session once on mount (both desktop and web)
   useEffect(() => {
