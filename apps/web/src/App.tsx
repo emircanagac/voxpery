@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
-import { authApi, isAuthError } from './api'
+import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError } from './api'
 import { isTauri, setSecureToken } from './secureStorage'
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import { listen } from '@tauri-apps/api/event'
@@ -63,11 +63,17 @@ function App() {
           const parsed = new URL(url)
           const code = parsed.searchParams.get('code')
           if (code) {
+            const codeVerifier = getStoredDesktopOAuthVerifier()
+            if (!codeVerifier) {
+              console.error('Missing desktop OAuth code verifier; restart login flow.')
+              return
+            }
             authApi
-              .exchangeDesktopOAuthCode(code)
+              .exchangeDesktopOAuthCode(code, codeVerifier)
               .then((auth) => {
                 useAuthStore.getState().setAuth(auth.token, auth.user)
                 setSecureToken(auth.token).catch(() => {})
+                clearStoredDesktopOAuthVerifier()
               })
               .catch((err) => {
                  console.error("Deep link auth error:", err)

@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Turnstile } from '@marsidev/react-turnstile'
-import { authApi, getAuthErrorMessage, getGoogleAuthUrl } from '../api'
+import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
@@ -43,7 +43,7 @@ export default function RegisterPage() {
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
         if (isTauri()) {
             e.preventDefault()
-            const url = getGoogleAuthUrl(redirectTo)
+            const url = await getDesktopGoogleAuthUrl(redirectTo)
             await openExternalUrl(url)
         }
     }

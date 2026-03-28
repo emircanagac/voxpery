@@ -21,6 +21,7 @@ export type UserPublic = User
 
 // Prefer localhost so cookie is sent after Google OAuth when frontend is at localhost:5173 (same host).
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const DESKTOP_OAUTH_VERIFIER_KEY = 'voxpery.desktop.oauth.code_verifier'
 
 /** In browser, if page is on localhost but API_BASE uses 127.0.0.1, return API base with localhost so the auth cookie is sent. */
 function effectiveApiBase(): string {
@@ -36,13 +37,67 @@ export function getApiBase(): string {
     return effectiveApiBase()
 }
 
+interface GoogleAuthUrlOptions {
+    origin?: string
+    codeChallenge?: string
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function randomPkceVerifier(length: number = 64): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
+    const bytes = new Uint8Array(length)
+    crypto.getRandomValues(bytes)
+    let out = ''
+    for (const b of bytes) {
+        out += alphabet[b % alphabet.length]
+    }
+    return out
+}
+
+async function createDesktopPkcePair(): Promise<{ verifier: string; challenge: string }> {
+    const verifier = randomPkceVerifier()
+    const data = new TextEncoder().encode(verifier)
+    const digest = await crypto.subtle.digest('SHA-256', data)
+    const challenge = base64UrlEncode(new Uint8Array(digest))
+    return { verifier, challenge }
+}
+
+export function getStoredDesktopOAuthVerifier(): string | null {
+    if (typeof window === 'undefined') return null
+    return window.localStorage.getItem(DESKTOP_OAUTH_VERIFIER_KEY)
+}
+
+export function clearStoredDesktopOAuthVerifier(): void {
+    if (typeof window === 'undefined') return
+    window.localStorage.removeItem(DESKTOP_OAUTH_VERIFIER_KEY)
+}
+
+export async function getDesktopGoogleAuthUrl(redirectPath: string = '/'): Promise<string> {
+    const { verifier, challenge } = await createDesktopPkcePair()
+    if (typeof window !== 'undefined') {
+        window.localStorage.setItem(DESKTOP_OAUTH_VERIFIER_KEY, verifier)
+    }
+    return getGoogleAuthUrl(redirectPath, {
+        origin: 'voxpery://auth',
+        codeChallenge: challenge,
+    })
+}
+
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
-export function getGoogleAuthUrl(redirectPath: string = '/'): string {
-    const origin = isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
+export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAuthUrlOptions): string {
+    const origin = options?.origin ?? (isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'))
     const params = new URLSearchParams({
         redirect: redirectPath,
         origin,
     })
+    if (options?.codeChallenge) {
+        params.set('code_challenge', options.codeChallenge)
+    }
     return `${effectiveApiBase()}/api/auth/google?${params.toString()}`
 }
 
@@ -295,10 +350,10 @@ export const authApi = {
         }),
 
     /** Desktop-only: exchange short-lived OAuth code from deep-link into JWT + user payload. */
-    exchangeDesktopOAuthCode: (code: string) =>
+    exchangeDesktopOAuthCode: (code: string, codeVerifier: string) =>
         apiFetch<AuthResponse>('/api/auth/google/desktop-exchange', {
             method: 'POST',
-            body: { code },
+            body: { code, code_verifier: codeVerifier },
         }),
 
     /** token optional: web uses httpOnly cookie when null. */

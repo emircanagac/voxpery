@@ -6,9 +6,13 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL},
+    Engine,
+};
 use redis::AsyncCommands;
 use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,20 +129,52 @@ fn append_query_param(path: &str, key: &str, value: &str) -> String {
     out
 }
 
+fn is_valid_pkce_component(value: &str) -> bool {
+    let len = value.len();
+    if !(43..=128).contains(&len) {
+        return false;
+    }
+    value
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'))
+}
+
+fn pkce_s256_challenge(verifier: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    let digest = hasher.finalize();
+    BASE64URL.encode(digest)
+}
+
 fn desktop_oauth_code_key(code: &str) -> String {
     format!("auth:oauth:desktop_code:{code}")
 }
 
-async fn issue_desktop_oauth_code(state: &Arc<AppState>, token: &str) -> Result<String, AppError> {
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct DesktopOAuthCodePayload {
+    token: String,
+    code_challenge: Option<String>,
+}
+
+async fn issue_desktop_oauth_code(
+    state: &Arc<AppState>,
+    token: &str,
+    code_challenge: &str,
+) -> Result<String, AppError> {
     let code = Uuid::new_v4().simple().to_string();
     let key = desktop_oauth_code_key(&code);
+    let payload = serde_json::to_string(&DesktopOAuthCodePayload {
+        token: token.to_string(),
+        code_challenge: Some(code_challenge.to_string()),
+    })
+    .map_err(|e| AppError::Internal(format!("Failed to encode desktop OAuth payload: {e}")))?;
     let mut conn = state
         .redis
         .get_multiplexed_async_connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
     let _: () = conn
-        .set_ex(&key, token, DESKTOP_OAUTH_CODE_TTL_SECS)
+        .set_ex(&key, payload, DESKTOP_OAUTH_CODE_TTL_SECS)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to store desktop OAuth code: {e}")))?;
     Ok(code)
@@ -147,7 +183,7 @@ async fn issue_desktop_oauth_code(state: &Arc<AppState>, token: &str) -> Result<
 async fn consume_desktop_oauth_code(
     state: &Arc<AppState>,
     code: &str,
-) -> Result<Option<String>, AppError> {
+) -> Result<Option<DesktopOAuthCodePayload>, AppError> {
     let key = desktop_oauth_code_key(code);
     let mut conn = state
         .redis
@@ -175,7 +211,34 @@ async fn consume_desktop_oauth_code(
             fallback
         }
     };
-    Ok(token)
+    Ok(token.map(|raw| {
+        serde_json::from_str::<DesktopOAuthCodePayload>(&raw).unwrap_or(DesktopOAuthCodePayload {
+            token: raw,
+            code_challenge: None,
+        })
+    }))
+}
+
+#[cfg(test)]
+mod oauth_pkce_tests {
+    use super::{is_valid_pkce_component, pkce_s256_challenge};
+
+    #[test]
+    fn validates_pkce_component_charset_and_length() {
+        let valid = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        assert!(is_valid_pkce_component(valid));
+        assert!(!is_valid_pkce_component("short"));
+        assert!(!is_valid_pkce_component(
+            "contains+plus_which_is_not_allowed"
+        ));
+    }
+
+    #[test]
+    fn computes_rfc7636_s256_challenge() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+        assert_eq!(pkce_s256_challenge(verifier), expected);
+    }
 }
 
 fn visible_presence_from_preference(status: &str) -> &'static str {
@@ -1038,6 +1101,8 @@ struct GoogleOAuthStartQuery {
     redirect: Option<String>,
     /// Frontend origin (e.g. http://localhost:5173) for redirect after callback
     origin: Option<String>,
+    /// Desktop OAuth PKCE code challenge (S256).
+    code_challenge: Option<String>,
 }
 
 /// GET /api/auth/google — redirect to Google OAuth. Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_API_URL.
@@ -1077,9 +1142,29 @@ async fn google_oauth_start(
         .trim()
         .to_string();
     let origin = normalize_oauth_origin(&state, &origin);
+    let is_desktop = is_desktop_oauth_origin(&origin);
+    let code_challenge = q
+        .code_challenge
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| is_valid_pkce_component(v))
+        .map(str::to_string);
+    if is_desktop && code_challenge.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Missing or invalid desktop PKCE challenge" })),
+        )
+            .into_response();
+    }
 
     let nonce = Uuid::new_v4().to_string();
-    let state_param = BASE64.encode(format!("{}\n{}\n{}", nonce, origin, redirect_path));
+    let state_param = BASE64.encode(format!(
+        "{}\n{}\n{}\n{}",
+        nonce,
+        origin,
+        redirect_path,
+        code_challenge.as_deref().unwrap_or("")
+    ));
     let scope = "openid email profile";
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}&access_type=offline&prompt=consent",
@@ -1107,6 +1192,7 @@ struct GoogleOAuthCallbackQuery {
 #[derive(Debug, serde::Deserialize)]
 struct GoogleOAuthDesktopExchangeRequest {
     code: String,
+    code_verifier: String,
 }
 
 /// POST /api/auth/google/desktop-exchange — exchange short-lived desktop OAuth code for JWT.
@@ -1118,10 +1204,26 @@ async fn google_oauth_desktop_exchange(
     if code.len() != 32 || !code.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::Validation("Invalid desktop OAuth code".into()));
     }
+    let code_verifier = body.code_verifier.trim();
+    if !is_valid_pkce_component(code_verifier) {
+        return Err(AppError::Validation(
+            "Invalid desktop OAuth code verifier".into(),
+        ));
+    }
 
-    let token = consume_desktop_oauth_code(&state, code)
+    let payload = consume_desktop_oauth_code(&state, code)
         .await?
         .ok_or(AppError::Unauthorized)?;
+    let expected_challenge = payload
+        .code_challenge
+        .filter(|c| is_valid_pkce_component(c))
+        .ok_or(AppError::Unauthorized)?;
+    let computed_challenge = pkce_s256_challenge(code_verifier);
+    if computed_challenge != expected_challenge {
+        tracing::warn!("Desktop OAuth PKCE challenge mismatch");
+        return Err(AppError::Unauthorized);
+    }
+    let token = payload.token;
 
     match crate::services::jwt_blacklist::is_blacklisted(&state.redis, &token).await {
         Ok(true) => return Err(AppError::Unauthorized),
@@ -1206,26 +1308,29 @@ async fn google_oauth_callback(
         .and_then(|s| BASE64.decode(s.as_bytes()).ok());
     let state_string = decoded_state.and_then(|b| String::from_utf8(b).ok());
 
-    let (nonce, origin, redirect_path) = match state_string {
+    let (nonce, origin, redirect_path, code_challenge) = match state_string {
         Some(ref s) => {
-            let mut parts = s.splitn(3, '\n');
+            let mut parts = s.splitn(4, '\n');
             let n = parts.next().unwrap_or("").trim().to_string();
             let o = parts.next().unwrap_or("").trim().to_string();
             let r = parts.next().unwrap_or("").trim().to_string();
+            let c = parts.next().unwrap_or("").trim().to_string();
             if n.is_empty() || o.is_empty() || !r.starts_with('/') {
                 tracing::warn!(
-                    "OAuth state parsing failed. Parts: n='{}', o='{}', r='{}'",
+                    "OAuth state parsing failed. Parts: n='{}', o='{}', r='{}', c='{}'",
                     n,
                     o,
-                    r
+                    r,
+                    c
                 );
                 (
                     "".to_string(),
                     "http://localhost:5173".to_string(),
                     "/app/friends".to_string(),
+                    None,
                 )
             } else {
-                (n, o, r)
+                (n, o, r, if c.is_empty() { None } else { Some(c) })
             }
         }
         None => {
@@ -1234,6 +1339,7 @@ async fn google_oauth_callback(
                 "".to_string(),
                 "http://localhost:5173".to_string(),
                 "/app/friends".to_string(),
+                None,
             )
         }
     };
@@ -1457,7 +1563,20 @@ async fn google_oauth_callback(
     let cookie_headers = auth_cookie_header(&state, &token);
     let is_desktop = is_desktop_oauth_origin(&origin);
     let redirect_url = if is_desktop {
-        let exchange_code = match issue_desktop_oauth_code(&state, &token).await {
+        let challenge = match code_challenge
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| is_valid_pkce_component(v))
+        {
+            Some(value) => value,
+            None => {
+                tracing::warn!("Desktop OAuth callback missing PKCE challenge in state");
+                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
+                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
+                    .into_response();
+            }
+        };
+        let exchange_code = match issue_desktop_oauth_code(&state, &token, challenge).await {
             Ok(code) => code,
             Err(e) => {
                 tracing::warn!("Failed to issue desktop OAuth code: {}", e);
