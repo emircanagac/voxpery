@@ -100,6 +100,64 @@ export function useLocalMedia() {
         }
     }, [])
 
+    const getCameraStream = useCallback(async (): Promise<MediaStream> => {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            throw new Error('Camera access is not supported in this browser')
+        }
+
+        const attempts: MediaStreamConstraints[] = [
+            {
+                audio: false,
+                video: {
+                    facingMode: 'user',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30, max: 30 },
+                },
+            },
+            {
+                audio: false,
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30, max: 30 },
+                },
+            },
+            { audio: false, video: true },
+        ]
+
+        let lastErr: unknown = null
+        for (const constraints of attempts) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints)
+                if (stream.getVideoTracks().length > 0) {
+                    return stream
+                }
+                stream.getTracks().forEach((t) => t.stop())
+                lastErr = new Error('No camera video track available')
+            } catch (err) {
+                lastErr = err
+                const name = (err as { name?: string })?.name ?? ''
+                if (name === 'NotAllowedError' || name === 'SecurityError') {
+                    break
+                }
+            }
+        }
+
+        const name = (lastErr as { name?: string })?.name ?? ''
+        const message = String((lastErr as { message?: unknown })?.message ?? '').toLowerCase()
+
+        if (name === 'NotAllowedError' || name === 'SecurityError') throw new Error('Camera permission denied')
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError') throw new Error('No camera device detected')
+        if (name === 'NotReadableError' || message.includes('in use') || message.includes('busy')) {
+            throw new Error('Camera is in use by another app')
+        }
+        if (message.includes('failed to allocate videosource')) {
+            throw new Error('Failed to allocate camera video source')
+        }
+        throw new Error('Unable to access camera')
+    }, [])
+
     const getScreenStream = useCallback(async (): Promise<MediaStream> => {
         const cached = cachedScreenStreamRef.current
         if (cached) {
@@ -149,6 +207,7 @@ export function useLocalMedia() {
         getScreenShareEncoding,
         applyLocalMicSettings,
         getMicrophoneStream,
+        getCameraStream,
         getScreenStream,
         getInputVolumeFactor,
         cleanupLocalMedia

@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::claims_match_current_token_version;
 use crate::middleware::auth::token_from_request;
-use crate::services::permissions::{get_user_channel_permissions, Permissions};
+use crate::services::permissions::{get_user_server_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
 
@@ -358,13 +358,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                         | WsEvent::VoiceControlUpdate { server_id, .. } => {
                             match server_id {
                                 Some(sid) => {
-                                    sub_server_counts
+                                    let subscribed_to_server = sub_server_counts
                                         .read()
                                         .await
                                         .get(sid)
                                         .copied()
                                         .unwrap_or(0)
-                                        > 0
+                                        > 0;
+                                    if subscribed_to_server {
+                                        true
+                                    } else {
+                                        // Voice participants should continue receiving voice state/control
+                                        // updates even when they're not actively subscribed to text channels
+                                        // (e.g. while viewing Home/DM pages).
+                                        let my_voice_channel =
+                                            send_state.voice_sessions.get(&user_id).map(|r| *r);
+                                        if let Some(my_channel_id) = my_voice_channel {
+                                            server_id_for_channel(&send_state.db, my_channel_id)
+                                                .await
+                                                == Some(*sid)
+                                        } else {
+                                            false
+                                        }
+                                    }
                                 }
                                 None => false,
                             }
@@ -619,14 +635,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                 screen_sharing,
                                 camera_on,
                             } => {
-                                let actor_channel =
-                                    recv_state.voice_sessions.get(&user_id).map(|r| *r);
-                                let Some(actor_channel_id) = actor_channel else {
-                                    continue;
-                                };
-                                let actor_server_id =
-                                    server_id_for_channel(&recv_state.db, actor_channel_id).await;
-
                                 let target_id = target_user_id.unwrap_or(user_id);
 
                                 if target_id != user_id {
@@ -635,13 +643,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     let Some(target_channel_id) = target_channel else {
                                         continue;
                                     };
-                                    if target_channel_id != actor_channel_id {
+                                    let target_server_id =
+                                        server_id_for_channel(&recv_state.db, target_channel_id)
+                                            .await;
+                                    let Some(target_server_id) = target_server_id else {
                                         continue;
-                                    }
+                                    };
 
-                                    let perms = match get_user_channel_permissions(
+                                    let perms = match get_user_server_permissions(
                                         &recv_state.db,
-                                        actor_channel_id,
+                                        target_server_id,
                                         user_id,
                                     )
                                     .await
@@ -661,13 +672,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                         .get(&target_id)
                                         .map(|s| *s)
                                         .unwrap_or((false, false, false, false, false, false));
+                                    let can_mute = perms.contains(Permissions::MUTE_MEMBERS)
+                                        || perms.contains(Permissions::MANAGE_SERVER);
+                                    let can_deafen = perms.contains(Permissions::DEAFEN_MEMBERS)
+                                        || perms.contains(Permissions::MANAGE_SERVER);
                                     if muted != current.2
-                                        && !perms.contains(Permissions::MUTE_MEMBERS)
+                                        && !can_mute
                                     {
                                         continue;
                                     }
                                     if deafened != current.3
-                                        && !perms.contains(Permissions::DEAFEN_MEMBERS)
+                                        && !can_deafen
                                     {
                                         continue;
                                     }
@@ -679,11 +694,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     let _ = recv_state.voice_controls.insert(target_id, next_state);
                                     let _ = recv_state.tx.send(voice_control_event_from_state(
                                         target_id,
-                                        actor_server_id,
+                                        Some(target_server_id),
                                         next_state,
                                     ));
                                     continue;
                                 }
+
+                                let actor_channel =
+                                    recv_state.voice_sessions.get(&user_id).map(|r| *r);
+                                let Some(actor_channel_id) = actor_channel else {
+                                    continue;
+                                };
+                                let actor_server_id =
+                                    server_id_for_channel(&recv_state.db, actor_channel_id).await;
 
                                 let current = recv_state
                                     .voice_controls

@@ -114,6 +114,34 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return null
   }, [isLinuxDesktop])
+  const mapCameraError = useCallback((err: unknown): string | null => {
+    const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
+    const errMessage = err && typeof err === 'object' && 'message' in err
+      ? String((err as { message?: unknown }).message).toLowerCase()
+      : ''
+
+    const isPermissionError =
+      errName === 'NotAllowedError' ||
+      errMessage.includes('permission denied') ||
+      errMessage.includes('camera permission denied') ||
+      errMessage.includes('securityerror')
+
+    if (isPermissionError) {
+      return isLinuxDesktop
+        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
+        : 'Permission was blocked. Allow camera access in system or browser settings and try again.'
+    }
+    if (errName === 'NotFoundError' || errMessage.includes('no camera') || errMessage.includes('no camera device detected')) {
+      return 'No camera device detected. Connect a camera and retry.'
+    }
+    if (errName === 'NotReadableError' || errMessage.includes('in use by another app') || errMessage.includes('busy') || errMessage.includes('allocate camera video source') || errMessage.includes('allocate videosource')) {
+      return 'Camera is busy or unavailable. Close other apps using the camera and retry.'
+    }
+    if (errMessage.includes('camera access is not supported')) {
+      return 'Camera capture is not available in this runtime. Update your desktop runtime or use the latest Voxpery desktop build.'
+    }
+    return null
+  }, [isLinuxDesktop])
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
   const localControl = user?.id ? voiceControls[user.id] : null
@@ -686,7 +714,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       await startCamera()
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not access camera. Check permission.'
+      const message = mapCameraError(e) ?? (e instanceof Error ? e.message : 'Could not access camera. Check permission.')
       pushToast({ level: 'error', title: 'Camera failed', message })
     }
   }

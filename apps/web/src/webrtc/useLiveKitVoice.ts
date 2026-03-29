@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  createLocalVideoTrack,
   LocalAudioTrack,
   RemoteParticipant,
   Room,
@@ -92,7 +91,7 @@ export function useLiveKitVoice() {
   }, [remoteStreamsVersion])
 
   const { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack, setRnnoiseEnabled, destroyRnnoise } = useAudioEngine()
-  const { applyLocalMicSettings, getMicrophoneStream, getScreenStream, getScreenShareEncoding, getInputVolumeFactor, cleanupLocalMedia } = useLocalMedia()
+  const { applyLocalMicSettings, getMicrophoneStream, getCameraStream, getScreenStream, getScreenShareEncoding, getInputVolumeFactor, cleanupLocalMedia } = useLocalMedia()
 
   const updateRoomStats = useCallback(() => {
     const room = roomRef.current
@@ -570,22 +569,32 @@ export function useLiveKitVoice() {
     const room = roomRef.current
     if (!room) throw new Error('Join a voice channel before turning on camera')
     if (cameraStream) return
-    const track = await createLocalVideoTrack({ facingMode: 'user' })
-    localCameraTrackRef.current = track.mediaStreamTrack
-    if ('contentHint' in track.mediaStreamTrack) {
-      try { track.mediaStreamTrack.contentHint = 'motion' } catch { /* ignore */ }
+    const stream = await getCameraStream()
+    const track = stream.getVideoTracks()[0]
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop())
+      throw new Error('No camera video track available')
     }
-    await room.localParticipant.publishTrack(track, {
-      source: Track.Source.Camera,
-      videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
-    })
+    localCameraTrackRef.current = track
+    if ('contentHint' in track) {
+      try { track.contentHint = 'motion' } catch { /* ignore */ }
+    }
+    try {
+      await room.localParticipant.publishTrack(track, {
+        source: Track.Source.Camera,
+        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
+      })
+    } catch (err) {
+      track.stop()
+      throw err
+    }
     refreshLocalStreams()
     if (userId) {
       useAppStore.getState().setVoiceCamera(userId, true)
       const c = useAppStore.getState().voiceControls[userId]
       send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: true })
     }
-  }, [cameraStream, refreshLocalStreams, send, userId])
+  }, [cameraStream, getCameraStream, refreshLocalStreams, send, userId])
 
   const stopCamera = useCallback(() => {
     const room = roomRef.current

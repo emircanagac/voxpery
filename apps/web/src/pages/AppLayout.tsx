@@ -17,6 +17,7 @@ import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
 import { MessageSquare, Mic } from 'lucide-react'
+import { isTauri } from '../secureStorage'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -119,6 +120,34 @@ function setStoredChannelId(serverId: string, channelId: string | null) {
     } catch {
         // ignore
     }
+}
+
+function deriveInviteBaseFromApiEnv(): string | null {
+    const apiRaw = (import.meta.env.VITE_API_URL ?? '').trim()
+    if (!apiRaw) return null
+
+    try {
+        const api = new URL(apiRaw)
+        const host = api.hostname.toLowerCase()
+        if (host === 'localhost' || host === '127.0.0.1') {
+            return 'http://localhost:5173'
+        }
+        if (host.startsWith('api.')) {
+            return `${api.protocol}//${host.slice(4)}`
+        }
+        return `${api.protocol}//${api.host}`
+    } catch {
+        return null
+    }
+}
+
+function resolveInviteBaseUrl(): string {
+    // Browser builds should keep current origin.
+    if (typeof window !== 'undefined' && !isTauri()) {
+        return window.location.origin
+    }
+    // Desktop builds should always return a shareable public URL, never tauri.localhost.
+    return deriveInviteBaseFromApiEnv() ?? 'https://voxpery.com'
 }
 
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
@@ -275,6 +304,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // ─── Data Fetching ─────────────────────────
     // Use user (not token) so web works: on web token is null and auth is via httpOnly cookie.
     const isLoggedIn = !!user
+    const inviteBaseUrl = resolveInviteBaseUrl()
 
     useEffect(() => {
         if (!isLoggedIn) return
@@ -1079,13 +1109,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const canSendMessages = (activeChannelPerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
     const canManageMessages = (activeChannelPerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
     const canManagePins = (activeChannelPerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
-    const canMuteMembers = (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
-    const canDeafenMembers = (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
+    const hasManageServer = (activePerms & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
+    const canMuteMembers =
+        hasManageServer || (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
+    const canDeafenMembers =
+        hasManageServer || (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
     const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
     const canManageBans = canBanMembers
     const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
     const settingsServer = servers.find((s) => s.id === serverSettingsServerId) ?? activeServer
     const settingsServerId = settingsServer?.id ?? null
+    const settingsServerInviteLink = settingsServer ? `${inviteBaseUrl}/invite/${settingsServer.invite_code}` : ''
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
@@ -2468,9 +2502,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                             <div className="invite-unified-box">
                                                                 <div className="invite-unified-row invite-unified-link">
                                                                     <code>
-                                                                        {typeof window !== 'undefined'
-                                                                            ? `${window.location.origin}/invite/${settingsServer.invite_code}`
-                                                                            : `/invite/${settingsServer.invite_code}`}
+                                                                        {settingsServerInviteLink}
                                                                     </code>
                                                                 </div>
                                                                 <div className="invite-unified-actions">
@@ -2478,11 +2510,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         type="button"
                                                                         className="copy-btn"
                                                                         onClick={() => {
-                                                                            const link =
-                                                                                typeof window !== 'undefined'
-                                                                                    ? `${window.location.origin}/invite/${settingsServer.invite_code}`
-                                                                                    : `/invite/${settingsServer.invite_code}`
-                                                                            navigator.clipboard.writeText(link).then(() => {
+                                                                            navigator.clipboard.writeText(settingsServerInviteLink).then(() => {
                                                                                 setCopiedInvite('link')
                                                                                 setTimeout(() => setCopiedInvite(null), 2000)
                                                                             })
