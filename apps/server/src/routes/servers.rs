@@ -530,7 +530,7 @@ async fn reorder_roles(
     .await?;
 
     // Parse role IDs and remember order.
-    let mut parsed_ids = Vec::<Uuid>::with_capacity(body.role_ids.len());
+    let mut parsed_ids = Vec::<Uuid>::new();
     for raw in &body.role_ids {
         let id = Uuid::parse_str(raw)
             .map_err(|_| AppError::Validation("Invalid role id in reorder request".into()))?;

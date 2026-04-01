@@ -842,14 +842,13 @@ async fn friends_endpoints_require_auth() {
             .uri(uri)
             .body(Body::empty())
             .unwrap();
-        let (status, body) = oneshot(&mut app, req).await;
+        let (status, _body) = oneshot(&mut app, req).await;
         assert_eq!(
             status,
             StatusCode::UNAUTHORIZED,
-            "{} must return 401 without auth; got {} body: {}",
+            "{} must return 401 without auth; got {}",
             uri,
-            status,
-            String::from_utf8_lossy(&body)
+            status
         );
     }
 }

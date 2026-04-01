@@ -488,15 +488,13 @@ impl AttachmentService {
         self.scan_file_bytes(bytes).await?;
 
         let now = chrono::Utc::now();
-        let safe_name = sanitize_file_name(original_name);
         let object_id = Uuid::new_v4();
         let key = format!(
-            "{}/{:04}/{:02}/{}-{}",
+            "{}/{:04}/{:02}/{}",
             self.key_prefix,
             now.year(),
             now.month(),
-            object_id,
-            safe_name
+            object_id
         );
 
         let path = self.resolve_local_path(&key)?;
@@ -605,6 +603,7 @@ enum ScanResult {
     Infected(String),
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn sanitize_file_name(input: &str) -> String {
     let fallback = "file.bin".to_string();
     let candidate = input.trim();

@@ -8,8 +8,6 @@ on:
       - 'apps/desktop/src-tauri/**'
       - 'apps/web/**'
       - '.github/workflows/codeql.yml'
-  push:
-    branches: [main]
   schedule:
     - cron: '30 3 * * 1'
   workflow_dispatch:
