@@ -67,5 +67,17 @@
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.60.1",
     "@rollup/rollup-win32-x64-msvc": "^4.60.1"
+  },
+  "overrides": {
+    "undici": "^7.24.0",
+    "picomatch": "^4.0.4",
+    "brace-expansion": "^1.1.13"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici": "^7.24.0",
+      "picomatch": "^4.0.4",
+      "brace-expansion": "^1.1.13"
+    }
   }
 }
