@@ -1,6 +1,9 @@
 //! Attachment upload, storage, malware scanning, and URL validation.
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Component, Path, PathBuf},
+    time::Duration,
+};
 
 use chrono::Datelike;
 use hmac::{Hmac, Mac};
@@ -160,11 +163,7 @@ impl AttachmentService {
         fs::create_dir_all(&local_dir).await.map_err(|e| {
             AppError::Internal(format!("Failed to create attachment directory: {e}"))
         })?;
-        let normalized_key_prefix = if key_prefix.trim_matches('/').is_empty() {
-            "attachments".to_string()
-        } else {
-            key_prefix.trim_matches('/').to_string()
-        };
+        let normalized_key_prefix = sanitize_storage_key_prefix(&key_prefix);
 
         Ok(Self {
             local_dir,
@@ -349,16 +348,7 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<Vec<u8>, AppError> {
-        if storage_key.is_empty()
-            || storage_key.starts_with('/')
-            || storage_key.starts_with('\\')
-            || storage_key.contains("..")
-        {
-            return Err(AppError::Validation(
-                "Invalid attachment storage key".into(),
-            ));
-        }
-        let path = self.local_dir.join(storage_key);
+        let path = self.resolve_local_path(storage_key)?;
         fs::read(path)
             .await
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
@@ -509,7 +499,7 @@ impl AttachmentService {
             safe_name
         );
 
-        let path = self.local_dir.join(&key);
+        let path = self.resolve_local_path(&key)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
                 AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
@@ -526,6 +516,17 @@ impl AttachmentService {
             size_bytes: bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(bytes)),
         })
+    }
+
+    fn resolve_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
+        validate_storage_key(storage_key)?;
+        let joined = self.local_dir.join(storage_key);
+        if !joined.starts_with(&self.local_dir) {
+            return Err(AppError::Validation(
+                "Attachment storage key resolves outside storage root".into(),
+            ));
+        }
+        Ok(joined)
     }
 
     async fn scan_with_clamav(&self, bytes: &[u8]) -> Result<ScanResult, String> {
@@ -716,10 +717,60 @@ fn parse_storage_key_from_legacy_upload_url(url: &str) -> Option<String> {
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
-    if key.starts_with('/') || key.contains("..") {
+    if !is_safe_storage_key(key) {
         return None;
     }
     Some(key.to_string())
+}
+
+fn sanitize_storage_key_prefix(prefix: &str) -> String {
+    let trimmed = prefix.trim_matches('/');
+    if trimmed.is_empty() {
+        return "attachments".to_string();
+    }
+    if is_safe_storage_key(trimmed) {
+        trimmed.to_string()
+    } else {
+        "attachments".to_string()
+    }
+}
+
+fn validate_storage_key(storage_key: &str) -> Result<(), AppError> {
+    if !is_safe_storage_key(storage_key) {
+        return Err(AppError::Validation(
+            "Invalid attachment storage key".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_safe_storage_key(storage_key: &str) -> bool {
+    if storage_key.is_empty() || storage_key.len() > 1024 {
+        return false;
+    }
+
+    let path = Path::new(storage_key);
+    let mut saw_component = false;
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => {
+                let segment = segment.to_string_lossy();
+                if segment.is_empty()
+                    || segment == "."
+                    || segment == ".."
+                    || !segment.chars().all(|ch| {
+                        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
+                    })
+                {
+                    return false;
+                }
+                saw_component = true;
+            }
+            _ => return false,
+        }
+    }
+
+    saw_component
 }
 
 fn compute_signature(secret: &str, attachment_id: Uuid, exp: i64) -> String {

@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, request } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 
 type AuthUser = {
   token: string
@@ -46,7 +47,7 @@ function authHeaders(token: string): Record<string, string> {
 test.describe('Permission Regression (API e2e)', () => {
   test('category override denies view/send/voice for everyone role', async ({ baseURL }) => {
     const api = await request.newContext({ baseURL })
-    const runId = `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
+    const runId = `${Date.now()}_${randomUUID().slice(0, 8)}`
 
     const owner = await registerUser(api, 'perm_owner', runId)
     const member = await registerUser(api, 'perm_member', runId)
@@ -147,7 +148,7 @@ test.describe('Permission Regression (API e2e)', () => {
 
   test('role bitmask enforces manage messages and pins', async ({ baseURL }) => {
     const api = await request.newContext({ baseURL })
-    const runId = `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
+    const runId = `${Date.now()}_${randomUUID().slice(0, 8)}`
 
     const owner = await registerUser(api, 'perm_owner2', runId)
     const moderator = await registerUser(api, 'perm_mod2', runId)

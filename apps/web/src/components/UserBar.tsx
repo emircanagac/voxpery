@@ -41,6 +41,37 @@ function statusDescription(status: 'online' | 'dnd' | 'invisible') {
   return null
 }
 
+function hasOnlyUsernameChars(value: string) {
+  if (value.length === 0) return false
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i]
+    const code = value.charCodeAt(i)
+    const isLowerLetter = code >= 97 && code <= 122
+    const isDigit = code >= 48 && code <= 57
+    if (!isLowerLetter && !isDigit && ch !== '_' && ch !== '.') return false
+  }
+  return true
+}
+
+function hasUsernameBoundarySeparator(value: string) {
+  return value.startsWith('_') || value.startsWith('.') || value.endsWith('_') || value.endsWith('.')
+}
+
+function hasUsernameConsecutiveSeparator(value: string) {
+  for (let i = 1; i < value.length; i += 1) {
+    const prev = value[i - 1]
+    const curr = value[i]
+    if ((prev === '_' || prev === '.') && (curr === '_' || curr === '.')) return true
+  }
+  return false
+}
+
+function isValidUsername(value: string) {
+  if (value.length < 3 || !hasOnlyUsernameChars(value)) return false
+  if (hasUsernameBoundarySeparator(value)) return false
+  return !hasUsernameConsecutiveSeparator(value)
+}
+
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
 function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
   if (preset === 'quiet') return 16    // −36dB: sensitive but avoids false positives
@@ -893,7 +924,7 @@ export default function UserBar() {
                         setUsernameAvailable(true)
                         return
                       }
-                      if (v.trim().length < 3 || !/^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(v.trim())) {
+                      if (!isValidUsername(v.trim())) {
                         setUsernameAvailable(null)
                         setUsernameChecking(false)
                         setUsernameCheckFailed(false)
@@ -918,7 +949,7 @@ export default function UserBar() {
                     }}
                     onBlur={() => {
                       const v = usernameEdit.trim()
-                      if (v.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
+                      if (isValidUsername(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
                         setUsernameChecking(true)
                         setUsernameCheckFailed(false)
                         authApi.checkUsername(v, token ?? null)
@@ -941,25 +972,25 @@ export default function UserBar() {
                 {usernameEdit.length > 0 && usernameEdit.length < 3 && (
                   <div className="pw-hint pw-hint-warn">At least 3 characters</div>
                 )}
-                {usernameEdit.length >= 3 && !/^[a-z0-9_.]+$/.test(usernameEdit) && (
+                {usernameEdit.length >= 3 && !hasOnlyUsernameChars(usernameEdit) && (
                   <div className="pw-hint pw-hint-warn">Only letters, numbers, underscores, and periods</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9_.]+$/.test(usernameEdit) && (usernameEdit.startsWith('_') || usernameEdit.startsWith('.') || usernameEdit.endsWith('_') || usernameEdit.endsWith('.')) && (
+                {usernameEdit.length >= 3 && hasOnlyUsernameChars(usernameEdit) && hasUsernameBoundarySeparator(usernameEdit) && (
                   <div className="pw-hint pw-hint-warn">Cannot start or end with '_' or '.'</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9_.]+$/.test(usernameEdit) && (usernameEdit.includes('..') || usernameEdit.includes('__') || usernameEdit.includes('._') || usernameEdit.includes('_.')) && (
+                {usernameEdit.length >= 3 && hasOnlyUsernameChars(usernameEdit) && !hasUsernameBoundarySeparator(usernameEdit) && hasUsernameConsecutiveSeparator(usernameEdit) && (
                   <div className="pw-hint pw-hint-warn">Cannot contain consecutive '_' or '.'</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && usernameChecking && (
+                {isValidUsername(usernameEdit) && usernameChecking && (
                   <div className="pw-hint">Checking availability…</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && !usernameChecking && usernameAvailable === false && (
+                {isValidUsername(usernameEdit) && !usernameChecking && usernameAvailable === false && (
                   <div className="pw-hint pw-hint-warn">Username already taken</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
+                {isValidUsername(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
                   <div className="pw-hint pw-hint-ok">Available</div>
                 )}
-                {usernameEdit.length >= 3 && /^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit) && usernameCheckFailed && (
+                {isValidUsername(usernameEdit) && usernameCheckFailed && (
                   <div className="pw-hint pw-hint-warn">Could not verify. You can try Save.</div>
                 )}
                 {usernameError && <div className="pw-error">{usernameError}</div>}
@@ -982,7 +1013,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={cannotChangeYet || usernameSaving || usernameEdit.trim().length < 3 || !/^[a-z0-9](?:[_.]?[a-z0-9]+)*$/.test(usernameEdit.trim()) || usernameEdit.trim() === user?.username?.toLowerCase() || usernameAvailable !== true}
+                disabled={cannotChangeYet || usernameSaving || !isValidUsername(usernameEdit.trim()) || usernameEdit.trim() === user?.username?.toLowerCase() || usernameAvailable !== true}
                 onClick={async () => {
                   const v = usernameEdit.trim()
                   if (v.toLowerCase() === user?.username?.toLowerCase() || v.length < 3) return

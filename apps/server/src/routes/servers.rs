@@ -35,6 +35,7 @@ const PERM_MANAGE_PINS: i64 = 1 << 9;
 const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
+const MAX_REORDER_ROLE_IDS: usize = 512;
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct AuditLogEntry {
@@ -513,6 +514,11 @@ async fn reorder_roles(
 ) -> Result<Json<serde_json::Value>, AppError> {
     if body.role_ids.is_empty() {
         return Ok(Json(serde_json::json!({ "message": "Nothing to reorder" })));
+    }
+    if body.role_ids.len() > MAX_REORDER_ROLE_IDS {
+        return Err(AppError::Validation(format!(
+            "Too many role ids in reorder request (max {MAX_REORDER_ROLE_IDS})"
+        )));
     }
 
     permissions::ensure_server_permission(
