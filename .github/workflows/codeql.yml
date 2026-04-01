@@ -69,10 +69,8 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: rust
-          build-mode: ${{ github.event_name == 'pull_request' && 'none' || 'autobuild' }}
 
-      - name: Autobuild (rust full scans)
-        if: github.event_name != 'pull_request'
+      - name: Autobuild (rust)
         uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis (rust)
