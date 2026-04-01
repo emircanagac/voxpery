@@ -7,7 +7,7 @@ on:
       - 'apps/server/**'
       - 'apps/desktop/src-tauri/**'
       - 'apps/web/**'
-      - '.github/workflows/codeql.yml'
+      - '.github/workflows/**'
   schedule:
     - cron: '30 3 * * 1'
   workflow_dispatch:
@@ -31,6 +31,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       js: ${{ steps.filter.outputs.js }}
+      actions: ${{ steps.filter.outputs.actions }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,6 +53,9 @@ jobs:
               - 'apps/web/package.json'
               - 'apps/web/package-lock.json'
               - 'apps/web/pnpm-lock.yaml'
+            actions:
+              - '.github/workflows/**'
+              - '.github/actions/**'
 
   analyze-rust:
     name: Analyze (rust)
@@ -95,3 +99,23 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: '/language:javascript-typescript'
+
+  analyze-actions:
+    name: Analyze (actions)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.actions == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL (actions)
+        uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+
+      - name: Perform CodeQL Analysis (actions)
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:actions'
