@@ -67,6 +67,8 @@ interface ChatAreaProps {
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
     canSendMessages?: boolean
+    typingIndicatorLabel?: string | null
+    seenMessageId?: string | null
 }
 
 export default function ChatArea({
@@ -109,6 +111,8 @@ export default function ChatArea({
     onUnpinMessage,
     onToggleReaction,
     canSendMessages = true,
+    typingIndicatorLabel = null,
+    seenMessageId = null,
 }: ChatAreaProps) {
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const setMessagesScrollRef = useCallback(
@@ -162,10 +166,12 @@ export default function ChatArea({
         return withAll.slice(0, 9)
     }, [mentionCandidates, mentionOpen, mentionQuery])
 
+    const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
+
     const rowVirtualizer = useVirtualizer({
-        count: messages.length,
+        count: virtualCount,
         getScrollElement: () => messagesScrollRef.current,
-        getItemKey: (index) => messages[index]?.id ?? index,
+        getItemKey: (index) => messages[index]?.id ?? (index === messages.length ? 'typing-indicator' : index),
         // Keep server chat row height tight even before first measurement.
         estimateSize: () => 64,
         measureElement: (el) => el?.getBoundingClientRect().height ?? 64,
@@ -259,6 +265,13 @@ export default function ChatArea({
         if (d.toDateString() === today.toDateString()) return 'Today'
         if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
         return d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+    }
+
+    const isSeenMessage = (messageId: string) => {
+        if (!seenMessageId) return false
+        const messageIndex = messages.findIndex((message) => message.id === messageId)
+        const seenIndex = messages.findIndex((message) => message.id === seenMessageId)
+        return messageIndex >= 0 && seenIndex >= 0 && messageIndex <= seenIndex
     }
 
     const isNewMessageDay = (index: number) => {
@@ -764,6 +777,20 @@ export default function ChatArea({
                         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                     >
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const isTypingRow = typingIndicatorLabel && virtualRow.index === messages.length
+                            if (isTypingRow) {
+                                return (
+                                    <div
+                                        key="typing-row"
+                                        data-index={virtualRow.index}
+                                        ref={rowVirtualizer.measureElement}
+                                        className="virtual-list-item"
+                                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                                    >
+                                        <div className="typing-indicator">{typingIndicatorLabel}</div>
+                                    </div>
+                                )
+                            }
                             const msg = messages[virtualRow.index]
                             const showDayDivider = isNewMessageDay(virtualRow.index)
                             return (
@@ -926,6 +953,9 @@ export default function ChatArea({
                                                         )
                                                     })}
                                                 </div>
+                                            )}
+                                            {isDm && msg.author?.user_id === currentUserId && isSeenMessage(msg.id) && (
+                                                <div className="dm-seen">Seen</div>
                                             )}
                                         </div>
                                     </div>
