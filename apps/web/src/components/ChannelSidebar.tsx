@@ -54,14 +54,16 @@ export default function ChannelSidebar({
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const user = useAuthStore((s) => s.user)
-    const { servers, activeServerId, activeChannelId, channels, members, voiceStates, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel } = useAppStore(
+    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
             activeChannelId: s.activeChannelId,
             channels: s.channels,
             members: s.members,
+            membersByServerId: s.membersByServerId,
             voiceStates: s.voiceStates,
+            voiceStateServerIds: s.voiceStateServerIds,
             voiceSpeakingUserIds: s.voiceSpeakingUserIds,
             voiceLocalSpeaking: s.voiceLocalSpeaking,
             setActiveChannel: s.setActiveChannel,
@@ -140,6 +142,7 @@ export default function ChannelSidebar({
 
     const activeServer = servers.find((s) => s.id === activeServerId)
     const draggedChannel = draggedChannelId ? channels.find((c) => c.id === draggedChannelId) : null
+    const memberPool = activeServerId ? (membersByServerId[activeServerId] ?? members) : members
 
     // Group channels by category
     const channelsByCategory: Record<string, Channel[]> = {}
@@ -419,7 +422,12 @@ export default function ChannelSidebar({
                                 || (channelPerms & PERM_CONNECT_VOICE) === PERM_CONNECT_VOICE
                             const isVoiceLocked = ch.channel_type === 'voice' && !canConnectVoice
                             const voiceMembers = ch.channel_type === 'voice'
-                                ? members.filter((m) => voiceStates[m.user_id] === ch.id)
+                                ? memberPool.filter((m) => {
+                                    const inThisChannel = voiceStates[m.user_id] === ch.id
+                                    if (!inThisChannel) return false
+                                    const voiceServerId = voiceStateServerIds[m.user_id] ?? null
+                                    return !activeServerId || voiceServerId == null || voiceServerId === activeServerId
+                                })
                                 : []
                             return (
                                 <div key={ch.id}>

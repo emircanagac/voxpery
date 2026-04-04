@@ -47,11 +47,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const navigate = useNavigate()
   const { state, joinVoice, leaveVoice, startScreenShare, stopScreenShare, startCamera, stopCamera, setVoiceControls, playVoiceCue } = useLiveKitVoice()
   const { user } = useAuthStore()
-  const { members, voiceStates, channels, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls } = useAppStore(
+  const { members, voiceStates, channels, channelsByServerId, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls } = useAppStore(
     useShallow((s) => ({
       members: s.members,
       voiceStates: s.voiceStates,
       channels: s.channels,
+      channelsByServerId: s.channelsByServerId,
       servers: s.servers,
       setActiveServer: s.setActiveServer,
       setActiveChannel: s.setActiveChannel,
@@ -60,22 +61,32 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       voiceControls: s.voiceControls,
     }))
   )
+  const allKnownChannels = useMemo(() => {
+    const byId = new Map<string, typeof channels[number]>()
+    channels.forEach((channel) => byId.set(channel.id, channel))
+    Object.values(channelsByServerId).forEach((serverChannels) => {
+      serverChannels.forEach((channel) => {
+        if (!byId.has(channel.id)) byId.set(channel.id, channel)
+      })
+    })
+    return [...byId.values()]
+  }, [channels, channelsByServerId])
   const voiceLocation = useMemo(() => {
     const shorten = (value: string, max: number) =>
       value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`
 
     const id = state.joinedChannelId ?? selectedVoiceChannelId
     if (!id) return { full: 'Voice', display: 'Voice' }
-    const ch = channels.find((c) => c.id === id)
+    const ch = allKnownChannels.find((c) => c.id === id)
     if (!ch) return { full: 'Voice', display: 'Voice' }
     const serverName = servers.find((s) => s.id === ch.server_id)?.name ?? 'Server'
     const full = `${serverName} / #${ch.name}`
 
     return { full, display: `#${shorten(ch.name, 24)}` }
-  }, [state.joinedChannelId, selectedVoiceChannelId, channels, servers])
+  }, [state.joinedChannelId, selectedVoiceChannelId, allKnownChannels, servers])
   const goToVoiceChannel = () => {
     const id = state.joinedChannelId ?? selectedVoiceChannelId
-    const serverId = id ? channels.find((c) => c.id === id)?.server_id ?? null : null
+    const serverId = id ? allKnownChannels.find((c) => c.id === id)?.server_id ?? null : null
     if (!id || !serverId) return
     setActiveServer(serverId)
     setActiveChannel(id)
@@ -1022,7 +1033,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                     {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" />}
                     {connectionLabel}
                   </span>
-                  <span className={`callbar-ping-inline-icon ${pingStateClass}`} title={pingTooltip}><Wifi size={14} /></span>
+                  <span
+                    className={`callbar-ping-inline-icon ${pingStateClass}`}
+                    title={pingTooltip}
+                    aria-label={pingTooltip}
+                    tabIndex={0}
+                  >
+                    <Wifi size={14} />
+                  </span>
                 </span>
                 <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} title={isDisconnectVisualActive ? 'Leave voice channel' : 'Join voice channel'}>
                   <PhoneOff size={16} style={{ transform: isDisconnectVisualActive ? 'none' : 'rotate(135deg)' }} />

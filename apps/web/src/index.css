@@ -6342,15 +6342,26 @@ a.community-open-btn:hover {
 }
 
 .callbar-ping-inline-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.06);
-}
+    width: 30px;
+    height: 28px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+    cursor: help;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  }
+
+.callbar-ping-inline-icon:hover,
+.callbar-ping-inline-icon:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+    outline: none;
+  }
 
 .callbar-ping-inline-icon.is-good {
   color: var(--text-positive);

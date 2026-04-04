@@ -717,6 +717,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const store = useAppStore.getState()
                     store.setVoiceState(user_id, channel_id ?? null)
                     store.setVoiceStateServerId(user_id, server_id ?? null)
+                    if (server_id && channel_id) {
+                        const activeMembers = activeServerIdRef.current === server_id ? (store.members ?? []) : []
+                        const cachedMembers = store.membersByServerId[server_id] ?? []
+                        const knowsMember =
+                            activeMembers.some((m) => m.user_id === user_id)
+                            || cachedMembers.some((m) => m.user_id === user_id)
+                        if (!knowsMember) {
+                            const t = tokenRef.current ?? null
+                            refreshServerSnapshot(server_id, t, false)
+                        }
+                    }
                     break
                 }
                 case 'VoiceControlUpdate': {
