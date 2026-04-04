@@ -290,6 +290,28 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [activeDmChannelId, token, user, refreshDmPins, pushToast])
 
+  const handleToggleDmReaction = useCallback(async (messageId: string, emoji: string, reacted: boolean) => {
+    if (!user) return
+    try {
+      const updated = reacted
+        ? await dmApi.removeReaction(messageId, emoji, token)
+        : await dmApi.addReaction(messageId, emoji, token)
+      setDmMessages((prev) => {
+        const next = prev.map((m) => (m.id === updated.id ? updated : m))
+        if (activeDmChannelId) {
+          dmMessagesByChannelRef.current[activeDmChannelId] = next
+        }
+        return next
+      })
+    } catch (e) {
+      pushToast({
+        level: 'error',
+        title: 'Reaction failed',
+        message: e instanceof Error ? e.message : 'Could not update reaction.',
+      })
+    }
+  }, [token, user, pushToast, activeDmChannelId])
+
   /* When switching to DM: lock window scroll and blur so nothing triggers page shift */
   useEffect(() => {
     if (view !== 'dm') return
@@ -1008,6 +1030,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 pinnedMessages={dmPins}
                 onPinMessage={handlePinDmMessage}
                 onUnpinMessage={handleUnpinDmMessage}
+                onToggleReaction={handleToggleDmReaction}
               />
             )
           })()}

@@ -11,6 +11,15 @@ export type EmojiCategory = {
   emojis: EmojiOption[]
 }
 
+function dedupeEmojiOptions(options: EmojiOption[]): EmojiOption[] {
+  const seen = new Set<string>()
+  return options.filter((entry) => {
+    if (seen.has(entry.emoji)) return false
+    seen.add(entry.emoji)
+    return true
+  })
+}
+
 function item(emoji: string, label: string, keywords: string[] = []): EmojiOption {
   return { emoji, label, keywords }
 }
@@ -162,7 +171,6 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
       item('🎊', 'confetti ball', ['party']),
       item('🎁', 'wrapped gift', ['present']),
       item('🎈', 'balloon', ['party']),
-      item('🎂', 'birthday cake', ['birthday']),
       item('🏆', 'trophy', ['win']),
       item('🥇', 'gold medal', ['winner']),
       item('🎮', 'video game', ['gaming']),
@@ -242,7 +250,7 @@ export const EMOJI_REACTION_OPTIONS: EmojiOption[] = [
 ]
 
 export function getAllEmojiOptions(): EmojiOption[] {
-  return EMOJI_CATEGORIES.flatMap((category) => category.emojis)
+  return dedupeEmojiOptions(EMOJI_CATEGORIES.flatMap((category) => category.emojis))
 }
 
 export function getReactionModeEmojiOptions(): EmojiOption[] {
@@ -252,7 +260,7 @@ export function getReactionModeEmojiOptions(): EmojiOption[] {
     if (quickMap.has(entry.emoji)) continue
     combined.push(entry)
   }
-  return combined
+  return dedupeEmojiOptions(combined)
 }
 
 export function filterEmojiOptions(query: string, categoryId?: string): EmojiOption[] {

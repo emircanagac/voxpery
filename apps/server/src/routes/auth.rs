@@ -781,7 +781,7 @@ pub async fn ensure_seed_admin(
     let id = Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO users (id, username, email, password_hash, status, created_at)
-           VALUES ($1, $2, $3, $4, 'invisible', NOW())"#,
+           VALUES ($1, $2, $3, $4, 'online', NOW())"#,
     )
     .bind(id)
     .bind(&username)

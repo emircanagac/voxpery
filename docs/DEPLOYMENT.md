@@ -76,20 +76,14 @@ Security defaults in compose:
 
 Important:
 
-- LiveKit limits are optional in `docker-compose.yml`.
-- If `LIVEKIT_CPUS_LIMIT`, `LIVEKIT_MEM_LIMIT`, `LIVEKIT_PIDS_LIMIT` are unset in `.env`, no cgroup limits are applied.
+- The default `docker-compose.yml` applies conservative LiveKit limits even if you do not customize `.env`.
+- Default values are:
+  - `LIVEKIT_CPUS_LIMIT=2.0`
+  - `LIVEKIT_MEM_LIMIT=1500m`
+  - `LIVEKIT_PIDS_LIMIT=512`
+- You can override these values from `.env` on smaller or larger hosts.
 - These limits reduce single-host blast radius (LiveKit cannot consume all CPU/RAM/PIDs).
 - They do **not** protect against upstream bandwidth saturation from large volumetric UDP floods.
-- To activate limits in production, set these keys in `.env`:
-  - `LIVEKIT_CPUS_LIMIT`
-  - `LIVEKIT_MEM_LIMIT`
-  - `LIVEKIT_PIDS_LIMIT`
-
-Recommended starting values:
-
-- `LIVEKIT_CPUS_LIMIT=4.0`
-- `LIVEKIT_MEM_LIMIT=3g`
-- `LIVEKIT_PIDS_LIMIT=1024`
 
 ## 3) Validation Checklist
 

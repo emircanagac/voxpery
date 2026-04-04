@@ -3447,7 +3447,7 @@ body {
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 248px;
+  width: 240px;
   max-width: calc(100vw - 40px);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -3459,8 +3459,8 @@ body {
 
 .chat-emoji-picker.compact {
   position: static;
-  width: 248px;
-  max-width: min(248px, calc(100vw - 40px));
+  width: 240px;
+  max-width: min(240px, calc(100vw - 40px));
   padding: 10px;
 }
 
@@ -3492,18 +3492,19 @@ body {
 
 .chat-emoji-tabs {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 2px;
+  flex-wrap: nowrap;
+  justify-content: space-between;
   margin-bottom: 8px;
 }
 
 .chat-emoji-tab {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text-secondary);
   border-radius: 999px;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
   padding: 0;
   cursor: pointer;
@@ -3511,18 +3512,23 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  font-size: 12px;
+  font-size: 11px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
 }
 
 .chat-emoji-tab:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
   color: var(--text-primary);
+  transform: translateY(-1px);
 }
 
 .chat-emoji-tab.active {
-  background: rgba(79, 127, 216, 0.22);
-  border-color: rgba(79, 127, 216, 0.42);
-  color: #eef4ff;
+  background: linear-gradient(180deg, rgba(79, 127, 216, 0.32), rgba(79, 127, 216, 0.18));
+  border-color: rgba(120, 165, 235, 0.7);
+  color: #f4f8ff;
+  box-shadow: 0 0 0 1px rgba(157, 193, 248, 0.18), 0 4px 10px rgba(79, 127, 216, 0.18);
 }
 
 .chat-emoji-tab span {

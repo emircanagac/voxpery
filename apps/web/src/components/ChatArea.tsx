@@ -457,6 +457,7 @@ export default function ChatArea({
         }
     }, [emojiOpen])
 
+
     useEffect(() => {
         if (!reactionPickerMessageId) return
         const close = () => setReactionPickerMessageId(null)
