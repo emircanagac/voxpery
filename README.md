@@ -14,7 +14,7 @@
 
 **[→ Use at voxpery.com](https://voxpery.com)** · **[Self-host guide](#production-deployment)** · **[Join community](#community)**
 
-![Voxpery Main UI](docs/images/voxpery02.png)
+![Voxpery Main UI](docs/images/voxpery01.png)
 
 
 </div>
