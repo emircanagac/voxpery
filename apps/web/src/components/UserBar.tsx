@@ -17,6 +17,12 @@ import {
   downloadAndInstallUpdate,
   type UpdateResult,
 } from '../updater'
+import {
+  getDesktopAutostartEnabled,
+  getStoredMinimizeToTrayOnCloseEnabled,
+  setDesktopAutostartEnabled,
+  setDesktopMinimizeToTrayOnClose,
+} from '../desktopSettings'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -125,6 +131,10 @@ export default function UserBar() {
   const [updateChecked, setUpdateChecked] = useState(false)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateInstalling, setUpdateInstalling] = useState(false)
+  const [desktopAutostartEnabled, setDesktopAutostartState] = useState(false)
+  const [desktopAutostartLoading, setDesktopAutostartLoading] = useState(false)
+  const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(false)
+  const [minimizeToTrayLoading, setMinimizeToTrayLoading] = useState(false)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
   const [usernameSaving, setUsernameSaving] = useState(false)
@@ -223,6 +233,34 @@ export default function UserBar() {
       if (cancelled) return
       setUpdateInfo(result)
       setUpdateChecked(true)
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    let cancelled = false
+    const run = async () => {
+      setDesktopAutostartLoading(true)
+      setMinimizeToTrayLoading(true)
+      try {
+        const [autostartEnabled, trayEnabled] = await Promise.all([
+          getDesktopAutostartEnabled(),
+          Promise.resolve(getStoredMinimizeToTrayOnCloseEnabled()),
+        ])
+        await setDesktopMinimizeToTrayOnClose(trayEnabled)
+        if (cancelled) return
+        setDesktopAutostartState(autostartEnabled)
+        setMinimizeToTrayOnCloseEnabled(trayEnabled)
+      } finally {
+        if (!cancelled) {
+          setDesktopAutostartLoading(false)
+          setMinimizeToTrayLoading(false)
+        }
+      }
     }
     void run()
     return () => {
@@ -422,6 +460,56 @@ export default function UserBar() {
       })
     } finally {
       setUpdateInstalling(false)
+    }
+  }
+
+  const toggleDesktopAutostart = async () => {
+    if (desktopAutostartLoading) return
+    const next = !desktopAutostartEnabled
+    setDesktopAutostartLoading(true)
+    try {
+      await setDesktopAutostartEnabled(next)
+      setDesktopAutostartState(next)
+      pushToast({
+        level: 'info',
+        title: next ? 'Launch on startup enabled' : 'Launch on startup disabled',
+        message: next
+          ? 'Voxpery will open automatically when Windows starts.'
+          : 'Voxpery will no longer open automatically when Windows starts.',
+      })
+    } catch {
+      pushToast({
+        level: 'error',
+        title: 'Startup setting failed',
+        message: 'Could not update the desktop startup preference.',
+      })
+    } finally {
+      setDesktopAutostartLoading(false)
+    }
+  }
+
+  const toggleMinimizeToTrayOnClose = async () => {
+    if (minimizeToTrayLoading) return
+    const next = !minimizeToTrayOnCloseEnabled
+    setMinimizeToTrayLoading(true)
+    try {
+      await setDesktopMinimizeToTrayOnClose(next)
+      setMinimizeToTrayOnCloseEnabled(next)
+      pushToast({
+        level: 'info',
+        title: next ? 'Tray mode enabled' : 'Tray mode disabled',
+        message: next
+          ? 'Closing the window will keep Voxpery running in the system tray.'
+          : 'Closing the window will fully exit Voxpery, which is safer for installs and updates.',
+      })
+    } catch {
+      pushToast({
+        level: 'error',
+        title: 'Close behavior failed',
+        message: 'Could not update the desktop close behavior.',
+      })
+    } finally {
+      setMinimizeToTrayLoading(false)
     }
   }
 
@@ -803,38 +891,68 @@ export default function UserBar() {
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Account</h3>
                 {isTauri() && (
-                  <div className="user-setting-row">
-                    <div>
-                      <div className="user-setting-title">App updates</div>
-                      <div className="user-setting-desc">
-                        {updateChecked
-                          ? updateInfo?.available
-                            ? `Voxpery ${updateInfo.version} is available to install.`
-                            : 'Your desktop app is on the latest version.'
-                          : 'Check for new desktop releases and install them without reinstalling.'}
+                  <>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">App updates</div>
+                        <div className="user-setting-desc">
+                          {updateChecked
+                            ? updateInfo?.available
+                              ? `Voxpery ${updateInfo.version} is available to install.`
+                              : 'Your desktop app is on the latest version.'
+                            : 'Check for new desktop releases and install them without reinstalling.'}
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button
-                        type="button"
-                        className="user-toggle account-action-btn"
-                        onClick={() => void refreshUpdateStatus(true)}
-                        disabled={updateChecking || updateInstalling}
-                      >
-                        {updateChecking ? 'Checking…' : 'Check now'}
-                      </button>
-                      {updateInfo?.available && (
+                      <div className="user-setting-actions">
                         <button
                           type="button"
                           className="user-toggle account-action-btn"
-                          onClick={() => void installDesktopUpdate()}
+                          onClick={() => void refreshUpdateStatus(true)}
                           disabled={updateChecking || updateInstalling}
                         >
-                          {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
+                          {updateChecking ? 'Checking…' : 'Check now'}
                         </button>
-                      )}
+                        {updateInfo?.available && (
+                          <button
+                            type="button"
+                            className="user-toggle account-action-btn"
+                            onClick={() => void installDesktopUpdate()}
+                            disabled={updateChecking || updateInstalling}
+                          >
+                            {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Launch on startup</div>
+                        <div className="user-setting-desc">Open Voxpery automatically when Windows starts.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={`user-toggle account-action-btn ${desktopAutostartEnabled ? 'active' : ''}`}
+                        onClick={() => void toggleDesktopAutostart()}
+                        disabled={desktopAutostartLoading}
+                      >
+                        {desktopAutostartLoading ? 'Saving…' : desktopAutostartEnabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </div>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Keep running in tray on close</div>
+                        <div className="user-setting-desc">When disabled, closing the window fully exits the app and avoids installer file locks.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={`user-toggle account-action-btn ${minimizeToTrayOnCloseEnabled ? 'active' : ''}`}
+                        onClick={() => void toggleMinimizeToTrayOnClose()}
+                        disabled={minimizeToTrayLoading}
+                      >
+                        {minimizeToTrayLoading ? 'Saving…' : minimizeToTrayOnCloseEnabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </div>
+                  </>
                 )}
                 <div className="user-setting-row">
                   <div>

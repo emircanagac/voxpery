@@ -1477,6 +1477,19 @@ body {
   min-width: 0;
 }
 
+.user-settings-modal .user-setting-row > .user-setting-actions {
+  flex: 0 0 auto;
+  min-width: auto;
+}
+
+.user-setting-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .user-settings-modal .user-select {
   width: 170px;
   min-width: 170px;
@@ -2202,6 +2215,10 @@ body {
 .user-settings-modal .account-action-btn {
   width: 112px;
   min-width: 112px;
+}
+
+.user-settings-modal .account-action-btn.active {
+  color: #e8f1ff;
 }
 
 .user-settings-modal .btn.btn-primary {

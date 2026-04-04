@@ -3,6 +3,7 @@
  * In browser, checkForUpdates is a no-op.
  */
 import { isTauri } from './secureStorage'
+import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
 export type UpdateResult =
   | { available: false }
@@ -36,6 +37,7 @@ export async function downloadAndInstallUpdate(): Promise<boolean> {
     const { relaunch } = await import('@tauri-apps/plugin-process')
     const update = await check()
     if (!update) return false
+    await prepareDesktopForUpdateInstall()
     await update.downloadAndInstall()
     await relaunch()
     return true

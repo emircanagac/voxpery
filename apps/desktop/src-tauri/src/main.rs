@@ -1,5 +1,36 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+struct DesktopRuntimeState {
+    minimize_to_tray_on_close: AtomicBool,
+    allow_close_for_update: AtomicBool,
+}
+
+impl Default for DesktopRuntimeState {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray_on_close: AtomicBool::new(false),
+            allow_close_for_update: AtomicBool::new(false),
+        }
+    }
+}
+
+#[tauri::command]
+fn desktop_set_minimize_to_tray_on_close(
+    enabled: bool,
+    state: tauri::State<'_, DesktopRuntimeState>,
+) {
+    state
+        .minimize_to_tray_on_close
+        .store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn desktop_prepare_for_update_install(state: tauri::State<'_, DesktopRuntimeState>) {
+    state.allow_close_for_update.store(true, Ordering::Relaxed);
+}
+
 fn main() {
     // Dev-only convenience: auto-allow media permissions on Windows WebView2.
     // Never enable in production builds.
@@ -9,7 +40,12 @@ fn main() {
         "--use-fake-ui-for-media-stream",
     );
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default()
+        .manage(DesktopRuntimeState::default())
+        .invoke_handler(tauri::generate_handler![
+            desktop_set_minimize_to_tray_on_close,
+            desktop_prepare_for_update_install
+        ]);
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
@@ -26,6 +62,11 @@ fn main() {
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_deep_link::init())
             .setup(|app| {
+                app.handle().plugin(tauri_plugin_autostart::init(
+                    tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                    None::<Vec<&str>>,
+                ))?;
+
                 let _ =
                     app.handle()
                         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -80,11 +121,22 @@ fn main() {
                     })
                     .build(app)?;
 
-                // Close button → hide to tray (minimize to tray)
+                // Close behavior is user-controlled. Default is full exit so installer/update
+                // flows do not keep the executable locked in the background.
                 if let Some(main_win) = app.get_webview_window("main") {
                     let main_win_clone = main_win.clone();
+                    let app_handle = app.handle().clone();
                     main_win.on_window_event(move |event| {
                         if let WindowEvent::CloseRequested { api, .. } = event {
+                            let state = app_handle.state::<DesktopRuntimeState>();
+                            let allow_close = state.allow_close_for_update.load(Ordering::Relaxed);
+                            let minimize_to_tray =
+                                state.minimize_to_tray_on_close.load(Ordering::Relaxed);
+
+                            if allow_close || !minimize_to_tray {
+                                return;
+                            }
+
                             api.prevent_close();
                             let _ = main_win_clone.hide();
                         }
