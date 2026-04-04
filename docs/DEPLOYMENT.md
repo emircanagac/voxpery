@@ -114,7 +114,12 @@ docker compose up -d --build
 
 ## 5) Prebuilt Images (Optional, Recommended for Production)
 
-You can prebuild and push images, then use `image:` in compose instead of rebuilding on every deploy.
+You can prebuild and push images, then let Compose pull them during deploy instead of rebuilding on the server.
+
+Recommended tagging strategy:
+
+- `latest` for rolling production deploys
+- `sha-<commit>` when you want to pin an exact build
 
 Example:
 
@@ -125,14 +130,18 @@ docker push <dockerhub-user>/voxpery-server:<tag>
 docker push <dockerhub-user>/voxpery-web:<tag>
 ```
 
-Then switch compose services from `build:` to:
+Then set these optional variables in `.env` (or directly on the server):
 
-```yaml
-server:
-  image: <dockerhub-user>/voxpery-server:<tag>
+```bash
+VOXPERY_SERVER_IMAGE=<dockerhub-user>/voxpery-server:<tag>
+VOXPERY_WEB_IMAGE=<dockerhub-user>/voxpery-web:<tag>
+```
 
-web:
-  image: <dockerhub-user>/voxpery-web:<tag>
+Current production deploy workflow can then use:
+
+```bash
+docker compose pull server web
+docker compose up -d --no-build --remove-orphans
 ```
 
 ## 6) Backups
