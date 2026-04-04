@@ -71,10 +71,11 @@ mod tests {
 
     #[test]
     fn hash_and_verify_password_roundtrip() {
-        let password = "test-password-123";
-        let hash = hash_password(password).expect("hash should succeed");
-        assert!(verify_password(password, &hash).unwrap());
-        assert!(!verify_password("wrong-password", &hash).unwrap());
+        let password = format!("test-password-{}", Uuid::new_v4());
+        let wrong_password = format!("wrong-password-{}", Uuid::new_v4());
+        let hash = hash_password(&password).expect("hash should succeed");
+        assert!(verify_password(&password, &hash).unwrap());
+        assert!(!verify_password(&wrong_password, &hash).unwrap());
     }
 
     #[test]
@@ -82,10 +83,10 @@ mod tests {
         use jsonwebtoken::{decode, DecodingKey, Validation};
         let user_id = Uuid::new_v4();
         let username = "testuser";
-        let secret = "test-secret-for-unit-test";
+        let secret = format!("test-secret-{}", Uuid::new_v4());
         let expiration_secs = 3600i64;
         let token =
-            generate_token(user_id, username, 0, secret, expiration_secs).expect("token gen");
+            generate_token(user_id, username, 0, &secret, expiration_secs).expect("token gen");
         assert!(!token.is_empty());
         let mut validation = Validation::default();
         validation.validate_exp = true;

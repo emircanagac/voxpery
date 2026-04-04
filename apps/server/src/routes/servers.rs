@@ -35,6 +35,7 @@ const PERM_MANAGE_PINS: i64 = 1 << 9;
 const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
+const MAX_REORDER_ROLE_IDS: usize = 512;
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct AuditLogEntry {
@@ -514,6 +515,11 @@ async fn reorder_roles(
     if body.role_ids.is_empty() {
         return Ok(Json(serde_json::json!({ "message": "Nothing to reorder" })));
     }
+    if body.role_ids.len() > MAX_REORDER_ROLE_IDS {
+        return Err(AppError::Validation(format!(
+            "Too many role ids in reorder request (max {MAX_REORDER_ROLE_IDS})"
+        )));
+    }
 
     permissions::ensure_server_permission(
         &state.db,
@@ -524,7 +530,7 @@ async fn reorder_roles(
     .await?;
 
     // Parse role IDs and remember order.
-    let mut parsed_ids = Vec::<Uuid>::with_capacity(body.role_ids.len());
+    let mut parsed_ids = Vec::<Uuid>::new();
     for raw in &body.role_ids {
         let id = Uuid::parse_str(raw)
             .map_err(|_| AppError::Validation("Invalid role id in reorder request".into()))?;

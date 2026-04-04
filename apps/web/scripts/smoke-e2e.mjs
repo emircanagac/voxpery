@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws'
+import { randomUUID } from 'node:crypto'
 
 const API_BASE = process.env.SMOKE_API_URL || 'http://127.0.0.1:3001'
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
@@ -56,7 +57,7 @@ async function checkSecurityHeaders() {
 }
 
 function randomIdentity() {
-  const suffix = `${Date.now()}${Math.floor(Math.random() * 10000)}`
+  const suffix = `${Date.now()}${randomUUID().slice(0, 8)}`
   return {
     username: `smoke_${suffix}`,
     email: `smoke_${suffix}@voxpery.dev`,

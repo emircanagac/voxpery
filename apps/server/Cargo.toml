@@ -19,7 +19,7 @@ serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
 
 # Auth
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 argon2 = "0.5"
 rand = "0.8"
 
@@ -39,7 +39,7 @@ base64 = "0.22"
 reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
 bitflags = "2"
-lettre = { version = "0.11.19", features = ["tokio1", "tokio1-native-tls", "builder"] }
+lettre = { version = "0.11.20", features = ["tokio1", "tokio1-native-tls", "builder"] }
 sha2 = "0.10"
 
 [dev-dependencies]

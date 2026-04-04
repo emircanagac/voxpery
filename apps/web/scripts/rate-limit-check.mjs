@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
+
 const API_BASE = process.env.SMOKE_API_URL || 'http://127.0.0.1:3001'
 
 function randomIdentity(prefix) {
-  const suffix = `${Date.now()}${Math.floor(Math.random() * 10000)}`
+  const suffix = `${Date.now()}${randomUUID().slice(0, 8)}`
   return {
     username: `${prefix}_${suffix}`,
     email: `${prefix}_${suffix}@voxpery.dev`,
