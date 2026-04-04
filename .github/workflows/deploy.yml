@@ -22,7 +22,6 @@ jobs:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
           command_timeout: 25m
           script: |
             cd ~/voxpery
@@ -31,4 +30,5 @@ jobs:
             docker compose pull server web
             docker compose up -d --no-build --remove-orphans
             docker image prune -f
-            docker compose ps
+            curl -fsS http://127.0.0.1:3001/health >/dev/null
+            echo "Deploy complete"
