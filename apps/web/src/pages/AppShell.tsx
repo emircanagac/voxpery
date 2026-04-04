@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
@@ -10,7 +10,13 @@ import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { isTauri } from '../secureStorage'
-import { checkForUpdates, downloadAndInstallUpdate, type UpdateResult } from '../updater'
+import {
+  checkForUpdates,
+  DESKTOP_UPDATE_STATUS_EVENT,
+  downloadAndInstallUpdate,
+  type DesktopUpdateStatusDetail,
+  type UpdateResult,
+} from '../updater'
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -49,6 +55,7 @@ export default function AppShell() {
   const pushToast = useToastStore((s) => s.pushToast)
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
+  const lastDesktopUpdateToastVersionRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -58,11 +65,14 @@ export default function AppShell() {
   useEffect(() => {
     if (!isTauri()) return
     let cancelled = false
-    const run = async () => {
-      const result = await checkForUpdates()
+    const applyUpdateResult = (result: UpdateResult) => {
       if (cancelled) return
       setDesktopUpdate(result)
-      if (result.available) {
+      if (
+        result.available
+        && lastDesktopUpdateToastVersionRef.current !== result.version
+      ) {
+        lastDesktopUpdateToastVersionRef.current = result.version
         pushToast({
           level: 'info',
           title: 'Desktop update available',
@@ -70,9 +80,24 @@ export default function AppShell() {
         })
       }
     }
+    const onUpdateStatus = (event: Event) => {
+      const detail = (event as CustomEvent<DesktopUpdateStatusDetail>).detail
+      if (!detail) return
+      applyUpdateResult(detail.result)
+    }
+    window.addEventListener(DESKTOP_UPDATE_STATUS_EVENT, onUpdateStatus as EventListener)
+    const run = async () => {
+      const result = await checkForUpdates()
+      applyUpdateResult(result)
+    }
     void run()
+    const intervalId = window.setInterval(() => {
+      void run()
+    }, 5 * 60 * 1000)
     return () => {
       cancelled = true
+      window.removeEventListener(DESKTOP_UPDATE_STATUS_EVENT, onUpdateStatus as EventListener)
+      window.clearInterval(intervalId)
     }
   }, [pushToast])
 

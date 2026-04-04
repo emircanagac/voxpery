@@ -9,6 +9,20 @@ export type UpdateResult =
   | { available: false }
   | { available: true; version: string; body?: string; date?: string }
 
+export const DESKTOP_UPDATE_STATUS_EVENT = 'voxpery-desktop-update-status'
+
+export type DesktopUpdateStatusDetail = {
+  result: UpdateResult
+}
+
+function emitDesktopUpdateStatus(result: UpdateResult) {
+  window.dispatchEvent(
+    new CustomEvent<DesktopUpdateStatusDetail>(DESKTOP_UPDATE_STATUS_EVENT, {
+      detail: { result },
+    }),
+  )
+}
+
 export async function checkForUpdates(): Promise<UpdateResult> {
   if (!isTauri()) {
     return { available: false }
@@ -16,15 +30,23 @@ export async function checkForUpdates(): Promise<UpdateResult> {
   try {
     const { check } = await import('@tauri-apps/plugin-updater')
     const update = await check()
-    if (!update) return { available: false }
-    return {
+    if (!update) {
+      const result: UpdateResult = { available: false }
+      emitDesktopUpdateStatus(result)
+      return result
+    }
+    const result: UpdateResult = {
       available: true,
       version: update.version,
       body: update.body ?? undefined,
       date: update.date ?? undefined,
     }
+    emitDesktopUpdateStatus(result)
+    return result
   } catch {
-    return { available: false }
+    const result: UpdateResult = { available: false }
+    emitDesktopUpdateStatus(result)
+    return result
   }
 }
 
@@ -43,6 +65,18 @@ export async function downloadAndInstallUpdate(): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+export async function getDesktopAppVersion(): Promise<string | null> {
+  if (!isTauri()) {
+    return null
+  }
+  try {
+    const { getVersion } = await import('@tauri-apps/api/app')
+    return await getVersion()
+  } catch {
+    return null
   }
 }
 

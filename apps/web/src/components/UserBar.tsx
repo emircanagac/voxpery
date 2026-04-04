@@ -14,6 +14,7 @@ import SensitivityBar from './SensitivityBar'
 import { ROUTES } from '../routes'
 import {
   checkForUpdates,
+  getDesktopAppVersion,
   downloadAndInstallUpdate,
   type UpdateResult,
 } from '../updater'
@@ -131,6 +132,7 @@ export default function UserBar() {
   const [updateChecked, setUpdateChecked] = useState(false)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateInstalling, setUpdateInstalling] = useState(false)
+  const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const [desktopAutostartEnabled, setDesktopAutostartState] = useState(false)
   const [desktopAutostartLoading, setDesktopAutostartLoading] = useState(false)
   const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(false)
@@ -229,9 +231,13 @@ export default function UserBar() {
     if (!isTauri()) return
     let cancelled = false
     const run = async () => {
-      const result = await checkForUpdates()
+      const [result, currentVersion] = await Promise.all([
+        checkForUpdates(),
+        getDesktopAppVersion(),
+      ])
       if (cancelled) return
       setUpdateInfo(result)
+      setDesktopAppVersion(currentVersion)
       setUpdateChecked(true)
     }
     void run()
@@ -896,6 +902,7 @@ export default function UserBar() {
                       <div>
                         <div className="user-setting-title">App updates</div>
                         <div className="user-setting-desc">
+                          {desktopAppVersion ? `Installed version: ${desktopAppVersion}. ` : ''}
                           {updateChecked
                             ? updateInfo?.available
                               ? `Voxpery ${updateInfo.version} is available to install.`
