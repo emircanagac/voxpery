@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { openExternalUrl } from '../openExternalUrl'
+import EmojiPicker from '../components/EmojiPicker'
 
 type AttachmentItem = { id?: string; name: string; url: string; size: number; type: string }
 type UiDmMessage = MessageWithAuthor & {
@@ -16,13 +17,6 @@ type UiDmMessage = MessageWithAuthor & {
   clientStatus?: 'sending' | 'failed'
   clientError?: string
 }
-
-const DM_EMOJI_OPTIONS = [
-  '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤔',
-  '😅', '😴', '😭', '😡', '🤯', '🥳', '👏', '🙏', '💪', '🔥',
-  '✨', '🎉', '🎮', '🎵', '✅', '❌', '❤️', '💙', '👍', '👎',
-]
-const DM_REACTION_OPTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '😮', '😢', '👀']
 
 export default function DmPage() {
   const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
@@ -710,19 +704,14 @@ export default function DmPage() {
                             className="message-reaction-picker"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {DM_REACTION_OPTIONS.map((emoji) => (
-                              <button
-                                key={`${msg.id}-${emoji}`}
-                                type="button"
-                                className="chat-emoji-item"
-                                onClick={() => {
-                                  void toggleDmReaction(msg.id, emoji, false)
-                                  setReactionPickerMessageId(null)
-                                }}
-                              >
-                                {emoji}
-                              </button>
-                            ))}
+                            <EmojiPicker
+                              compact
+                              reactionMode
+                              onSelect={(emoji) => {
+                                void toggleDmReaction(msg.id, emoji, false)
+                                setReactionPickerMessageId(null)
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -757,9 +746,6 @@ export default function DmPage() {
                             </button>
                           ))}
                         </div>
-                      )}
-                      {msg.clientStatus === 'sending' && (
-                        <div className="message-send-state">Sending...</div>
                       )}
                       {msg.clientStatus === 'failed' && (
                         <div className="message-retry-row">
@@ -839,21 +825,10 @@ export default function DmPage() {
             {emojiOpen && (
               <div
                 ref={emojiPickerRef}
-                className="chat-emoji-picker"
+                className="chat-emoji-picker-shell"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="chat-emoji-grid">
-                  {DM_EMOJI_OPTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className="chat-emoji-item"
-                      onClick={() => insertEmoji(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+                <EmojiPicker onSelect={insertEmoji} />
               </div>
             )}
             <textarea

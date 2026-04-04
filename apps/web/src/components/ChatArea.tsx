@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
+import EmojiPicker from './EmojiPicker'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -20,13 +21,6 @@ type MentionUser = {
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
-const CHAT_EMOJI_OPTIONS = [
-    '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤔',
-    '😅', '😴', '😭', '😡', '🤯', '🥳', '👏', '🙏', '💪', '🔥',
-    '✨', '🎉', '🎮', '🎵', '✅', '❌', '❤️', '💙', '👍', '👎',
-]
-const MESSAGE_REACTION_OPTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '😮', '😢', '👀']
-
 interface ChatAreaProps {
     activeChannel: Channel | undefined
     messages: UiMessage[]
@@ -820,23 +814,15 @@ export default function ChatArea({
                                                         className="message-reaction-picker"
                                                         onClick={(e) => e.stopPropagation()}
                                                     >
-                                                        {MESSAGE_REACTION_OPTIONS.map((emoji) => (
-                                                            <button
-                                                                key={`${msg.id}-${emoji}`}
-                                                                type="button"
-                                                                className="chat-emoji-item"
-                                                                onClick={() => {
-                                                                    onToggleReaction(msg.id, emoji, false)
-                                                                    setReactionPickerMessageId(null)
-                                                                }}
-                                                            >
-                                                                {emoji}
-                                                            </button>
-                                                        ))}
+                                                        <EmojiPicker
+                                                            compact
+                                                            reactionMode
+                                                            onSelect={(emoji) => {
+                                                                onToggleReaction(msg.id, emoji, false)
+                                                                setReactionPickerMessageId(null)
+                                                            }}
+                                                        />
                                                     </div>
-                                                )}
-                                                {msg.clientStatus === 'sending' && (
-                                                    <span className="message-send-state">Sending...</span>
                                                 )}
                                                 {msg.clientStatus === 'failed' && (
                                                     <span className="message-send-state is-failed">Failed</span>
@@ -992,21 +978,10 @@ export default function ChatArea({
                     {emojiOpen && (
                         <div
                             ref={emojiPickerRef}
-                            className="chat-emoji-picker"
+                            className="chat-emoji-picker-shell"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="chat-emoji-grid">
-                                {CHAT_EMOJI_OPTIONS.map((emoji) => (
-                                    <button
-                                        key={emoji}
-                                        type="button"
-                                        className="chat-emoji-item"
-                                        onClick={() => insertEmoji(emoji)}
-                                    >
-                                        {emoji}
-                                    </button>
-                                ))}
-                            </div>
+                            <EmojiPicker onSelect={insertEmoji} />
                         </div>
                     )}
                     <textarea

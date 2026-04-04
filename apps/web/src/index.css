@@ -3077,12 +3077,9 @@ body {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  display: flex;
-  gap: 4px;
-  padding: 6px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: var(--border-subtle);
-  background: var(--bg-tertiary);
+  background: rgba(19, 29, 53, 0.98);
   box-shadow: var(--shadow-medium);
   z-index: 60;
 }
@@ -3368,10 +3365,17 @@ body {
   cursor: not-allowed;
 }
 
-.chat-emoji-picker {
+.chat-emoji-picker-shell {
   position: absolute;
   right: 10px;
   bottom: calc(100% + 10px);
+  z-index: 16;
+}
+
+.chat-emoji-picker {
+  position: absolute;
+  right: 0;
+  bottom: 0;
   width: 232px;
   max-width: calc(100vw - 40px);
   border-radius: 12px;
@@ -3382,10 +3386,75 @@ body {
   z-index: 16;
 }
 
+.chat-emoji-picker.compact {
+  position: static;
+  width: 320px;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 10px;
+}
+
+.chat-emoji-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+}
+
+.chat-emoji-search svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.chat-emoji-search input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.chat-emoji-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+
+.chat-emoji-tab {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-emoji-tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+}
+
+.chat-emoji-tab.active {
+  background: rgba(79, 127, 216, 0.22);
+  border-color: rgba(79, 127, 216, 0.42);
+  color: #eef4ff;
+}
+
 .chat-emoji-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .chat-emoji-item {
@@ -3401,6 +3470,13 @@ body {
 .chat-emoji-item:hover {
   border-color: rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.chat-emoji-empty {
+  padding: 12px 4px 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 /* ============================================
