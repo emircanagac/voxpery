@@ -134,6 +134,8 @@ export default function ChatArea({
     const [clickedLink, setClickedLink] = useState<string | null>(null)
     const [emojiOpen, setEmojiOpen] = useState(false)
     const emojiPickerRef = useRef<HTMLDivElement | null>(null)
+    const emojiButtonRef = useRef<HTMLButtonElement | null>(null)
+    const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
     const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
@@ -246,6 +248,24 @@ export default function ChatArea({
         if (d.toDateString() === today.toDateString()) return `Today, ${time}`
         if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + time
+    }
+
+    const formatDayDivider = (dateStr: string) => {
+        const d = new Date(dateStr)
+        const today = new Date()
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        if (d.toDateString() === today.toDateString()) return 'Today'
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+    }
+
+    const isNewMessageDay = (index: number) => {
+        if (index <= 0) return true
+        const current = messages[index]
+        const previous = messages[index - 1]
+        if (!current?.created_at || !previous?.created_at) return false
+        return new Date(current.created_at).toDateString() !== new Date(previous.created_at).toDateString()
     }
 
     const scrollToMessageId = useCallback((messageId: string) => {
@@ -397,19 +417,38 @@ export default function ChatArea({
 
     useEffect(() => {
         if (!emojiOpen) return
+        const syncPosition = () => {
+            const button = emojiButtonRef.current
+            if (!button) return
+            const rect = button.getBoundingClientRect()
+            const pickerWidth = 232
+            const viewportPadding = 16
+            const left = Math.max(
+                viewportPadding,
+                Math.min(rect.right - pickerWidth, window.innerWidth - pickerWidth - viewportPadding)
+            )
+            const top = Math.max(viewportPadding, rect.top - 12)
+            setEmojiPickerPosition({ top, left })
+        }
         const close = (e: MouseEvent) => {
             if (emojiPickerRef.current?.contains(e.target as Node)) return
+            if (emojiButtonRef.current?.contains(e.target as Node)) return
             setEmojiOpen(false)
         }
         const onKeyDown = (e: globalThis.KeyboardEvent) => {
             if (e.key !== 'Escape') return
             setEmojiOpen(false)
         }
+        syncPosition()
         document.addEventListener('click', close)
         document.addEventListener('keydown', onKeyDown)
+        window.addEventListener('resize', syncPosition)
+        window.addEventListener('scroll', syncPosition, true)
         return () => {
             document.removeEventListener('click', close)
             document.removeEventListener('keydown', onKeyDown)
+            window.removeEventListener('resize', syncPosition)
+            window.removeEventListener('scroll', syncPosition, true)
         }
     }, [emojiOpen])
 
@@ -720,6 +759,7 @@ export default function ChatArea({
                     >
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const msg = messages[virtualRow.index]
+                            const showDayDivider = isNewMessageDay(virtualRow.index)
                             return (
                                 <div
                                     key={msg.id}
@@ -728,6 +768,11 @@ export default function ChatArea({
                                     className="virtual-list-item"
                                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                                 >
+                                    {showDayDivider && (
+                                        <div className="message-day-divider" aria-label={`Messages from ${formatDayDivider(msg.created_at)}`}>
+                                            <span>{formatDayDivider(msg.created_at)}</span>
+                                        </div>
+                                    )}
                                     <div className={`message${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
                                         <div className="message-avatar">
                                             {getAuthorAvatarUrl(msg.author || {}) ? (
@@ -962,6 +1007,7 @@ export default function ChatArea({
                         />
                     </label>
                     <button
+                        ref={emojiButtonRef}
                         type="button"
                         className="chat-emoji-btn"
                         disabled={!canSendMessages}
@@ -975,14 +1021,19 @@ export default function ChatArea({
                     >
                         <Smile size={16} />
                     </button>
-                    {emojiOpen && (
+                    {emojiOpen && emojiPickerPosition && createPortal(
                         <div
                             ref={emojiPickerRef}
-                            className="chat-emoji-picker-shell"
+                            className="chat-emoji-picker-shell chat-emoji-picker-portal"
+                            style={{
+                                top: emojiPickerPosition.top,
+                                left: emojiPickerPosition.left,
+                            }}
                             onClick={(e) => e.stopPropagation()}
                         >
                             <EmojiPicker onSelect={insertEmoji} />
-                        </div>
+                        </div>,
+                        document.body
                     )}
                     <textarea
                         ref={textareaRef}

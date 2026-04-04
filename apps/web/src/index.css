@@ -2829,6 +2829,46 @@ body {
   box-sizing: border-box;
 }
 
+.message-day-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 16px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.message-day-divider::before,
+.message-day-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message-day-divider::before {
+  margin-right: 12px;
+}
+
+.message-day-divider::after {
+  margin-left: 12px;
+}
+
+.message-day-divider span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
 /* Message */
 .message {
   display: flex;
@@ -3387,6 +3427,13 @@ body {
   right: 10px;
   bottom: calc(100% + 10px);
   z-index: 16;
+}
+
+.chat-emoji-picker-portal {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 10030;
 }
 
 .chat-emoji-picker {
