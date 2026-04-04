@@ -7,8 +7,7 @@ import ChatArea from '../components/ChatArea'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
-
-const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
+import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 
 type AttachmentItem = { id?: string; name: string; url: string; size: number; type: string }
 type UiDmMessage = MessageWithAuthor & {
@@ -328,14 +327,14 @@ export default function DmPage() {
     const allowed: File[] = []
     const oversized: string[] = []
     for (const file of selected) {
-      if (file.size > MAX_ATTACHMENT_BYTES) {
+      if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
         oversized.push(file.name)
         continue
       }
       allowed.push(file)
     }
     if (oversized.length > 0) {
-      const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
+      const maxMb = getMaxChatAttachmentMb()
       pushToast({
         level: 'error',
         title: 'Upload blocked',

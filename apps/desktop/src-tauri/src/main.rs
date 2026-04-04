@@ -10,7 +10,7 @@ struct DesktopRuntimeState {
 impl Default for DesktopRuntimeState {
     fn default() -> Self {
         Self {
-            minimize_to_tray_on_close: AtomicBool::new(false),
+            minimize_to_tray_on_close: AtomicBool::new(true),
             allow_close_for_update: AtomicBool::new(false),
         }
     }
@@ -121,8 +121,8 @@ fn main() {
                     })
                     .build(app)?;
 
-                // Close behavior is user-controlled. Default is full exit so installer/update
-                // flows do not keep the executable locked in the background.
+                // Close behavior is user-controlled. Default matches typical chat apps and keeps
+                // the app in the tray until the user disables it from settings.
                 if let Some(main_win) = app.get_webview_window("main") {
                     let main_win_clone = main_win.clone();
                     let app_handle = app.handle().clone();

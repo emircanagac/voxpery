@@ -6,13 +6,18 @@ import { isTauri } from './secureStorage'
 import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
 export type UpdateResult =
-  | { available: false }
+  | { available: false; error?: boolean }
   | { available: true; version: string; body?: string; date?: string }
 
 export const DESKTOP_UPDATE_STATUS_EVENT = 'voxpery-desktop-update-status'
 
 export type DesktopUpdateStatusDetail = {
   result: UpdateResult
+}
+
+function logUpdaterError(scope: string, error: unknown) {
+  if (!import.meta.env.DEV) return
+  console.error(`[desktop-updater] ${scope}`, error)
 }
 
 function emitDesktopUpdateStatus(result: UpdateResult) {
@@ -43,8 +48,9 @@ export async function checkForUpdates(): Promise<UpdateResult> {
     }
     emitDesktopUpdateStatus(result)
     return result
-  } catch {
-    const result: UpdateResult = { available: false }
+  } catch (error) {
+    logUpdaterError('check failed', error)
+    const result: UpdateResult = { available: false, error: true }
     emitDesktopUpdateStatus(result)
     return result
   }
@@ -63,7 +69,8 @@ export async function downloadAndInstallUpdate(): Promise<boolean> {
     await update.downloadAndInstall()
     await relaunch()
     return true
-  } catch {
+  } catch (error) {
+    logUpdaterError('install failed', error)
     return false
   }
 }

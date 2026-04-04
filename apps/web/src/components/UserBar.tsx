@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2 } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, Bell, MessageSquare, Mic, Monitor, Shield, User } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -19,8 +19,11 @@ import {
   type UpdateResult,
 } from '../updater'
 import {
+  getDesktopStartupTargetLabel,
   getDesktopAutostartEnabled,
   getStoredMinimizeToTrayOnCloseEnabled,
+  markDesktopAutostartInitialized,
+  shouldEnableDesktopAutostartByDefault,
   setDesktopAutostartEnabled,
   setDesktopMinimizeToTrayOnClose,
 } from '../desktopSettings'
@@ -36,6 +39,8 @@ const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
+
+type SettingsSection = 'profile' | 'notifications' | 'dm' | 'voice' | 'desktop' | 'privacy'
 
 function getInitial(name: string) {
   return name.charAt(0).toUpperCase()
@@ -98,6 +103,7 @@ export default function UserBar() {
   const pushToast = useToastStore((s) => s.pushToast)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [showSettingsPanel, setShowSettingsPanel] = useState(false)
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('voice')
   const [statusSaving, setStatusSaving] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
@@ -135,7 +141,7 @@ export default function UserBar() {
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const [desktopAutostartEnabled, setDesktopAutostartState] = useState(false)
   const [desktopAutostartLoading, setDesktopAutostartLoading] = useState(false)
-  const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(false)
+  const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(true)
   const [minimizeToTrayLoading, setMinimizeToTrayLoading] = useState(false)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
@@ -147,6 +153,32 @@ export default function UserBar() {
   const statusMenuRef = useRef<HTMLDivElement>(null)
   const usernameCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusToggleRef = useRef<HTMLDivElement>(null)
+  const desktopStartupTargetLabel = getDesktopStartupTargetLabel()
+
+  const closeStatusMenu = () => {
+    setShowStatusMenu(false)
+    setStatusError(null)
+  }
+
+  const closeSettingsPanel = () => {
+    setShowSettingsPanel(false)
+  }
+
+  const closeDeleteModal = () => {
+    setShowDeleteModal(false)
+  }
+
+  const closeUsernameModal = () => {
+    if (usernameCheckTimeoutRef.current) {
+      clearTimeout(usernameCheckTimeoutRef.current)
+      usernameCheckTimeoutRef.current = null
+    }
+    setShowUsernameModal(false)
+  }
+
+  const closePasswordModal = () => {
+    setShowPwModal(false)
+  }
 
   useEffect(() => {
     const sound = localStorage.getItem(SOUND_KEY)
@@ -197,6 +229,11 @@ export default function UserBar() {
   useEffect(() => {
     if (!capturingPtt) return
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setCapturingPtt(false)
+        return
+      }
       e.preventDefault()
       const key = e.key?.length === 1 ? e.key.toUpperCase() : e.key
       if (!key) return
@@ -214,18 +251,47 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
   useEffect(() => {
-    if (!showSettingsPanel) return
+    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showPwModal) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setShowSettingsPanel(false)
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (showDeleteModal) {
+        closeDeleteModal()
+        return
+      }
+      if (showUsernameModal) {
+        closeUsernameModal()
+        return
+      }
+      if (showPwModal) {
+        closePasswordModal()
+        return
+      }
+      if (showSettingsPanel) {
+        closeSettingsPanel()
+        return
+      }
+      if (showStatusMenu) {
+        closeStatusMenu()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [showSettingsPanel])
+  }, [showDeleteModal, showPwModal, showSettingsPanel, showStatusMenu, showUsernameModal])
+
+  useEffect(() => {
+    if (!showSettingsPanel) return
+    if (!isTauri() && activeSettingsSection === 'desktop') {
+      setActiveSettingsSection('profile')
+    }
+  }, [activeSettingsSection, showSettingsPanel])
+
+  useEffect(() => {
+    if (showSettingsPanel) return
+    if (capturingPtt) setCapturingPtt(false)
+  }, [capturingPtt, showSettingsPanel])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -253,10 +319,17 @@ export default function UserBar() {
       setDesktopAutostartLoading(true)
       setMinimizeToTrayLoading(true)
       try {
-        const [autostartEnabled, trayEnabled] = await Promise.all([
+        let [autostartEnabled, trayEnabled] = await Promise.all([
           getDesktopAutostartEnabled(),
           Promise.resolve(getStoredMinimizeToTrayOnCloseEnabled()),
         ])
+        if (shouldEnableDesktopAutostartByDefault()) {
+          if (!autostartEnabled) {
+            await setDesktopAutostartEnabled(true)
+            autostartEnabled = true
+          }
+          markDesktopAutostartInitialized()
+        }
         await setDesktopMinimizeToTrayOnClose(trayEnabled)
         if (cancelled) return
         setDesktopAutostartState(autostartEnabled)
@@ -363,6 +436,11 @@ export default function UserBar() {
       }
     } catch (err) {
       console.error('Failed to update profile avatar:', err)
+      pushToast({
+        level: 'error',
+        title: avatarUrl ? 'Profile photo update failed' : 'Profile photo removal failed',
+        message: err instanceof Error ? err.message : 'Could not update your profile photo.',
+      })
     }
   }
 
@@ -435,11 +513,13 @@ export default function UserBar() {
       setUpdateChecked(true)
       if (manual) {
         pushToast({
-          level: 'info',
-          title: result.available ? 'Update found' : 'You are up to date',
+          level: result.available ? 'info' : result.error ? 'error' : 'info',
+          title: result.available ? 'Update found' : result.error ? 'Update check failed' : 'You are up to date',
           message: result.available
             ? `Voxpery ${result.version} is available for installation.`
-            : 'No newer desktop release is available right now.',
+            : result.error
+              ? 'Could not check for a new desktop release right now. Try again later.'
+              : 'No newer desktop release is available right now.',
         })
       }
     } finally {
@@ -475,13 +555,14 @@ export default function UserBar() {
     setDesktopAutostartLoading(true)
     try {
       await setDesktopAutostartEnabled(next)
+      markDesktopAutostartInitialized()
       setDesktopAutostartState(next)
       pushToast({
         level: 'info',
         title: next ? 'Launch on startup enabled' : 'Launch on startup disabled',
         message: next
-          ? 'Voxpery will open automatically when Windows starts.'
-          : 'Voxpery will no longer open automatically when Windows starts.',
+          ? `Voxpery will open automatically when ${desktopStartupTargetLabel}.`
+          : `Voxpery will no longer open automatically when ${desktopStartupTargetLabel}.`,
       })
     } catch {
       pushToast({
@@ -596,7 +677,10 @@ export default function UserBar() {
       <button
         type="button"
         className="user-panel-icon-btn"
-        onClick={() => setShowSettingsPanel(true)}
+        onClick={() => {
+          closeStatusMenu()
+          setShowSettingsPanel(true)
+        }}
         title="User settings"
         aria-label="Settings"
       >
@@ -639,38 +723,6 @@ export default function UserBar() {
           {statusSaving && (
             <div className="user-status-popover-saving">Updating…</div>
           )}
-          <div className="user-status-popover-profile">
-            <div className="user-status-popover-avatar" aria-hidden>
-              {user?.avatar_url ? (
-                <img src={user.avatar_url} alt="" />
-              ) : (
-                <span>{user ? getInitial(user.username) : '?'}</span>
-              )}
-            </div>
-            <span className="user-status-popover-profile-links">
-              <label className="user-status-popover-profile-link">
-                Upload
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(e) => void onPickProfileAvatar(e.target.files)}
-                />
-              </label>
-              {user?.avatar_url && (
-                <>
-                  <span className="user-status-popover-profile-sep" aria-hidden>·</span>
-                  <button
-                    type="button"
-                    className="user-status-popover-profile-link"
-                    onClick={() => void updateProfileAvatar(null)}
-                  >
-                    Remove
-                  </button>
-                </>
-              )}
-            </span>
-          </div>
           <div className="user-status-popover-footer">
             <button
               type="button"
@@ -687,13 +739,69 @@ export default function UserBar() {
         </div>
       )}
       {showSettingsPanel && (
-        <div className="modal-overlay" onClick={() => setShowSettingsPanel(false)}>
+        <div className="modal-overlay" onClick={closeSettingsPanel}>
           <div className="modal user-settings-modal" onClick={(e) => e.stopPropagation()}>
             <header className="user-settings-header">
-              <h2>Settings</h2>
-              <p className="user-settings-subtitle">Voice, notifications, and account.</p>
+              <div className="user-settings-header-copy">
+                <h2>Settings</h2>
+                <p className="user-settings-subtitle">Manage your account, voice, desktop, and privacy preferences.</p>
+              </div>
             </header>
-            <div className="user-settings-scroll">
+            <div className="user-settings-body">
+              <nav className="user-settings-nav" aria-label="Settings sections">
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'profile' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('profile')}
+                >
+                  <User size={16} />
+                  <span>Profile</span>
+                </button>
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'notifications' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('notifications')}
+                >
+                  <Bell size={16} />
+                  <span>Notifications</span>
+                </button>
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'dm' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('dm')}
+                >
+                  <MessageSquare size={16} />
+                  <span>Direct Messages</span>
+                </button>
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'voice' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('voice')}
+                >
+                  <Mic size={16} />
+                  <span>Voice & Audio</span>
+                </button>
+                {isTauri() && (
+                  <button
+                    type="button"
+                    className={`user-settings-nav__item ${activeSettingsSection === 'desktop' ? 'user-settings-nav__item--active' : ''}`}
+                    onClick={() => setActiveSettingsSection('desktop')}
+                  >
+                    <Monitor size={16} />
+                    <span>Desktop</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'privacy' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('privacy')}
+                >
+                  <Shield size={16} />
+                  <span>Privacy & Data</span>
+                </button>
+              </nav>
+              <div className="user-settings-scroll">
+              {activeSettingsSection === 'notifications' && (
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Notifications</h3>
                 <div className="user-setting-row">
@@ -713,6 +821,11 @@ export default function UserBar() {
                     {soundEnabled ? 'On' : 'Off'}
                   </button>
                 </div>
+              </section>
+              )}
+              {activeSettingsSection === 'dm' && (
+              <section className="user-settings-section">
+                <h3 className="user-settings-section-title">Direct Messages</h3>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Who can send you DMs</div>
@@ -722,12 +835,14 @@ export default function UserBar() {
                     className="user-select"
                     value={dmPrivacy}
                     onChange={async (e) => {
+                      const previous = dmPrivacy
                       const next = e.target.value as 'everyone' | 'friends'
                       setDmPrivacy(next)
                       try {
                         const updated = await authApi.updateProfile({ dm_privacy: next }, token ?? null)
                         setUser(updated)
                       } catch {
+                        setDmPrivacy(previous)
                         pushToast({
                           level: 'error',
                           title: 'DM privacy update failed',
@@ -741,8 +856,10 @@ export default function UserBar() {
                   </select>
                 </div>
               </section>
+              )}
+              {activeSettingsSection === 'voice' && (
               <section className="user-settings-section">
-                <h3 className="user-settings-section-title">Voice</h3>
+                <h3 className="user-settings-section-title">Voice & Audio</h3>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Voice mode</div>
@@ -894,8 +1011,10 @@ export default function UserBar() {
                   />
                 </div>
               </section>
+              )}
+              {activeSettingsSection === 'desktop' && isTauri() && (
               <section className="user-settings-section">
-                <h3 className="user-settings-section-title">Account</h3>
+                <h3 className="user-settings-section-title">Desktop</h3>
                 {isTauri() && (
                   <>
                     <div className="user-setting-row">
@@ -906,6 +1025,8 @@ export default function UserBar() {
                           {updateChecked
                             ? updateInfo?.available
                               ? `Voxpery ${updateInfo.version} is available to install.`
+                              : updateInfo?.error
+                                ? 'Could not check for new desktop releases right now.'
                               : 'Your desktop app is on the latest version.'
                             : 'Check for new desktop releases and install them without reinstalling.'}
                         </div>
@@ -934,7 +1055,7 @@ export default function UserBar() {
                     <div className="user-setting-row">
                       <div>
                         <div className="user-setting-title">Launch on startup</div>
-                        <div className="user-setting-desc">Open Voxpery automatically when Windows starts.</div>
+                        <div className="user-setting-desc">{`Open Voxpery automatically when ${desktopStartupTargetLabel}.`}</div>
                       </div>
                       <button
                         type="button"
@@ -961,10 +1082,53 @@ export default function UserBar() {
                     </div>
                   </>
                 )}
+              </section>
+              )}
+              {activeSettingsSection === 'profile' && (
+              <section className="user-settings-section">
+                <h3 className="user-settings-section-title">Profile</h3>
+                <div className="user-setting-row">
+                  <div className="user-setting-profile-photo">
+                    <div className="user-setting-profile-avatar" aria-hidden>
+                      {user?.avatar_url ? (
+                        <img src={user.avatar_url} alt="" className="user-avatar-image" />
+                      ) : (
+                        user ? getInitial(user.username) : '?'
+                      )}
+                    </div>
+                    <div>
+                      <div className="user-setting-title">Profile photo</div>
+                      <div className="user-setting-desc">Upload a square image to personalize your account.</div>
+                    </div>
+                  </div>
+                  <div className="user-setting-actions">
+                    <label className="user-toggle account-action-btn">
+                      Upload
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          void onPickProfileAvatar(e.target.files)
+                          e.currentTarget.value = ''
+                        }}
+                      />
+                    </label>
+                    {user?.avatar_url && (
+                      <button
+                        type="button"
+                        className="user-toggle account-action-btn"
+                        onClick={() => void updateProfileAvatar(null)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Username</div>
-                    <div className="user-setting-desc">Your display name. Letters, numbers, and underscores.</div>
+                    <div className="user-setting-desc">Your display name. Letters, numbers, underscores, and periods.</div>
                   </div>
                   <button
                     type="button"
@@ -998,6 +1162,11 @@ export default function UserBar() {
                     {isGoogleOnlyAccount ? 'Set password' : 'Change'}
                   </button>
                 </div>
+              </section>
+              )}
+              {activeSettingsSection === 'privacy' && (
+              <section className="user-settings-section">
+                <h3 className="user-settings-section-title">Privacy & Data</h3>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Data export</div>
@@ -1033,12 +1202,14 @@ export default function UserBar() {
                   </button>
                 </div>
               </section>
+              )}
+              </div>
             </div>
             <footer className="user-settings-footer">
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => setShowSettingsPanel(false)}
+                onClick={closeSettingsPanel}
               >
                 Done
               </button>
@@ -1047,7 +1218,7 @@ export default function UserBar() {
         </div>
       )}
       {showDeleteModal && (
-        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+        <div className="modal-overlay" onClick={closeDeleteModal}>
           <div className="modal pw-modal delete-account-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Trash2 size={20} className="pw-modal-icon" />
@@ -1096,7 +1267,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => setShowDeleteModal(false)}
+                onClick={closeDeleteModal}
               >
                 Cancel
               </button>
@@ -1118,11 +1289,11 @@ export default function UserBar() {
         const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
         const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
         return (
-        <div className="modal-overlay" onClick={() => setShowUsernameModal(false)}>
+        <div className="modal-overlay" onClick={closeUsernameModal}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <h2>Change username</h2>
-              <p className="pw-modal-subtitle">3–32 characters, letters, numbers, and underscores.</p>
+              <p className="pw-modal-subtitle">3–32 characters, letters, numbers, underscores, and periods.</p>
               <p className="pw-modal-subtitle" style={{ marginTop: 4, fontSize: 13 }}>
                 You can only change your username once every 30 days.
                 {cannotChangeYet && nextAllowedDate && (
@@ -1225,13 +1396,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => {
-                  if (usernameCheckTimeoutRef.current) {
-                    clearTimeout(usernameCheckTimeoutRef.current)
-                    usernameCheckTimeoutRef.current = null
-                  }
-                  setShowUsernameModal(false)
-                }}
+                onClick={closeUsernameModal}
               >
                 Cancel
               </button>
@@ -1255,7 +1420,7 @@ export default function UserBar() {
                     } else {
                       setUser(updated)
                     }
-                    setShowUsernameModal(false)
+                    closeUsernameModal()
                   } catch (err: unknown) {
                     const msg = getAuthErrorMessage(err).message || 'Could not update username'
                     setUsernameError(msg)
@@ -1272,7 +1437,7 @@ export default function UserBar() {
         </div>
         ); })()}
       {showPwModal && (
-        <div className="modal-overlay" onClick={() => setShowPwModal(false)}>
+        <div className="modal-overlay" onClick={closePasswordModal}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Lock size={20} className="pw-modal-icon" />
@@ -1357,7 +1522,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => setShowPwModal(false)}
+                onClick={closePasswordModal}
               >
                 Cancel
               </button>
@@ -1376,7 +1541,7 @@ export default function UserBar() {
                       setPwSuccess(true)
                       setPwOld(''); setPwNew(''); setPwConfirm('')
                       setTimeout(() => {
-                        setShowPwModal(false)
+                        closePasswordModal()
                       }, 900)
                     } else {
                       await authApi.changePassword(pwOld, pwNew, token ?? null)

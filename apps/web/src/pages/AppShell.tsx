@@ -67,7 +67,11 @@ export default function AppShell() {
     let cancelled = false
     const applyUpdateResult = (result: UpdateResult) => {
       if (cancelled) return
-      setDesktopUpdate(result)
+      setDesktopUpdate((previous) => {
+        if (result.available) return result
+        if (result.error && previous?.available) return previous
+        return result
+      })
       if (
         result.available
         && lastDesktopUpdateToastVersionRef.current !== result.version

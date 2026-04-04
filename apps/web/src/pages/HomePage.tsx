@@ -18,8 +18,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
-
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 
 type SocialView = 'friends' | 'dm'
 type FriendsFilter = 'all' | 'online' | 'requests'
@@ -488,14 +487,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const allowed: File[] = []
     const oversized: string[] = []
     for (const f of list) {
-      if (f.size > MAX_ATTACHMENT_BYTES) {
+      if (f.size > MAX_CHAT_ATTACHMENT_BYTES) {
         oversized.push(f.name)
         continue
       }
       allowed.push(f)
     }
     if (oversized.length > 0) {
-      const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
+      const maxMb = getMaxChatAttachmentMb()
       pushToast({
         level: 'error',
         title: 'Upload blocked',

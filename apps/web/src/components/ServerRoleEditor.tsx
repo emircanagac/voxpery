@@ -42,11 +42,17 @@ export default function ServerRoleEditor({
     onCancel,
     onSave,
 }: ServerRoleEditorProps) {
+    const isEditingExistingRole = canDeleteRole
+
     if (!selectedRoleId) {
         return (
-            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                Select a role from the list or create a new one.
-            </p>
+            <div className="server-role-editor-empty">
+                <span className="server-role-editor-empty__eyebrow">Role editor</span>
+                <strong className="server-role-editor-empty__title">Choose or create a role</strong>
+                <p className="server-role-editor-empty__hint">
+                    Select a role from the list to edit its permissions, or create a new role to start building access rules.
+                </p>
+            </div>
         )
     }
 
@@ -185,7 +191,7 @@ export default function ServerRoleEditor({
                         disabled={!canSaveRole}
                         onClick={onSave}
                     >
-                        Save role
+                        {isEditingExistingRole ? 'Save role' : 'Create role'}
                     </button>
                 </div>
             </div>

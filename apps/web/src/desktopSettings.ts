@@ -1,6 +1,7 @@
 import { isTauri } from './secureStorage'
 
 const MINIMIZE_TO_TRAY_ON_CLOSE_KEY = 'voxpery-settings-minimize-to-tray-on-close'
+const AUTOSTART_INITIALIZED_KEY = 'voxpery-settings-autostart-initialized'
 
 function readBoolSetting(key: string, fallback: boolean) {
   try {
@@ -20,8 +21,16 @@ function writeBoolSetting(key: string, enabled: boolean) {
   }
 }
 
+function hasStoredSetting(key: string) {
+  try {
+    return localStorage.getItem(key) != null
+  } catch {
+    return false
+  }
+}
+
 export function getStoredMinimizeToTrayOnCloseEnabled() {
-  return readBoolSetting(MINIMIZE_TO_TRAY_ON_CLOSE_KEY, false)
+  return readBoolSetting(MINIMIZE_TO_TRAY_ON_CLOSE_KEY, true)
 }
 
 export async function getDesktopAutostartEnabled() {
@@ -38,6 +47,25 @@ export async function setDesktopAutostartEnabled(enabled: boolean) {
     return
   }
   await disable()
+}
+
+export function shouldEnableDesktopAutostartByDefault() {
+  if (!isTauri()) return false
+  if (hasStoredSetting(AUTOSTART_INITIALIZED_KEY)) return false
+  return navigator.userAgent.toLowerCase().includes('windows')
+}
+
+export function markDesktopAutostartInitialized() {
+  writeBoolSetting(AUTOSTART_INITIALIZED_KEY, true)
+}
+
+export function getDesktopStartupTargetLabel() {
+  if (typeof navigator === 'undefined') return 'your computer starts'
+  const userAgent = navigator.userAgent.toLowerCase()
+  if (userAgent.includes('mac')) return 'macOS starts'
+  if (userAgent.includes('linux')) return 'Linux starts'
+  if (userAgent.includes('windows')) return 'Windows starts'
+  return 'your computer starts'
 }
 
 export async function setDesktopMinimizeToTrayOnClose(enabled: boolean) {

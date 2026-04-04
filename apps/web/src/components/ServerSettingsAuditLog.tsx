@@ -70,15 +70,15 @@ export default function ServerSettingsAuditLog({ entries, memberUsernameById }: 
 
                     return (
                         <div key={entry.id} className="server-settings-audit-row">
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                                    <strong style={{ color: 'var(--text-normal)' }}>{actorName}</strong>
-                                    <span style={{ color: 'var(--text-muted)' }}>{actionText}</span>
+                            <div className="server-settings-audit-row__top">
+                                <div className="server-settings-audit-row__summary">
+                                    <strong className="server-settings-audit-row__actor">{actorName}</strong>
+                                    <span className="server-settings-audit-row__action">{actionText}</span>
                                     {targetDesc && (
-                                        <strong style={{ color: 'var(--text-normal)' }}>{targetDesc}</strong>
+                                        <strong className="server-settings-audit-row__target">{targetDesc}</strong>
                                     )}
                                 </div>
-                                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                <span className="server-settings-audit-row__time">
                                     {new Date(entry.at).toLocaleString()}
                                 </span>
                             </div>

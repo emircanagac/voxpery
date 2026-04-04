@@ -16,8 +16,9 @@ import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { MessageSquare, Mic } from 'lucide-react'
+import { AlertTriangle, Ban, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck } from 'lucide-react'
 import { isTauri } from '../secureStorage'
+import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -32,8 +33,39 @@ export interface AppLayoutProps {
     isViewActive?: boolean
 }
 
-/** Max size per file for chat attachments. Kept conservative to limit abuse; server body limit is 10 MiB. */
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const SERVER_SETTINGS_SECTION_META = {
+    overview: {
+        eyebrow: 'Workspace',
+        title: 'Overview',
+        hint: 'Update your server identity, invite flow, and core presentation.',
+        navHint: 'Identity, invites, and branding',
+    },
+    roles: {
+        eyebrow: 'Access Control',
+        title: 'Roles',
+        hint: 'Shape permissions, moderation powers, and the hierarchy your members see.',
+        navHint: 'Permissions and hierarchy',
+    },
+    audit: {
+        eyebrow: 'Moderation',
+        title: 'Audit Log',
+        hint: 'Review important changes and actions taken across the server.',
+        navHint: 'Moderation and change history',
+    },
+    bans: {
+        eyebrow: 'Safety',
+        title: 'Banned Users',
+        hint: 'Review blocked members and restore access when needed.',
+        navHint: 'Blocked members and unban flow',
+    },
+    danger: {
+        eyebrow: 'Ownership',
+        title: 'Danger Zone',
+        hint: 'Destructive actions live here. Review carefully before continuing.',
+        navHint: 'Irreversible owner actions',
+    },
+} as const
+
 /** Page size for message list (pagination). Must match backend max (100) or less. */
 const MESSAGE_PAGE_SIZE = 50
 const CHANNEL_NAME_MAX = 32
@@ -997,14 +1029,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const allowed: File[] = []
         const oversized: string[] = []
         for (const f of list) {
-            if (f.size > MAX_ATTACHMENT_BYTES) {
+            if (f.size > MAX_CHAT_ATTACHMENT_BYTES) {
                 oversized.push(f.name)
                 continue
             }
             allowed.push(f)
         }
         if (oversized.length > 0) {
-            const maxMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
+            const maxMb = getMaxChatAttachmentMb()
             pushToast({
                 level: 'error',
                 title: 'Upload blocked',
@@ -1270,6 +1302,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const toIndex = serverRoles.findIndex((r) => r.id === targetRoleId)
         if (fromIndex === -1 || toIndex === -1) return
 
+        const previous = [...serverRoles]
         const next = [...serverRoles]
         const [moved] = next.splice(fromIndex, 1)
         next.splice(toIndex, 0, moved)
@@ -1282,6 +1315,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 token,
             )
         } catch (err) {
+            setServerRoles(previous)
             const message =
                 err instanceof Error
                     ? err.message
@@ -1338,10 +1372,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const handleSaveRole = async () => {
         if (!settingsServer) return
+        const existing = selectedRoleId
+            ? serverRoles.find((r) => r.id === selectedRoleId)
+            : undefined
         try {
-            const existing = selectedRoleId
-                ? serverRoles.find((r) => r.id === selectedRoleId)
-                : undefined
             if (!existing) {
                 await serverApi.createRole(
                     settingsServer.id,
@@ -1362,18 +1396,35 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     token,
                 )
             }
-            const roles = await serverApi.listRoles(
-                settingsServer.id,
-                token,
-            )
-            setServerRoles(roles)
-            handleCancelRoleEdit()
         } catch (err) {
             const message =
                 err instanceof Error
                     ? err.message
                     : 'Failed to save role.'
             setRolesError(message)
+            return
+        }
+
+        // Prevent duplicate submissions if the follow-up refresh fails.
+        handleCancelRoleEdit()
+
+        try {
+            const roles = await serverApi.listRoles(
+                settingsServer.id,
+                token,
+            )
+            setServerRoles(roles)
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Role was saved, but the latest role list could not be loaded.'
+            setRolesError(message)
+            pushToast({
+                level: 'error',
+                title: 'Role refresh failed',
+                message: 'The role change was saved, but the role list could not be refreshed yet.',
+            })
         }
     }
 
@@ -2362,6 +2413,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
                                     <div className="server-settings-layout">
                                         <nav className="server-settings-nav">
+                                            <div className="server-settings-nav__meta">
+                                                <span className="server-settings-nav__eyebrow">Server settings</span>
+                                                <strong className="server-settings-nav__title">{settingsServer.name}</strong>
+                                            </div>
                                             <button
                                                 type="button"
                                                 className={`server-settings-nav__item ${
@@ -2369,7 +2424,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 }`}
                                                 onClick={() => setServerSettingsTab('overview')}
                                             >
-                                                Overview
+                                                <span className="server-settings-nav__icon"><LayoutDashboard size={16} /></span>
+                                                <span className="server-settings-nav__copy">
+                                                    <span className="server-settings-nav__label">Overview</span>
+                                                    <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.overview.navHint}</span>
+                                                </span>
                                             </button>
                                             {isOwner && (
                                                 <button
@@ -2379,7 +2438,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('roles')}
                                                 >
-                                                    Roles
+                                                    <span className="server-settings-nav__icon"><ShieldCheck size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Roles</span>
+                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.roles.navHint}</span>
+                                                    </span>
                                                 </button>
                                             )}
                                             {canViewAuditLog && (
@@ -2392,7 +2455,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('audit')}
                                                 >
-                                                    Audit Log
+                                                    <span className="server-settings-nav__icon"><ScrollText size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Audit Log</span>
+                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.audit.navHint}</span>
+                                                    </span>
                                                 </button>
                                             )}
                                             {(isOwner || canManageBans) && (
@@ -2403,7 +2470,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('bans')}
                                                 >
-                                                    Bans
+                                                    <span className="server-settings-nav__icon"><Ban size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Bans</span>
+                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.bans.navHint}</span>
+                                                    </span>
                                                 </button>
                                             )}
                                             {isOwner && (
@@ -2414,32 +2485,45 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     }`}
                                                     onClick={() => setServerSettingsTab('danger')}
                                                 >
-                                                    Danger Zone
+                                                    <span className="server-settings-nav__icon"><AlertTriangle size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Danger Zone</span>
+                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.danger.navHint}</span>
+                                                    </span>
                                                 </button>
                                             )}
                                         </nav>
 
                                         <Profiler id="ServerSettings" onRender={handleServerSettingsProfileRender}>
                                         <div className="server-settings-content">
+                                            <div className="server-settings-section-intro">
+                                                <div className="server-settings-section-intro__icon">
+                                                    {serverSettingsTab === 'overview' && <LayoutDashboard size={18} />}
+                                                    {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
+                                                    {serverSettingsTab === 'audit' && <ScrollText size={18} />}
+                                                    {serverSettingsTab === 'bans' && <Ban size={18} />}
+                                                    {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
+                                                </div>
+                                                <div className="server-settings-section-intro__body">
+                                                    <div className="server-settings-section-intro__copy">
+                                                        <span className="server-settings-section-intro__eyebrow">
+                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].eyebrow}
+                                                        </span>
+                                                        <h3 className="server-settings-section-intro__title">
+                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].title}
+                                                        </h3>
+                                                    </div>
+                                                    <p className="server-settings-section-intro__hint">
+                                                        {SERVER_SETTINGS_SECTION_META[serverSettingsTab].hint}
+                                                    </p>
+                                                </div>
+                                            </div>
                                             {serverSettingsTab === 'overview' && (
-                                                <section className="server-settings-card">
-                                                    <h3 className="server-settings-card__title">Overview</h3>
-                                                    <div className="server-settings-overview-grid">
-                                                        <div className="server-settings-subcard">
-                                                            <h4 className="server-settings-subcard__title">Server</h4>
-                                                            <div className="form-group">
-                                                                <label>Server name</label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={serverSettingsName}
-                                                                    onChange={(e) => setServerSettingsName(e.target.value)}
-                                                                    placeholder="Server name"
-                                                                    disabled={!isOwner}
-                                                                />
-                                                            </div>
-                                                            <div className="form-group">
-                                                                <label>Server icon</label>
-                                                                <div className="server-settings-icon-row">
+                                                <section className="server-settings-card server-settings-card--overview">
+                                                    <div className="server-overview-layout">
+                                                        <section className="server-overview-profile">
+                                                            <div className="server-overview-profile__hero">
+                                                                <div className="server-overview-profile__icon">
                                                                     {effectiveServerIcon ? (
                                                                         <img
                                                                             src={effectiveServerIcon}
@@ -2451,59 +2535,87 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             {settingsServer.name.charAt(0).toUpperCase()}
                                                                         </div>
                                                                     )}
-                                                                    {isOwner && (
-                                                                        <div className="server-settings-icon-actions">
+                                                                </div>
+                                                                <div className="server-overview-profile__copy">
+                                                                    <span className="server-overview-profile__eyebrow">Server profile</span>
+                                                                    <strong className="server-overview-profile__title">{settingsServer.name}</strong>
+                                                                    <span className="server-overview-profile__meta">
+                                                                        {serverRoles.length} roles configured
+                                                                    </span>
+                                                                </div>
+                                                                {isOwner && (
+                                                                    <div className="server-overview-profile__actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-secondary btn-sm"
+                                                                            onClick={() => serverIconInputRef.current?.click()}
+                                                                        >
+                                                                            Upload image
+                                                                        </button>
+                                                                        {(effectiveServerIcon ?? null) && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn btn-secondary btn-sm"
-                                                                                onClick={() => serverIconInputRef.current?.click()}
+                                                                                onClick={handleClearServerIcon}
                                                                             >
-                                                                                Upload
+                                                                                Remove
                                                                             </button>
-                                                                            {(effectiveServerIcon ?? null) && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-sm"
-                                                                                    onClick={handleClearServerIcon}
-                                                                                >
-                                                                                    Remove
-                                                                                </button>
-                                                                            )}
-                                                                            <input
-                                                                                ref={serverIconInputRef}
-                                                                                type="file"
-                                                                                accept="image/*"
-                                                                                style={{ display: 'none' }}
-                                                                                onChange={(e) => {
-                                                                                    void handleServerIconPick(e.target.files)
-                                                                                    e.currentTarget.value = ''
-                                                                                }}
-                                                                            />
-                                                                        </div>
-                                                                    )}
-                                                                </div>
+                                                                        )}
+                                                                        <input
+                                                                            ref={serverIconInputRef}
+                                                                            type="file"
+                                                                            accept="image/*"
+                                                                            style={{ display: 'none' }}
+                                                                            onChange={(e) => {
+                                                                                void handleServerIconPick(e.target.files)
+                                                                                e.currentTarget.value = ''
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                             </div>
-                                                            {isOwner && (
-                                                                <div className="server-settings-server-actions">
-                                                                    <button
-                                                                        type="button"
-                                                                        className="btn btn-primary btn-sm"
-                                                                        disabled={!canSaveServerSettings}
-                                                                        onClick={() => void handleUpdateServerSettings()}
-                                                                    >
-                                                                        Save changes
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                        </div>
 
-                                                        <div className="server-settings-subcard">
-                                                            <h4 className="server-settings-subcard__title">Invite People</h4>
-                                                            <div className="invite-unified-box">
+                                                            <div className="server-overview-profile__form">
+                                                                <div className="form-group">
+                                                                    <label>Server name</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={serverSettingsName}
+                                                                        onChange={(e) => setServerSettingsName(e.target.value)}
+                                                                        placeholder="Server name"
+                                                                        disabled={!isOwner}
+                                                                    />
+                                                                </div>
+
+                                                                {isOwner && (
+                                                                    <div className="server-settings-server-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-primary btn-sm"
+                                                                            disabled={!canSaveServerSettings}
+                                                                            onClick={() => void handleUpdateServerSettings()}
+                                                                        >
+                                                                            Save changes
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </section>
+
+                                                        <aside className="server-overview-invite">
+                                                            <div className="server-overview-invite__head">
+                                                                <span className="server-overview-invite__eyebrow">Invite</span>
+                                                                <div className="server-overview-invite__code-row">
+                                                                    <span className="server-overview-invite__code-label">Code</span>
+                                                                    <code className="server-overview-invite__code-pill">{settingsServer.invite_code}</code>
+                                                                </div>
+                                                                <p className="server-overview-invite__hint">
+                                                                    Share the link below or send the short code to invite people quickly.
+                                                                </p>
+                                                            </div>
+                                                            <div className="server-overview-invite__body">
                                                                 <div className="invite-unified-row invite-unified-link">
-                                                                    <code>
-                                                                        {settingsServerInviteLink}
-                                                                    </code>
+                                                                    <code>{settingsServerInviteLink}</code>
                                                                 </div>
                                                                 <div className="invite-unified-actions">
                                                                     <button
@@ -2513,6 +2625,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             navigator.clipboard.writeText(settingsServerInviteLink).then(() => {
                                                                                 setCopiedInvite('link')
                                                                                 setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            }).catch(() => {
+                                                                                pushToast({
+                                                                                    level: 'error',
+                                                                                    title: 'Copy failed',
+                                                                                    message: 'Could not copy the invite link to your clipboard.',
+                                                                                })
                                                                             })
                                                                         }}
                                                                     >
@@ -2525,59 +2643,69 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             navigator.clipboard.writeText(settingsServer.invite_code).then(() => {
                                                                                 setCopiedInvite('code')
                                                                                 setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            }).catch(() => {
+                                                                                pushToast({
+                                                                                    level: 'error',
+                                                                                    title: 'Copy failed',
+                                                                                    message: 'Could not copy the invite code to your clipboard.',
+                                                                                })
                                                                             })
                                                                         }}
                                                                     >
                                                                         {copiedInvite === 'code' ? 'Copied' : 'Copy code'}
                                                                     </button>
                                                                 </div>
-                                                                <p className="invite-unified-hint">
-                                                                    Share the link so others can join with one click.
-                                                                </p>
                                                             </div>
-                                                        </div>
+                                                        </aside>
                                                     </div>
                                                 </section>
                                             )}
 
                                             {serverSettingsTab === 'danger' && isOwner && (
                                                 <section className="server-settings-card server-settings-card--danger">
-                                                    <h3 className="server-settings-card__title server-settings-card__title--danger">
-                                                        Danger Zone
-                                                    </h3>
-                                                    <p className="server-settings-danger-text">
-                                                        Deleting this server will permanently remove all channels and messages. This
-                                                        cannot be undone.
-                                                    </p>
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-danger-outline"
-                                                        onClick={() => {
-                                                            setDeleteServerError(null)
-                                                            setDeleteServerInput('')
-                                                            setShowDeleteServerConfirm(true)
-                                                        }}
-                                                    >
-                                                        Delete server
-                                                    </button>
+                                                    <h3 className="server-settings-card__title server-settings-card__title--danger">Delete server</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-danger-text">
+                                                            Deleting this server will permanently remove all channels, invites, and messages.
+                                                            This action cannot be undone.
+                                                        </p>
+                                                        <div className="server-settings-danger-actions">
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-danger-outline"
+                                                                onClick={() => {
+                                                                    setDeleteServerError(null)
+                                                                    setDeleteServerInput('')
+                                                                    setShowDeleteServerConfirm(true)
+                                                                }}
+                                                            >
+                                                                Delete server
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </section>
                                             )}
 
                                             {serverSettingsTab === 'audit' && canViewAuditLog && (
-                                                <section className="server-settings-card server-settings-card--audit">
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack">
                                                     <h3 className="server-settings-card__title">Audit Log</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Track major moderation actions, channel changes, and server updates in one timeline.
+                                                        </p>
+                                                    </div>
                                                     {auditLogError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {auditLogError}
                                                         </div>
                                                     )}
                                                     {auditLogLoading && (
-                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                        <div className="server-settings-empty-state">
                                                             Loading audit log…
                                                         </div>
                                                     )}
                                                     {!auditLogLoading && auditLogEntries && auditLogEntries.length === 0 && (
-                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                        <div className="server-settings-empty-state">
                                                             No audit entries yet.
                                                         </div>
                                                     )}
@@ -2592,20 +2720,25 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (
-                                                <section className="server-settings-card server-settings-card--audit">
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack">
                                                     <h3 className="server-settings-card__title">Banned Users</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Review blocked members and restore access when a ban is no longer needed.
+                                                        </p>
+                                                    </div>
                                                     {banEntriesError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {banEntriesError}
                                                         </div>
                                                     )}
                                                     {banEntriesLoading && (
-                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                        <div className="server-settings-empty-state">
                                                             Loading banned users...
                                                         </div>
                                                     )}
                                                     {!banEntriesLoading && banEntries && banEntries.length === 0 && (
-                                                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                                        <div className="server-settings-empty-state">
                                                             No banned users.
                                                         </div>
                                                     )}
@@ -2655,36 +2788,44 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'roles' && isOwner && (
-                                                <section className="server-settings-card">
-                                                    <h3 className="server-settings-card__title">Roles</h3>
-                                                    <p
-                                                        style={{
-                                                            margin: '0 0 10px',
-                                                            color: 'var(--text-secondary)',
-                                                            fontSize: 12,
-                                                        }}
-                                                    >
-                                                        Server owner is system-managed and always has full access.
-                                                    </p>
+                                                <section className="server-settings-card server-settings-card--roles">
                                                     {rolesError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {rolesError}
                                                         </div>
                                                     )}
                                                     <div className="server-roles-layout">
-                                                        <ServerRolesSidebar
-                                                            rolesLoading={rolesLoading}
-                                                            selectedRoleId={selectedRoleId}
-                                                            serverRoles={serverRoles}
-                                                            visibleServerRoles={visibleServerRoles}
-                                                            hasMoreServerRoles={hasMoreServerRoles}
-                                                            onCreateRole={handleCreateRoleDraft}
-                                                            onRoleDragStart={setDraggingRoleId}
-                                                            onRoleDrop={handleDropRole}
-                                                            onRoleSelect={handleSelectRole}
-                                                            onLoadMoreRoles={() => setVisibleRoleCount((prev) => prev + 40)}
-                                                        />
-                                                        <div className="server-roles-detail">
+                                                        <aside className="server-roles-sidebar-shell">
+                                                            <div className="server-roles-toolbar">
+                                                                <div className="server-roles-toolbar__copy">
+                                                                    <span className="server-roles-toolbar__eyebrow">Roles</span>
+                                                                    <strong className="server-roles-toolbar__title">{serverRoles.length} roles</strong>
+                                                                    <span className="server-roles-toolbar__hint">
+                                                                        Create, reorder, and fine-tune access without leaving the editor.
+                                                                    </span>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-primary btn-sm"
+                                                                    disabled={rolesLoading}
+                                                                    onClick={handleCreateRoleDraft}
+                                                                >
+                                                                    Create role
+                                                                </button>
+                                                            </div>
+                                                            <ServerRolesSidebar
+                                                                rolesLoading={rolesLoading}
+                                                                selectedRoleId={selectedRoleId}
+                                                                serverRoles={serverRoles}
+                                                                visibleServerRoles={visibleServerRoles}
+                                                                hasMoreServerRoles={hasMoreServerRoles}
+                                                                onRoleDragStart={setDraggingRoleId}
+                                                                onRoleDrop={handleDropRole}
+                                                                onRoleSelect={handleSelectRole}
+                                                                onLoadMoreRoles={() => setVisibleRoleCount((prev) => prev + 40)}
+                                                            />
+                                                        </aside>
+                                                        <div className="server-roles-detail server-roles-detail-shell">
                                                             <ServerRoleEditor
                                                                 selectedRoleId={selectedRoleId}
                                                                 roleEditName={roleEditName}
