@@ -140,6 +140,7 @@ docker compose up -d --build  # Full stack
 
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** — Development setup, workflow, contribution areas
 - **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** — Community standards, enforcement
+- **[SECURITY.md](SECURITY.md)** — Private vulnerability reporting policy and supported versions
 - **[ROADMAP.md](docs/ROADMAP.md)** — Feature priorities & roadmap through Q4 2026
 - **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** — Support, governance, and release workflow
 - **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** — Mandatory release sign-off checklist (web + desktop)
