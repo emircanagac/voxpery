@@ -107,7 +107,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
-        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+        TURNSTILE_SITE_KEY_PUBLIC: ${VITE_TURNSTILE_SITE_KEY:-}
     container_name: voxpery-web
     restart: unless-stopped
     depends_on:

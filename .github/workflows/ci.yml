@@ -16,7 +16,7 @@ env:
 
 jobs:
   security:
-    name: Secret Scan (gitleaks)
+    name: Checks / Secret Scan
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -34,7 +34,7 @@ jobs:
             git --redact --verbose --exit-code 1
 
   backend:
-    name: Backend Check & Test
+    name: Checks / Backend
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -59,7 +59,7 @@ jobs:
         run: cargo test
 
   frontend:
-    name: Frontend Lint & Build
+    name: Checks / Frontend
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -70,7 +70,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
@@ -87,7 +87,7 @@ jobs:
         run: npm run build
 
   docker_publish:
-    name: Docker Publish (${{ matrix.component }})
+    name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
     needs:
       - security
       - backend
@@ -150,6 +150,6 @@ jobs:
             voxpery/voxpery-web:${{ steps.tags.outputs.sha_tag }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
-            VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+            TURNSTILE_SITE_KEY_PUBLIC=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
