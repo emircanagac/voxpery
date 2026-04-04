@@ -319,10 +319,11 @@ export default function UserBar() {
       setDesktopAutostartLoading(true)
       setMinimizeToTrayLoading(true)
       try {
-        let [autostartEnabled, trayEnabled] = await Promise.all([
+        const [autostartInitiallyEnabled, trayEnabled] = await Promise.all([
           getDesktopAutostartEnabled(),
           Promise.resolve(getStoredMinimizeToTrayOnCloseEnabled()),
         ])
+        let autostartEnabled = autostartInitiallyEnabled
         if (shouldEnableDesktopAutostartByDefault()) {
           if (!autostartEnabled) {
             await setDesktopAutostartEnabled(true)
