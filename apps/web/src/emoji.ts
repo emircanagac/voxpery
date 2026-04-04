@@ -4,9 +4,10 @@ export type EmojiOption = {
   keywords: string[]
 }
 
-type EmojiCategory = {
+export type EmojiCategory = {
   id: string
   label: string
+  icon: string
   emojis: EmojiOption[]
 }
 
@@ -18,6 +19,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'smileys',
     label: 'Smileys',
+    icon: '😀',
     emojis: [
       item('😀', 'grinning face', ['happy', 'smile']),
       item('😃', 'smiling face', ['happy', 'joy']),
@@ -54,6 +56,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'people',
     label: 'People',
+    icon: '👍',
     emojis: [
       item('👍', 'thumbs up', ['approve', 'yes']),
       item('👎', 'thumbs down', ['no']),
@@ -80,6 +83,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'hearts',
     label: 'Hearts',
+    icon: '❤️',
     emojis: [
       item('❤️', 'red heart', ['love']),
       item('🩷', 'pink heart', ['love']),
@@ -104,6 +108,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'nature',
     label: 'Nature',
+    icon: '🌿',
     emojis: [
       item('🔥', 'fire', ['lit']),
       item('✨', 'sparkles', ['shine']),
@@ -128,6 +133,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'food',
     label: 'Food',
+    icon: '🍕',
     emojis: [
       item('🍕', 'pizza', ['food']),
       item('🍔', 'burger', ['food']),
@@ -150,6 +156,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'activities',
     label: 'Activities',
+    icon: '🎉',
     emojis: [
       item('🎉', 'party popper', ['party']),
       item('🎊', 'confetti ball', ['party']),
@@ -172,6 +179,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'travel',
     label: 'Travel',
+    icon: '✈️',
     emojis: [
       item('🚗', 'car', ['travel']),
       item('🚕', 'taxi', ['travel']),
@@ -190,6 +198,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: 'objects',
     label: 'Objects',
+    icon: '💡',
     emojis: [
       item('✅', 'check mark button', ['done', 'yes']),
       item('❌', 'cross mark', ['no', 'close']),
@@ -234,6 +243,16 @@ export const EMOJI_REACTION_OPTIONS: EmojiOption[] = [
 
 export function getAllEmojiOptions(): EmojiOption[] {
   return EMOJI_CATEGORIES.flatMap((category) => category.emojis)
+}
+
+export function getReactionModeEmojiOptions(): EmojiOption[] {
+  const quickMap = new Map(EMOJI_REACTION_OPTIONS.map((entry) => [entry.emoji, entry]))
+  const combined: EmojiOption[] = [...EMOJI_REACTION_OPTIONS]
+  for (const entry of getAllEmojiOptions()) {
+    if (quickMap.has(entry.emoji)) continue
+    combined.push(entry)
+  }
+  return combined
 }
 
 export function filterEmojiOptions(query: string, categoryId?: string): EmojiOption[] {

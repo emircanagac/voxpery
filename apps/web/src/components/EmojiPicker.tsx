@@ -2,8 +2,8 @@ import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   EMOJI_CATEGORIES,
-  EMOJI_REACTION_OPTIONS,
   filterEmojiOptions,
+  getReactionModeEmojiOptions,
   type EmojiOption,
 } from '../emoji'
 
@@ -23,7 +23,7 @@ export default function EmojiPicker({
 
   const visibleOptions = useMemo(() => {
     if (reactionMode && !query.trim() && activeCategory === 'all') {
-      return EMOJI_REACTION_OPTIONS
+      return getReactionModeEmojiOptions()
     }
     return filterEmojiOptions(query, activeCategory === 'all' ? undefined : activeCategory)
   }, [activeCategory, query, reactionMode])
@@ -45,8 +45,10 @@ export default function EmojiPicker({
           type="button"
           className={`chat-emoji-tab${activeCategory === 'all' ? ' active' : ''}`}
           onClick={() => setActiveCategory('all')}
+          title="All"
+          aria-label="All"
         >
-          All
+          <span aria-hidden="true">#</span>
         </button>
         {EMOJI_CATEGORIES.map((category) => (
           <button
@@ -55,8 +57,9 @@ export default function EmojiPicker({
             className={`chat-emoji-tab${activeCategory === category.id ? ' active' : ''}`}
             onClick={() => setActiveCategory(category.id)}
             title={category.label}
+            aria-label={category.label}
           >
-            {category.label}
+            <span aria-hidden="true">{category.icon}</span>
           </button>
         ))}
       </div>

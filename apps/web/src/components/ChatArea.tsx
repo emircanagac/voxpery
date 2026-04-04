@@ -1,11 +1,12 @@
 import { useRef, useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Trash2, Reply, Edit3, Save, Share2, Search, Pin, PinOff, ChevronRight, Smile } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from './EmojiPicker'
+import MessageInlineActions from './MessageInlineActions'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -422,12 +423,16 @@ export default function ChatArea({
             if (!button) return
             const rect = button.getBoundingClientRect()
             const pickerWidth = 232
+            const pickerHeight = 336
             const viewportPadding = 16
             const left = Math.max(
                 viewportPadding,
                 Math.min(rect.right - pickerWidth, window.innerWidth - pickerWidth - viewportPadding)
             )
-            const top = Math.max(viewportPadding, rect.top - 12)
+            const top = Math.max(
+                viewportPadding,
+                Math.min(rect.top - pickerHeight - 8, window.innerHeight - pickerHeight - viewportPadding)
+            )
             setEmojiPickerPosition({ top, left })
         }
         const close = (e: MouseEvent) => {
@@ -791,68 +796,37 @@ export default function ChatArea({
                                                 </span>
                                                 <span className="message-timestamp">{formatDate(msg.created_at)}</span>
                                                 {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
-                                                {(onReplyToMessage || onForwardMessage || onDeleteMessage || onPinMessage || onUnpinMessage || onToggleReaction || (msg.author?.user_id === currentUserId && onEditMessage)) && !msg.clientId && (
-                                                    <div className="message-inline-actions">
-                                                        {onToggleReaction && (
-                                                            <button
-                                                                type="button"
-                                                                className="message-inline-action-btn"
-                                                                title="Add reaction"
-                                                                aria-label="Add reaction"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    setReactionPickerMessageId((prev) => (prev === msg.id ? null : msg.id))
-                                                                }}
-                                                            >
-                                                                <Smile size={14} />
-                                                            </button>
-                                                        )}
-                                                        {onPinMessage && !pinnedMessageIds.has(msg.id) && (
-                                                            <button type="button" className="message-inline-action-btn" title="Pin message" aria-label="Pin" onClick={(e) => { e.stopPropagation(); onPinMessage(msg.id) }}>
-                                                                <Pin size={14} />
-                                                            </button>
-                                                        )}
-                                                        {onUnpinMessage && pinnedMessageIds.has(msg.id) && (
-                                                            <button type="button" className="message-inline-action-btn" title="Unpin message" aria-label="Unpin" onClick={(e) => { e.stopPropagation(); onUnpinMessage(msg.id) }}>
-                                                                <PinOff size={14} />
-                                                            </button>
-                                                        )}
-                                                        {onReplyToMessage && (
-                                                            <button type="button" className="message-inline-action-btn" title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); onReplyToMessage(msg); setTimeout(() => textareaRef.current?.focus(), 0) }}>
-                                                                <Reply size={14} />
-                                                            </button>
-                                                        )}
-                                                        {onForwardMessage && (
-                                                            <button type="button" className="message-inline-action-btn" title="Forward" aria-label="Forward" onClick={(e) => { e.stopPropagation(); setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) }}>
-                                                                <Share2 size={14} />
-                                                            </button>
-                                                        )}
-                                                        {msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit && (
-                                                            <button
-                                                                type="button"
-                                                                className="message-inline-action-btn"
-                                                                title="Edit"
-                                                                aria-label="Edit"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    const parsed = parseReplyContent(msg.content)
-                                                                    if (parsed) {
-                                                                        const quotePart = msg.content.slice(0, msg.content.indexOf('\n\n'))
-                                                                        onEditMessage({ id: msg.id, content: msg.content, contentToEdit: parsed.replyBody, replyQuotePart: quotePart })
-                                                                    } else {
-                                                                        onEditMessage({ id: msg.id, content: msg.content })
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <Edit3 size={14} />
-                                                            </button>
-                                                        )}
-                                                        {onDeleteMessage && (msg.author?.user_id === currentUserId || canModerate) && (
-                                                            <button type="button" className="message-inline-action-btn danger" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); onDeleteMessage(msg.id) }}>
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                        )}
-                                                    </div>
+                                                {!msg.clientId && (
+                                                    <MessageInlineActions
+                                                        messageId={msg.id}
+                                                        currentUserId={currentUserId}
+                                                        authorUserId={msg.author?.user_id}
+                                                        canModerate={canModerate}
+                                                        canReact={!!onToggleReaction}
+                                                        onToggleReactionPicker={(messageId) => {
+                                                            setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
+                                                        }}
+                                                        canPin={!!(onPinMessage || onUnpinMessage)}
+                                                        isPinned={pinnedMessageIds.has(msg.id)}
+                                                        onPin={onPinMessage}
+                                                        onUnpin={onUnpinMessage}
+                                                        onReply={onReplyToMessage ? () => {
+                                                            onReplyToMessage(msg)
+                                                            setTimeout(() => textareaRef.current?.focus(), 0)
+                                                        } : undefined}
+                                                        canForward={!!onForwardMessage}
+                                                        onForward={onForwardMessage ? () => setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) : undefined}
+                                                        onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
+                                                            const parsed = parseReplyContent(msg.content)
+                                                            if (parsed) {
+                                                                const quotePart = msg.content.slice(0, msg.content.indexOf('\n\n'))
+                                                                onEditMessage({ id: msg.id, content: msg.content, contentToEdit: parsed.replyBody, replyQuotePart: quotePart })
+                                                            } else {
+                                                                onEditMessage({ id: msg.id, content: msg.content })
+                                                            }
+                                                        } : undefined}
+                                                        onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
+                                                    />
                                                 )}
                                                 {reactionPickerMessageId === msg.id && onToggleReaction && (
                                                     <div

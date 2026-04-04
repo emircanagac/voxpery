@@ -3094,6 +3094,7 @@ body {
   align-items: center;
   gap: 2px;
   margin-left: auto;
+  flex-shrink: 0;
   opacity: 0;
   transition: opacity var(--transition-fast);
   position: relative;
@@ -3436,11 +3437,17 @@ body {
   z-index: 10030;
 }
 
+.chat-emoji-picker-portal .chat-emoji-picker {
+  position: static;
+  right: auto;
+  bottom: auto;
+}
+
 .chat-emoji-picker {
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 232px;
+  width: 248px;
   max-width: calc(100vw - 40px);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -3452,20 +3459,20 @@ body {
 
 .chat-emoji-picker.compact {
   position: static;
-  width: 320px;
-  max-width: min(320px, calc(100vw - 40px));
+  width: 248px;
+  max-width: min(248px, calc(100vw - 40px));
   padding: 10px;
 }
 
 .chat-emoji-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 7px 9px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .chat-emoji-search svg {
@@ -3479,15 +3486,15 @@ body {
   background: transparent;
   color: var(--text-primary);
   font: inherit;
+  font-size: 13px;
   outline: none;
 }
 
 .chat-emoji-tabs {
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-  margin-bottom: 10px;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
 .chat-emoji-tab {
@@ -3495,11 +3502,16 @@ body {
   background: rgba(255, 255, 255, 0.03);
   color: var(--text-secondary);
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 10px;
-  white-space: nowrap;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 12px;
 }
 
 .chat-emoji-tab:hover {
@@ -3511,6 +3523,12 @@ body {
   background: rgba(79, 127, 216, 0.22);
   border-color: rgba(79, 127, 216, 0.42);
   color: #eef4ff;
+}
+
+.chat-emoji-tab span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .chat-emoji-grid {
@@ -5465,16 +5483,6 @@ a.community-open-btn:hover {
 
 .dm-messages-virtual {
   display: block;
-}
-
-.dm-message-actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 4px;
-}
-
-.dm-message-actions .message-menu-btn {
-  opacity: 1;
 }
 
 .dm-msg-btn {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Edit3, Paperclip, Reply, Save, Send, Share2, Trash2, Volume2, X, Smile } from 'lucide-react'
+import { Paperclip, Save, Send, Volume2, X, Smile } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import { attachmentApi, dmApi, type DmChannel, type MessageWithAuthor } from '../api'
@@ -10,6 +10,7 @@ import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from '../components/EmojiPicker'
+import MessageInlineActions from '../components/MessageInlineActions'
 
 type AttachmentItem = { id?: string; name: string; url: string; size: number; type: string }
 type UiDmMessage = MessageWithAuthor & {
@@ -423,12 +424,16 @@ export default function DmPage() {
       if (!button) return
       const rect = button.getBoundingClientRect()
       const pickerWidth = 232
+      const pickerHeight = 336
       const viewportPadding = 16
       const left = Math.max(
         viewportPadding,
         Math.min(rect.right - pickerWidth, window.innerWidth - pickerWidth - viewportPadding),
       )
-      const top = Math.max(viewportPadding, rect.top - 12)
+      const top = Math.max(
+        viewportPadding,
+        Math.min(rect.top - pickerHeight - 8, window.innerHeight - pickerHeight - viewportPadding),
+      )
       setEmojiPickerPosition({ top, left })
     }
     const close = (e: MouseEvent) => {
@@ -693,55 +698,36 @@ export default function DmPage() {
                         </span>
                         {msg.edited_at ? <span className="message-edited" title="Edited">(edited)</span> : null}
                         {!msg.clientStatus && (
-                          <div className="message-inline-actions dm-message-actions" ref={forwardPickerMessageId === msg.id ? forwardPickerRef : undefined}>
-                            <button
-                              type="button"
-                              className="message-inline-action-btn dm-msg-btn"
-                              title="Add reaction"
-                              aria-label="Add reaction"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setReactionPickerMessageId((prev) => (prev === msg.id ? null : msg.id))
-                              }}
-                            >
-                              <Smile size={14} />
-                            </button>
-                            <button type="button" className="message-inline-action-btn dm-msg-btn" title="Reply" aria-label="Reply" onClick={(e) => {
-                              e.stopPropagation()
+                          <MessageInlineActions
+                            messageId={msg.id}
+                            currentUserId={user?.id}
+                            authorUserId={msg.author.user_id}
+                            canReact
+                            onToggleReactionPicker={(messageId) => {
+                              setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
+                            }}
+                            onReply={() => {
                               const username = msg.author?.username ?? 'User'
                               const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
                               setReplyingTo({ id: msg.id, username, contentSnippet: snippet })
-                            }}>
-                              <Reply size={14} />
-                            </button>
-                            {otherDmChannels.length > 0 && (
-                              <>
-                                <button type="button" className="message-inline-action-btn dm-msg-btn" title="Forward" aria-label="Forward" onClick={(e) => { e.stopPropagation(); setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) }}>
-                                  <Share2 size={14} />
-                                </button>
-                                {forwardPickerMessageId === msg.id && (
-                                  <div className="message-menu-dropdown message-forward-dropdown">
-                                    <div className="message-forward-dropdown-title">Forward: choose recipient</div>
-                                    {otherDmChannels.map((ch) => (
-                                      <button key={ch.id} type="button" className="message-menu-item" onClick={() => handleForwardDm(msg, ch.id)}>
-                                        {ch.peer_username}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
+                            }}
+                            canForward={otherDmChannels.length > 0}
+                            onForward={otherDmChannels.length > 0 ? () => setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) : undefined}
+                            onEdit={msg.author.user_id === user?.id ? () => startEdit(msg) : undefined}
+                            onDelete={msg.author.user_id === user?.id ? () => setDeleteConfirmMessageId(msg.id) : undefined}
+                            containerRef={forwardPickerMessageId === msg.id ? forwardPickerRef : undefined}
+                          >
+                            {forwardPickerMessageId === msg.id && otherDmChannels.length > 0 && (
+                              <div className="message-menu-dropdown message-forward-dropdown">
+                                <div className="message-forward-dropdown-title">Forward: choose recipient</div>
+                                {otherDmChannels.map((ch) => (
+                                  <button key={ch.id} type="button" className="message-menu-item" onClick={() => handleForwardDm(msg, ch.id)}>
+                                    {ch.peer_username}
+                                  </button>
+                                ))}
+                              </div>
                             )}
-                            {msg.author.user_id === user?.id && (
-                              <>
-                                <button type="button" className="message-inline-action-btn dm-msg-btn" title="Edit" aria-label="Edit" onClick={(e) => { e.stopPropagation(); startEdit(msg) }}>
-                                  <Edit3 size={14} />
-                                </button>
-                                <button type="button" className="message-inline-action-btn dm-msg-btn danger" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); setDeleteConfirmMessageId(msg.id) }}>
-                                  <Trash2 size={14} />
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          </MessageInlineActions>
                         )}
                         {reactionPickerMessageId === msg.id && (
                           <div
