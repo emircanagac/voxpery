@@ -87,7 +87,7 @@ jobs:
         run: npm run build
 
   docker_publish:
-    name: Docker Publish
+    name: Docker Publish (${{ matrix.component }})
     needs:
       - security
       - backend
@@ -98,15 +98,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - component: backend
-            image: voxpery/voxpery-server
-            context: ./apps/server
-            dockerfile: ./apps/server/Dockerfile
-          - component: frontend
-            image: voxpery/voxpery-web
-            context: ./apps/web
-            dockerfile: ./apps/web/Dockerfile
+        component:
+          - backend
+          - frontend
     steps:
       - uses: actions/checkout@v6
         with:
@@ -135,12 +129,12 @@ jobs:
         if: matrix.component == 'backend'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: ./apps/server
+          file: ./apps/server/Dockerfile
           push: true
           tags: |
-            ${{ matrix.image }}:${{ steps.tags.outputs.latest_tag }}
-            ${{ matrix.image }}:${{ steps.tags.outputs.sha_tag }}
+            voxpery/voxpery-server:${{ steps.tags.outputs.latest_tag }}
+            voxpery/voxpery-server:${{ steps.tags.outputs.sha_tag }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
@@ -148,12 +142,12 @@ jobs:
         if: matrix.component == 'frontend'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: ./apps/web
+          file: ./apps/web/Dockerfile
           push: true
           tags: |
-            ${{ matrix.image }}:${{ steps.tags.outputs.latest_tag }}
-            ${{ matrix.image }}:${{ steps.tags.outputs.sha_tag }}
+            voxpery/voxpery-web:${{ steps.tags.outputs.latest_tag }}
+            voxpery/voxpery-web:${{ steps.tags.outputs.sha_tag }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
