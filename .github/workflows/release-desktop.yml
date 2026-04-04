@@ -49,6 +49,11 @@ jobs:
         with:
           node-version: 20
 
+      - name: Inject updater public key
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node .github/scripts/inject-desktop-updater-key.mjs
+
       - name: Validate desktop metadata and icon bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -87,6 +92,11 @@ jobs:
           node-version: 20
           cache: 'npm'
           cache-dependency-path: apps/web/package-lock.json
+
+      - name: Inject updater public key
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node .github/scripts/inject-desktop-updater-key.mjs
 
       - name: Install web dependencies
         working-directory: apps/web

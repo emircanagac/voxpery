@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
@@ -9,6 +9,8 @@ import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
+import { isTauri } from '../secureStorage'
+import { checkForUpdates, downloadAndInstallUpdate, type UpdateResult } from '../updater'
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -45,11 +47,34 @@ export default function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const pushToast = useToastStore((s) => s.pushToast)
+  const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
+  const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
 
   useEffect(() => {
     if (!user) return
     connect(token ?? null)
   }, [connect, token, user])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    let cancelled = false
+    const run = async () => {
+      const result = await checkForUpdates()
+      if (cancelled) return
+      setDesktopUpdate(result)
+      if (result.available) {
+        pushToast({
+          level: 'info',
+          title: 'Desktop update available',
+          message: `Voxpery ${result.version} is ready to install.`,
+        })
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [pushToast])
 
   useEffect(() => {
     if (!user) return
@@ -272,6 +297,28 @@ export default function AppShell() {
   const isServerView = !!activeServerId && location.pathname.startsWith('/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
 
+  const installDesktopUpdateNow = async () => {
+    setInstallingDesktopUpdate(true)
+    try {
+      const ok = await downloadAndInstallUpdate()
+      if (!ok) {
+        pushToast({
+          level: 'error',
+          title: 'Update failed',
+          message: 'Could not download or install the desktop update. Try again later.',
+        })
+        return
+      }
+      pushToast({
+        level: 'info',
+        title: 'Installing update',
+        message: 'Voxpery will restart after the update is applied.',
+      })
+    } finally {
+      setInstallingDesktopUpdate(false)
+    }
+  }
+
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
@@ -282,6 +329,19 @@ export default function AppShell() {
             <span className="shell-brand-beta" title="Preview build">Beta</span>
           </button>
         </div>
+        {isTauri() && desktopUpdate?.available && (
+          <div className="shell-topbar-right">
+            <button
+              type="button"
+              className="shell-update-btn"
+              onClick={() => void installDesktopUpdateNow()}
+              disabled={installingDesktopUpdate}
+              title={`Install Voxpery ${desktopUpdate.version}`}
+            >
+              {installingDesktopUpdate ? 'Installing update…' : `Update ${desktopUpdate.version}`}
+            </button>
+          </div>
+        )}
       </header>
       <main className="shell-content">
         <Outlet />

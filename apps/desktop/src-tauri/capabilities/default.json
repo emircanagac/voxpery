@@ -16,6 +16,7 @@
         "core:menu:default",
         "core:tray:default",
         "process:allow-restart",
+        "updater:default",
         "secure-storage:default",
         "opener:default",
         "opener:allow-open-url",

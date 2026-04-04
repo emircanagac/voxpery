@@ -33,6 +33,7 @@ Current strategy:
 Mandatory conditions when updater artifacts are enabled:
 
 - `plugins.updater.pubkey` must be a real key (not placeholder text).
+- CI must inject the real updater public key before validation/build.
 - Repository secret `TAURI_SIGNING_PRIVATE_KEY` must be configured.
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is required if the key is password-protected.
 
@@ -49,5 +50,6 @@ Before publishing a desktop release:
 ## 5) Recommended Repository Secrets
 
 - `VITE_API_URL` (required for desktop release build)
+- `TAURI_UPDATER_PUBLIC_KEY` (required when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY` (required only when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (optional; required if private key is encrypted)

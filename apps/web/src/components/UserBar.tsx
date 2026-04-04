@@ -12,6 +12,11 @@ import { useSocketStore } from '../stores/socket'
 import { SENSITIVITY_THRESHOLD_KEY } from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
 import { ROUTES } from '../routes'
+import {
+  checkForUpdates,
+  downloadAndInstallUpdate,
+  type UpdateResult,
+} from '../updater'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -116,6 +121,10 @@ export default function UserBar() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateResult | null>(null)
+  const [updateChecked, setUpdateChecked] = useState(false)
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateInstalling, setUpdateInstalling] = useState(false)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
   const [usernameSaving, setUsernameSaving] = useState(false)
@@ -205,6 +214,21 @@ export default function UserBar() {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [showSettingsPanel])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    let cancelled = false
+    const run = async () => {
+      const result = await checkForUpdates()
+      if (cancelled) return
+      setUpdateInfo(result)
+      setUpdateChecked(true)
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const updateMyStatus = async (status: 'online' | 'dnd' | 'invisible') => {
     if (isTauri() && !token) return
@@ -356,6 +380,48 @@ export default function UserBar() {
       })
     } finally {
       setExportingData(false)
+    }
+  }
+
+  const refreshUpdateStatus = async (manual = false) => {
+    setUpdateChecking(true)
+    try {
+      const result = await checkForUpdates()
+      setUpdateInfo(result)
+      setUpdateChecked(true)
+      if (manual) {
+        pushToast({
+          level: 'info',
+          title: result.available ? 'Update found' : 'You are up to date',
+          message: result.available
+            ? `Voxpery ${result.version} is available for installation.`
+            : 'No newer desktop release is available right now.',
+        })
+      }
+    } finally {
+      setUpdateChecking(false)
+    }
+  }
+
+  const installDesktopUpdate = async () => {
+    setUpdateInstalling(true)
+    try {
+      const ok = await downloadAndInstallUpdate()
+      if (!ok) {
+        pushToast({
+          level: 'error',
+          title: 'Update failed',
+          message: 'Could not download or install the desktop update. Try again later.',
+        })
+        return
+      }
+      pushToast({
+        level: 'info',
+        title: 'Installing update',
+        message: 'Voxpery will restart after the update is applied.',
+      })
+    } finally {
+      setUpdateInstalling(false)
     }
   }
 
@@ -736,6 +802,40 @@ export default function UserBar() {
               </section>
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Account</h3>
+                {isTauri() && (
+                  <div className="user-setting-row">
+                    <div>
+                      <div className="user-setting-title">App updates</div>
+                      <div className="user-setting-desc">
+                        {updateChecked
+                          ? updateInfo?.available
+                            ? `Voxpery ${updateInfo.version} is available to install.`
+                            : 'Your desktop app is on the latest version.'
+                          : 'Check for new desktop releases and install them without reinstalling.'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        className="user-toggle account-action-btn"
+                        onClick={() => void refreshUpdateStatus(true)}
+                        disabled={updateChecking || updateInstalling}
+                      >
+                        {updateChecking ? 'Checking…' : 'Check now'}
+                      </button>
+                      {updateInfo?.available && (
+                        <button
+                          type="button"
+                          className="user-toggle account-action-btn"
+                          onClick={() => void installDesktopUpdate()}
+                          disabled={updateChecking || updateInstalling}
+                        >
+                          {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Username</div>

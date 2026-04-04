@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-desktop"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Voxpery Desktop — Tauri-based desktop app"
 license = "AGPL-3.0-only"
@@ -17,6 +17,7 @@ tauri-plugin-secure-storage = "1"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -1,6 +1,6 @@
 {
   "productName": "Voxpery",
-    "version": "0.1.1",
+    "version": "0.1.2",
   "identifier": "com.voxpery",
   "build": {
     "frontendDist": "../../web/dist",
@@ -52,7 +52,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico"
@@ -63,6 +63,12 @@
     }
   },
   "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/emircanagac/voxpery/releases/latest/download/latest.json"
+      ],
+      "pubkey": "VOXPERY_UPDATER_PUBLIC_KEY_PLACEHOLDER"
+    },
     "deep-link": {
       "desktop": {
         "schemes": [
