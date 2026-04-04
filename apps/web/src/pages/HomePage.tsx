@@ -1128,7 +1128,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             className="community-open-btn"
           >
             <Coffee size={16} />
-            Buy me a coffee
+            Support Voxpery
           </a>
         </div>
       </aside>

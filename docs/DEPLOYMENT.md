@@ -112,27 +112,27 @@ git pull
 docker compose up -d --build
 ```
 
-## 5) DockerHub (Optional, Recommended for Production)
+## 5) Prebuilt Images (Optional, Recommended for Production)
 
-You can prebuild and push images, then use `image:` in compose.
+You can prebuild and push images, then use `image:` in compose instead of rebuilding on every deploy.
 
 Example:
 
 ```bash
-docker build -t <dockerhub-user>/voxpery-server:v0.1.0 ./apps/server
-docker build -t <dockerhub-user>/voxpery-web:v0.1.0 ./apps/web
-docker push <dockerhub-user>/voxpery-server:v0.1.0
-docker push <dockerhub-user>/voxpery-web:v0.1.0
+docker build -t <dockerhub-user>/voxpery-server:<tag> ./apps/server
+docker build -t <dockerhub-user>/voxpery-web:<tag> ./apps/web
+docker push <dockerhub-user>/voxpery-server:<tag>
+docker push <dockerhub-user>/voxpery-web:<tag>
 ```
 
 Then switch compose services from `build:` to:
 
 ```yaml
 server:
-  image: <dockerhub-user>/voxpery-server:v0.1.0
+  image: <dockerhub-user>/voxpery-server:<tag>
 
 web:
-  image: <dockerhub-user>/voxpery-web:v0.1.0
+  image: <dockerhub-user>/voxpery-web:<tag>
 ```
 
 ## 6) Backups

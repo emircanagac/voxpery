@@ -18,6 +18,7 @@ This folder is the source of truth for architecture, development, deployment, an
 - **[VOICE_SYSTEM.md](VOICE_SYSTEM.md)** — LiveKit integration and voice pipeline
 - **[DATABASE.md](DATABASE.md)** — Schema, migrations, and key queries
 - **[SECURITY.md](SECURITY.md)** — Security model and hardening checklist
+- **[../SECURITY.md](../SECURITY.md)** — Private vulnerability reporting policy
 
 ## Open Source Project Docs
 

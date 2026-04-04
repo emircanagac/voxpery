@@ -9,7 +9,7 @@ This document combines support flow, governance rules, and release process for V
 - **Usage help / how-to questions**: [GitHub Discussions](https://github.com/emircanagac/voxpery/discussions)
 - **Bug reports**: [GitHub Issues](https://github.com/emircanagac/voxpery/issues) using the bug template
 - **Feature requests**: [GitHub Issues](https://github.com/emircanagac/voxpery/issues) using the feature template
-- **Security vulnerabilities**: follow [SECURITY.md](SECURITY.md) responsible disclosure guidance
+- **Security vulnerabilities**: follow [../SECURITY.md](../SECURITY.md) responsible disclosure guidance
 
 ### Before Opening an Issue
 
@@ -58,7 +58,7 @@ Voxpery follows Semantic Versioning:
 4. Validate critical paths: auth, messaging+websocket, voice join/leave.
 5. Update docs for behavior changes.
 6. Update changelog entry.
-7. Create Git tag (for example `v1.4.0`).
+7. Create Git tag (for example `v0.1.3`).
 8. Publish GitHub Release notes.
 
 ### Changelog Sections

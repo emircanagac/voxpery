@@ -124,7 +124,7 @@ cargo tauri dev
 See [**docs/DEPLOYMENT.md**](docs/DEPLOYMENT.md) for complete setup guide covering:
 
 - **Docker Compose** — Full stack (Postgres, Redis, LiveKit, backend, web)
-- **DockerHub option** — Prebuilt image workflow for production
+- **Prebuilt images** — Optional image publish workflow for faster production deploys
 - **Nginx + TLS** — Reverse proxy and certificate setup (optional, for domain deployment)
 - **Troubleshooting** — Health checks, backups, monitoring, performance tuning
 

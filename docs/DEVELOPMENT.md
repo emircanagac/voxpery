@@ -14,8 +14,10 @@ Local setup, scripts, and CI behavior for current codebase.
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 cp .env.example .env
-docker compose up -d
+docker compose up -d postgres redis livekit clamav
 ```
+
+This development flow uses Docker Compose for supporting services only. If you want the full stack in containers, use `docker compose up -d --build` instead and do not start the backend/frontend locally on the same ports.
 
 Backend:
 
@@ -99,4 +101,4 @@ Runs on schedule, manual dispatch, and PR:
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-04-04.

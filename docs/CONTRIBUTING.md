@@ -14,8 +14,10 @@ Thanks for helping improve Voxpery.
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 cp .env.example .env
-docker compose up -d
+docker compose up -d postgres redis livekit clamav
 ```
+
+This starts only the local dependencies used during development. Do not run the full stack compose target if you also plan to start `cargo run` and `npm run dev`, because the containerized `server` and `web` services bind the same localhost ports.
 
 Run backend:
 
@@ -79,4 +81,4 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-04-04.

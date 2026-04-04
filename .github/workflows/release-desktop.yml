@@ -128,7 +128,7 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri -> target
 
-      # Icons must be committed in apps/desktop/src-tauri/icons/ (see docs/desktop.md).
+      # Icons must be committed in apps/desktop/src-tauri/icons/ (see docs/DESKTOP_RELEASE_HARDENING.md).
 
       - name: Build Tauri and create release
         uses: tauri-apps/tauri-action@v0
