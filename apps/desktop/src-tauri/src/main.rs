@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Manager;
 
 struct DesktopRuntimeState {
     minimize_to_tray_on_close: AtomicBool,
@@ -13,6 +14,19 @@ impl Default for DesktopRuntimeState {
             minimize_to_tray_on_close: AtomicBool::new(true),
             allow_close_for_update: AtomicBool::new(false),
         }
+    }
+}
+
+fn is_autostart_launch() -> bool {
+    std::env::args().any(|arg| arg == "--autostart")
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_skip_taskbar(false);
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
     }
 }
 
@@ -64,16 +78,14 @@ fn main() {
             .setup(|app| {
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-                    None::<Vec<&str>>,
+                    Some(vec!["--autostart"]),
                 ))?;
 
                 let _ =
                     app.handle()
                         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                            show_main_window(app);
                             if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.set_focus();
-                                let _ = w.unminimize();
-                                let _ = w.show();
                                 for arg in args {
                                     if arg.starts_with("voxpery://") {
                                         let _ = w.emit("custom-deep-link", arg);
@@ -93,11 +105,7 @@ fn main() {
                     .show_menu_on_left_click(true)
                     .on_menu_event(move |app, event| match event.id.as_ref() {
                         "show" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.unminimize();
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
+                            show_main_window(app);
                         }
                         "quit" => {
                             app.exit(0);
@@ -112,11 +120,7 @@ fn main() {
                         } = event
                         {
                             let app = tray.app_handle();
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.unminimize();
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
+                            show_main_window(app);
                         }
                     })
                     .build(app)?;
@@ -124,6 +128,11 @@ fn main() {
                 // Close behavior is user-controlled. Default matches typical chat apps and keeps
                 // the app in the tray until the user disables it from settings.
                 if let Some(main_win) = app.get_webview_window("main") {
+                    if is_autostart_launch() {
+                        let _ = main_win.set_skip_taskbar(true);
+                        let _ = main_win.hide();
+                    }
+
                     let main_win_clone = main_win.clone();
                     let app_handle = app.handle().clone();
                     main_win.on_window_event(move |event| {
