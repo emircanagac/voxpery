@@ -8,7 +8,7 @@ Authentication, authorization, CORS policies, and security best practices.
 
 - **Algorithm**: HS256 (HMAC with SHA-256)
 - **Signing key**: `JWT_SECRET` from environment (never hardcode)
-- **Expiration**: 24 hours (configurable via `JWT_EXPIRATION`)
+- **Expiration**: 30 days (configurable via `JWT_EXPIRATION`)
 - **Claims**: `sub` (user ID), `username`, `exp` (expiration time), `ver` (token version)
 
 **Token storage**:

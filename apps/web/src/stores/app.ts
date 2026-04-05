@@ -70,6 +70,7 @@ interface AppState {
     /** When set, AppLayout opens server settings for this server (then clears). Used from unified sidebar. */
     openServerSettingsForServerId: string | null
     setOpenServerSettingsForServerId: (id: string | null) => void
+    resetSessionState: () => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -207,6 +208,31 @@ export const useAppStore = create<AppState>()(
             setShowJoinServer: (show) => set({ showJoinServer: show }),
             openServerSettingsForServerId: null,
             setOpenServerSettingsForServerId: (id) => set({ openServerSettingsForServerId: id }),
+            resetSessionState: () =>
+                set({
+                    servers: [],
+                    activeServerId: null,
+                    channels: [],
+                    activeChannelId: null,
+                    channelsByServerId: {},
+                    membersByServerId: {},
+                    members: [],
+                    dmChannelIds: [],
+                    activeDmChannelId: null,
+                    friends: [],
+                    dmChannels: [],
+                    dmUnread: {},
+                    incomingRequestCount: 0,
+                    voiceStates: {},
+                    voiceStateServerIds: {},
+                    voiceControls: {},
+                    voiceSpeakingUserIds: [],
+                    voiceLocalSpeaking: false,
+                    joinedVoiceChannelId: null,
+                    showCreateServer: false,
+                    showJoinServer: false,
+                    openServerSettingsForServerId: null,
+                }),
         }),
         {
             name: 'voxpery-app-storage',

@@ -16,6 +16,7 @@ interface AuthState {
     setAuth: (token: string, user: UserPublic) => void
     setUser: (user: UserPublic) => void
     setUserStatus: (status: UserPublic['status']) => void
+    clearSession: () => void
     logout: () => void
 }
 
@@ -41,6 +42,12 @@ const authSlice = (set: SetState): AuthState => ({
         set((s) => ({
             user: s.user ? { ...s.user, status } : s.user,
         })),
+    clearSession: () => {
+        if (isTauri()) {
+            removeSecureToken().catch(() => { })
+        }
+        set({ loggingOut: false, token: null, user: null })
+    },
     logout: () => {
         if (isTauri()) {
             removeSecureToken().catch(() => { })

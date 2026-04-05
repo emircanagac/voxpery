@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { useAppStore } from './stores/app'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
-import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError } from './api'
+import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'
 import { isTauri, setSecureToken } from './secureStorage'
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import { listen } from '@tauri-apps/api/event'
@@ -11,6 +12,7 @@ import ConnectionGate from './components/ConnectionGate'
 import GlobalLoading from './components/GlobalLoading'
 import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 import { ROUTES } from './routes'
+import { useSocketStore } from './stores/socket'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -48,6 +50,32 @@ function App() {
   const logout = useAuthStore((s) => s.logout)
   const [restoring, setRestoring] = useState(true)
   const validatedSessionRef = useRef(false)
+  const authFailureHandledRef = useRef(false)
+
+  useEffect(() => {
+    const clearExpiredSession = () => {
+      if (authFailureHandledRef.current) return
+      authFailureHandledRef.current = true
+      useSocketStore.getState().disconnect()
+      useAppStore.getState().resetSessionState()
+      useAuthStore.getState().clearSession()
+    }
+
+    setAuthFailureHandler(clearExpiredSession)
+    return () => setAuthFailureHandler(null)
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      authFailureHandledRef.current = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (restoring || user) return
+    useSocketStore.getState().disconnect()
+    useAppStore.getState().resetSessionState()
+  }, [restoring, user])
 
   // Desktop: restore from secure storage. Web: zustand persist handles restoration.
   useEffect(() => {
@@ -124,6 +152,7 @@ function App() {
       .catch((err) => {
         // Expired/invalid cookie: clear stale persisted user so UI returns to login.
         if (isAuthError(err)) {
+          authFailureHandledRef.current = false
           logout()
         } else {
           // transient network/server issue: allow a later retry
@@ -151,6 +180,7 @@ function App() {
       .catch((err) => {
         if (isAuthError(err)) {
           // Token is invalid, clear session
+          authFailureHandledRef.current = false
           logout()
         }
       })

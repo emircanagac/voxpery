@@ -103,7 +103,7 @@ impl Config {
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
             jwt_secret: std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"),
             jwt_expiration: std::env::var("JWT_EXPIRATION")
-                .unwrap_or_else(|_| "86400".into())
+                .unwrap_or_else(|_| "2592000".into())
                 .parse()
                 .expect("JWT_EXPIRATION must be a number"),
             server_host: std::env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into()),

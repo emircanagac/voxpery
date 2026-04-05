@@ -145,6 +145,22 @@ interface FetchOptions {
     token?: string | null
 }
 
+let authFailureHandler: (() => void) | null = null
+
+export function setAuthFailureHandler(handler: (() => void) | null) {
+    authFailureHandler = handler
+}
+
+function shouldBroadcastAuthFailure(path: string): boolean {
+    return !(
+        path === '/api/auth/logout' ||
+        path === '/api/auth/login' ||
+        path === '/api/auth/register' ||
+        path === '/api/auth/forgot-password' ||
+        path === '/api/auth/reset-password'
+    )
+}
+
 function isNetworkError(err: unknown): boolean {
     if (err instanceof TypeError && err.message === 'Failed to fetch') return true
     if (err instanceof Error) {
@@ -249,6 +265,9 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
     }
 
     if (!res.ok) {
+        if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
+            authFailureHandler?.()
+        }
         const text = await res.text()
         let message: string
         try {
@@ -296,6 +315,9 @@ async function apiMultipartFetch<T>(path: string, formData: FormData, token?: st
     }
 
     if (!res.ok) {
+        if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
+            authFailureHandler?.()
+        }
         const text = await res.text()
         let message: string
         try {
