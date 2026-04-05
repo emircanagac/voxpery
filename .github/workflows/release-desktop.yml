@@ -49,6 +49,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Sync desktop version metadata
+        run: node .github/scripts/sync-desktop-version.mjs
+
       - name: Inject updater public key
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
@@ -92,6 +95,9 @@ jobs:
           node-version: 24
           cache: 'npm'
           cache-dependency-path: apps/web/package-lock.json
+
+      - name: Sync desktop version metadata
+        run: node .github/scripts/sync-desktop-version.mjs
 
       - name: Inject updater public key
         env:

@@ -36,12 +36,24 @@ function requireFile(relativePath, minBytes = 1) {
 }
 
 const tauri = loadJson('apps/desktop/src-tauri/tauri.conf.json')
+const cargoToml = existsSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'))
+  ? readFileSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'), 'utf8')
+  : ''
+const cargoVersionMatch = cargoToml.match(/\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)
+const cargoVersion = cargoVersionMatch?.[1] ?? null
 if (tauri) {
   if (tauri.productName !== 'Voxpery') {
     fail(`tauri.conf.json productName must be "Voxpery" (found: ${String(tauri.productName)})`)
   }
   if (tauri.identifier !== 'com.voxpery') {
     fail(`tauri.conf.json identifier must be "com.voxpery" (found: ${String(tauri.identifier)})`)
+  }
+  if (!cargoVersion) {
+    fail('Cargo.toml package version could not be read for desktop release validation')
+  } else if (tauri.version !== cargoVersion) {
+    fail(
+      `Desktop version mismatch: tauri.conf.json has ${String(tauri.version)} but Cargo.toml has ${cargoVersion}`
+    )
   }
 
   const icons = tauri.bundle?.icon
