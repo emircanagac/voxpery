@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useAppStore } from './stores/app'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'
@@ -25,6 +25,20 @@ const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
   return <Navigate to={ROUTES.home} state={userId ? { openDmUserId: userId } : undefined} replace />
+}
+
+function safeRedirectPath(redirect: string | null): string | undefined {
+  if (!redirect || typeof redirect !== 'string') return undefined
+  const path = redirect.trim()
+  if (path.startsWith('/') && !path.startsWith('//')) return path
+  return undefined
+}
+
+function RedirectAuthenticatedAuthPage() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  const redirectTo = safeRedirectPath(params.get('redirect'))
+  return <Navigate to={redirectTo || ROUTES.home} replace />
 }
 
 function AuthRedirect() {
@@ -224,6 +238,8 @@ function App() {
               <Route path={ROUTES.dm} element={<RedirectDmToSocial />} />
               <Route path={`${ROUTES.dm}/:userId`} element={<RedirectDmToSocial />} />
             </Route>
+            <Route path={ROUTES.login} element={<RedirectAuthenticatedAuthPage />} />
+            <Route path={ROUTES.register} element={<RedirectAuthenticatedAuthPage />} />
             <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
             <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
           </Routes>

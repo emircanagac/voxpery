@@ -17,6 +17,7 @@ interface MemberItemProps {
     canBanAsRole: boolean
     canManageRoles: boolean
     myRole: string
+    interactive: boolean
     onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean) => void
     onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
@@ -31,6 +32,7 @@ const MemberItem = memo(function MemberItem({
     canBanAsRole,
     canManageRoles,
     myRole,
+    interactive,
     onContextMenu,
     onOpenProfile,
 }: MemberItemProps) {
@@ -64,12 +66,15 @@ const MemberItem = memo(function MemberItem({
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
-    const showContextMenu = canMakeAdmin || canAddFriend || canKick || canBan
+    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canKick || canBan)
 
     return (
         <div
             className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
-            onClick={(e) => onOpenProfile(e, member, isServerOwner)}
+            onClick={(e) => {
+                if (!interactive) return
+                onOpenProfile(e, member, isServerOwner)
+            }}
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
@@ -102,10 +107,14 @@ export default function MemberSidebar({
     canKickMembers,
     canBanMembers,
     canManageRolesFromPerms,
+    variant = 'sidebar',
+    interactive = true,
 }: {
     canKickMembers: boolean
     canBanMembers: boolean
     canManageRolesFromPerms: boolean
+    variant?: 'sidebar' | 'sheet'
+    interactive?: boolean
 }) {
     const { user, token } = useAuthStore()
     const { servers, activeServerId, activeChannelId, channels, members, setMembers, friends, setFriends } = useAppStore(
@@ -468,7 +477,7 @@ export default function MemberSidebar({
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (
-        <div className="member-sidebar" ref={sidebarRef}>
+        <div className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`} ref={sidebarRef}>
             {onlineMembers.length > 0 && (
                 <>
                     <div className="member-category member-category-online">
@@ -486,6 +495,7 @@ export default function MemberSidebar({
                             canBanAsRole={canBanAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
+                            interactive={interactive}
                             onContextMenu={handleContextMenu}
                             onOpenProfile={handleOpenProfile}
                         />
@@ -510,6 +520,7 @@ export default function MemberSidebar({
                             canBanAsRole={canBanAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
+                            interactive={interactive}
                             onContextMenu={handleContextMenu}
                             onOpenProfile={handleOpenProfile}
                         />

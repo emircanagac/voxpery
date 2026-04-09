@@ -8,6 +8,7 @@ interface SocketState {
     socket: WebSocket | null
     isConnected: boolean
     token: string | null
+    shouldReconnect: boolean
     listeners: Set<WsListener>
     reconnectListeners: Set<ReconnectListener>
 
@@ -24,6 +25,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     socket: null,
     isConnected: false,
     token: null,
+    shouldReconnect: false,
     listeners: new Set(),
     reconnectListeners: new Set(),
     _wasConnectedBefore: false,
@@ -32,11 +34,11 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         const state = get()
         // If we already have a valid socket, just update token if needed
         if (state.socket && (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)) {
-            if (state.token !== token) set({ token })
+            if (state.token !== token || !state.shouldReconnect) set({ token, shouldReconnect: true })
             return
         }
 
-        set({ token })
+        set({ token, shouldReconnect: true })
         const ws = createWebSocket(token)
 
         ws.onopen = () => {
@@ -53,14 +55,17 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         ws.onclose = () => {
             set({ isConnected: false, socket: null })
 
-            // Auto-reconnect if we still have a token
-            const currentToken = get().token
-            if (currentToken) {
+            // Auto-reconnect for active sessions.
+            // Web cookie-auth sessions use token=null, so reconnect intent must
+            // be tracked separately from the bearer token itself.
+            const { shouldReconnect } = get()
+            if (shouldReconnect) {
                 setTimeout(() => {
-                    const latestToken = get().token
+                    const { token: latestToken, shouldReconnect: latestShouldReconnect } = get()
                     const currentSocket = get().socket
-                    // Only try to reconnect if we still have a token and we aren't already trying
-                    if (latestToken && (!currentSocket || currentSocket.readyState === WebSocket.CLOSED)) {
+                    // Only try to reconnect if the session still wants a socket
+                    // and we aren't already connected/connecting.
+                    if (latestShouldReconnect && (!currentSocket || currentSocket.readyState === WebSocket.CLOSED)) {
                         get().connect(latestToken)
                     }
                 }, 3000)
@@ -81,7 +86,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
     disconnect: () => {
         // Clear token first to prevent auto-reconnect
-        set({ token: null })
+        set({ token: null, shouldReconnect: false })
         get().socket?.close()
         set({ socket: null, isConnected: false })
     },

@@ -70,6 +70,9 @@ interface AppState {
     /** When set, AppLayout opens server settings for this server (then clears). Used from unified sidebar. */
     openServerSettingsForServerId: string | null
     setOpenServerSettingsForServerId: (id: string | null) => void
+    mobileSidebarPanel: 'none' | 'social' | 'channels'
+    setMobileSidebarPanel: (panel: 'none' | 'social' | 'channels') => void
+    closeMobileSidebar: () => void
     resetSessionState: () => void
 }
 
@@ -208,6 +211,9 @@ export const useAppStore = create<AppState>()(
             setShowJoinServer: (show) => set({ showJoinServer: show }),
             openServerSettingsForServerId: null,
             setOpenServerSettingsForServerId: (id) => set({ openServerSettingsForServerId: id }),
+            mobileSidebarPanel: 'none',
+            setMobileSidebarPanel: (panel) => set({ mobileSidebarPanel: panel }),
+            closeMobileSidebar: () => set({ mobileSidebarPanel: 'none' }),
             resetSessionState: () =>
                 set({
                     servers: [],
@@ -232,6 +238,7 @@ export const useAppStore = create<AppState>()(
                     showCreateServer: false,
                     showJoinServer: false,
                     openServerSettingsForServerId: null,
+                    mobileSidebarPanel: 'none',
                 }),
         }),
         {

@@ -86,12 +86,39 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+  desktop:
+    name: Checks / Desktop
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Check
+        working-directory: apps/desktop/src-tauri
+        run: cargo check
+
   docker_publish:
     name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
     needs:
       - security
       - backend
       - frontend
+      - desktop
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30

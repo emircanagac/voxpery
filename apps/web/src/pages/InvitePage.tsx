@@ -1,90 +1,137 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../stores/auth'
+import { useEffect, useMemo, useState } from 'react'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { useAppStore } from '../stores/app'
 import { serverApi } from '../api'
 import { ROUTES } from '../routes'
+import { useAuthStore } from '../stores/auth'
+import { useAppStore } from '../stores/app'
+import type { ServerInvitePreview } from '../types'
+
+function getServerInitial(name: string) {
+    return name.charAt(0).toUpperCase()
+}
+
+function memberCountLabel(count: number) {
+    return `${count} ${count === 1 ? 'member' : 'members'}`
+}
 
 export default function InvitePage() {
     const { code } = useParams<{ code: string }>()
     const navigate = useNavigate()
     const user = useAuthStore((s) => s.user)
     const token = useAuthStore((s) => s.token)
-    const { setServers, setActiveServer } = useAppStore(useShallow((s) => ({ setServers: s.setServers, setActiveServer: s.setActiveServer })))
-    const [error, setError] = useState<string | null>(null)
+    const { setServers, setActiveServer } = useAppStore(
+        useShallow((s) => ({
+            setServers: s.setServers,
+            setActiveServer: s.setActiveServer,
+        })),
+    )
+    const trimmedCode = code?.trim() ?? ''
+    const [preview, setPreview] = useState<ServerInvitePreview | null>(null)
+    const [previewLoading, setPreviewLoading] = useState(true)
+    const [previewError, setPreviewError] = useState<string | null>(null)
     const [joining, setJoining] = useState(false)
+    const [joinError, setJoinError] = useState<string | null>(null)
 
     useEffect(() => {
-        if (!user || !code?.trim()) return
-        
-        const t = setTimeout(() => {
-            setJoining(true)
-            setError(null)
-        }, 0)
-
-        // Web: token is null, auth via cookie. Desktop: Bearer token.
+        if (!user) return
+        if (!trimmedCode) {
+            setPreview(null)
+            setPreviewError('Invalid invite code.')
+            setPreviewLoading(false)
+            return
+        }
+        setPreviewLoading(true)
+        setPreviewError(null)
         serverApi
-            .join(code.trim(), token)
-            .then(async (server) => {
-                const list = await serverApi.list(token)
-                setServers(list)
-                setActiveServer(server.id)
-                navigate(ROUTES.servers, { replace: true })
+            .getInvitePreview(trimmedCode)
+            .then((data) => {
+                setPreview(data)
             })
             .catch((err: unknown) => {
-                setError(err instanceof Error ? err.message : 'Could not join server.')
-                setJoining(false)
+                setPreview(null)
+                setPreviewError(err instanceof Error ? err.message : 'Could not load invite preview.')
             })
+            .finally(() => setPreviewLoading(false))
+    }, [trimmedCode, user])
 
-        return () => clearTimeout(t)
-    }, [user, token, code, setServers, setActiveServer, navigate])
+    const invitePath = useMemo(() => ROUTES.invite(trimmedCode || ''), [trimmedCode])
+    const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`
 
-    if (!user) {
-        const invitePath = `/invite/${code ?? ''}`
-        const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`
-        const registerUrl = `${ROUTES.register}?redirect=${encodeURIComponent(invitePath)}`
-        return (
-            <div className="auth-page">
-                <div className="auth-card" style={{ textAlign: 'center' }}>
-                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
-                    <h1>Join server</h1>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>
-                        Log in or create an account to join this server.
-                    </p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <a href={loginUrl} className="auth-btn" style={{ textDecoration: 'none', textAlign: 'center' }}>
-                            Log in
-                        </a>
-                        <a href={registerUrl} className="btn btn-secondary" style={{ textDecoration: 'none', textAlign: 'center' }}>
-                            Sign up
-                        </a>
-                    </div>
-                </div>
-            </div>
-        )
+    const joinServer = async () => {
+        if (!user || !trimmedCode) return
+        setJoinError(null)
+        setJoining(true)
+        try {
+            const server = await serverApi.join(trimmedCode, token)
+            const list = await serverApi.list(token)
+            setServers(list)
+            setActiveServer(server.id)
+            navigate(ROUTES.servers, { replace: true })
+        } catch (err: unknown) {
+            setJoinError(err instanceof Error ? err.message : 'Could not join server.')
+        } finally {
+            setJoining(false)
+        }
     }
 
-    if (error) {
-        return (
-            <div className="auth-page">
-                <div className="auth-card" style={{ textAlign: 'center' }}>
-                    <h1>Could not join</h1>
-                    <p className="auth-error" role="alert" style={{ marginBottom: 16 }}>
-                        {error}
-                    </p>
-                    <button type="button" className="btn btn-secondary" onClick={() => navigate(ROUTES.servers, { replace: true })}>
-                        Back to app
-                    </button>
-                </div>
-            </div>
-        )
+    if (!user) {
+        return <Navigate to={loginUrl} replace />
     }
 
     return (
         <div className="auth-page">
-            <div className="auth-card" style={{ textAlign: 'center' }}>
-                <p style={{ color: 'var(--text-secondary)' }}>{joining ? 'Joining server…' : 'Redirecting…'}</p>
+            <div className="auth-card invite-preview-card">
+                <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                <h1>{previewLoading ? 'Checking invite…' : 'Join server'}</h1>
+                <p>
+                    {previewLoading
+                        ? 'Loading server details.'
+                        : 'Preview the server before you join.'}
+                </p>
+
+                {previewError ? (
+                    <div className="auth-error" role="alert">
+                        {previewError}
+                    </div>
+                ) : preview ? (
+                    <div className="invite-preview-panel">
+                        <div className="invite-preview-server">
+                            <div className="invite-preview-icon">
+                                {preview.icon_url ? (
+                                    <img src={preview.icon_url} alt={preview.name} className="invite-preview-icon-image" />
+                                ) : (
+                                    getServerInitial(preview.name)
+                                )}
+                            </div>
+                            <div className="invite-preview-copy">
+                                <div className="invite-preview-title">{preview.name}</div>
+                                <div className="invite-preview-meta">
+                                    <span className="invite-preview-pill">{memberCountLabel(preview.member_count)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {joinError && (
+                            <div className="auth-error invite-preview-error" role="alert">
+                                {joinError}
+                            </div>
+                        )}
+
+                        <div className="invite-preview-actions">
+                            <button type="button" className="auth-btn" onClick={() => void joinServer()} disabled={joining}>
+                                {joining ? 'Joining…' : 'Join server'}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => navigate(ROUTES.home, { replace: true })}
+                            >
+                                Not now
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     )

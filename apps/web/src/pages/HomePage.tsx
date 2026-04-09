@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Activity, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -55,6 +55,38 @@ type UiDmMessage = MessageWithAuthor & {
   clientError?: string
 }
 
+function OnboardingCard({
+  title,
+  description,
+  actions,
+}: {
+  title: string
+  description: string
+  actions: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary'; icon?: ReactNode }>
+}) {
+  return (
+    <div className="home-onboarding-card">
+      <div className="home-onboarding-copy">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <div className="home-onboarding-actions">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className={`home-onboarding-btn ${action.variant === 'secondary' ? 'home-onboarding-btn--secondary' : ''}`}
+            onClick={action.onClick}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function HomePage({ isMessagesView = true }: { isMessagesView?: boolean }) {
   const { token, user } = useAuthStore()
   const { subscribe, send, isConnected } = useSocketStore()
@@ -73,6 +105,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     dmChannels: storeDmChannels,
     setFriends: setStoreFriends,
     setDmChannels: setStoreDmChannels,
+    mobileSidebarPanel,
+    setMobileSidebarPanel,
   } = useAppStore(
     useShallow((s) => ({
       servers: s.servers,
@@ -89,6 +123,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       dmChannels: s.dmChannels,
       setFriends: s.setFriends,
       setDmChannels: s.setDmChannels,
+      mobileSidebarPanel: s.mobileSidebarPanel,
+      setMobileSidebarPanel: s.setMobileSidebarPanel,
     }))
   )
   const navigate = useNavigate()
@@ -114,6 +150,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
   const [removingFriend, setRemovingFriend] = useState(false)
+  const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const dmChannels = useMemo(
     () =>
@@ -207,6 +244,27 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!user) return
     refreshServersAndFriends().catch(console.error)
   }, [refreshServersAndFriends, user])
+
+  const openOfficialCommunity = useCallback(async () => {
+    if (voxperyServer) {
+      setActiveServer(voxperyServer.id)
+      navigate('/servers')
+      return
+    }
+    try {
+      const joined = await serverApi.join('voxpery', token)
+      const list = await serverApi.list(token)
+      setServers(list)
+      setActiveServer(joined.id)
+      navigate('/servers')
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'Join failed',
+        message: err instanceof Error ? err.message : 'Could not join server.',
+      })
+    }
+  }, [navigate, pushToast, setActiveServer, setServers, token, voxperyServer])
 
   const onlineFriends = friends.filter((f) => f.status !== 'offline')
   const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
@@ -725,8 +783,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
 
   return (
-    <div className="home-page">
-      <aside className="social-sidebar">
+    <div className={`home-page ${isMobileSocialSidebarOpen ? 'home-page--mobile-sidebar-open' : ''}`}>
+      <aside className={`social-sidebar ${isMobileSocialSidebarOpen ? 'social-sidebar--mobile-open' : ''}`}>
         <div className="social-sidebar-header">Social</div>
         <button
           type="button"
@@ -735,6 +793,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             setView('friends')
             setPersistedSocialView('friends')
             if (location.pathname !== '/') navigate('/')
+            setMobileSidebarPanel('none')
           }}
         >
           <Users size={14} />
@@ -745,7 +804,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">Direct Messages</div>
         {dmChannels.length === 0 ? (
-          <div className="home-empty-row">No DMs yet</div>
+          <div className="home-empty-row home-empty-row--sidebar">
+            No DMs yet
+            <span>
+              {friends.length > 0
+                ? 'Pick a friend to start your first conversation.'
+                : 'Add a friend to start your first conversation.'}
+            </span>
+          </div>
         ) : (
           dmChannels.map((channel) => (
             <button
@@ -760,6 +826,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 setPersistedSocialView('dm')
                 clearDmUnread(channel.id)
                 if (location.pathname !== '/') navigate('/')
+                setMobileSidebarPanel('none')
               }}
             >
               <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
@@ -818,6 +885,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         )}
 
       </aside>
+      {isMobileSocialSidebarOpen && (
+        <button
+          type="button"
+          className="mobile-sidebar-backdrop"
+          aria-label="Close social sidebar"
+          onClick={() => setMobileSidebarPanel('none')}
+        />
+      )}
 
       <section className={`home-main${view === 'dm' ? ' home-main-dm' : ''}`}>
         <div className={`social-content${view === 'dm' ? ' social-content-dm' : ''}`}>
@@ -917,13 +992,33 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     : `All Friends — ${friends.length}`}
                 </div>
                 {visibleFriends.length === 0 ? (
-                  <div className="home-empty-row">
-                    {friends.length === 0
-                      ? "You don't have any friends yet."
-                      : friendsFilter === 'online'
+                  friends.length === 0 ? (
+                    <OnboardingCard
+                      title="Start your social graph"
+                      description="Add a friend or jump into the official Voxpery community so you have someone to message right away."
+                      actions={[
+                        {
+                          label: 'Add a friend',
+                          onClick: () => setFriendsFilter('requests'),
+                          icon: <MessageSquarePlus size={14} />,
+                        },
+                        {
+                          label: voxperyServer ? 'Open community' : 'Join community',
+                          onClick: () => {
+                            void openOfficialCommunity()
+                          },
+                          variant: 'secondary',
+                          icon: <Compass size={14} />,
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <div className="home-empty-row">
+                      {friendsFilter === 'online'
                         ? "No one's online right now."
                         : 'No friends found for this view.'}
-                  </div>
+                    </div>
+                  )
                 ) : (
                   visibleFriends.map((friend) => {
                     const isSpeaking = voiceSpeakingUserIds.includes(friend.id)
@@ -969,7 +1064,33 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               return (
                 <div className="home-dm-chat">
                   <div className="welcome-screen" style={{ padding: 24 }}>
-                    <p style={{ color: 'var(--text-muted)' }}>Select a conversation from the sidebar.</p>
+                    <OnboardingCard
+                      title="Start a conversation"
+                      description={
+                        friends.length > 0
+                          ? 'Pick a friend from the sidebar or jump back to Friends to start your first DM.'
+                          : 'You need at least one friend before you can start a DM.'
+                      }
+                      actions={[
+                        {
+                          label: friends.length > 0 ? 'Open friends' : 'Add a friend',
+                          onClick: () => {
+                            setView('friends')
+                            setPersistedSocialView('friends')
+                            setFriendsFilter(friends.length > 0 ? 'all' : 'requests')
+                          },
+                          icon: <Users size={14} />,
+                        },
+                        {
+                          label: voxperyServer ? 'Open community' : 'Join community',
+                          onClick: () => {
+                            void openOfficialCommunity()
+                          },
+                          variant: 'secondary',
+                          icon: <ArrowRight size={14} />,
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               )
@@ -1088,25 +1209,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           <button
             type="button"
             className="community-open-btn"
-            onClick={async () => {
-              if (voxperyServer) {
-                setActiveServer(voxperyServer.id)
-                navigate('/servers')
-                return
-              }
-              try {
-                const joined = await serverApi.join('voxpery', token)
-                const list = await serverApi.list(token)
-                setServers(list)
-                setActiveServer(joined.id)
-                navigate('/servers')
-              } catch (err) {
-                pushToast({
-                  level: 'error',
-                  title: 'Join failed',
-                  message: err instanceof Error ? err.message : 'Could not join server.',
-                })
-              }
+            onClick={() => {
+              void openOfficialCommunity()
             }}
           >
             <span className="community-btn-emoji" aria-hidden>🦊</span>

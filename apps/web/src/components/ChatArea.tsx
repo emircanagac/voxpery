@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
@@ -69,6 +69,8 @@ interface ChatAreaProps {
     canSendMessages?: boolean
     typingIndicatorLabel?: string | null
     seenMessageId?: string | null
+    showMemberSheetButton?: boolean
+    onOpenMemberSheet?: () => void
 }
 
 export default function ChatArea({
@@ -113,7 +115,12 @@ export default function ChatArea({
     canSendMessages = true,
     typingIndicatorLabel = null,
     seenMessageId = null,
+    showMemberSheetButton = false,
+    onOpenMemberSheet,
 }: ChatAreaProps) {
+    const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
+        () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
+    )
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const setMessagesScrollRef = useCallback(
         (el: HTMLDivElement | null) => {
@@ -132,6 +139,7 @@ export default function ChatArea({
     const pinnedDropdownRef = useRef<HTMLDivElement | null>(null)
     const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const searchDropdownRef = useRef<HTMLDivElement | null>(null)
     const [mentionOpen, setMentionOpen] = useState(false)
     const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null)
     const [mentionQuery, setMentionQuery] = useState('')
@@ -255,6 +263,11 @@ export default function ChatArea({
         if (d.toDateString() === today.toDateString()) return `Today, ${time}`
         if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + time
+    }
+
+    const formatMessageTimestamp = (dateStr: string) => {
+        if (useCompactMobileTimestamp) return formatTime(dateStr)
+        return formatDate(dateStr)
     }
 
     const formatDayDivider = (dateStr: string) => {
@@ -430,6 +443,34 @@ export default function ChatArea({
     }, [pinnedOpen])
 
     useEffect(() => {
+        if (!searchOpen) return
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            onSearchChange?.('')
+            setSearchOpen(false)
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('keydown', onKeyDown)
+        }
+    }, [onSearchChange, searchOpen])
+
+    useEffect(() => {
+        if (!onSearchChange) return
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            const target = e.target as HTMLElement | null
+            const isFindShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f'
+            if (!isFindShortcut) return
+            if (target && searchDropdownRef.current?.contains(target)) return
+            e.preventDefault()
+            setSearchOpen(true)
+            requestAnimationFrame(() => searchInputRef.current?.focus())
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+    }, [onSearchChange])
+
+    useEffect(() => {
         if (!emojiOpen) return
         const syncPosition = () => {
             const button = emojiButtonRef.current
@@ -477,6 +518,14 @@ export default function ChatArea({
         document.addEventListener('click', close)
         return () => document.removeEventListener('click', close)
     }, [reactionPickerMessageId])
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const onResize = () => setUseCompactMobileTimestamp(window.innerWidth <= 520)
+        onResize()
+        window.addEventListener('resize', onResize)
+        return () => window.removeEventListener('resize', onResize)
+    }, [])
 
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         if (!canSendMessages) return
@@ -622,6 +671,19 @@ export default function ChatArea({
                         <Volume2 size={20} />
                     </span>
                     <span className="channel-title">{activeChannel.name}</span>
+                    {showMemberSheetButton && onOpenMemberSheet && (
+                        <div className="chat-header-right">
+                            <button
+                                type="button"
+                                className="chat-header-member-btn"
+                                onClick={onOpenMemberSheet}
+                                title="View members"
+                                aria-label="View members"
+                            >
+                                <Users size={17} />
+                            </button>
+                        </div>
+                    )}
                 </div>
                 <div className="voice-focus-panel voice-focus-panel-stage" />
             </div>
@@ -637,12 +699,20 @@ export default function ChatArea({
                 <span className="channel-title">{activeChannel.name}</span>
                 <div className="chat-header-right">
                     {onSearchChange && (
-                        <div className={`chat-header-search ${searchOpen ? 'chat-header-search-expanded' : ''}`}>
+                        <div
+                            ref={searchDropdownRef}
+                            className={`chat-header-search ${searchOpen ? 'chat-header-search-expanded' : ''}`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             {!searchOpen ? (
                                 <button
                                     type="button"
                                     className="chat-header-search-trigger"
-                                    onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0) }}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSearchOpen(true)
+                                        setTimeout(() => searchInputRef.current?.focus(), 0)
+                                    }}
                                     title="Search in conversation"
                                     aria-label="Search in conversation"
                                 >
@@ -663,7 +733,11 @@ export default function ChatArea({
                                     <button
                                         type="button"
                                         className="chat-header-search-close"
-                                        onClick={() => { onSearchChange(''); setSearchOpen(false) }}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            onSearchChange('')
+                                            setSearchOpen(false)
+                                        }}
                                         title="Close search"
                                         aria-label="Close search"
                                     >
@@ -737,6 +811,17 @@ export default function ChatArea({
                             </div>
                         )}
                     </div>
+                    )}
+                    {showMemberSheetButton && onOpenMemberSheet && (
+                        <button
+                            type="button"
+                            className="chat-header-member-btn"
+                            onClick={onOpenMemberSheet}
+                            title="View members"
+                            aria-label="View members"
+                        >
+                            <Users size={17} />
+                        </button>
                     )}
                 </div>
             </div>
@@ -822,7 +907,9 @@ export default function ChatArea({
                                                 >
                                                     {msg.author.username}
                                                 </span>
-                                                <span className="message-timestamp">{formatDate(msg.created_at)}</span>
+                                                <span className="message-timestamp" title={formatDate(msg.created_at)}>
+                                                    {formatMessageTimestamp(msg.created_at)}
+                                                </span>
                                                 {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
                                                 {!msg.clientId && (
                                                     <MessageInlineActions

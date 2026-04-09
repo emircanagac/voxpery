@@ -158,7 +158,7 @@ export default function RegisterPage() {
                 </div>
 
                 {turnstileSiteKey && (
-                    <div className="form-group" style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+                    <div className="form-group auth-turnstile-wrap">
                         <Turnstile
                             siteKey={turnstileSiteKey}
                             onSuccess={setCaptchaToken}

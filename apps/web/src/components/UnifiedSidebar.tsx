@@ -39,9 +39,6 @@ export default function UnifiedSidebar({
   return (
     <div className="unified-sidebar">
       <div className="unified-sidebar-dm-section">
-        <span className="unified-sidebar-section-label" title="Friends, requests, and direct messages">
-          Social
-        </span>
         <NavLink
           to={socialHref}
           className={() =>
@@ -58,9 +55,6 @@ export default function UnifiedSidebar({
       </div>
       <div className="unified-sidebar-separator" aria-hidden />
       <div className="unified-sidebar-server-block">
-        <span className="unified-sidebar-section-label" title="Community servers and channels">
-          Servers
-        </span>
         <ServerSidebar
           onCreateServer={onCreateServer}
           onJoinServer={onJoinServer}

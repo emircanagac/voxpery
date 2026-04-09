@@ -1,7 +1,7 @@
-import type { User, Server, Channel, Message, SignalingMessage, WsEvent } from './types'
+import type { User, Server, ServerInvitePreview, Channel, Message, SignalingMessage, WsEvent } from './types'
 import { isTauri } from './secureStorage'
 
-export type { User, Server, Channel, Message, SignalingMessage, WsEvent }
+export type { User, Server, ServerInvitePreview, Channel, Message, SignalingMessage, WsEvent }
 
 export interface AuditLogEntry {
     id: string
@@ -542,6 +542,9 @@ export interface ChannelCategory {
 }
 
 export const serverApi = {
+    getInvitePreview: (inviteCode: string) =>
+        apiFetch<ServerInvitePreview>(`/api/servers/invite/${encodeURIComponent(inviteCode)}`),
+
     list: (token: AuthToken) =>
         apiFetch<Server[]>('/api/servers', { token }),
 

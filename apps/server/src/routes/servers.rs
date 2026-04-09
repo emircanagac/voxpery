@@ -12,7 +12,7 @@ use crate::{
     middleware::auth::{require_auth, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
-        ServerWithMembers,
+        ServerInvitePreview, ServerWithMembers,
     },
     services::{
         audit,
@@ -102,38 +102,42 @@ struct ServerBanEntry {
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/", get(list_servers).post(create_server))
-        .route(
-            "/{server_id}",
-            get(get_server).delete(delete_server).patch(update_server),
+        .route("/invite/{invite_code}", get(get_invite_preview))
+        .merge(
+            Router::new()
+                .route("/", get(list_servers).post(create_server))
+                .route(
+                    "/{server_id}",
+                    get(get_server).delete(delete_server).patch(update_server),
+                )
+                .route("/{server_id}/roles", get(list_roles).post(create_role))
+                .route("/{server_id}/roles/reorder", patch(reorder_roles))
+                .route(
+                    "/{server_id}/roles/{role_id}",
+                    patch(update_role).delete(delete_role),
+                )
+                .route("/{server_id}/channels", get(list_channels))
+                .route(
+                    "/{server_id}/channels/{channel_id}/members",
+                    get(list_channel_visible_members),
+                )
+                .route(
+                    "/{server_id}/members/{user_id}/roles",
+                    get(list_member_roles).put(update_member_roles),
+                )
+                .route(
+                    "/{server_id}/members/{user_id}/role",
+                    patch(update_member_role),
+                )
+                .route("/{server_id}/members/{user_id}/ban", post(ban_member))
+                .route("/{server_id}/members/{user_id}", delete(kick_member))
+                .route("/{server_id}/bans", get(list_bans))
+                .route("/{server_id}/bans/{user_id}", delete(unban_member))
+                .route("/{server_id}/audit-log", get(get_audit_log))
+                .route("/join", post(join_server))
+                .route("/{server_id}/leave", post(leave_server))
+                .route_layer(middleware::from_fn_with_state(state, require_auth)),
         )
-        .route("/{server_id}/roles", get(list_roles).post(create_role))
-        .route("/{server_id}/roles/reorder", patch(reorder_roles))
-        .route(
-            "/{server_id}/roles/{role_id}",
-            patch(update_role).delete(delete_role),
-        )
-        .route("/{server_id}/channels", get(list_channels))
-        .route(
-            "/{server_id}/channels/{channel_id}/members",
-            get(list_channel_visible_members),
-        )
-        .route(
-            "/{server_id}/members/{user_id}/roles",
-            get(list_member_roles).put(update_member_roles),
-        )
-        .route(
-            "/{server_id}/members/{user_id}/role",
-            patch(update_member_role),
-        )
-        .route("/{server_id}/members/{user_id}/ban", post(ban_member))
-        .route("/{server_id}/members/{user_id}", delete(kick_member))
-        .route("/{server_id}/bans", get(list_bans))
-        .route("/{server_id}/bans/{user_id}", delete(unban_member))
-        .route("/{server_id}/audit-log", get(get_audit_log))
-        .route("/join", post(join_server))
-        .route("/{server_id}/leave", post(leave_server))
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
 }
 
 fn visible_presence(status: &str, has_session: bool) -> String {
@@ -145,6 +149,33 @@ fn visible_presence(status: &str, has_session: bool) -> String {
         "invisible" | "offline" => "offline".to_string(),
         _ => "online".to_string(),
     }
+}
+
+/// GET /api/servers/invite/:invite_code — public preview for invite pages.
+async fn get_invite_preview(
+    State(state): State<Arc<AppState>>,
+    Path(invite_code): Path<String>,
+) -> Result<Json<ServerInvitePreview>, AppError> {
+    let code = invite_code.trim();
+    if code.is_empty() || code.len() > 32 {
+        return Err(AppError::Validation(
+            "Invite code must be 1-32 characters".into(),
+        ));
+    }
+
+    let preview = sqlx::query_as::<_, ServerInvitePreview>(
+        r#"SELECT s.id, s.name, s.icon_url, s.invite_code, COUNT(sm.user_id) AS member_count
+           FROM servers s
+           LEFT JOIN server_members sm ON sm.server_id = s.id
+           WHERE s.invite_code = $1
+           GROUP BY s.id, s.name, s.icon_url, s.invite_code"#,
+    )
+    .bind(code)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Invalid invite code".into()))?;
+
+    Ok(Json(preview))
 }
 
 /// GET /api/servers — list all servers the user is a member of.

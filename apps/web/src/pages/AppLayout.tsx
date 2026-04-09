@@ -16,7 +16,7 @@ import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, Ban, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Ban, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 
@@ -118,6 +118,24 @@ function validateCategoryNameInput(raw: string): string | null {
     return null
 }
 
+function parseInviteInput(raw: string): string {
+    const value = raw.trim()
+    if (!value) return ''
+
+    const directMatch = value.match(/(?:^|\/)invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
+    if (directMatch?.[1]) return directMatch[1]
+
+    try {
+        const url = new URL(value)
+        const pathMatch = url.pathname.match(/\/invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
+        if (pathMatch?.[1]) return pathMatch[1]
+    } catch {
+        // Not a full URL; treat as a raw invite code.
+    }
+
+    return value
+}
+
 function channelTypeOrder(type: Channel['channel_type']): number {
     return type === 'text' ? 0 : 1
 }
@@ -197,6 +215,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         showCreateServer, showJoinServer,
         openServerSettingsForServerId,
         setOpenServerSettingsForServerId,
+        mobileSidebarPanel,
+        setMobileSidebarPanel,
     } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
@@ -224,6 +244,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             showJoinServer: s.showJoinServer,
             openServerSettingsForServerId: s.openServerSettingsForServerId,
             setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
+            mobileSidebarPanel: s.mobileSidebarPanel,
+            setMobileSidebarPanel: s.setMobileSidebarPanel,
         }))
     )
 
@@ -242,6 +264,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
     const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'bans' | 'danger'>('overview')
+    const [isMobileViewport, setIsMobileViewport] = useState(() =>
+        typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
+    )
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
     const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
@@ -279,6 +304,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [channelSearch, setChannelSearch] = useState('')
     const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
+    const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const pushToast = useToastStore((s) => s.pushToast)
     const { connect, send, subscribe, isConnected } = useSocketStore()
@@ -348,6 +374,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         friendApi.list(token).then(setFriends).catch(() => { })
     }, [isLoggedIn, token, setFriends])
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const media = window.matchMedia('(max-width: 900px)')
+        const sync = () => setIsMobileViewport(media.matches)
+        sync()
+        media.addEventListener('change', sync)
+        return () => media.removeEventListener('change', sync)
+    }, [])
+
+    useEffect(() => {
+        if (!isMobileViewport) setShowMobileMemberSheet(false)
+    }, [isMobileViewport])
+
+    useEffect(() => {
+        setShowMobileMemberSheet(false)
+    }, [activeServerId, activeChannelId])
+
     // Auto-select a default server (prefer the Voxpery default server) when logging in.
     useEffect(() => {
         if (!isLoggedIn) return
@@ -361,10 +404,25 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // When unified sidebar requested server settings for this server, open the modal.
     useEffect(() => {
         if (!openServerSettingsForServerId || openServerSettingsForServerId !== activeServerId) return
+        if (isMobileViewport) {
+            pushToast({
+                level: 'info',
+                title: 'Desktop-only for now',
+                message: 'Server Settings are currently available on desktop screens only.',
+            })
+            setOpenServerSettingsForServerId(null)
+            return
+        }
         setServerSettingsServerId(activeServerId)
         setShowServerSettings(true)
         setOpenServerSettingsForServerId(null)
-    }, [activeServerId, openServerSettingsForServerId, setOpenServerSettingsForServerId])
+    }, [activeServerId, isMobileViewport, openServerSettingsForServerId, pushToast, setOpenServerSettingsForServerId])
+
+    useEffect(() => {
+        if (!isMobileViewport || !showServerSettings) return
+        setShowServerSettings(false)
+        setServerSettingsServerId(null)
+    }, [isMobileViewport, showServerSettings])
 
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) return
@@ -1101,9 +1159,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const handleJoinServer = async (e: FormEvent) => {
         e.preventDefault()
         setJoinServerError(null)
-        if (!inviteCode.trim() || !isLoggedIn) return
+        const parsedInviteCode = parseInviteInput(inviteCode)
+        if (!parsedInviteCode || !isLoggedIn) return
         try {
-            const server = await serverApi.join(inviteCode, token)
+            const server = await serverApi.join(parsedInviteCode, token)
             const allServers = await serverApi.list(token)
             setServers(allServers)
             setActiveServer(server.id)
@@ -1126,6 +1185,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setShowJoinServer(true)
     }
     const openServerSettingsModal = (serverId?: string | null) => {
+        if (isMobileViewport) {
+            pushToast({
+                level: 'info',
+                title: 'Desktop-only for now',
+                message: 'Server Settings are currently available on desktop screens only.',
+            })
+            return
+        }
         setServerSettingsError(null)
         setDeleteServerError(null)
         setDeleteServerInput('')
@@ -2101,7 +2168,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // ─── Render ────────────────────────────────
 
     return (
-        <div className="app-layout">
+        <div className={`app-layout ${mobileSidebarPanel === 'channels' ? 'app-layout--mobile-sidebar-open' : ''}`}>
             {!skipServerSidebar && (
                 <ServerSidebar
                     onCreateServer={openCreateModal}
@@ -2131,6 +2198,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
                 onReorderChannels={handleReorderChannels}
             />
+            {mobileSidebarPanel === 'channels' && (
+                <button
+                    type="button"
+                    className="mobile-sidebar-backdrop"
+                    aria-label="Close channel sidebar"
+                    onClick={() => setMobileSidebarPanel('none')}
+                />
+            )}
             <ChatArea
                 activeChannel={activeChannel}
                 messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
@@ -2178,12 +2253,52 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
                 canSendMessages={canSendMessages}
+                showMemberSheetButton={isMobileViewport && !!activeServerId}
+                onOpenMemberSheet={() => setShowMobileMemberSheet(true)}
             />
             <MemberSidebar
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
                 canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
             />
+            {showMobileMemberSheet && isMobileViewport && createPortal(
+                <>
+                    <button
+                        type="button"
+                        className="mobile-member-sheet-backdrop"
+                        aria-label="Close members panel"
+                        onClick={() => setShowMobileMemberSheet(false)}
+                    />
+                    <aside
+                        className="mobile-member-sheet"
+                        aria-label="Server members"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <header className="mobile-member-sheet-header">
+                            <div className="mobile-member-sheet-copy">
+                                <h3>Members</h3>
+                                <p>{members.length} {members.length === 1 ? 'member' : 'members'}</p>
+                            </div>
+                            <button
+                                type="button"
+                                className="mobile-member-sheet-close"
+                                onClick={() => setShowMobileMemberSheet(false)}
+                                aria-label="Close members panel"
+                            >
+                                <X size={16} />
+                            </button>
+                        </header>
+                        <MemberSidebar
+                            canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
+                            canBanMembers={canBanMembers}
+                            canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+                            variant="sheet"
+                            interactive={false}
+                        />
+                    </aside>
+                </>,
+                document.body,
+            )}
 
             {createPortal(
                 <>
@@ -2244,15 +2359,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
                                 )}
                                 <div className="form-group">
-                                    <label>Invite Code</label>
+                                    <label>Invite link or code</label>
                                     <input
                                         type="text"
                                         value={inviteCode}
                                         onChange={(e) => setInviteCode(e.target.value)}
-                                        placeholder="abc12345"
+                                        placeholder="Paste an invite link or short code"
                                         autoFocus
                                         required
                                     />
+                                    <div className="form-hint">Invite links are preferred. Short codes still work.</div>
                                 </div>
                                 <div className="modal-actions">
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>Cancel</button>
@@ -2616,12 +2732,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         <aside className="server-overview-invite">
                                                             <div className="server-overview-invite__head">
                                                                 <span className="server-overview-invite__eyebrow">Invite</span>
-                                                                <div className="server-overview-invite__code-row">
-                                                                    <span className="server-overview-invite__code-label">Code</span>
-                                                                    <code className="server-overview-invite__code-pill">{settingsServer.invite_code}</code>
-                                                                </div>
                                                                 <p className="server-overview-invite__hint">
-                                                                    Share the link below or send the short code to invite people quickly.
+                                                                    Share the invite link below. Short codes still work if someone needs one.
                                                                 </p>
                                                             </div>
                                                             <div className="server-overview-invite__body">
@@ -2663,7 +2775,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                             })
                                                                         }}
                                                                     >
-                                                                        {copiedInvite === 'code' ? 'Copied' : 'Copy code'}
+                                                                        {copiedInvite === 'code' ? 'Copied' : 'Copy short code'}
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -2842,8 +2954,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                 roleEditName={roleEditName}
                                                                 roleEditColor={roleEditColor}
                                                                 roleEditPermissions={roleEditPermissions}
-                                                                canDeleteRole={!!selectedRoleId && !!serverRoles.find((r) => r.id === selectedRoleId)}
-                                                                canSaveRole={!!roleEditName.trim() && !rolesLoading && !!settingsServer}
                                                                 bits={{
                                                                     manageServer: PERM_MANAGE_SERVER,
                                                                     manageRoles: PERM_MANAGE_ROLES,
@@ -2859,13 +2969,44 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                 onRoleNameChange={setRoleEditName}
                                                                 onRoleColorChange={setRoleEditColor}
                                                                 onTogglePermission={handleToggleRolePermission}
-                                                                onDeleteRole={() => {
-                                                                    if (!selectedRoleId) return
-                                                                    setDeleteRoleConfirmId(selectedRoleId)
-                                                                }}
-                                                                onCancel={handleCancelRoleEdit}
-                                                                onSave={() => void handleSaveRole()}
                                                             />
+                                                            {selectedRoleId && (
+                                                                <div className="server-role-editor-footer">
+                                                                    <div className="server-role-editor-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-danger-outline btn-sm"
+                                                                            style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                            disabled={!selectedRoleId || !serverRoles.find((r) => r.id === selectedRoleId)}
+                                                                            onClick={() => {
+                                                                                if (!selectedRoleId) return
+                                                                                setDeleteRoleConfirmId(selectedRoleId)
+                                                                            }}
+                                                                        >
+                                                                            Delete role
+                                                                        </button>
+                                                                        <div className="server-role-editor-actions-right">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                onClick={handleCancelRoleEdit}
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-primary btn-sm server-role-btn-save"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                disabled={!roleEditName.trim() || rolesLoading || !settingsServer}
+                                                                                onClick={() => void handleSaveRole()}
+                                                                            >
+                                                                                {serverRoles.find((r) => r.id === selectedRoleId) ? 'Save role' : 'Create role'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </section>

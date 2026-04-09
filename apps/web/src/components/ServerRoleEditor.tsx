@@ -16,15 +16,10 @@ type ServerRoleEditorProps = {
     roleEditName: string
     roleEditColor: string | null
     roleEditPermissions: number
-    canDeleteRole: boolean
-    canSaveRole: boolean
     bits: PermissionBits
     onRoleNameChange: (value: string) => void
     onRoleColorChange: (value: string | null) => void
     onTogglePermission: (bit: number, isFullAdmin: boolean, checked: boolean) => void
-    onDeleteRole: () => void
-    onCancel: () => void
-    onSave: () => void
 }
 
 export default function ServerRoleEditor({
@@ -32,18 +27,11 @@ export default function ServerRoleEditor({
     roleEditName,
     roleEditColor,
     roleEditPermissions,
-    canDeleteRole,
-    canSaveRole,
     bits,
     onRoleNameChange,
     onRoleColorChange,
     onTogglePermission,
-    onDeleteRole,
-    onCancel,
-    onSave,
 }: ServerRoleEditorProps) {
-    const isEditingExistingRole = canDeleteRole
-
     if (!selectedRoleId) {
         return (
             <div className="server-role-editor-empty">
@@ -90,7 +78,7 @@ export default function ServerRoleEditor({
     ] as const
 
     return (
-        <>
+        <div className="server-role-editor">
             <div className="server-role-editor-meta">
                 <div>
                     <label className="server-settings-card__title server-role-editor-label">
@@ -165,36 +153,6 @@ export default function ServerRoleEditor({
                     ))}
                 </div>
             </div>
-            <div className="server-role-editor-actions">
-                <button
-                    type="button"
-                    className="btn btn-danger-outline btn-sm"
-                    style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                    disabled={!canDeleteRole}
-                    onClick={onDeleteRole}
-                >
-                    Delete role
-                </button>
-                <div className="server-role-editor-actions-right">
-                    <button
-                        type="button"
-                        className="btn btn-secondary btn-sm server-role-btn-cancel"
-                        style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                        onClick={onCancel}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className="btn btn-primary btn-sm server-role-btn-save"
-                        style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
-                        disabled={!canSaveRole}
-                        onClick={onSave}
-                    >
-                        {isEditingExistingRole ? 'Save role' : 'Create role'}
-                    </button>
-                </div>
-            </div>
-        </>
+        </div>
     )
 }

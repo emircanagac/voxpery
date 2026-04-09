@@ -14,7 +14,7 @@ const PERM_CONNECT_VOICE = 1 << 10
 type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 
 interface ChannelSidebarProps {
-    onOpenServerSettings: () => void
+    onOpenServerSettings?: () => void
     onOpenCreateChannel?: () => void
     onOpenCreateCategory?: () => void
     onOpenCategoryPermissions?: (category: string) => void
@@ -54,7 +54,7 @@ export default function ChannelSidebar({
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const user = useAuthStore((s) => s.user)
-    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel } = useAppStore(
+    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel, closeMobileSidebar } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -67,6 +67,7 @@ export default function ChannelSidebar({
             voiceSpeakingUserIds: s.voiceSpeakingUserIds,
             voiceLocalSpeaking: s.voiceLocalSpeaking,
             setActiveChannel: s.setActiveChannel,
+            closeMobileSidebar: s.closeMobileSidebar,
         }))
     )
     const pushToast = useToastStore((s) => s.pushToast)
@@ -235,6 +236,7 @@ export default function ChannelSidebar({
         // Close confirmation immediately after user confirms.
         // Join progress is reflected in call bar status instead of blocking modal.
         setPendingVoiceJoin(null)
+        closeMobileSidebar()
         setIsJoiningVoice(true)
         const manualJoinWindow = window as ManualJoinWindow
         manualJoinWindow.__voxperyManualJoinActive = true
@@ -257,7 +259,10 @@ export default function ChannelSidebar({
 
     return (
         <div className="channel-sidebar" ref={sidebarRef}>
-            <div className="channel-header" onClick={activeServer ? onOpenServerSettings : undefined}>
+            <div
+                className={`channel-header ${activeServer && onOpenServerSettings ? 'channel-header--clickable' : ''}`}
+                onClick={activeServer && onOpenServerSettings ? onOpenServerSettings : undefined}
+            >
                 {activeServer ? (
                     <>
                         <span style={{ flex: 1 }}>{activeServer.name}</span>
@@ -442,6 +447,7 @@ export default function ChannelSidebar({
                                                 if (currentJoined === ch.id) {
                                                     // Already joined, just view it
                                                     setActiveChannel(ch.id)
+                                                    closeMobileSidebar()
                                                     return
                                                 }
                                                 // Ask for confirmation or join directly
@@ -453,6 +459,7 @@ export default function ChannelSidebar({
                                                 return
                                             }
                                             setActiveChannel(ch.id)
+                                            closeMobileSidebar()
                                         }}
                                         onContextMenu={(e) => {
                                             if (!canManageChannels) return

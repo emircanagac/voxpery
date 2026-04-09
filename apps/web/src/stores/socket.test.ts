@@ -59,6 +59,7 @@ describe('WebSocket Store', () => {
       socket: null,
       isConnected: false,
       token: null,
+      shouldReconnect: false,
       listeners: new Set(),
       reconnectListeners: new Set(),
     })
@@ -203,6 +204,31 @@ describe('WebSocket Store', () => {
     // Wait for auto-reconnect (3s delay)
     await vi.advanceTimersByTimeAsync(3100)
 
+    expect(reconnectListener).toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('should reconnect web cookie-auth sessions even when token is null', async () => {
+    const { connect } = useSocketStore.getState()
+    const reconnectListener = vi.fn()
+
+    act(() => {
+      connect(null)
+    })
+    await vi.runAllTimersAsync()
+
+    const unsubscribe = useSocketStore.getState().onReconnect(reconnectListener)
+
+    const state = useSocketStore.getState()
+    act(() => {
+      state.socket?.close()
+    })
+
+    await vi.advanceTimersByTimeAsync(3100)
+
+    const next = useSocketStore.getState()
+    expect(next.socket).toBeTruthy()
+    expect(next.isConnected).toBe(true)
     expect(reconnectListener).toHaveBeenCalled()
     unsubscribe()
   })

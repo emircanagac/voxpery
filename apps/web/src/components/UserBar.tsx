@@ -1,7 +1,7 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, Bell, MessageSquare, Mic, Monitor, Shield, User } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
-import { useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal, flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -40,7 +40,8 @@ const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
 
-type SettingsSection = 'profile' | 'notifications' | 'dm' | 'voice' | 'desktop' | 'privacy'
+type SettingsSection = 'profile' | 'communication' | 'voice' | 'desktop' | 'privacy'
+const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
 
 function getInitial(name: string) {
   return name.charAt(0).toUpperCase()
@@ -49,6 +50,18 @@ function getInitial(name: string) {
 function statusLabel(status?: string) {
   if (status === 'dnd') return 'Do Not Disturb'
   if (status === 'invisible' || status === 'offline') return 'Invisible'
+  return 'Online'
+}
+
+function footerStatusLabel(status?: string) {
+  if (status === 'dnd') return 'DND'
+  if (status === 'invisible' || status === 'offline') return 'Invisible'
+  return 'Online'
+}
+
+function mobilePopoverStatusLabel(status: 'online' | 'dnd' | 'invisible') {
+  if (status === 'dnd') return 'DND'
+  if (status === 'invisible') return 'Invisible'
   return 'Online'
 }
 
@@ -98,12 +111,19 @@ function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
 
 export default function UserBar() {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
+  const mobileSidebarPanel = useAppStore((s) => s.mobileSidebarPanel)
+  const closeMobileSidebar = useAppStore((s) => s.closeMobileSidebar)
   const { disconnect } = useSocketStore()
   const navigate = useNavigate()
   const pushToast = useToastStore((s) => s.pushToast)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
+  const [pendingStatusMenuOpen, setPendingStatusMenuOpen] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+  )
+  const [statusPopoverAnchor, setStatusPopoverAnchor] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const [showSettingsPanel, setShowSettingsPanel] = useState(false)
-  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('voice')
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>(DEFAULT_SETTINGS_SECTION)
   const [statusSaving, setStatusSaving] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
@@ -153,6 +173,9 @@ export default function UserBar() {
   const statusMenuRef = useRef<HTMLDivElement>(null)
   const usernameCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusToggleRef = useRef<HTMLDivElement>(null)
+  const userBarWrapRef = useRef<HTMLDivElement>(null)
+  const userPanelRef = useRef<HTMLDivElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const desktopStartupTargetLabel = getDesktopStartupTargetLabel()
 
   const closeStatusMenu = () => {
@@ -160,8 +183,90 @@ export default function UserBar() {
     setStatusError(null)
   }
 
+  const updateStatusPopoverAnchor = useCallback(() => {
+    if (!isMobileViewport) {
+      setStatusPopoverAnchor(null)
+      return
+    }
+    const footer = userBarWrapRef.current
+    const anchor = statusToggleRef.current
+    if (!footer) return
+    const footerRect = footer.getBoundingClientRect()
+    const anchorRect = anchor?.getBoundingClientRect() ?? footerRect
+    const viewportPadding = 8
+    const width = Math.min(136, Math.max(124, anchorRect.width + 12))
+    const left = Math.max(
+      viewportPadding,
+      Math.min(footerRect.left, window.innerWidth - width - viewportPadding),
+    )
+    setStatusPopoverAnchor({
+      left,
+      bottom: window.innerHeight - footerRect.top + 1,
+      width,
+    })
+  }, [isMobileViewport])
+
+  const updateMobileVoiceFooterBounds = useCallback(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    if (!isMobileViewport) {
+      root.style.removeProperty('--mobile-callbar-left')
+      root.style.removeProperty('--mobile-callbar-right')
+      return
+    }
+    const userPanel = userPanelRef.current
+    const settingsButton = settingsButtonRef.current
+    if (!userPanel || !settingsButton) return
+    const userPanelRect = userPanel.getBoundingClientRect()
+    const settingsRect = settingsButton.getBoundingClientRect()
+    const left = Math.round(userPanelRect.right + 8)
+    const rightBoundary = Math.round(settingsRect.left - 8)
+    if (rightBoundary <= left) return
+    root.style.setProperty('--mobile-callbar-left', `${left}px`)
+    root.style.setProperty('--mobile-callbar-right', `${Math.max(8, window.innerWidth - rightBoundary)}px`)
+  }, [isMobileViewport])
+
+  const toggleStatusMenu = () => {
+    setStatusError(null)
+    if (showStatusMenu) {
+      closeStatusMenu()
+      return
+    }
+    if (mobileSidebarPanel !== 'none') {
+      setPendingStatusMenuOpen(true)
+      closeMobileSidebar()
+      return
+    }
+    setShowStatusMenu(true)
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const media = window.matchMedia('(max-width: 900px)')
+    const sync = () => setIsMobileViewport(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingStatusMenuOpen) return
+    if (mobileSidebarPanel !== 'none') return
+    const timer = window.setTimeout(() => {
+      setShowStatusMenu(true)
+      setPendingStatusMenuOpen(false)
+    }, 260)
+    return () => window.clearTimeout(timer)
+  }, [mobileSidebarPanel, pendingStatusMenuOpen])
+
   const closeSettingsPanel = () => {
     setShowSettingsPanel(false)
+  }
+
+  const openSettingsPanel = () => {
+    closeStatusMenu()
+    setActiveSettingsSection(DEFAULT_SETTINGS_SECTION)
+    setShowSettingsPanel(true)
   }
 
   const closeDeleteModal = () => {
@@ -215,16 +320,48 @@ export default function UserBar() {
 
   useEffect(() => {
     if (!showStatusMenu) return
-    const close = (evt: MouseEvent) => {
+    updateStatusPopoverAnchor()
+    updateMobileVoiceFooterBounds()
+    const close = (evt: PointerEvent) => {
       const target = evt.target as Node | null
       if (target && statusMenuRef.current?.contains(target)) return
       if (target && statusToggleRef.current?.contains(target)) return
       setShowStatusMenu(false)
       setStatusError(null)
     }
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
-  }, [showStatusMenu])
+    const refreshAnchor = () => {
+      updateStatusPopoverAnchor()
+      updateMobileVoiceFooterBounds()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('resize', refreshAnchor)
+    window.addEventListener('scroll', refreshAnchor, true)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('resize', refreshAnchor)
+      window.removeEventListener('scroll', refreshAnchor, true)
+    }
+  }, [showStatusMenu, updateMobileVoiceFooterBounds, updateStatusPopoverAnchor])
+
+  useEffect(() => {
+    updateMobileVoiceFooterBounds()
+    return () => {
+      if (typeof document === 'undefined') return
+      document.documentElement.style.removeProperty('--mobile-callbar-left')
+      document.documentElement.style.removeProperty('--mobile-callbar-right')
+    }
+  }, [isMobileViewport, updateMobileVoiceFooterBounds, user?.status, user?.username, showSettingsPanel])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const refresh = () => updateMobileVoiceFooterBounds()
+    window.addEventListener('resize', refresh)
+    window.addEventListener('orientationchange', refresh)
+    return () => {
+      window.removeEventListener('resize', refresh)
+      window.removeEventListener('orientationchange', refresh)
+    }
+  }, [updateMobileVoiceFooterBounds])
 
   useEffect(() => {
     if (!capturingPtt) return
@@ -642,15 +779,82 @@ export default function UserBar() {
 
   const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
 
+  const statusPopover = (
+    <div
+      ref={statusMenuRef}
+      className={`user-status-popover ${isMobileViewport ? 'user-status-popover--fixed' : ''}`}
+      style={isMobileViewport && statusPopoverAnchor
+        ? {
+          left: `${statusPopoverAnchor.left}px`,
+          bottom: `${statusPopoverAnchor.bottom}px`,
+          width: `${statusPopoverAnchor.width}px`,
+        }
+        : undefined}
+      role="dialog"
+      aria-label="SET YOUR STATUS"
+    >
+      <div className="user-status-popover-header">
+        <span className="user-status-popover-title">SET YOUR STATUS</span>
+      </div>
+      {statusError && (
+        <div className="user-status-popover-error">{statusError}</div>
+      )}
+      <div className="user-status-list">
+        {(['online', 'dnd', 'invisible'] as const).map((status) => (
+          <button
+            key={status}
+            type="button"
+            className={`user-status-option user-status-option-${status} ${((user?.status === 'offline' && status === 'invisible') || user?.status === status) ? 'active' : ''}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => updateMyStatus(status)}
+            disabled={statusSaving}
+            aria-pressed={(user?.status === 'offline' && status === 'invisible') || user?.status === status}
+          >
+            <span className="user-status-option-icon" aria-hidden>
+              <span className={`user-status-option-dot ${status}`} />
+            </span>
+              <span className="user-status-option-meta">
+              <span className="user-status-option-label">
+                {isMobileViewport ? mobilePopoverStatusLabel(status) : statusLabel(status)}
+              </span>
+              {statusDescription(status) && (
+                <span className="user-status-option-description">{statusDescription(status)}</span>
+              )}
+            </span>
+            {((user?.status === 'offline' && status === 'invisible') || user?.status === status) && (
+              <span className="user-status-option-check" aria-hidden>✓</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {statusSaving && (
+        <div className="user-status-popover-saving">Updating…</div>
+      )}
+      <div className="user-status-popover-footer">
+        <button
+          type="button"
+          className="user-status-popover-logout"
+          onClick={() => {
+            disconnect()
+            logout()
+            navigate(ROUTES.login, { replace: true })
+          }}
+        >
+          Log out
+        </button>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="user-bar-wrap" ref={statusToggleRef}>
-      <div className="user-panel">
+    <div className="user-bar-wrap" ref={userBarWrapRef}>
+      <div className="user-panel" ref={userPanelRef}>
+        <div ref={statusToggleRef} className="user-panel-status-anchor">
         <button
           type="button"
           className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
           onClick={() => {
-            setShowStatusMenu((v) => !v)
-            setStatusError(null)
+            toggleStatusMenu()
           }}
           title="Set status"
           aria-label="Set status"
@@ -665,81 +869,37 @@ export default function UserBar() {
           type="button"
           className="user-info user-info-btn"
           onClick={() => {
-            setShowStatusMenu((v) => !v)
-            setStatusError(null)
+            toggleStatusMenu()
           }}
           title="Set status"
           aria-label="Set status"
         >
           <div className="user-name">{user?.username || 'User'}</div>
-          <div className="user-status">{statusLabel(user?.status)}</div>
+          <div className="user-status-row">
+            <div className="user-status" title={statusLabel(user?.status)}>
+              {footerStatusLabel(user?.status)}
+            </div>
+            <span className="user-status-cue" aria-hidden>
+              <span className="user-status-cue-label">Status</span>
+              <ChevronsUpDown size={11} strokeWidth={2} />
+            </span>
+          </div>
         </button>
+        </div>
       </div>
       <button
         type="button"
         className="user-panel-icon-btn"
-        onClick={() => {
-          closeStatusMenu()
-          setShowSettingsPanel(true)
-        }}
+        ref={settingsButtonRef}
+        onClick={openSettingsPanel}
         title="User settings"
         aria-label="Settings"
       >
         <Settings size={18} />
       </button>
-      {showStatusMenu && (
-        <div ref={statusMenuRef} className="user-status-popover" role="dialog" aria-label="SET YOUR STATUS">
-          <div className="user-status-popover-header">
-            <span className="user-status-popover-title">SET YOUR STATUS</span>
-          </div>
-          {statusError && (
-            <div className="user-status-popover-error">{statusError}</div>
-          )}
-          <div className="user-status-list">
-            {(['online', 'dnd', 'invisible'] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                className={`user-status-option user-status-option-${status} ${((user?.status === 'offline' && status === 'invisible') || user?.status === status) ? 'active' : ''}`}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => updateMyStatus(status)}
-                disabled={statusSaving}
-                aria-pressed={(user?.status === 'offline' && status === 'invisible') || user?.status === status}
-              >
-                <span className="user-status-option-icon" aria-hidden>
-                  <span className={`user-status-option-dot ${status}`} />
-                </span>
-                <span className="user-status-option-meta">
-                  <span className="user-status-option-label">{statusLabel(status)}</span>
-                  {statusDescription(status) && (
-                    <span className="user-status-option-description">{statusDescription(status)}</span>
-                  )}
-                </span>
-                {((user?.status === 'offline' && status === 'invisible') || user?.status === status) && (
-                  <span className="user-status-option-check" aria-hidden>✓</span>
-                )}
-              </button>
-            ))}
-          </div>
-          {statusSaving && (
-            <div className="user-status-popover-saving">Updating…</div>
-          )}
-          <div className="user-status-popover-footer">
-            <button
-              type="button"
-              className="user-status-popover-logout"
-              onClick={() => {
-                disconnect()
-                logout()
-                navigate(ROUTES.login, { replace: true })
-              }}
-            >
-              Log out
-            </button>
-          </div>
-        </div>
-      )}
-      {showSettingsPanel && (
+      {showStatusMenu && !isMobileViewport && statusPopover}
+      {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(statusPopover, document.body)}
+      {showSettingsPanel && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={closeSettingsPanel}>
           <div className="modal user-settings-modal" onClick={(e) => e.stopPropagation()}>
             <header className="user-settings-header">
@@ -760,19 +920,11 @@ export default function UserBar() {
                 </button>
                 <button
                   type="button"
-                  className={`user-settings-nav__item ${activeSettingsSection === 'notifications' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('notifications')}
-                >
-                  <Bell size={16} />
-                  <span>Notifications</span>
-                </button>
-                <button
-                  type="button"
-                  className={`user-settings-nav__item ${activeSettingsSection === 'dm' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('dm')}
+                  className={`user-settings-nav__item ${activeSettingsSection === 'communication' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('communication')}
                 >
                   <MessageSquare size={16} />
-                  <span>Direct Messages</span>
+                  <span>Communication</span>
                 </button>
                 <button
                   type="button"
@@ -781,6 +933,14 @@ export default function UserBar() {
                 >
                   <Mic size={16} />
                   <span>Voice & Audio</span>
+                </button>
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'privacy' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('privacy')}
+                >
+                  <Shield size={16} />
+                  <span>Privacy & Data</span>
                 </button>
                 {isTauri() && (
                   <button
@@ -792,19 +952,11 @@ export default function UserBar() {
                     <span>Desktop</span>
                   </button>
                 )}
-                <button
-                  type="button"
-                  className={`user-settings-nav__item ${activeSettingsSection === 'privacy' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('privacy')}
-                >
-                  <Shield size={16} />
-                  <span>Privacy & Data</span>
-                </button>
               </nav>
               <div className="user-settings-scroll">
-              {activeSettingsSection === 'notifications' && (
+              {activeSettingsSection === 'communication' && (
               <section className="user-settings-section">
-                <h3 className="user-settings-section-title">Notifications</h3>
+                <h3 className="user-settings-section-title">Communication</h3>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Notification sounds</div>
@@ -822,11 +974,6 @@ export default function UserBar() {
                     {soundEnabled ? 'On' : 'Off'}
                   </button>
                 </div>
-              </section>
-              )}
-              {activeSettingsSection === 'dm' && (
-              <section className="user-settings-section">
-                <h3 className="user-settings-section-title">Direct Messages</h3>
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Who can send you DMs</div>
@@ -1217,7 +1364,7 @@ export default function UserBar() {
             </footer>
           </div>
         </div>
-      )}
+      ), document.body)}
       {showDeleteModal && (
         <div className="modal-overlay" onClick={closeDeleteModal}>
           <div className="modal pw-modal delete-account-modal" onClick={(e) => e.stopPropagation()}>

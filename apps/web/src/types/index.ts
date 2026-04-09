@@ -18,6 +18,14 @@ export interface Server {
     invite_code: string;
 }
 
+export interface ServerInvitePreview {
+    id: string;
+    name: string;
+    icon_url?: string;
+    invite_code: string;
+    member_count: number;
+}
+
 export interface Channel {
     id: string;
     server_id: string;

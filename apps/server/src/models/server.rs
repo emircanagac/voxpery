@@ -47,6 +47,15 @@ pub struct JoinServerRequest {
     pub invite_code: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ServerInvitePreview {
+    pub id: Uuid,
+    pub name: String,
+    pub icon_url: Option<String>,
+    pub invite_code: String,
+    pub member_count: i64,
+}
+
 /// Server details with member list (for sidebar)
 #[derive(Debug, Serialize)]
 pub struct ServerDetail {

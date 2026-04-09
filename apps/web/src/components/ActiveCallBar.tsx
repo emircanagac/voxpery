@@ -162,6 +162,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false)
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>(() => readScreenShareQuality())
   const [showCameraConfirm, setShowCameraConfirm] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+  )
   const lastShownErrorRef = useRef<string | null>(null)
   const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
   const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -485,12 +488,26 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     (channelParticipants.length > 0 || state.isScreenSharing || !!state.cameraStream || remoteVideoTrackEntries.length > 0)
 
   const getStageColumns = (tileCount: number) => {
+    if (isMobileViewport) {
+      if (tileCount <= 2) return 1
+      if (tileCount <= 6) return 2
+      return 3
+    }
     if (tileCount <= 1) return 1
     if (tileCount === 2) return 2
     if (tileCount <= 4) return 2
     if (tileCount <= 9) return 3
     return 4
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const media = window.matchMedia('(max-width: 900px)')
+    const sync = () => setIsMobileViewport(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
 
   // Auto-join disabled intentionally:
   // voice join/leave should only happen on explicit user action (sidebar confirm or callbar button).
@@ -799,7 +816,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const connectionStateClass = !hasActiveVoiceSession ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : roomConnected ? 'is-connected' : 'is-offline'
 
   const screenShareModal = showScreenShareConfirm && (
-    <div className="modal-overlay" onClick={() => setShowScreenShareConfirm(false)}>
+    <div className="modal-overlay modal-overlay--compact" onClick={() => setShowScreenShareConfirm(false)}>
       <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
         <h3>Share your screen</h3>
         <p>Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.</p>
@@ -822,7 +839,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   )
 
   const cameraModal = showCameraConfirm && (
-    <div className="modal-overlay" onClick={() => setShowCameraConfirm(false)}>
+    <div className="modal-overlay modal-overlay--compact" onClick={() => setShowCameraConfirm(false)}>
       <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
         <h3>Turn on camera</h3>
         <p>Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.</p>
@@ -1037,7 +1054,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                     className={`callbar-ping-inline-icon ${pingStateClass}`}
                     title={pingTooltip}
                     aria-label={pingTooltip}
-                    tabIndex={0}
                   >
                     <Wifi size={14} />
                   </span>

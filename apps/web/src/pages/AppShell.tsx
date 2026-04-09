@@ -1,5 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Menu } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
@@ -35,6 +36,9 @@ export default function AppShell() {
     incrementDmUnread,
     clearDmUnread,
     setActiveDmChannelId,
+    mobileSidebarPanel,
+    setMobileSidebarPanel,
+    closeMobileSidebar,
   } = useAppStore(
     useShallow((s) => ({
       setVoiceState: s.setVoiceState,
@@ -48,6 +52,9 @@ export default function AppShell() {
       incrementDmUnread: s.incrementDmUnread,
       clearDmUnread: s.clearDmUnread,
       setActiveDmChannelId: s.setActiveDmChannelId,
+      mobileSidebarPanel: s.mobileSidebarPanel,
+      setMobileSidebarPanel: s.setMobileSidebarPanel,
+      closeMobileSidebar: s.closeMobileSidebar,
     }))
   )
   const navigate = useNavigate()
@@ -325,6 +332,11 @@ export default function AppShell() {
     location.pathname === '/'
   const isServerView = !!activeServerId && location.pathname.startsWith('/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
+  const mobileSidebarTarget = isFriendsOrDm ? 'social' : isServerView ? 'channels' : 'none'
+
+  useEffect(() => {
+    closeMobileSidebar()
+  }, [closeMobileSidebar, location.pathname])
 
   const installDesktopUpdateNow = async () => {
     setInstallingDesktopUpdate(true)
@@ -352,6 +364,20 @@ export default function AppShell() {
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
         <div className="shell-left">
+          {mobileSidebarTarget !== 'none' && (
+            <button
+              type="button"
+              className={`shell-topbar-toggle ${mobileSidebarPanel === mobileSidebarTarget ? 'is-active' : ''}`}
+              onClick={() =>
+                setMobileSidebarPanel(
+                  mobileSidebarPanel === mobileSidebarTarget ? 'none' : mobileSidebarTarget,
+                )}
+              aria-label={mobileSidebarTarget === 'social' ? 'Toggle social sidebar' : 'Toggle channel sidebar'}
+              title={mobileSidebarTarget === 'social' ? 'Toggle social sidebar' : 'Toggle channel sidebar'}
+            >
+              <Menu size={18} />
+            </button>
+          )}
           <button type="button" className="shell-brand" onClick={() => navigate('/')}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>

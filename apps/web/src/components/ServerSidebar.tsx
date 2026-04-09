@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
-import { PlusCircle, LogIn, LogOut, Users } from 'lucide-react'
+import { PlusCircle, LogIn, LogOut, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -50,14 +50,17 @@ export default function ServerSidebar({
         })),
     )
 
+    const serverVoiceCounts = useMemo(() => {
+        const counts: Record<string, number> = {}
+        for (const [userId, serverId] of Object.entries(voiceStateServerIds)) {
+            if (!serverId || !voiceStates[userId]) continue
+            counts[serverId] = (counts[serverId] ?? 0) + 1
+        }
+        return counts
+    }, [voiceStateServerIds, voiceStates])
     const serverIdsWithActiveVoice = useMemo(
-        () =>
-            new Set<string>(
-                Object.entries(voiceStateServerIds)
-                    .filter(([userId, serverId]) => !!serverId && !!voiceStates[userId])
-                    .map(([, serverId]) => serverId as string),
-            ),
-        [voiceStateServerIds, voiceStates],
+        () => new Set<string>(Object.keys(serverVoiceCounts)),
+        [serverVoiceCounts],
     )
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
@@ -273,6 +276,7 @@ export default function ServerSidebar({
 
     const renderServerButton = (server: (typeof servers)[0]) => {
         const isVoiceActive = serverIdsWithActiveVoice.has(server.id)
+        const voiceCount = serverVoiceCounts[server.id] ?? 0
         const dropLineClass = getDropLineClass(server.id)
         return (
             <div key={server.id} className={`server-icon-wrapper ${dropLineClass}`}>
@@ -336,8 +340,13 @@ export default function ServerSidebar({
                 >
                     {server.icon_url ? <img src={server.icon_url} alt={server.name} /> : getInitial(server.name)}
                     {isVoiceActive && (
-                        <span className="server-voice-indicator" aria-label="Sesli sohbet aktif" title="Sesli sohbette biri var">
-                            <Users size={10} strokeWidth={3} aria-hidden />
+                        <span
+                            className="server-voice-indicator"
+                            aria-label={`${voiceCount} user${voiceCount === 1 ? '' : 's'} in voice`}
+                            title={voiceCount === 1 ? '1 user in voice' : `${voiceCount} users in voice`}
+                        >
+                            <Volume2 size={8} strokeWidth={2.4} aria-hidden />
+                            <span className="server-voice-indicator-count">{voiceCount > 9 ? '9+' : voiceCount}</span>
                         </span>
                     )}
                 </button>
@@ -460,7 +469,7 @@ export default function ServerSidebar({
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {isOwner ? (
+                        {isOwner && onOpenServerSettings ? (
                             <button
                                 type="button"
                                 className="server-context-menu-item"

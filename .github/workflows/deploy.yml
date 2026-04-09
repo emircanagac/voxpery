@@ -2,12 +2,22 @@ name: Manual Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_ref:
+        description: "Git ref to deploy (default: main)"
+        required: false
+        default: "main"
+        type: string
+      image_tag:
+        description: "Pinned Docker image tag to deploy (example: sha-abc1234)"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-main-manual
+  group: deploy-manual-${{ inputs.deploy_ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,10 +35,17 @@ jobs:
           command_timeout: 25m
           script: |
             cd ~/voxpery
-            git fetch origin main
-            git reset --hard origin/main
+            REF="${{ inputs.deploy_ref }}"
+            git fetch --tags origin
+            if git show-ref --verify --quiet "refs/remotes/origin/${REF}"; then
+              git checkout --detach "refs/remotes/origin/${REF}"
+            else
+              git checkout --detach "${REF}"
+            fi
+            export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${{ inputs.image_tag }}"
+            export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${{ inputs.image_tag }}"
             docker compose pull server web
             docker compose up -d --no-build --remove-orphans
             docker image prune -f
             curl -fsS http://127.0.0.1:3001/health >/dev/null
-            echo "Deploy complete"
+            echo "Deploy complete: ref=${{ inputs.deploy_ref }} image_tag=${{ inputs.image_tag }}"
