@@ -503,6 +503,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setOutgoingRequests(req.outgoing)
   }
 
+  const cancelOutgoingRequest = async (requestId: string) => {
+    if (!user) return
+    await friendApi.rejectRequest(requestId, token)
+    const req = await friendApi.requests(token)
+    setIncomingRequests(req.incoming)
+    setIncomingRequestCount(req.incoming.length)
+    setOutgoingRequests(req.outgoing)
+  }
+
   const confirmRemoveFriend = async () => {
     if (!user || !removeFriendTarget || removingFriend) return
     setRemovingFriend(true)
@@ -979,6 +988,17 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       outgoingRequests.map((r) => (
                         <div key={`out-${r.id}`} className="home-request-row home-request-row-outgoing">
                           <span>Pending to <strong>{r.receiver_username}</strong></span>
+                          <div className="home-request-actions">
+                            <button
+                              type="button"
+                              className="home-request-btn reject"
+                              title="Cancel request"
+                              aria-label={`Cancel request to ${r.receiver_username}`}
+                              onClick={() => void cancelOutgoingRequest(r.id)}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}

@@ -2,22 +2,12 @@ name: Manual Deploy
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy_ref:
-        description: "Git ref to deploy (default: main)"
-        required: false
-        default: "main"
-        type: string
-      image_tag:
-        description: "Pinned Docker image tag to deploy (example: sha-abc1234)"
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-manual-${{ inputs.deploy_ref }}
+  group: deploy-manual-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -35,17 +25,19 @@ jobs:
           command_timeout: 25m
           script: |
             cd ~/voxpery
-            REF="${{ inputs.deploy_ref }}"
+            REF="${{ github.ref_name }}"
             git fetch --tags origin
             if git show-ref --verify --quiet "refs/remotes/origin/${REF}"; then
               git checkout --detach "refs/remotes/origin/${REF}"
+              IMAGE_TAG="latest"
             else
               git checkout --detach "${REF}"
+              IMAGE_TAG="${REF}"
             fi
-            export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${{ inputs.image_tag }}"
-            export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${{ inputs.image_tag }}"
-            docker compose pull server web
-            docker compose up -d --no-build --remove-orphans
+            export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${IMAGE_TAG}"
+            export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${IMAGE_TAG}"
+            docker compose --profile security pull server web clamav
+            docker compose --profile security up -d --no-build --remove-orphans
             docker image prune -f
             curl -fsS http://127.0.0.1:3001/health >/dev/null
-            echo "Deploy complete: ref=${{ inputs.deploy_ref }} image_tag=${{ inputs.image_tag }}"
+            echo "Deploy complete: ref=${REF} image_tag=${IMAGE_TAG}"

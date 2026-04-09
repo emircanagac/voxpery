@@ -54,8 +54,16 @@ docker compose up -d --build
 docker compose ps
 ```
 
-ClamAV now starts by default in compose.
-To use malware scanning, keep `ATTACHMENTS_CLAMAV_ENABLED=1` in `.env`.
+ClamAV is disabled by default in compose.
+To use malware scanning in production:
+
+```bash
+ATTACHMENTS_CLAMAV_ENABLED=1 docker compose --profile security up -d
+```
+
+Or set `ATTACHMENTS_CLAMAV_ENABLED=1` in `.env` and always deploy with `--profile security`.
+
+The bundled GitHub Actions production deploy workflow expects your production `.env` to already contain the correct attachment scanning settings and deploys with `docker compose --profile security ...`.
 
 Default ports:
 

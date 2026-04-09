@@ -14,10 +14,16 @@ Local setup, scripts, and CI behavior for current codebase.
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 cp .env.example .env
-docker compose up -d postgres redis livekit clamav
+docker compose up -d postgres redis livekit
 ```
 
 This development flow uses Docker Compose for supporting services only. If you want the full stack in containers, use `docker compose up -d --build` instead and do not start the backend/frontend locally on the same ports.
+
+ClamAV is optional in development. To run it locally, start it explicitly:
+
+```bash
+docker compose --profile security up -d clamav
+```
 
 Backend:
 

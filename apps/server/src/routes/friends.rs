@@ -290,10 +290,10 @@ async fn reject_friend_request(
     .await?
     .ok_or(AppError::NotFound("Friend request not found".into()))?;
 
-    let (_requester_id, receiver_id, status) = req;
-    if receiver_id != claims.sub {
+    let (requester_id, receiver_id, status) = req;
+    if receiver_id != claims.sub && requester_id != claims.sub {
         return Err(AppError::Forbidden(
-            "Not allowed to reject this request".into(),
+            "Not allowed to update this request".into(),
         ));
     }
     if status != "pending" {
@@ -307,11 +307,17 @@ async fn reject_friend_request(
     .execute(&state.db)
     .await?;
 
-    notify_friend_update(&state, claims.sub);
-    notify_friend_update(&state, _requester_id);
+    notify_friend_update(&state, requester_id);
+    notify_friend_update(&state, receiver_id);
 
     Ok(Json(
-        serde_json::json!({ "message": "Friend request rejected" }),
+        serde_json::json!({
+            "message": if requester_id == claims.sub {
+                "Friend request canceled"
+            } else {
+                "Friend request rejected"
+            }
+        }),
     ))
 }
 

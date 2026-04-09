@@ -95,7 +95,7 @@ docker compose up -d --build
 # Open http://localhost:5173
 ```
 
-Note: ClamAV runs in Compose by default. File scanning is controlled by `ATTACHMENTS_CLAMAV_ENABLED` in `.env`.
+Note: ClamAV is disabled by default. To enable malware scanning, set `ATTACHMENTS_CLAMAV_ENABLED=1` and start Compose with `--profile security`.
 
 **Need production setup?** → See [**Deployment Guide**](docs/DEPLOYMENT.md)
 - Full Docker Compose deployment

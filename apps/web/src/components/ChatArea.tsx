@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -186,20 +186,13 @@ export default function ChatArea({
         overscan: 8,
     })
 
-    /* Scroll to bottom using native scrollTop so we don't depend on virtualizer scrollToIndex (avoids "Failed to scroll to index after 10 attempts" when panel is not yet laid out, e.g. Social DM on first paint). */
-    const scrollToBottomOnceReady = useCallback(() => {
-        let attempts = 0
-        const maxAttempts = 20
-        const tryScroll = () => {
-            const el = messagesScrollRef.current
-            if (el && el.clientHeight > 0) {
-                el.scrollTop = el.scrollHeight - el.clientHeight
-                return
-            }
-            attempts += 1
-            if (attempts < maxAttempts) requestAnimationFrame(tryScroll)
-        }
-        requestAnimationFrame(tryScroll)
+    /* Jump to bottom before paint when opening/switching chats so the user does
+       not see a visible "top -> bottom" scroll animation on first render. */
+    const snapToBottom = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el || el.clientHeight <= 0) return false
+        el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+        return true
     }, [])
 
     /* When switching channel/DM, reset auto-scroll and scroll to bottom so user sees latest messages */
@@ -207,25 +200,23 @@ export default function ChatArea({
         shouldAutoScrollRef.current = true
     }, [activeChannel?.id])
 
-    /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened from Messages view) */
-    useEffect(() => {
+    /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
+       from Messages view). useLayoutEffect keeps the first painted frame already
+       anchored to the latest message. */
+    useLayoutEffect(() => {
         if (messages.length === 0) return
         if (!shouldAutoScrollRef.current) return
-        const t = setTimeout(scrollToBottomOnceReady, 50)
-        return () => clearTimeout(t)
-         
-    }, [activeChannel?.id, messages.length, scrollToBottomOnceReady])
+        snapToBottom()
+    }, [activeChannel?.id, messages.length, snapToBottom])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
-    useEffect(() => {
+    useLayoutEffect(() => {
         const becameVisible = isViewActive === true && prevViewActiveRef.current === false
         prevViewActiveRef.current = isViewActive ?? true
         if (!becameVisible || messages.length === 0) return
         shouldAutoScrollRef.current = true
-        const t = setTimeout(scrollToBottomOnceReady, 80)
-        return () => clearTimeout(t)
-         
-    }, [isViewActive, messages.length, scrollToBottomOnceReady])
+        snapToBottom()
+    }, [isViewActive, messages.length, snapToBottom])
 
     /* When replying to a message, scroll so the replied-to message stays visible above the reply bar */
     useEffect(() => {

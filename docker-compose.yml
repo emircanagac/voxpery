@@ -47,6 +47,7 @@ services:
     image: clamav/clamav:1.4
     container_name: voxpery-clamav
     restart: unless-stopped
+    profiles: ["security"]
     logging: *default-logging
 
   # LiveKit runs on bridge networking for cross-platform Docker compatibility.

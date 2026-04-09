@@ -10,6 +10,8 @@ import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
 import GlobalLoading from './components/GlobalLoading'
+import AppShell from './pages/AppShell'
+import UnifiedLayout from './pages/UnifiedLayout'
 import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
@@ -19,8 +21,6 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
-const AppShell = lazy(() => import('./pages/AppShell'))
-const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
 
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()

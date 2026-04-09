@@ -196,6 +196,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Malware scan**:
   - Optional ClamAV (`ATTACHMENTS_CLAMAV_ENABLED=1`)
   - `ATTACHMENTS_CLAMAV_FAIL_CLOSED=1` blocks uploads if scanner is unavailable
+  - Docker Compose keeps ClamAV disabled by default; enable it explicitly with `--profile security`
 - **Storage backends**:
   - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
   - Upload metadata persisted in `uploaded_attachments`

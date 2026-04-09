@@ -14,10 +14,16 @@ Thanks for helping improve Voxpery.
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 cp .env.example .env
-docker compose up -d postgres redis livekit clamav
+docker compose up -d postgres redis livekit
 ```
 
 This starts only the local dependencies used during development. Do not run the full stack compose target if you also plan to start `cargo run` and `npm run dev`, because the containerized `server` and `web` services bind the same localhost ports.
+
+If you want ClamAV during development, start it explicitly:
+
+```bash
+docker compose --profile security up -d clamav
+```
 
 Run backend:
 

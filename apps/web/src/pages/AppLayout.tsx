@@ -301,6 +301,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [copiedInvite, setCopiedInvite] = useState<'link' | 'code' | null>(null)
     const [hasMoreOlder, setHasMoreOlder] = useState(true)
     const [loadingOlder, setLoadingOlder] = useState(false)
+    const [olderMessagesReady, setOlderMessagesReady] = useState(false)
     const [channelSearch, setChannelSearch] = useState('')
     const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
@@ -470,14 +471,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setChannelSearch('')
         setChannelSearchResults(null)
         setHasMoreOlder(true)
+        setOlderMessagesReady(false)
         const cached = messagesByChannelRef.current[activeChannelId]
         setMessages(cached ?? [])
         messageApi.list(activeChannelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             messagesByChannelRef.current[activeChannelId] = ui
             setMessages(ui)
-            if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
-        }).catch(console.error)
+            setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+            setOlderMessagesReady(true)
+        }).catch((err) => {
+            console.error(err)
+            setHasMoreOlder(false)
+            setOlderMessagesReady(true)
+        })
     }, [activeChannelId, isLoggedIn, token])
 
     useEffect(() => {
@@ -2242,7 +2249,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     avatar_url: member.avatar_url,
                 }))}
                 isViewActive={isViewActive}
-                hasMoreOlder={!channelSearch.trim() && hasMoreOlder}
+                hasMoreOlder={!channelSearch.trim() && olderMessagesReady && hasMoreOlder}
                 loadingOlder={loadingOlder}
                 onLoadOlder={loadOlderMessages}
                 onScrollRefReady={(ref) => { messagesScrollRef.current = ref }}

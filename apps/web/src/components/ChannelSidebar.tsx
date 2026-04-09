@@ -283,7 +283,7 @@ export default function ChannelSidebar({
                             title="Create Channel"
                         >
                             <Plus size={16} />
-                            Create Channel
+                            Channel
                         </button>
                         {onOpenCreateCategory && (
                             <button
@@ -293,7 +293,7 @@ export default function ChannelSidebar({
                                 title="Create Category"
                             >
                                 <Plus size={16} />
-                                Create Category
+                                Category
                             </button>
                         )}
                     </div>
