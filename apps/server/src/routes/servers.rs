@@ -100,6 +100,41 @@ struct ServerBanEntry {
     banned_by_username: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct ReportUserRequest {
+    reported_user_id: Uuid,
+    reason: String,
+    details: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ReportMessageRequest {
+    message_id: Uuid,
+    reason: String,
+    details: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+struct ServerReportEntry {
+    id: Uuid,
+    server_id: Uuid,
+    reporter_user_id: Uuid,
+    reporter_username: String,
+    reported_user_id: Uuid,
+    reported_username: String,
+    channel_id: Option<Uuid>,
+    channel_name: Option<String>,
+    message_id: Option<Uuid>,
+    message_excerpt: Option<String>,
+    reason: String,
+    details: Option<String>,
+    status: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    resolved_by: Option<Uuid>,
+    resolved_by_username: Option<String>,
+}
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/invite/{invite_code}", get(get_invite_preview))
@@ -133,6 +168,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/{server_id}/members/{user_id}", delete(kick_member))
                 .route("/{server_id}/bans", get(list_bans))
                 .route("/{server_id}/bans/{user_id}", delete(unban_member))
+                .route("/{server_id}/reports", get(list_reports))
+                .route("/{server_id}/reports/user", post(report_user))
+                .route("/{server_id}/reports/message", post(report_message))
+                .route("/{server_id}/reports/{report_id}/resolve", post(resolve_report))
                 .route("/{server_id}/audit-log", get(get_audit_log))
                 .route("/join", post(join_server))
                 .route("/{server_id}/leave", post(leave_server))
@@ -149,6 +188,34 @@ fn visible_presence(status: &str, has_session: bool) -> String {
         "invisible" | "offline" => "offline".to_string(),
         _ => "online".to_string(),
     }
+}
+
+fn normalize_report_reason(reason: &str) -> Result<String, AppError> {
+    let normalized = reason.trim().to_ascii_lowercase();
+    let allowed = [
+        "spam",
+        "harassment",
+        "inappropriate_content",
+        "impersonation",
+        "other",
+    ];
+    if !allowed.contains(&normalized.as_str()) {
+        return Err(AppError::Validation("Invalid report reason".into()));
+    }
+    Ok(normalized)
+}
+
+fn normalize_report_details(details: Option<&str>) -> Result<Option<String>, AppError> {
+    let trimmed = details.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(value) = trimmed {
+        if value.len() > 500 {
+            return Err(AppError::Validation(
+                "Report details must be at most 500 characters".into(),
+            ));
+        }
+        return Ok(Some(value.to_string()));
+    }
+    Ok(None)
 }
 
 /// GET /api/servers/invite/:invite_code — public preview for invite pages.
@@ -1063,6 +1130,7 @@ async fn list_channels(
                 id: channel.id,
                 server_id: channel.server_id,
                 name: channel.name,
+                description: channel.description,
                 channel_type: channel.channel_type,
                 category: channel.category,
                 position: channel.position,
@@ -1080,6 +1148,7 @@ struct ChannelWithPermissions {
     id: Uuid,
     server_id: Uuid,
     name: String,
+    description: Option<String>,
     channel_type: String,
     category: Option<String>,
     position: i32,
@@ -1584,6 +1653,223 @@ async fn ban_member(
         "message": "Member banned",
         "removed_member": removed_member
     })))
+}
+
+async fn report_user(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<ReportUserRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_SERVER,
+    )
+    .await?;
+
+    if body.reported_user_id == claims.sub {
+        return Err(AppError::Validation("Cannot report yourself".into()));
+    }
+
+    let reason = normalize_report_reason(&body.reason)?;
+    let details = normalize_report_details(body.details.as_deref())?;
+
+    let member_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(body.reported_user_id)
+    .fetch_one(&state.db)
+    .await?;
+    if member_exists == 0 {
+        return Err(AppError::NotFound("Member not found".into()));
+    }
+
+    sqlx::query(
+        r#"INSERT INTO server_reports (
+                id, server_id, reporter_user_id, reported_user_id, reason, details, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, NOW())"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(server_id)
+    .bind(claims.sub)
+    .bind(body.reported_user_id)
+    .bind(reason)
+    .bind(details)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Report submitted" })))
+}
+
+async fn report_message(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<ReportMessageRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_SERVER,
+    )
+    .await?;
+
+    let reason = normalize_report_reason(&body.reason)?;
+    let details = normalize_report_details(body.details.as_deref())?;
+
+    let row = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+        r#"SELECT m.user_id,
+                  m.channel_id,
+                  LEFT(m.content, 280) AS excerpt
+           FROM messages m
+           INNER JOIN channels c ON c.id = m.channel_id
+           WHERE m.id = $1 AND c.server_id = $2"#,
+    )
+    .bind(body.message_id)
+    .bind(server_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Message not found".into()))?;
+
+    let (reported_user_id, channel_id, message_excerpt) = row;
+    if reported_user_id == claims.sub {
+        return Err(AppError::Validation("Cannot report your own message".into()));
+    }
+
+    sqlx::query(
+        r#"INSERT INTO server_reports (
+                id, server_id, reporter_user_id, reported_user_id, channel_id, message_id, message_excerpt, reason, details, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(server_id)
+    .bind(claims.sub)
+    .bind(reported_user_id)
+    .bind(channel_id)
+    .bind(body.message_id)
+    .bind(message_excerpt)
+    .bind(reason)
+    .bind(details)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Report submitted" })))
+}
+
+async fn list_reports(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<ServerReportEntry>>, AppError> {
+    if permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_AUDIT_LOG,
+    )
+    .await
+    .is_err()
+        && permissions::ensure_server_permission(
+            &state.db,
+            server_id,
+            claims.sub,
+            Permissions::BAN_MEMBERS,
+        )
+        .await
+        .is_err()
+    {
+        return Err(AppError::Forbidden("Missing permission to view reports".into()));
+    }
+
+    let rows = sqlx::query_as::<_, ServerReportEntry>(
+        r#"SELECT sr.id,
+                  sr.server_id,
+                  sr.reporter_user_id,
+                  reporter.username AS reporter_username,
+                  sr.reported_user_id,
+                  reported.username AS reported_username,
+                  sr.channel_id,
+                  c.name AS channel_name,
+                  sr.message_id,
+                  sr.message_excerpt,
+                  sr.reason,
+                  sr.details,
+                  sr.status,
+                  sr.created_at,
+                  sr.resolved_at,
+                  sr.resolved_by,
+                  resolver.username AS resolved_by_username
+           FROM server_reports sr
+           INNER JOIN users reporter ON reporter.id = sr.reporter_user_id
+           INNER JOIN users reported ON reported.id = sr.reported_user_id
+           LEFT JOIN users resolver ON resolver.id = sr.resolved_by
+           LEFT JOIN channels c ON c.id = sr.channel_id
+           WHERE sr.server_id = $1
+           ORDER BY
+             CASE WHEN sr.status = 'open' THEN 0 ELSE 1 END,
+             sr.created_at DESC"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+async fn resolve_report(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, report_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_AUDIT_LOG,
+    )
+    .await
+    .is_err()
+        && permissions::ensure_server_permission(
+            &state.db,
+            server_id,
+            claims.sub,
+            Permissions::BAN_MEMBERS,
+        )
+        .await
+        .is_err()
+    {
+        return Err(AppError::Forbidden("Missing permission to resolve reports".into()));
+    }
+
+    let reported_user_id = sqlx::query_scalar::<_, Uuid>(
+        r#"UPDATE server_reports
+           SET status = 'resolved', resolved_at = NOW(), resolved_by = $3
+           WHERE id = $1 AND server_id = $2
+           RETURNING reported_user_id"#,
+    )
+    .bind(report_id)
+    .bind(server_id)
+    .bind(claims.sub)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Report not found".into()))?;
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "report_resolve",
+        "report",
+        Some(reported_user_id),
+        Some(serde_json::json!({ "report_id": report_id })),
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Report resolved" })))
 }
 
 async fn list_bans(

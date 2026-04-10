@@ -43,6 +43,8 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 - 🎙️ **Crystal-clear voice** — LiveKit SFU, auto quality adaptation, screen sharing
 - 💬 **Text & DMs** — Servers, channels, direct messages with real-time typing
 - 👥 **Friends & social** — Add friends, see status, mutual presence
+- 🔎 **Fast navigation** — Quick switcher for server, channel, and DM jumps
+- 😊 **Reactions & attachments** — Emoji reactions, uploads, signed attachment access
 
 ### Security & Privacy
 - 🔒 **Secure auth defaults** — JWT + Argon2id, httpOnly cookies, Google OAuth support
@@ -50,11 +52,13 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 - 🏠 **Self-hosted** — Full control of your data, run on your server
 - 📎 **Scoped attachment access** — Signed URLs + server/DM viewer authorization
 - 🔐 **Open source** — Audit-ready code, AGPL license
+- 🚨 **Trust & safety basics** — User/message reporting, bans, audit log, moderation surfaces
 
 ### Performance
 - ⚡ **Lightweight desktop client** — Tauri-based app with low runtime overhead
 - 🚀 **Fast deployment** — Docker Compose, one command
 - 📦 **Scalable** — PostgreSQL + Redis, horizontal scaling ready
+- 🔔 **Desktop feedback** — Tray unread dot and taskbar attention on desktop
 
 
 

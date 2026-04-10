@@ -19,6 +19,16 @@ import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import {
+  applyUploadedDraftAttachments,
+  createUploadingDraftAttachments,
+  getUploadedDraftAttachments,
+  hasPendingDraftAttachments,
+  markDraftAttachmentsFailed,
+  setDraftAttachmentUploading,
+  type DraftAttachmentItem,
+} from '../draftAttachments'
+import { mergeRemoteWithRetryableLocals } from '../messageResilience'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 
 type FriendsFilter = 'all' | 'online' | 'requests'
@@ -83,7 +93,7 @@ function OnboardingCard({
 
 export default function HomePage({ isMessagesView = true }: { isMessagesView?: boolean }) {
   const { token, user } = useAuthStore()
-  const { subscribe, send, isConnected } = useSocketStore()
+  const { subscribe, send, isConnected, onReconnect } = useSocketStore()
   const {
     servers: storeServers,
     setServersLoading,
@@ -194,7 +204,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [forwardDmPickerMessageId, setForwardDmPickerMessageId] = useState<string | null>(null)
   const [deleteDmConfirmMessageId, setDeleteDmConfirmMessageId] = useState<string | null>(null)
   const [replyingToDm, setReplyingToDm] = useState<{ id: string; username: string; contentSnippet: string } | null>(null)
-  const [dmDraftAttachments, setDmDraftAttachments] = useState<Array<{ id?: string; name: string; url: string; size: number; type: string }>>([])
+  const [dmDraftAttachments, setDmDraftAttachments] = useState<DraftAttachmentItem[]>([])
   const forwardDmPickerRef = useRef<HTMLDivElement | null>(null)
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
@@ -268,28 +278,31 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const onlineFriends = friends.filter((f) => f.status !== 'offline')
   const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
-  useEffect(() => {
-    if (!user || !activeDmChannelId) return
-    const channelId = activeDmChannelId
+  const refreshActiveDmConversation = useCallback(async (channelId: string) => {
+    if (!user) return
     const cached = dmMessagesByChannelRef.current[channelId]
     setDmMessages(cached ?? [])
-    dmApi
-      .listMessages(channelId, token)
-      .then((rows) => {
-        const ui = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
-        dmMessagesByChannelRef.current[channelId] = ui
-        setDmMessages(ui)
-      })
-      .catch((err) => {
-        if (isDmAccessForbidden(err)) {
-          setActiveDmChannelId(null)
-          setView('friends')
-          setPersistedSocialView('friends')
-        } else {
-          console.error(err)
-        }
-      })
-  }, [activeDmChannelId, token, user, setActiveDmChannelId, setView])
+    try {
+      const rows = await dmApi.listMessages(channelId, token)
+      const ui = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
+      const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
+      dmMessagesByChannelRef.current[channelId] = merged
+      setDmMessages(merged)
+    } catch (err) {
+      if (isDmAccessForbidden(err)) {
+        setActiveDmChannelId(null)
+        setView('friends')
+        setPersistedSocialView('friends')
+      } else {
+        console.error(err)
+      }
+    }
+  }, [token, user, setActiveDmChannelId, setView])
+
+  useEffect(() => {
+    if (!user || !activeDmChannelId) return
+    void refreshActiveDmConversation(activeDmChannelId)
+  }, [activeDmChannelId, refreshActiveDmConversation, user])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
@@ -326,6 +339,20 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!activeDmChannelId) return
     dmApi.listPins(activeDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
   }, [activeDmChannelId, token])
+
+  useEffect(() => {
+    if (!user) return
+    const unsubscribe = onReconnect(() => {
+      void refreshServersAndFriends().catch(() => {})
+
+      const currentDmChannelId = activeDmChannelIdRef.current
+      if (currentDmChannelId) {
+        void refreshActiveDmConversation(currentDmChannelId)
+        dmApi.listPins(currentDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
+      }
+    })
+    return () => unsubscribe()
+  }, [onReconnect, refreshActiveDmConversation, refreshServersAndFriends, token, user])
 
   const handlePinDmMessage = useCallback(async (messageId: string) => {
     if (!user || !activeDmChannelId) return
@@ -574,33 +601,58 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       })
     }
     if (allowed.length === 0) return
+    const pending = createUploadingDraftAttachments(allowed)
+    const pendingIds = pending.map((attachment) => attachment.localId)
+    setDmDraftAttachments((prev) => [...prev, ...pending].slice(0, 4))
     try {
       const uploaded = await attachmentApi.uploadFiles(allowed, token)
-      const normalized = uploaded.map((att) => ({
-        id: att.id,
-        name: att.name || 'attachment',
-        url: att.url,
-        size: typeof att.size === 'number' ? att.size : 0,
-        type: att.type || 'application/octet-stream',
-      }))
-      setDmDraftAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+      setDmDraftAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
       pushToast({
         level: 'error',
         title: 'Upload failed',
-        message: err instanceof Error ? err.message : 'Could not upload attachment(s).',
+        message: errorMessage,
       })
     }
   }
 
+  const handleRetryDmAttachment = useCallback(async (localId: string) => {
+    const target = dmDraftAttachments.find((attachment) => attachment.localId === localId)
+    if (!target?.file) return
+    setDmDraftAttachments((prev) => setDraftAttachmentUploading(prev, localId))
+    try {
+      const [uploaded] = await attachmentApi.uploadFiles([target.file], token)
+      if (!uploaded) throw new Error('Could not upload attachment.')
+      setDmDraftAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+      pushToast({
+        level: 'error',
+        title: 'Upload failed',
+        message: errorMessage,
+      })
+    }
+  }, [dmDraftAttachments, pushToast, token])
+
   const handleSendDm = async () => {
     if (!user || !activeDmChannelId) return
+    if (hasPendingDraftAttachments(dmDraftAttachments)) {
+      pushToast({
+        level: 'error',
+        title: 'Attachment still pending',
+        message: 'Finish uploading attachments or retry failed ones before sending.',
+      })
+      return
+    }
     const bodyText = dmInput.trim()
-    if (!bodyText && dmDraftAttachments.length === 0) return
+    const attachmentsToSend = getUploadedDraftAttachments(dmDraftAttachments)
+    if (!bodyText && attachmentsToSend.length === 0) return
     const content = replyingToDm
       ? `> @${replyingToDm.username}: ${replyingToDm.contentSnippet}\n\n${bodyText}`
       : bodyText
-    const attachmentsToSend = dmDraftAttachments
     setReplyingToDm(null)
     setDmInput('')
     setDmDraftAttachments([])
@@ -1177,6 +1229,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 messageInput={dmInput}
                 onPickAttachments={handleDmAttachmentPick}
                 onRemoveAttachment={(index) => setDmDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
+                onRetryAttachment={handleRetryDmAttachment}
                 onMessageInputChange={setDmInput}
                 onSendMessage={handleSendDm}
                 onRetryMessage={handleRetryDmMessage}

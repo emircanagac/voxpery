@@ -18,7 +18,7 @@ interface MemberItemProps {
     canManageRoles: boolean
     myRole: string
     interactive: boolean
-    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean) => void
+    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
     onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
 
@@ -66,7 +66,8 @@ const MemberItem = memo(function MemberItem({
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
-    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canKick || canBan)
+    const canReport = member.user_id !== currentUserId
+    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canKick || canBan || canReport)
 
     return (
         <div
@@ -78,7 +79,7 @@ const MemberItem = memo(function MemberItem({
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick, canBan)
+                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick, canBan, canReport)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -107,12 +108,14 @@ export default function MemberSidebar({
     canKickMembers,
     canBanMembers,
     canManageRolesFromPerms,
+    onReportMember,
     variant = 'sidebar',
     interactive = true,
 }: {
     canKickMembers: boolean
     canBanMembers: boolean
     canManageRolesFromPerms: boolean
+    onReportMember?: (member: { user_id: string; username: string }) => void
     variant?: 'sidebar' | 'sheet'
     interactive?: boolean
 }) {
@@ -148,6 +151,7 @@ export default function MemberSidebar({
         canAddFriend: boolean
         canKick: boolean
         canBan: boolean
+        canReport: boolean
     } | null>(null)
     const [roleEditor, setRoleEditor] = useState<{
         userId: string
@@ -415,9 +419,10 @@ export default function MemberSidebar({
         canMakeAdmin: boolean,
         canAddFriend: boolean,
         canKick: boolean,
-        canBan: boolean
+        canBan: boolean,
+        canReport: boolean
     ) => {
-        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0)
+        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
         const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
         setProfileCard(null)
         setContextMenu({
@@ -430,6 +435,7 @@ export default function MemberSidebar({
             canAddFriend,
             canKick,
             canBan,
+            canReport,
         })
     }, [])
 
@@ -557,6 +563,18 @@ export default function MemberSidebar({
                             }}
                         >
                             Manage roles
+                        </button>
+                    )}
+                    {contextMenu.canReport && onReportMember && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            onClick={() => {
+                                onReportMember({ user_id: contextMenu.userId, username: contextMenu.username })
+                                setContextMenu(null)
+                            }}
+                        >
+                            Report user
                         </button>
                     )}
                     {contextMenu.canKick && (

@@ -4,6 +4,7 @@ import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, P
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel, Friend } from '../api'
+import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from './EmojiPicker'
 import MessageInlineActions from './MessageInlineActions'
@@ -18,21 +19,38 @@ type MentionUser = {
     user_id: string
     username: string
     avatar_url?: string | null
+    status?: string | null
 }
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
+
+function mentionPresenceRank(status?: string | null): number {
+    const normalized = (status ?? 'offline').toLowerCase()
+    if (normalized === 'online' || normalized === 'dnd') return 0
+    if (normalized === 'invisible') return 2
+    return 1
+}
+
+function mentionStatusTone(status?: string | null): 'online' | 'dnd' | 'offline' {
+    const normalized = (status ?? 'offline').toLowerCase()
+    if (normalized === 'online') return 'online'
+    if (normalized === 'dnd') return 'dnd'
+    return 'offline'
+}
 interface ChatAreaProps {
     activeChannel: Channel | undefined
     messages: UiMessage[]
-    draftAttachments: Array<{ name: string; url: string; size: number; type: string }>
+    draftAttachments: DraftAttachmentItem[]
     messageInput: string
     onPickAttachments: (files: FileList | null) => void
     onRemoveAttachment: (index: number) => void
+    onRetryAttachment?: (localId: string) => void
     onMessageInputChange: (value: string) => void
     onSendMessage: (e?: FormEvent) => void
     onRetryMessage: (clientId: string) => void
     onDeleteMessage?: (messageId: string) => void
+    onReportMessage?: (msg: { id: string; author?: { user_id?: string; username?: string }; content: string }) => void
     onReplyToMessage?: (msg: { id: string; author?: { username?: string }; content: string }) => void
     replyingTo?: { id: string; username: string; contentSnippet: string } | null
     onCancelReply?: () => void
@@ -73,6 +91,9 @@ interface ChatAreaProps {
     onOpenMemberSheet?: () => void
     unreadDividerCount?: number
     loading?: boolean
+    emptyStateTitle?: string
+    emptyStateDescription?: string
+    emptyStateActions?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>
 }
 
 export default function ChatArea({
@@ -82,10 +103,12 @@ export default function ChatArea({
     messageInput,
     onPickAttachments,
     onRemoveAttachment,
+    onRetryAttachment,
     onMessageInputChange,
     onSendMessage,
     onRetryMessage,
     onDeleteMessage,
+    onReportMessage,
     onReplyToMessage,
     replyingTo,
     onCancelReply,
@@ -121,6 +144,9 @@ export default function ChatArea({
     onOpenMemberSheet,
     unreadDividerCount = 0,
     loading = false,
+    emptyStateTitle,
+    emptyStateDescription,
+    emptyStateActions,
 }: ChatAreaProps) {
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
@@ -159,13 +185,19 @@ export default function ChatArea({
     const textChannelsForForward = channelsForForward?.filter((c) => c.channel_type === 'text' && c.id !== activeChannel?.id) ?? []
     const mentionCandidates = useMemo(() => {
         const seen = new Set<string>()
-        return mentionUsers.filter((member) => {
-            const key = member.username.trim().toLowerCase()
-            if (!key || seen.has(key)) return false
-            if (key === 'all') return false
-            seen.add(key)
-            return true
-        })
+        return mentionUsers
+            .filter((member) => {
+                const key = member.username.trim().toLowerCase()
+                if (!key || seen.has(key)) return false
+                if (key === 'all') return false
+                seen.add(key)
+                return true
+            })
+            .sort((a, b) => {
+                const rankDiff = mentionPresenceRank(a.status) - mentionPresenceRank(b.status)
+                if (rankDiff !== 0) return rankDiff
+                return a.username.localeCompare(b.username)
+            })
     }, [mentionUsers])
     const mentionSuggestions = useMemo(() => {
         if (!mentionOpen) return []
@@ -688,7 +720,15 @@ export default function ChatArea({
                     <span className="channel-hash">
                         <Volume2 size={20} />
                     </span>
-                    <span className="channel-title">{activeChannel.name}</span>
+                    <div className="channel-header-copy">
+                        <span className="channel-title">{activeChannel.name}</span>
+                        {activeChannel.description?.trim() && (
+                            <>
+                                <span className="channel-description-separator" aria-hidden="true" />
+                                <span className="channel-description">{activeChannel.description.trim()}</span>
+                            </>
+                        )}
+                    </div>
                     {showMemberSheetButton && onOpenMemberSheet && (
                         <div className="chat-header-right">
                             <button
@@ -714,7 +754,15 @@ export default function ChatArea({
                 <span className="channel-hash">
                     <Hash size={20} />
                 </span>
-                <span className="channel-title">{activeChannel.name}</span>
+                <div className="channel-header-copy">
+                    <span className="channel-title">{activeChannel.name}</span>
+                    {activeChannel.description?.trim() && (
+                        <>
+                            <span className="channel-description-separator" aria-hidden="true" />
+                            <span className="channel-description">{activeChannel.description.trim()}</span>
+                        </>
+                    )}
+                </div>
                 <div className="chat-header-right">
                     {onSearchChange && (
                         <div
@@ -877,8 +925,22 @@ export default function ChatArea({
                         <div className="welcome-icon">
                             <Hash size={36} />
                         </div>
-                        <h2>Welcome to #{activeChannel.name}!</h2>
-                        <p>This is the beginning of the channel. Start the conversation!</p>
+                        <h2>{emptyStateTitle ?? `Welcome to #${activeChannel.name}!`}</h2>
+                        <p>{emptyStateDescription ?? activeChannel.description?.trim() ?? 'This is the beginning of the channel. Start the conversation!'}</p>
+                        {emptyStateActions && emptyStateActions.length > 0 && (
+                            <div className="welcome-screen-actions">
+                                {emptyStateActions.map((action) => (
+                                    <button
+                                        key={action.label}
+                                        type="button"
+                                        className={`home-onboarding-btn ${action.variant === 'secondary' ? 'home-onboarding-btn--secondary' : ''}`}
+                                        onClick={action.onClick}
+                                    >
+                                        {action.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div
@@ -961,6 +1023,7 @@ export default function ChatArea({
                                                         } : undefined}
                                                         canForward={!!onForwardMessage}
                                                         onForward={onForwardMessage ? () => setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) : undefined}
+                                                        onReport={msg.author?.user_id !== currentUserId && onReportMessage ? () => onReportMessage(msg) : undefined}
                                                         onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
                                                             const parsed = parseReplyContent(msg.content)
                                                             if (parsed) {
@@ -1105,6 +1168,12 @@ export default function ChatArea({
                                     applyMention(member)
                                 }}
                             >
+                                {member.user_id !== '__all__' && (
+                                    <span
+                                        className={`mention-suggest-status mention-suggest-status--${mentionStatusTone(member.status)}`}
+                                        aria-hidden="true"
+                                    />
+                                )}
                                 <span className="mention-suggest-name">@{member.username}</span>
                                 {member.user_id === '__all__' && (
                                     <span className="mention-suggest-hint">Notify everyone</span>
@@ -1196,7 +1265,26 @@ export default function ChatArea({
                     <div className="dm-draft-attachments">
                         {draftAttachments.map((att, i) => (
                             <div key={`${att.name}-${i}`} className="dm-draft-attachment">
-                                <span>{att.name}</span>
+                                <div className="dm-draft-attachment-meta">
+                                    <span>{att.name}</span>
+                                    {att.uploadStatus === 'uploading' && (
+                                        <span className="dm-draft-attachment-state">Uploading...</span>
+                                    )}
+                                    {att.uploadStatus === 'failed' && (
+                                        <span className="dm-draft-attachment-state is-failed">
+                                            {att.uploadError || 'Upload failed'}
+                                        </span>
+                                    )}
+                                </div>
+                                {att.uploadStatus === 'failed' && onRetryAttachment && (
+                                    <button
+                                        type="button"
+                                        className="dm-draft-attachment-retry"
+                                        onClick={() => onRetryAttachment(att.localId)}
+                                    >
+                                        Retry
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     className="dm-msg-btn"

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { useSocketStore } from '../stores/socket'
 import UnifiedSidebar from '../components/UnifiedSidebar'
 import HomePage from './HomePage'
 import AppLayout from './AppLayout'
@@ -25,6 +26,7 @@ export default function UnifiedLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, token } = useAuthStore()
+  const { onReconnect } = useSocketStore()
   const {
     activeServerId,
     setActiveServer,
@@ -118,6 +120,16 @@ export default function UnifiedLayout() {
       window.clearInterval(id)
     }
   }, [resetIncomingRequestCount, setIncomingRequestCount, token, user])
+
+  useEffect(() => {
+    if (!user) return
+    const unsubscribe = onReconnect(() => {
+      friendApi.requests(token)
+        .then((req) => setIncomingRequestCount(req.incoming.length))
+        .catch(() => {})
+    })
+    return () => unsubscribe()
+  }, [onReconnect, setIncomingRequestCount, token, user])
 
   const handleOpenServerSettings = (id: string) => {
     setOpenServerSettingsForServerId(id)

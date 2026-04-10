@@ -10,15 +10,17 @@ Voxpery aims to be the leading open-source Discord alternative, prioritizing pri
 - [x] Comprehensive test suite (frontend + backend + E2E)
 - [x] Community documentation (CONTRIBUTING.md, CODE_OF_CONDUCT)
 - [x] Production deployment guide
+- [x] Desktop quick switcher and tray/taskbar unread feedback
 - [ ] Desktop auto-updater (T1)
 
 ## Q2 2026 (Planned)
 - [ ] Multi-language support (i18n)
 - [ ] Voice activity detection improvements
-- [ ] Desktop tray animation (T2)
 - [ ] Public server discovery
 - [ ] Bot framework / API
-- [ ] Message search & filtering
+- [ ] Saved media / bookmarks
+- [ ] GIF / sticker / custom emoji
+- [ ] Richer message search & filtering
 
 ## Q3 2026 (Future)
 - [ ] Mobile app (React Native)
@@ -32,7 +34,7 @@ Voxpery aims to be the leading open-source Discord alternative, prioritizing pri
 ## Q4 2026 (Long-term)
 - [ ] Horizontal scaling improvements
 - [ ] Enterprise features (SSO, SAML)
-- [ ] Advanced moderation tools
+- [ ] Advanced moderation tools beyond reporting / bans / audit flows
 - [ ] Video calling (1:1 + group)
 - [ ] Community marketplace (themes, bots, extensions)
 - [ ] Performance optimization for 10K+ concurrent users
@@ -45,5 +47,5 @@ We value community feedback! Please:
 
 ---
 
-*Last updated: March 3, 2026*
+*Last updated: April 11, 2026*
 *This roadmap is subject to change based on community feedback and priorities.*

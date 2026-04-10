@@ -528,6 +528,26 @@ export interface ServerBanEntry {
     banned_by_username: string
 }
 
+export interface ServerReportEntry {
+    id: string
+    server_id: string
+    reporter_user_id: string
+    reporter_username: string
+    reported_user_id: string
+    reported_username: string
+    channel_id: string | null
+    channel_name: string | null
+    message_id: string | null
+    message_excerpt: string | null
+    reason: string
+    details: string | null
+    status: 'open' | 'resolved'
+    created_at: string
+    resolved_at: string | null
+    resolved_by: string | null
+    resolved_by_username: string | null
+}
+
 export interface UploadedAttachment {
     id: string
     url: string
@@ -575,6 +595,41 @@ export const serverApi = {
 
     listBans: (serverId: string, token: AuthToken) =>
         apiFetch<ServerBanEntry[]>(`/api/servers/${serverId}/bans`, { token }),
+
+    listReports: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerReportEntry[]>(`/api/servers/${serverId}/reports`, { token }),
+
+    reportUser: (
+        serverId: string,
+        reportedUserId: string,
+        reason: string,
+        details: string | null,
+        token: AuthToken,
+    ) =>
+        apiFetch<void>(`/api/servers/${serverId}/reports/user`, {
+            method: 'POST',
+            body: { reported_user_id: reportedUserId, reason, details },
+            token,
+        }),
+
+    reportMessage: (
+        serverId: string,
+        messageId: string,
+        reason: string,
+        details: string | null,
+        token: AuthToken,
+    ) =>
+        apiFetch<void>(`/api/servers/${serverId}/reports/message`, {
+            method: 'POST',
+            body: { message_id: messageId, reason, details },
+            token,
+        }),
+
+    resolveReport: (serverId: string, reportId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/reports/${reportId}/resolve`, {
+            method: 'POST',
+            token,
+        }),
 
     unbanMember: (serverId: string, userId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}/bans/${userId}`, { method: 'DELETE', token }),
@@ -656,20 +711,21 @@ export const channelApi = {
         channelType: string,
         token: AuthToken,
         category?: string,
+        description?: string,
     ) =>
         apiFetch<Channel>('/api/channels', {
             method: 'POST',
-            body: { server_id: serverId, name, channel_type: channelType, category },
+            body: { server_id: serverId, name, description, channel_type: channelType, category },
             token,
         }),
 
     delete: (channelId: string, token: AuthToken) =>
         apiFetch<void>(`/api/channels/${channelId}`, { method: 'DELETE', token }),
 
-    rename: (channelId: string, name: string, token: AuthToken, category?: string) =>
+    rename: (channelId: string, name: string, token: AuthToken, category?: string, description?: string) =>
         apiFetch<Channel>(`/api/channels/${channelId}`, {
             method: 'PATCH',
-            body: { name, category },
+            body: { name, category, description },
             token,
         }),
 

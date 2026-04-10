@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from 'react'
-import { Edit3, Pin, PinOff, Reply, Share2, Smile, Trash2 } from 'lucide-react'
+import { Edit3, Flag, Pin, PinOff, Reply, Share2, Smile, Trash2 } from 'lucide-react'
 
 type MessageInlineActionsProps = {
   messageId: string
@@ -15,6 +15,7 @@ type MessageInlineActionsProps = {
   onReply?: () => void
   canForward?: boolean
   onForward?: () => void
+  onReport?: () => void
   onEdit?: () => void
   onDelete?: () => void
   children?: ReactNode
@@ -35,6 +36,7 @@ export default function MessageInlineActions({
   onReply,
   canForward = false,
   onForward,
+  onReport,
   onEdit,
   onDelete,
   children,
@@ -49,6 +51,7 @@ export default function MessageInlineActions({
     !canPin &&
     !onReply &&
     !canForward &&
+    !onReport &&
     !canEdit &&
     !canDelete &&
     !children
@@ -126,6 +129,20 @@ export default function MessageInlineActions({
           }}
         >
           <Share2 size={14} />
+        </button>
+      )}
+      {onReport && (
+        <button
+          type="button"
+          className="message-inline-action-btn"
+          title="Report"
+          aria-label="Report"
+          onClick={(e) => {
+            e.stopPropagation()
+            onReport()
+          }}
+        >
+          <Flag size={14} />
         </button>
       )}
       {canEdit && (

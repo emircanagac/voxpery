@@ -19,6 +19,7 @@ use crate::{
 
 const MAX_CHANNEL_NAME_CHARS: usize = 32;
 const MAX_CATEGORY_NAME_CHARS: usize = 32;
+const MAX_CHANNEL_DESCRIPTION_CHARS: usize = 120;
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -71,6 +72,7 @@ async fn create_channel(
 
     let trimmed_name = body.name.trim();
     validate_channel_name(trimmed_name)?;
+    let description = normalize_channel_description(body.description.as_deref())?;
 
     let channel_type = body.channel_type.unwrap_or_else(|| "text".to_string());
     if channel_type != "text" && channel_type != "voice" {
@@ -107,13 +109,14 @@ async fn create_channel(
     .unwrap_or(-1);
 
     let channel = sqlx::query_as::<_, Channel>(
-        r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        r#"INSERT INTO channels (id, server_id, name, description, channel_type, category, position, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
     .bind(body.server_id)
     .bind(trimmed_name)
+    .bind(&description)
     .bind(&channel_type)
     .bind(&category)
     .bind(max_pos + 1)
@@ -127,7 +130,7 @@ async fn create_channel(
         "channel_create",
         "channel",
         Some(channel.id),
-        Some(serde_json::json!({ "name": channel.name, "type": channel.channel_type, "category": channel.category })),
+        Some(serde_json::json!({ "name": channel.name, "description": channel.description, "type": channel.channel_type, "category": channel.category })),
     )
     .await?;
 
@@ -218,6 +221,7 @@ async fn rename_channel(
     if trimmed != channel.name.trim() {
         validate_channel_name(trimmed)?;
     }
+    let next_description = normalize_channel_description(body.description.as_deref())?;
 
     let mut next_category = body
         .category
@@ -241,9 +245,10 @@ async fn rename_channel(
     .await?;
 
     let updated = sqlx::query_as::<_, Channel>(
-        "UPDATE channels SET name = $1, category = $2 WHERE id = $3 RETURNING *",
+        "UPDATE channels SET name = $1, description = $2, category = $3 WHERE id = $4 RETURNING *",
     )
     .bind(trimmed)
+    .bind(&next_description)
     .bind(&next_category)
     .bind(channel_id)
     .fetch_one(&state.db)
@@ -259,6 +264,8 @@ async fn rename_channel(
         Some(serde_json::json!({
             "old_name": channel.name,
             "new_name": updated.name,
+            "old_description": channel.description,
+            "new_description": updated.description,
             "old_category": channel.category,
             "new_category": updated.category,
         })),
@@ -1121,6 +1128,22 @@ fn validate_channel_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+fn normalize_channel_description(raw: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let len = value.chars().count();
+    if len > MAX_CHANNEL_DESCRIPTION_CHARS {
+        return Err(AppError::Validation(format!(
+            "Channel description must be {} characters or fewer",
+            MAX_CHANNEL_DESCRIPTION_CHARS
+        )));
+    }
+
+    Ok(Some(value.to_string()))
+}
+
 fn validate_category_name(name: &str) -> Result<(), AppError> {
     let len = name.chars().count();
     if len == 0 || len > MAX_CATEGORY_NAME_CHARS {
@@ -1194,6 +1217,7 @@ async fn ensure_channel_name_unique(
 struct CreateChannelWithServer {
     pub server_id: Uuid,
     pub name: String,
+    pub description: Option<String>,
     pub channel_type: Option<String>,
     pub category: Option<String>,
 }
@@ -1201,6 +1225,7 @@ struct CreateChannelWithServer {
 #[derive(Debug, serde::Deserialize)]
 struct RenameChannelRequest {
     pub name: String,
+    pub description: Option<String>,
     pub category: Option<String>,
 }
 

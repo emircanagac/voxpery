@@ -74,10 +74,10 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 
 ## Current Priority Areas
 
-- Voice/WebRTC automated coverage expansion
-- Desktop release hardening
+- Desktop release hardening and updater readiness
+- Media parity work (GIF/sticker/custom emoji, saved media)
 - Scaling/self-host operations docs
-- Mobile/responsive UX polish
+- Public contributor onboarding and issue quality
 
 ## Community Standards
 
@@ -87,4 +87,4 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 
 ---
 
-Last verified against code on 2026-04-04.
+Last verified against code on 2026-04-11.

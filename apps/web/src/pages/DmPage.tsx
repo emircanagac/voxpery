@@ -8,8 +8,16 @@ import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import {
+  applyUploadedDraftAttachments,
+  createUploadingDraftAttachments,
+  getUploadedDraftAttachments,
+  hasPendingDraftAttachments,
+  markDraftAttachmentsFailed,
+  setDraftAttachmentUploading,
+  type DraftAttachmentItem,
+} from '../draftAttachments'
 
-type AttachmentItem = { id?: string; name: string; url: string; size: number; type: string }
 type UiDmMessage = MessageWithAuthor & {
   clientId?: string
   clientStatus?: 'sending' | 'failed'
@@ -40,7 +48,7 @@ export default function DmPage() {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [messages, setMessages] = useState<UiDmMessage[]>([])
   const [input, setInput] = useState('')
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([])
+  const [attachments, setAttachments] = useState<DraftAttachmentItem[]>([])
   const [typingPeer, setTypingPeer] = useState<string | null>(null)
   const [peerLastReadMessageId, setPeerLastReadMessageId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
@@ -231,10 +239,19 @@ export default function DmPage() {
 
   const handleSend = async (event?: FormEvent) => {
     event?.preventDefault()
-    if (!user || !activeChannelId || (!input.trim() && attachments.length === 0)) return
+    if (!user || !activeChannelId) return
+    if (hasPendingDraftAttachments(attachments)) {
+      pushToast({
+        level: 'error',
+        title: 'Attachment still pending',
+        message: 'Finish uploading attachments or retry failed ones before sending.',
+      })
+      return
+    }
+    const pendingAttachments = getUploadedDraftAttachments(attachments)
+    if (!input.trim() && pendingAttachments.length === 0) return
     const bodyText = input.trim()
     const content = replyingTo ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}` : bodyText
-    const pendingAttachments = attachments
     const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const optimisticId = `local-${clientId}`
     const optimisticMessage: UiDmMessage = {
@@ -280,6 +297,25 @@ export default function DmPage() {
             : message,
         ),
       )
+    }
+  }
+
+  const retryDraftAttachment = async (localId: string) => {
+    const target = attachments.find((attachment) => attachment.localId === localId)
+    if (!target?.file) return
+    setAttachments((prev) => setDraftAttachmentUploading(prev, localId))
+    try {
+      const [uploaded] = await attachmentApi.uploadFiles([target.file], token)
+      if (!uploaded) throw new Error('Could not upload attachment.')
+      setAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Could not upload attachment(s).'
+      setAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+      pushToast({
+        level: 'error',
+        title: 'Upload failed',
+        message: errorMessage,
+      })
     }
   }
 
@@ -356,21 +392,20 @@ export default function DmPage() {
     }
     if (allowed.length === 0) return
 
+    const pending = createUploadingDraftAttachments(allowed)
+    const pendingIds = pending.map((attachment) => attachment.localId)
+    setAttachments((prev) => [...prev, ...pending].slice(0, 4))
+
     try {
       const uploaded = await attachmentApi.uploadFiles(allowed, token)
-      const normalized: AttachmentItem[] = uploaded.map((attachment) => ({
-        id: attachment.id,
-        name: attachment.name || 'attachment',
-        url: attachment.url,
-        size: typeof attachment.size === 'number' ? attachment.size : 0,
-        type: attachment.type || 'application/octet-stream',
-      }))
-      setAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+      setAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Could not upload attachment(s).'
+      setAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
       pushToast({
         level: 'error',
         title: 'Upload failed',
-        message: error instanceof Error ? error.message : 'Could not upload attachment(s).',
+        message: errorMessage,
       })
     }
   }
@@ -491,6 +526,7 @@ export default function DmPage() {
           messageInput={input}
           onPickAttachments={handleAttachmentPick}
           onRemoveAttachment={(index) => setAttachments((prev) => prev.filter((_, currentIndex) => currentIndex !== index))}
+          onRetryAttachment={retryDraftAttachment}
           onMessageInputChange={handleMessageInputChange}
           onSendMessage={handleSend}
           onRetryMessage={retryDmMessage}

@@ -8,6 +8,7 @@ pub struct Channel {
     pub id: Uuid,
     pub server_id: Uuid,
     pub name: String,
+    pub description: Option<String>,
     pub channel_type: String, // "text" or "voice"
     pub category: Option<String>,
     pub position: i32,
@@ -18,6 +19,7 @@ pub struct Channel {
 #[derive(Debug, Deserialize)]
 pub struct CreateChannelRequest {
     pub name: String,
+    pub description: Option<String>,
     pub channel_type: Option<String>,
     pub category: Option<String>,
 }

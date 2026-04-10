@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/auth'
 
 const CHANNEL_NAME_MAX = 32
 const CATEGORY_NAME_MAX = 32
+const CHANNEL_DESCRIPTION_MAX = 120
 
 function validateChannelNameInput(raw: string): string | null {
     const value = raw.trim()
@@ -38,6 +39,15 @@ function validateCategoryNameInput(raw: string): string | null {
     return null
 }
 
+function validateChannelDescriptionInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return null
+    if (Array.from(value).length > CHANNEL_DESCRIPTION_MAX) {
+        return `Channel description must be ${CHANNEL_DESCRIPTION_MAX} characters or fewer.`
+    }
+    return null
+}
+
 interface ChannelSettingsModalProps {
     channel: Channel
     serverRoles: ServerRole[]
@@ -59,6 +69,7 @@ export default function ChannelSettingsModal({
     // General state
     const [name, setName] = useState(channel.name)
     const [category, setCategory] = useState(channel.category ?? '')
+    const [description, setDescription] = useState(channel.description ?? '')
     const [savingGeneral, setSavingGeneral] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -126,6 +137,11 @@ export default function ChannelSettingsModal({
                 return
             }
         }
+        const descriptionValidation = validateChannelDescriptionInput(description)
+        if (descriptionValidation) {
+            setError(descriptionValidation)
+            return
+        }
         setSavingGeneral(true)
         setError(null)
         try {
@@ -134,6 +150,7 @@ export default function ChannelSettingsModal({
                 name,
                 token,
                 category.trim() || undefined,
+                description.trim() || undefined,
             )
             onUpdated?.(updated)
             onClose()
@@ -146,11 +163,12 @@ export default function ChannelSettingsModal({
     useEffect(() => {
         setName(channel.name)
         setCategory(channel.category ?? '')
+        setDescription(channel.description ?? '')
         setPermissionScope('channel')
         setOverrides([])
         setCategoryOverrides([])
         setSelectedRoleId(null)
-    }, [channel.id, channel.name, channel.category])
+    }, [channel.id, channel.name, channel.category, channel.description])
 
     const handleDelete = async () => {
         setDeletingChannel(true)
@@ -319,12 +337,26 @@ export default function ChannelSettingsModal({
                                                 maxLength={CATEGORY_NAME_MAX}
                                             />
                                         </div>
+                                        <div className="form-group">
+                                            <label>Description</label>
+                                            <textarea
+                                                value={description}
+                                                onChange={e => setDescription(e.target.value)}
+                                                placeholder="What is this channel for?"
+                                                rows={3}
+                                                maxLength={CHANNEL_DESCRIPTION_MAX}
+                                            />
+                                        </div>
                                         <button
                                             className="btn btn-primary"
                                             onClick={handleSaveGeneral}
                                             disabled={
                                                 name.trim().length === 0
-                                                || (name.trim() === channel.name && category.trim() === (channel.category ?? '').trim())
+                                                || (
+                                                    name.trim() === channel.name
+                                                    && category.trim() === (channel.category ?? '').trim()
+                                                    && description.trim() === (channel.description ?? '').trim()
+                                                )
                                                 || savingGeneral
                                             }
                                         >

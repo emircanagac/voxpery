@@ -773,6 +773,7 @@ export default function UserBar() {
   }
 
   const openPasswordModal = async () => {
+    setShowSettingsPanel(false)
     setPwOld('')
     setPwNew('')
     setPwConfirm('')
@@ -1350,6 +1351,7 @@ export default function UserBar() {
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => {
+                      setShowSettingsPanel(false)
                       setUsernameEdit(user?.username ?? '')
                       setUsernameError(null)
                       setUsernameAvailable(null)
@@ -1407,6 +1409,7 @@ export default function UserBar() {
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => {
+                      setShowSettingsPanel(false)
                       setDeletePassword('')
                       setDeleteConfirm('')
                       setDeleteError(null)

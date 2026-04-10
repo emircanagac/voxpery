@@ -6,11 +6,11 @@ import { useAppStore } from '../stores/app'
 import { serverApi } from '../api'
 
 interface ServerSidebarProps {
-    onCreateServer: () => void
-    onJoinServer: () => void
-    onOpenServerSettings?: (serverId: string) => void
-    onSelectServer?: (serverId: string) => void
-    displayActiveServerId?: string | null
+  onCreateServer: () => void
+  onJoinServer: () => void
+  onOpenServerSettings?: (serverId: string) => void
+  onSelectServer?: (serverId: string) => void
+  displayActiveServerId?: string | null
 }
 
 type DragIntent = 'before' | 'after'
@@ -21,9 +21,9 @@ const SIDEBAR_END_DROP_ID = '__sidebar-end-drop__'
 export default function ServerSidebar({
     onCreateServer,
     onJoinServer,
-    onOpenServerSettings,
-    onSelectServer,
-    displayActiveServerId,
+  onOpenServerSettings,
+  onSelectServer,
+  displayActiveServerId,
 }: ServerSidebarProps) {
     const { user, token } = useAuthStore()
     const {

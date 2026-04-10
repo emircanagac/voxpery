@@ -44,8 +44,11 @@ interface AppState {
     incrementDmUnread: (channelId: string) => void
     clearDmUnread: (channelId: string) => void
     serverUnreadByChannel: Record<string, number>
+    serverMentionsByChannel: Record<string, number>
     incrementServerUnread: (channelId: string) => void
+    incrementServerMention: (channelId: string) => void
     clearServerUnread: (channelId: string) => void
+    clearServerMention: (channelId: string) => void
     incomingRequestCount: number
     setIncomingRequestCount: (count: number) => void
     resetIncomingRequestCount: () => void
@@ -175,11 +178,19 @@ export const useAppStore = create<AppState>()(
             clearDmUnread: (channelId) =>
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: 0 } })),
             serverUnreadByChannel: {},
+            serverMentionsByChannel: {},
             incrementServerUnread: (channelId) =>
                 set((s) => ({
                     serverUnreadByChannel: {
                         ...s.serverUnreadByChannel,
                         [channelId]: (s.serverUnreadByChannel[channelId] ?? 0) + 1,
+                    },
+                })),
+            incrementServerMention: (channelId) =>
+                set((s) => ({
+                    serverMentionsByChannel: {
+                        ...s.serverMentionsByChannel,
+                        [channelId]: (s.serverMentionsByChannel[channelId] ?? 0) + 1,
                     },
                 })),
             clearServerUnread: (channelId) =>
@@ -188,6 +199,13 @@ export const useAppStore = create<AppState>()(
                     const next = { ...s.serverUnreadByChannel }
                     delete next[channelId]
                     return { serverUnreadByChannel: next }
+                }),
+            clearServerMention: (channelId) =>
+                set((s) => {
+                    if (!s.serverMentionsByChannel[channelId]) return s
+                    const next = { ...s.serverMentionsByChannel }
+                    delete next[channelId]
+                    return { serverMentionsByChannel: next }
                 }),
             incomingRequestCount: 0,
             setIncomingRequestCount: (count) => set({ incomingRequestCount: Math.max(0, count) }),
@@ -270,6 +288,7 @@ export const useAppStore = create<AppState>()(
                     dmChannels: [],
                     dmUnread: {},
                     serverUnreadByChannel: {},
+                    serverMentionsByChannel: {},
                     incomingRequestCount: 0,
                     voiceStates: {},
                     voiceStateServerIds: {},
@@ -290,6 +309,7 @@ export const useAppStore = create<AppState>()(
                 activeDmChannelId: s.activeDmChannelId,
                 dmUnread: s.dmUnread,
                 serverUnreadByChannel: s.serverUnreadByChannel,
+                serverMentionsByChannel: s.serverMentionsByChannel,
                 mutedServerIds: s.mutedServerIds,
             }),
         },

@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -16,9 +16,19 @@ import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, Ban, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Ban, Flag, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import {
+    applyUploadedDraftAttachments,
+    createUploadingDraftAttachments,
+    getUploadedDraftAttachments,
+    hasPendingDraftAttachments,
+    markDraftAttachmentsFailed,
+    setDraftAttachmentUploading,
+    type DraftAttachmentItem,
+} from '../draftAttachments'
+import { mergeRemoteWithRetryableLocals } from '../messageResilience'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 
 type UiMessage = MessageWithAuthor & {
@@ -39,31 +49,31 @@ const SERVER_SETTINGS_SECTION_META = {
         eyebrow: 'Workspace',
         title: 'Overview',
         hint: 'Update your server identity, invite flow, and core presentation.',
-        navHint: 'Identity, invites, and branding',
     },
     roles: {
         eyebrow: 'Access Control',
         title: 'Roles',
         hint: 'Shape permissions, moderation powers, and the hierarchy your members see.',
-        navHint: 'Permissions and hierarchy',
     },
     audit: {
         eyebrow: 'Moderation',
         title: 'Audit Log',
         hint: 'Review important changes and actions taken across the server.',
-        navHint: 'Moderation and change history',
+    },
+    reports: {
+        eyebrow: 'Trust & Safety',
+        title: 'Reports',
+        hint: 'Review community reports, investigate context, and resolve issues quickly.',
     },
     bans: {
         eyebrow: 'Safety',
         title: 'Banned Users',
         hint: 'Review blocked members and restore access when needed.',
-        navHint: 'Blocked members and unban flow',
     },
     danger: {
         eyebrow: 'Ownership',
         title: 'Danger Zone',
         hint: 'Destructive actions live here. Review carefully before continuing.',
-        navHint: 'Irreversible owner actions',
     },
 } as const
 
@@ -71,6 +81,14 @@ const SERVER_SETTINGS_SECTION_META = {
 const MESSAGE_PAGE_SIZE = 50
 const CHANNEL_NAME_MAX = 32
 const CATEGORY_NAME_MAX = 32
+const CHANNEL_DESCRIPTION_MAX = 120
+const REPORT_REASONS = [
+    { value: 'spam', label: 'Spam' },
+    { value: 'harassment', label: 'Harassment' },
+    { value: 'inappropriate_content', label: 'Inappropriate content' },
+    { value: 'impersonation', label: 'Impersonation' },
+    { value: 'other', label: 'Other' },
+] as const
 
 // Permission bit masks (must stay in sync with backend Permissions flags).
 const PERM_VIEW_SERVER = 1 << 0
@@ -115,6 +133,15 @@ function validateCategoryNameInput(raw: string): string | null {
     }
     if (value.includes('  ')) {
         return 'Category name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function validateChannelDescriptionInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return null
+    if (Array.from(value).length > CHANNEL_DESCRIPTION_MAX) {
+        return `Channel description must be ${CHANNEL_DESCRIPTION_MAX} characters or fewer.`
     }
     return null
 }
@@ -227,8 +254,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         dmChannels, setDmChannels, setActiveDmChannelId, setDmChannelIds,
         voiceControls,
         serverUnreadByChannel,
+        serverMentionsByChannel,
         incrementServerUnread,
+        incrementServerMention,
         clearServerUnread,
+        clearServerMention,
         mutedServerIds,
         setShowCreateServer, setShowJoinServer,
         showCreateServer, showJoinServer,
@@ -261,8 +291,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setDmChannelIds: s.setDmChannelIds,
             voiceControls: s.voiceControls,
             serverUnreadByChannel: s.serverUnreadByChannel,
+            serverMentionsByChannel: s.serverMentionsByChannel,
             incrementServerUnread: s.incrementServerUnread,
+            incrementServerMention: s.incrementServerMention,
             clearServerUnread: s.clearServerUnread,
+            clearServerMention: s.clearServerMention,
             mutedServerIds: s.mutedServerIds,
             setShowCreateServer: s.setShowCreateServer,
             setShowJoinServer: s.setShowJoinServer,
@@ -281,7 +314,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
     const [editingContent, setEditingContent] = useState('')
     const [editingReplyQuotePart, setEditingReplyQuotePart] = useState<string | null>(null)
-    const [draftAttachments, setDraftAttachments] = useState<Array<{ id?: string; name: string; url: string; size: number; type: string }>>([])
+    const [draftAttachments, setDraftAttachments] = useState<DraftAttachmentItem[]>([])
+    const [emptyInviteCopied, setEmptyInviteCopied] = useState(false)
     const [newServerName, setNewServerName] = useState('')
     const [inviteCode, setInviteCode] = useState('')
     const [createServerError, setCreateServerError] = useState<string | null>(null)
@@ -289,7 +323,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'bans' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger'>('overview')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
     )
@@ -304,6 +338,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [createChannelName, setCreateChannelName] = useState('')
     const [createChannelType, setCreateChannelType] = useState<'text' | 'voice'>('text')
     const [createChannelCategory, setCreateChannelCategory] = useState('')
+    const [createChannelDescription, setCreateChannelDescription] = useState('')
     const [createChannelError, setCreateChannelError] = useState<string | null>(null)
     const [createCategoryName, setCreateCategoryName] = useState('')
     const [createCategoryError, setCreateCategoryError] = useState<string | null>(null)
@@ -318,6 +353,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [showRenameChannel, setShowRenameChannel] = useState(false)
     const [renameChannelId, setRenameChannelId] = useState<string | null>(null)
     const [renameChannelName, setRenameChannelName] = useState('')
+    const [renameChannelDescription, setRenameChannelDescription] = useState('')
     const [renameChannelError, setRenameChannelError] = useState<string | null>(null)
     const [channelServerMap, setChannelServerMap] = useState<Record<string, string>>({})
     const [deleteMessageConfirmId, setDeleteMessageConfirmId] = useState<string | null>(null)
@@ -335,7 +371,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const pushToast = useToastStore((s) => s.pushToast)
-    const { connect, send, subscribe, isConnected } = useSocketStore()
+    const { connect, send, subscribe, isConnected, onReconnect } = useSocketStore()
     const [showUnsavedServerSettingsConfirm, setShowUnsavedServerSettingsConfirm] = useState(false)
     const [serverRoles, setServerRoles] = useState<ServerRole[]>([])
     const [visibleRoleCount, setVisibleRoleCount] = useState(40)
@@ -351,10 +387,24 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
+    const [reportEntries, setReportEntries] = useState<ServerReportEntry[] | null>(null)
+    const [reportEntriesLoading, setReportEntriesLoading] = useState(false)
+    const [reportEntriesError, setReportEntriesError] = useState<string | null>(null)
+    const [resolveReportInFlightId, setResolveReportInFlightId] = useState<string | null>(null)
     const [banEntries, setBanEntries] = useState<ServerBanEntry[] | null>(null)
     const [banEntriesLoading, setBanEntriesLoading] = useState(false)
     const [banEntriesError, setBanEntriesError] = useState<string | null>(null)
     const [unbanInFlightUserId, setUnbanInFlightUserId] = useState<string | null>(null)
+    const [reportTarget, setReportTarget] = useState<{
+        kind: 'user' | 'message'
+        userId: string
+        username: string
+        messageId?: string
+        messageContent?: string
+    } | null>(null)
+    const [reportReason, setReportReason] = useState<(typeof REPORT_REASONS)[number]['value']>('spam')
+    const [reportDetails, setReportDetails] = useState('')
+    const [reportSubmitting, setReportSubmitting] = useState(false)
     const memberUsernameById = useMemo(() => {
         const byId = new Map<string, string>()
         for (const member of members) byId.set(member.user_id, member.username)
@@ -529,6 +579,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }).catch(console.error)
     }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
 
+    const refreshActiveServerView = useCallback(async (serverId: string) => {
+        if (!isLoggedIn) return
+        try {
+            const [chs, categories, detail] = await Promise.all([
+                serverApi.channels(serverId, token),
+                channelApi.listCategories(serverId, token).catch(() => []),
+                serverApi.get(serverId, token),
+            ])
+            setChannels(chs)
+            setChannelsForServer(serverId, chs)
+            setChannelCategories(categories.map((c) => c.name))
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setMembers(detail.members)
+            setMembersForServer(serverId, detail.members)
+            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+        } catch (err) {
+            console.error(err)
+        }
+    }, [isLoggedIn, token, setChannels, setChannelsForServer, setMembers, setMembersForServer])
+
     useEffect(() => {
         if (activeServerId && activeChannelId) {
             const currentChannel = channels.find((c) => c.id === activeChannelId)
@@ -548,8 +622,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setMessages(cached ?? [])
         messageApi.list(activeChannelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
-            messagesByChannelRef.current[activeChannelId] = ui
-            setMessages(ui)
+            const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
+            messagesByChannelRef.current[activeChannelId] = merged
+            setMessages(merged)
             setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
             setOlderMessagesReady(true)
         }).catch((err) => {
@@ -558,6 +633,24 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setOlderMessagesReady(true)
         })
     }, [activeChannelId, isLoggedIn, token])
+
+    const refreshActiveChannelMessages = useCallback(async (channelId: string) => {
+        if (!isLoggedIn) return
+        try {
+            const cached = messagesByChannelRef.current[channelId] ?? []
+            const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const merged = mergeRemoteWithRetryableLocals(ui, cached)
+            messagesByChannelRef.current[channelId] = merged
+            setMessages(merged)
+            setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+            setOlderMessagesReady(true)
+        } catch (err) {
+            console.error(err)
+            setHasMoreOlder(false)
+            setOlderMessagesReady(true)
+        }
+    }, [isLoggedIn, token])
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
@@ -583,6 +676,31 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!activeChannelId) return
         messageApi.listPins(activeChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
     }, [activeChannelId, token])
+
+    useEffect(() => {
+        if (!isLoggedIn) return
+        const unsubscribe = onReconnect(() => {
+            setServersLoading(true)
+            serverApi.list(token)
+                .then(setServers)
+                .catch(() => {})
+                .finally(() => setServersLoading(false))
+
+            friendApi.list(token).then(setFriends).catch(() => {})
+
+            const currentServerId = activeServerIdRef.current
+            if (currentServerId) {
+                void refreshActiveServerView(currentServerId)
+            }
+
+            const currentChannelId = activeChannelIdRef.current
+            if (currentChannelId) {
+                void refreshActiveChannelMessages(currentChannelId)
+                messageApi.listPins(currentChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+            }
+        })
+        return () => unsubscribe()
+    }, [isLoggedIn, onReconnect, refreshActiveChannelMessages, refreshActiveServerView, setFriends, setServers, setServersLoading, token])
 
     const handlePinChannelMessage = useCallback(async (messageId: string) => {
         if (!activeChannelId || !isLoggedIn) return
@@ -640,7 +758,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const unreadCount = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
         setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
         clearServerUnread(activeChannelId)
-    }, [activeChannelId, clearServerUnread, isViewActive])
+        clearServerMention(activeChannelId)
+    }, [activeChannelId, clearServerMention, clearServerUnread, isViewActive])
 
     useEffect(() => {
         if (!activeChannelId) return
@@ -724,9 +843,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             const incomingServerId = channelServerMapRef.current[incomingChannelId]
                             if (!incomingServerId || !mutedServerIds.includes(incomingServerId)) {
                                 incrementServerUnread(incomingChannelId)
+                                const isMention = messageMentionsUser(incoming.content, user?.username)
+                                if (isMention) {
+                                    incrementServerMention(incomingChannelId)
+                                }
                                 if (
                                     incomingServerId &&
-                                    messageMentionsUser(incoming.content, user?.username) &&
+                                    isMention &&
                                     shouldPlayNotificationSound(user?.status)
                                 ) {
                                     playMessageNotificationSound()
@@ -906,7 +1029,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [incrementServerUnread, isViewActive, mutedServerIds, setChannels, user?.id, user?.status, user?.username])
+    }, [incrementServerMention, incrementServerUnread, isViewActive, mutedServerIds, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -933,13 +1056,22 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const handleSendMessage = async (e?: FormEvent) => {
         e?.preventDefault()
         if (!canSendMessages) return
-        if ((!messageInput.trim() && draftAttachments.length === 0) || !activeChannelId || !isLoggedIn) return
+        if (!activeChannelId || !isLoggedIn) return
+        if (hasPendingDraftAttachments(draftAttachments)) {
+            pushToast({
+                level: 'error',
+                title: 'Attachment still pending',
+                message: 'Finish uploading attachments or retry failed ones before sending.',
+            })
+            return
+        }
+        const attachments = getUploadedDraftAttachments(draftAttachments)
+        if ((!messageInput.trim() && attachments.length === 0)) return
         const bodyText = messageInput.trim()
         const content = replyingTo
             ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
             : bodyText
         setReplyingTo(null)
-        const attachments = draftAttachments
         const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const optimisticId = `local-${clientId}`
         const optimistic: UiMessage = {
@@ -1206,21 +1338,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
         if (allowed.length === 0) return
 
+        const pending = createUploadingDraftAttachments(allowed)
+        const pendingIds = pending.map((attachment) => attachment.localId)
+        setDraftAttachments((prev) => [...prev, ...pending].slice(0, 4))
+
         try {
             const uploaded = await attachmentApi.uploadFiles(allowed, token)
-            const normalized = uploaded.map((att) => ({
-                id: att.id,
-                name: att.name || 'attachment',
-                url: att.url,
-                size: typeof att.size === 'number' ? att.size : 0,
-                type: att.type || 'application/octet-stream',
-            }))
-            setDraftAttachments((prev) => [...prev, ...normalized].slice(0, 4))
+            setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
         } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
             pushToast({
                 level: 'error',
                 title: 'Upload failed',
-                message: err instanceof Error ? err.message : 'Could not upload attachment(s).',
+                message: errorMessage,
             })
         }
     }
@@ -1299,6 +1430,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
+    const activeServerInviteLink = activeServer ? `${inviteBaseUrl}/invite/${activeServer.invite_code}` : ''
+    const isSoloServer = !!activeServer && members.length <= 1
     const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
     const activePerms = activeServerId ? myServerPermissions[activeServerId] ?? 0 : 0
     const activeChannelForPerms = activeChannelId ? channels.find((c) => c.id === activeChannelId) : null
@@ -1323,6 +1456,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const settingsServerId = settingsServer?.id ?? null
     const settingsServerInviteLink = settingsServer ? `${inviteBaseUrl}/invite/${settingsServer.invite_code}` : ''
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
+    const canViewReports = isOwner || canViewAuditLog || canManageBans
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
         isOwner &&
@@ -1345,6 +1479,107 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setServerSettingsName(settingsServer?.name ?? '')
         setServerSettingsIconDraft(undefined)
     }, [settingsServer?.id, settingsServer?.name])
+
+    useEffect(() => {
+        setEmptyInviteCopied(false)
+    }, [activeServerId, activeChannelId])
+
+    const copyActiveServerInvite = useCallback(() => {
+        if (!activeServerInviteLink || typeof navigator === 'undefined' || !navigator.clipboard) {
+            pushToast({
+                level: 'error',
+                title: 'Copy failed',
+                message: 'Could not copy the invite link to your clipboard.',
+            })
+            return
+        }
+        navigator.clipboard.writeText(activeServerInviteLink).then(() => {
+            setEmptyInviteCopied(true)
+            window.setTimeout(() => setEmptyInviteCopied(false), 1400)
+        }).catch(() => {
+            pushToast({
+                level: 'error',
+                title: 'Copy failed',
+                message: 'Could not copy the invite link to your clipboard.',
+            })
+        })
+    }, [activeServerInviteLink, pushToast])
+
+    const openUserReport = useCallback((target: { user_id: string; username: string }) => {
+        setReportTarget({
+            kind: 'user',
+            userId: target.user_id,
+            username: target.username,
+        })
+        setReportReason('spam')
+        setReportDetails('')
+    }, [])
+
+    const openMessageReport = useCallback((target: { id: string; author?: { user_id?: string; username?: string }; content: string }) => {
+        if (!target.author?.user_id) return
+        setReportTarget({
+            kind: 'message',
+            userId: target.author.user_id,
+            username: target.author.username ?? 'Unknown user',
+            messageId: target.id,
+            messageContent: target.content,
+        })
+        setReportReason('spam')
+        setReportDetails('')
+    }, [])
+
+    const closeReportDialog = useCallback(() => {
+        if (reportSubmitting) return
+        setReportTarget(null)
+        setReportReason('spam')
+        setReportDetails('')
+    }, [reportSubmitting])
+
+    const handleSubmitReport = useCallback(async () => {
+        if (!reportTarget || !activeServerId) return
+        setReportSubmitting(true)
+        try {
+            if (reportTarget.kind === 'user') {
+                await serverApi.reportUser(
+                    activeServerId,
+                    reportTarget.userId,
+                    reportReason,
+                    reportDetails.trim() || null,
+                    token,
+                )
+            } else if (reportTarget.messageId) {
+                await serverApi.reportMessage(
+                    activeServerId,
+                    reportTarget.messageId,
+                    reportReason,
+                    reportDetails.trim() || null,
+                    token,
+                )
+            }
+            pushToast({
+                level: 'info',
+                title: 'Report submitted',
+                message: reportTarget.kind === 'message'
+                    ? 'The message was reported to the server moderators.'
+                    : 'The user was reported to the server moderators.',
+            })
+            if (showServerSettings && serverSettingsTab === 'reports' && settingsServerId === activeServerId) {
+                const refreshed = await serverApi.listReports(activeServerId, token)
+                setReportEntries(refreshed)
+            }
+            setReportTarget(null)
+            setReportReason('spam')
+            setReportDetails('')
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Report failed',
+                message: err instanceof Error ? err.message : 'Could not submit report.',
+            })
+        } finally {
+            setReportSubmitting(false)
+        }
+    }, [activeServerId, pushToast, reportDetails, reportReason, reportTarget, serverSettingsTab, settingsServerId, showServerSettings, token])
 
     // Load roles when Roles tab is opened.
     useEffect(() => {
@@ -1403,6 +1638,33 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             }
         }
         void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'reports') return
+        if (!isLoggedIn || !settingsServerId) return
+
+        let active = true
+        setReportEntriesLoading(true)
+        setReportEntriesError(null)
+        void serverApi
+            .listReports(settingsServerId, token)
+            .then((entries) => {
+                if (!active) return
+                setReportEntries(entries)
+            })
+            .catch((err) => {
+                if (!active) return
+                setReportEntriesError(err instanceof Error ? err.message : 'Failed to load reports.')
+            })
+            .finally(() => {
+                if (!active) return
+                setReportEntriesLoading(false)
+            })
+
+        return () => {
+            active = false
+        }
     }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
     // Load bans when Bans tab is opened.
@@ -1597,6 +1859,25 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             })
         }
     }
+
+    const handleRetryDraftAttachment = useCallback(async (localId: string) => {
+        const target = draftAttachments.find((attachment) => attachment.localId === localId)
+        if (!target?.file) return
+        setDraftAttachments((prev) => setDraftAttachmentUploading(prev, localId))
+        try {
+            const [uploaded] = await attachmentApi.uploadFiles([target.file], token)
+            if (!uploaded) throw new Error('Could not upload attachment.')
+            setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+            pushToast({
+                level: 'error',
+                title: 'Upload failed',
+                message: errorMessage,
+            })
+        }
+    }, [draftAttachments, pushToast, token])
 
     const handleServerSettingsProfileRender = useCallback(
         (
@@ -1910,6 +2191,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setCreateChannelError(categoryValidation)
             return
         }
+        const descriptionValidation = validateChannelDescriptionInput(createChannelDescription)
+        if (descriptionValidation) {
+            setCreateChannelError(descriptionValidation)
+            return
+        }
         setCreateChannelError(null)
         try {
             await channelApi.create(
@@ -1918,6 +2204,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 createChannelType,
                 token,
                 normalizedCategory,
+                createChannelDescription.trim() || undefined,
             )
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
@@ -1933,6 +2220,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setCreateChannelName('')
             setCreateChannelType('text')
             setCreateChannelCategory('')
+            setCreateChannelDescription('')
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to create channel.'
             setCreateChannelError(message)
@@ -1944,6 +2232,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setCreateChannelName('')
         setCreateChannelType('text')
         setCreateChannelCategory('')
+        setCreateChannelDescription('')
         setShowCreateChannel(true)
     }
 
@@ -2038,6 +2327,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setRenameChannelError(null)
         setRenameChannelId(channel.id)
         setRenameChannelName(channel.name)
+        setRenameChannelDescription(channel.description ?? '')
         setShowRenameChannel(true)
     }
 
@@ -2049,9 +2339,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setRenameChannelError(validationError)
             return
         }
+        const descriptionValidation = validateChannelDescriptionInput(renameChannelDescription)
+        if (descriptionValidation) {
+            setRenameChannelError(descriptionValidation)
+            return
+        }
         setRenameChannelError(null)
         try {
-            await channelApi.rename(renameChannelId, renameChannelName.trim(), token)
+            await channelApi.rename(
+                renameChannelId,
+                renameChannelName.trim(),
+                token,
+                undefined,
+                renameChannelDescription.trim() || undefined,
+            )
             if (!activeServerId) return
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
@@ -2064,6 +2365,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setShowRenameChannel(false)
             setRenameChannelId(null)
             setRenameChannelName('')
+            setRenameChannelDescription('')
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to rename channel.'
             setRenameChannelError(message)
@@ -2168,6 +2470,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     dragged.name,
                     token,
                     targetCategory,
+                    dragged.description ?? undefined,
                 )
             }
             await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
@@ -2215,7 +2518,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setChannels(nextChannels)
         setChannelsForServer(activeServerId, nextChannels)
         try {
-            await channelApi.rename(dragged.id, dragged.name, token, targetCategory)
+            await channelApi.rename(dragged.id, dragged.name, token, targetCategory, dragged.description ?? undefined)
             await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
             const chs = await serverApi.channels(activeServerId, token)
             setChannels(chs)
@@ -2286,6 +2589,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 canMuteMembers={canMuteMembers}
                 canDeafenMembers={canDeafenMembers}
                 unreadByChannel={serverUnreadByChannel}
+                mentionByChannel={serverMentionsByChannel}
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
@@ -2308,10 +2612,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 messageInput={messageInput}
                 onPickAttachments={handleAttachmentPick}
                 onRemoveAttachment={(index) => setDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
+                onRetryAttachment={handleRetryDraftAttachment}
                 onMessageInputChange={setMessageInput}
                 onSendMessage={handleSendMessage}
                 onRetryMessage={handleRetryMessage}
                 onDeleteMessage={(messageId) => setDeleteMessageConfirmId(messageId)}
+                onReportMessage={openMessageReport}
                 onReplyToMessage={handleReplyToMessage}
                 replyingTo={replyingTo}
                 onCancelReply={() => setReplyingTo(null)}
@@ -2335,6 +2641,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     user_id: member.user_id,
                     username: member.username,
                     avatar_url: member.avatar_url,
+                    status: member.status,
                 }))}
                 isViewActive={isViewActive}
                 hasMoreOlder={!channelSearch.trim() && olderMessagesReady && hasMoreOlder}
@@ -2350,11 +2657,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 canSendMessages={canSendMessages}
                 showMemberSheetButton={isMobileViewport && !!activeServerId}
                 onOpenMemberSheet={() => setShowMobileMemberSheet(true)}
+                emptyStateDescription={activeServer
+                    ? isSoloServer
+                        ? 'You are the first member here. Share the invite link or send the first message to get the server moving.'
+                        : 'This channel is quiet for now. Send the first message to get things moving.'
+                    : undefined}
+                emptyStateActions={activeServer && isSoloServer ? [
+                    {
+                        label: emptyInviteCopied ? 'Copied' : 'Copy invite',
+                        onClick: copyActiveServerInvite,
+                    },
+                ] : undefined}
             />
             <MemberSidebar
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
                 canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+                onReportMember={openUserReport}
             />
             {showMobileMemberSheet && isMobileViewport && createPortal(
                 <>
@@ -2387,6 +2706,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                             canBanMembers={canBanMembers}
                             canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+                            onReportMember={openUserReport}
                             variant="sheet"
                             interactive={false}
                         />
@@ -2475,7 +2795,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
                     {/* Create Channel Modal */}
                     {showCreateChannel && activeServerId && (
-                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory('') }}>
+                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>
                             <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
                                 <h2>Create Channel</h2>
                                 {createChannelError && (
@@ -2530,10 +2850,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         {channelCategorySuggestions.map((category) => (
                                             <option key={category} value={category} />
                                         ))}
-                                    </datalist>
-                                </div>
+                                        </datalist>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Description (optional)</label>
+                                        <textarea
+                                            value={createChannelDescription}
+                                            onChange={(e) => setCreateChannelDescription(e.target.value)}
+                                            placeholder="What is this channel for?"
+                                            maxLength={CHANNEL_DESCRIPTION_MAX}
+                                            rows={3}
+                                        />
+                                    </div>
                                 <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory('') }}>Cancel</button>
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Create Channel</button>
                                 </div>
                             </form>
@@ -2570,9 +2900,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
                     {/* Rename Channel Modal */}
                     {showRenameChannel && (
-                        <div className="modal-overlay" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null) }}>
+                        <div className="modal-overlay" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>
                             <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
-                                <h2>Rename Channel</h2>
+                                <h2>Edit Channel</h2>
                                 {renameChannelError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{renameChannelError}</div>
                                 )}
@@ -2588,8 +2918,18 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         maxLength={CHANNEL_NAME_MAX}
                                     />
                                 </div>
+                                <div className="form-group">
+                                    <label>Description</label>
+                                    <textarea
+                                        value={renameChannelDescription}
+                                        onChange={(e) => setRenameChannelDescription(e.target.value)}
+                                        placeholder="What is this channel for?"
+                                        rows={3}
+                                        maxLength={CHANNEL_DESCRIPTION_MAX}
+                                    />
+                                </div>
                                 <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null) }}>Cancel</button>
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Save</button>
                                 </div>
                             </form>
@@ -2649,7 +2989,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 <span className="server-settings-nav__icon"><LayoutDashboard size={16} /></span>
                                                 <span className="server-settings-nav__copy">
                                                     <span className="server-settings-nav__label">Overview</span>
-                                                    <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.overview.navHint}</span>
                                                 </span>
                                             </button>
                                             {isOwner && (
@@ -2663,7 +3002,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     <span className="server-settings-nav__icon"><ShieldCheck size={16} /></span>
                                                     <span className="server-settings-nav__copy">
                                                         <span className="server-settings-nav__label">Roles</span>
-                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.roles.navHint}</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -2680,7 +3018,22 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     <span className="server-settings-nav__icon"><ScrollText size={16} /></span>
                                                     <span className="server-settings-nav__copy">
                                                         <span className="server-settings-nav__label">Audit Log</span>
-                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.audit.navHint}</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {canViewReports && (
+                                                <button
+                                                    type="button"
+                                                    className={
+                                                        serverSettingsTab === 'reports'
+                                                            ? 'server-settings-nav__item server-settings-nav__item--active'
+                                                            : 'server-settings-nav__item'
+                                                    }
+                                                    onClick={() => setServerSettingsTab('reports')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><Flag size={16} /></span>
+                                                    <span className="server-settings-nav__content">
+                                                        <span className="server-settings-nav__label">Reports</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -2695,7 +3048,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     <span className="server-settings-nav__icon"><Ban size={16} /></span>
                                                     <span className="server-settings-nav__copy">
                                                         <span className="server-settings-nav__label">Bans</span>
-                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.bans.navHint}</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -2710,7 +3062,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     <span className="server-settings-nav__icon"><AlertTriangle size={16} /></span>
                                                     <span className="server-settings-nav__copy">
                                                         <span className="server-settings-nav__label">Danger Zone</span>
-                                                        <span className="server-settings-nav__caption">{SERVER_SETTINGS_SECTION_META.danger.navHint}</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -2723,6 +3074,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     {serverSettingsTab === 'overview' && <LayoutDashboard size={18} />}
                                                     {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
                                                     {serverSettingsTab === 'audit' && <ScrollText size={18} />}
+                                                    {serverSettingsTab === 'reports' && <Flag size={18} />}
                                                     {serverSettingsTab === 'bans' && <Ban size={18} />}
                                                     {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
                                                 </div>
@@ -2905,7 +3257,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'audit' && canViewAuditLog && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack">
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
                                                     <h3 className="server-settings-card__title">Audit Log</h3>
                                                     <div className="server-settings-panel-copy">
                                                         <p className="server-settings-note">
@@ -2937,8 +3289,105 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 </section>
                                             )}
 
+                                            {serverSettingsTab === 'reports' && canViewReports && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                                    <h3 className="server-settings-card__title">Reports</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Review user and message reports submitted by the community, then resolve them once handled.
+                                                        </p>
+                                                    </div>
+                                                    {reportEntriesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {reportEntriesError}
+                                                        </div>
+                                                    )}
+                                                    {reportEntriesLoading && (
+                                                        <div className="server-settings-empty-state">
+                                                            Loading reports...
+                                                        </div>
+                                                    )}
+                                                    {!reportEntriesLoading && reportEntries && reportEntries.length === 0 && (
+                                                        <div className="server-settings-empty-state">
+                                                            No reports yet.
+                                                        </div>
+                                                    )}
+                                                    {!reportEntriesLoading && reportEntries && reportEntries.length > 0 && (
+                                                        <div className="server-report-list">
+                                                            {reportEntries.map((entry) => (
+                                                                <div key={entry.id} className="server-report-row">
+                                                                    <div className="server-report-meta">
+                                                                        <div className="server-report-head">
+                                                                            <strong>
+                                                                                {entry.message_id ? `Message report: ${entry.reported_username}` : `User report: ${entry.reported_username}`}
+                                                                            </strong>
+                                                                            <span className={`server-report-status ${entry.status === 'resolved' ? 'is-resolved' : 'is-open'}`}>
+                                                                                {entry.status === 'resolved' ? 'Resolved' : 'Open'}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="server-report-subline">
+                                                                            Reported by {entry.reporter_username} on {new Date(entry.created_at).toLocaleString()}
+                                                                        </div>
+                                                                        <div className="server-report-tags">
+                                                                            <span className="server-report-tag server-report-tag--reason">
+                                                                                {REPORT_REASONS.find((reason) => reason.value === entry.reason)?.label ?? entry.reason}
+                                                                            </span>
+                                                                            {entry.channel_name && (
+                                                                                <span className="server-report-tag">
+                                                                                    #{entry.channel_name}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        {entry.message_excerpt && (
+                                                                            <div className="server-report-excerpt" title={entry.message_excerpt}>
+                                                                                “{entry.message_excerpt}”
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.details && (
+                                                                            <div className="server-report-excerpt server-report-excerpt--details" title={entry.details}>
+                                                                                Note: {entry.details}
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.resolved_at && entry.resolved_by_username && (
+                                                                            <div className="server-report-subline">
+                                                                                Resolved by {entry.resolved_by_username} on {new Date(entry.resolved_at).toLocaleString()}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    {entry.status === 'open' && (
+                                                                        <div className="server-report-actions">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm"
+                                                                                disabled={resolveReportInFlightId === entry.id}
+                                                                                onClick={async () => {
+                                                                                    if (!settingsServerId) return
+                                                                                    setResolveReportInFlightId(entry.id)
+                                                                                    setReportEntriesError(null)
+                                                                                    try {
+                                                                                        await serverApi.resolveReport(settingsServerId, entry.id, token)
+                                                                                        const refreshed = await serverApi.listReports(settingsServerId, token)
+                                                                                        setReportEntries(refreshed)
+                                                                                    } catch (err) {
+                                                                                        setReportEntriesError(err instanceof Error ? err.message : 'Failed to resolve report.')
+                                                                                    } finally {
+                                                                                        setResolveReportInFlightId(null)
+                                                                                    }
+                                                                                }}
+                                                                            >
+                                                                                {resolveReportInFlightId === entry.id ? 'Resolving...' : 'Resolve'}
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </section>
+                                            )}
+
                                             {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack">
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
                                                     <h3 className="server-settings-card__title">Banned Users</h3>
                                                     <div className="server-settings-panel-copy">
                                                         <p className="server-settings-note">
@@ -3187,6 +3636,56 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         }}
                                     >
                                         Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {reportTarget && (
+                        <div className="modal-overlay" onClick={closeReportDialog}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>{reportTarget.kind === 'message' ? 'Report message' : 'Report user'}</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    {reportTarget.kind === 'message'
+                                        ? <>Report <strong>{reportTarget.username}</strong>&rsquo;s message to the server moderators.</>
+                                        : <>Report <strong>{reportTarget.username}</strong> to the server moderators.</>}
+                                </p>
+                                {reportTarget.kind === 'message' && reportTarget.messageContent && (
+                                    <div className="server-report-excerpt" style={{ marginBottom: 16 }}>
+                                        “{reportTarget.messageContent.length > 220 ? `${reportTarget.messageContent.slice(0, 220)}...` : reportTarget.messageContent}”
+                                    </div>
+                                )}
+                                <div className="form-group">
+                                    <label>Reason</label>
+                                    <select
+                                        value={reportReason}
+                                        onChange={(e) => setReportReason(e.target.value as (typeof REPORT_REASONS)[number]['value'])}
+                                        disabled={reportSubmitting}
+                                    >
+                                        {REPORT_REASONS.map((reason) => (
+                                            <option key={reason.value} value={reason.value}>
+                                                {reason.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Extra details (optional)</label>
+                                    <textarea
+                                        value={reportDetails}
+                                        onChange={(e) => setReportDetails(e.target.value)}
+                                        rows={4}
+                                        maxLength={500}
+                                        placeholder="Add a short note to help moderators understand the issue."
+                                        disabled={reportSubmitting}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={closeReportDialog} disabled={reportSubmitting}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="btn btn-primary" onClick={() => void handleSubmitReport()} disabled={reportSubmitting}>
+                                        {reportSubmitting ? 'Submitting...' : 'Submit report'}
                                     </button>
                                 </div>
                             </div>

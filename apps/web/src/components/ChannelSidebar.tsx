@@ -27,6 +27,7 @@ interface ChannelSidebarProps {
     canMuteMembers?: boolean
     canDeafenMembers?: boolean
     unreadByChannel?: Record<string, number>
+    mentionByChannel?: Record<string, number>
     voiceControls?: Record<string, { muted: boolean; deafened: boolean; serverMuted?: boolean; serverDeafened?: boolean; screenSharing: boolean; cameraOn?: boolean }>
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
@@ -48,6 +49,7 @@ export default function ChannelSidebar({
     canMuteMembers = false,
     canDeafenMembers = false,
     unreadByChannel = {},
+    mentionByChannel = {},
     voiceControls = {},
     onRenameChannel,
     onDeleteChannel,
@@ -442,6 +444,7 @@ export default function ChannelSidebar({
                                     return !activeServerId || voiceServerId == null || voiceServerId === activeServerId
                                 })
                                 : []
+                            const hasMention = (mentionByChannel[ch.id] ?? 0) > 0
                             return (
                                 <div key={ch.id}>
                                     <div
@@ -523,14 +526,14 @@ export default function ChannelSidebar({
                                         <span className="channel-icon">
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
                                         </span>
-                                        <span className="channel-name">{ch.name}</span>
+                                        <span className="channel-name" title={ch.description?.trim() || ch.name}>{ch.name}</span>
                                         {isVoiceLocked && (
                                             <span className="channel-item-lock" aria-hidden>
                                                 <Lock size={12} />
                                             </span>
                                         )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
-                                            <span className="channel-unread-badge">{unreadByChannel[ch.id]}</span>
+                                            <span className="channel-unread-badge">{hasMention ? '@' : unreadByChannel[ch.id]}</span>
                                         )}
                                     </div>
                                     {ch.channel_type === 'voice' && voiceMembers.length > 0 && (
