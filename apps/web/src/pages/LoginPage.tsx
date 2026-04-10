@@ -2,9 +2,12 @@ import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useAppStore } from '../stores/app'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
+import { requestPushNotificationPermissionIfNeeded } from '../pushNotifications'
+import { setPersistedSocialView } from '../socialView'
 
 function GoogleLogoIcon() {
     return (
@@ -45,6 +48,7 @@ export default function LoginPage() {
     const [error, setError] = useState(oauthError ? 'Sign in with Google failed. Try again or use email/password.' : '')
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
+    const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
     const navigate = useNavigate()
 
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
@@ -61,8 +65,11 @@ export default function LoginPage() {
         setLoading(true)
 
         try {
+            void requestPushNotificationPermissionIfNeeded()
             const res = await authApi.login(identifier, password)
             setAuth(res.token, res.user)
+            setActiveDmChannelId(null)
+            setPersistedSocialView('friends')
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
             navigate(redirectTo || ROUTES.home)

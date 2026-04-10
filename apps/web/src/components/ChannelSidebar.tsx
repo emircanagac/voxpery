@@ -31,6 +31,7 @@ interface ChannelSidebarProps {
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
     onReorderChannels?: (draggedChannelId: string, targetChannelId: string, position: 'before' | 'after') => void
+    loading?: boolean
 }
 
 export default function ChannelSidebar({
@@ -51,6 +52,7 @@ export default function ChannelSidebar({
     onRenameChannel,
     onDeleteChannel,
     onReorderChannels,
+    loading = false,
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const user = useAuthStore((s) => s.user)
@@ -269,7 +271,7 @@ export default function ChannelSidebar({
                         <ChevronDown size={16} />
                     </>
                 ) : (
-                    <span style={{ color: 'var(--text-muted)' }}>Select a Server</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{loading ? 'Loading server…' : 'Select a Server'}</span>
                 )}
             </div>
 
@@ -298,7 +300,13 @@ export default function ChannelSidebar({
                         )}
                     </div>
                 )}
-                {channels.length === 0 && (
+                {loading ? (
+                    <div className="channel-sidebar-skeleton" aria-hidden="true">
+                        <div className="channel-sidebar-skeleton-row" />
+                        <div className="channel-sidebar-skeleton-row" />
+                        <div className="channel-sidebar-skeleton-row short" />
+                    </div>
+                ) : channels.length === 0 && (
                     <div className="channel-empty-state">
                         No channels yet.
                         {canManageChannels && ' Create your first text or voice channel.'}

@@ -3,9 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Turnstile } from '@marsidev/react-turnstile'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useAppStore } from '../stores/app'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
+import { requestPushNotificationPermissionIfNeeded } from '../pushNotifications'
+import { setPersistedSocialView } from '../socialView'
 
 function GoogleLogoIcon() {
     return (
@@ -36,6 +39,7 @@ export default function RegisterPage() {
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
+    const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
     const navigate = useNavigate()
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
@@ -71,8 +75,11 @@ export default function RegisterPage() {
 
         setLoading(true)
         try {
+            void requestPushNotificationPermissionIfNeeded()
             const res = await authApi.register(username, email, password, captchaToken || undefined)
             setAuth(res.token, res.user)
+            setActiveDmChannelId(null)
+            setPersistedSocialView('friends')
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
             navigate(redirectTo || ROUTES.home)

@@ -1,35 +1,37 @@
+import { getOrCreateAudioContext, playCueStack } from './audioCues'
+
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 
-let audioCtx: AudioContext | null = null
+const audioCtxRef: { current: AudioContext | null } = { current: null }
 
 export function shouldPlayNotificationSound(status: string | undefined): boolean {
   if (localStorage.getItem(SOUND_KEY) === '0') return false
-  return status === 'online'
+  return status !== 'dnd'
 }
 
 export function playMessageNotificationSound(): void {
-  const AudioCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!AudioCtor) return
-  if (!audioCtx) audioCtx = new AudioCtor()
-  const ctx = audioCtx
-  if (ctx.state === 'suspended') {
-    void ctx.resume().catch(() => {})
-  }
+  const ctx = getOrCreateAudioContext(audioCtxRef)
+  if (!ctx) return
 
-  const now = ctx.currentTime
-  const osc = ctx.createOscillator()
-  const gain = ctx.createGain()
-
-  osc.type = 'sine'
-  osc.frequency.setValueAtTime(880, now)
-  osc.frequency.exponentialRampToValueAtTime(660, now + 0.12)
-
-  gain.gain.setValueAtTime(0.0001, now)
-  gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01)
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14)
-
-  osc.connect(gain)
-  gain.connect(ctx.destination)
-  osc.start(now)
-  osc.stop(now + 0.15)
+  playCueStack(ctx, [
+    {
+      from: 620,
+      to: 580,
+      durationSec: 0.14,
+      peak: 0.014,
+      type: 'sine',
+      overtoneGain: 0.08,
+      filterHz: 1800,
+    },
+    {
+      from: 880,
+      to: 820,
+      offsetSec: 0.055,
+      durationSec: 0.12,
+      peak: 0.011,
+      type: 'sine',
+      overtoneGain: 0.05,
+      filterHz: 2200,
+    },
+  ])
 }

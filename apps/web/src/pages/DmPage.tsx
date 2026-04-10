@@ -16,6 +16,19 @@ type UiDmMessage = MessageWithAuthor & {
   clientError?: string
 }
 
+function normalizePresence(status?: string | null): 'online' | 'dnd' | 'offline' {
+  const normalized = (status ?? 'offline').toLowerCase()
+  if (normalized === 'online' || normalized === 'dnd') return normalized
+  return 'offline'
+}
+
+function presenceLabel(status?: string | null): string {
+  const normalized = normalizePresence(status)
+  if (normalized === 'dnd') return 'Do Not Disturb'
+  if (normalized === 'offline') return 'Offline'
+  return 'Online'
+}
+
 export default function DmPage() {
   const { userId } = useParams()
   const { token, user } = useAuthStore()
@@ -441,13 +454,18 @@ export default function DmPage() {
             }}
           >
             <div
-              className={`dm-avatar avatar-status-${['online', 'dnd', 'offline'].includes((channel.peer_status ?? '').toLowerCase()) ? (channel.peer_status ?? 'offline').toLowerCase() : 'offline'}`}
+              className={`dm-avatar avatar-status-${normalizePresence(channel.peer_status)}`}
             >
               {channel.peer_avatar_url ? <img src={channel.peer_avatar_url} alt="" /> : channel.peer_username.charAt(0).toUpperCase()}
             </div>
             <div className="dm-meta">
               <div>{channel.peer_username}</div>
-              <span>{channel.peer_status}</span>
+              <span>
+                <span className={`home-presence-pill home-presence-pill-${normalizePresence(channel.peer_status)}`}>
+                  <span className="home-presence-pill-dot" aria-hidden />
+                  {presenceLabel(channel.peer_status)}
+                </span>
+              </span>
             </div>
           </button>
         ))}

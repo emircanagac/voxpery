@@ -71,6 +71,8 @@ interface ChatAreaProps {
     seenMessageId?: string | null
     showMemberSheetButton?: boolean
     onOpenMemberSheet?: () => void
+    unreadDividerCount?: number
+    loading?: boolean
 }
 
 export default function ChatArea({
@@ -117,6 +119,8 @@ export default function ChatArea({
     seenMessageId = null,
     showMemberSheetButton = false,
     onOpenMemberSheet,
+    unreadDividerCount = 0,
+    loading = false,
 }: ChatAreaProps) {
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
@@ -192,6 +196,11 @@ export default function ChatArea({
         const el = messagesScrollRef.current
         if (!el || el.clientHeight <= 0) return false
         el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+        requestAnimationFrame(() => {
+            const latest = messagesScrollRef.current
+            if (!latest || latest.clientHeight <= 0) return
+            latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
+        })
         return true
     }, [])
 
@@ -207,7 +216,7 @@ export default function ChatArea({
         if (messages.length === 0) return
         if (!shouldAutoScrollRef.current) return
         snapToBottom()
-    }, [activeChannel?.id, messages.length, snapToBottom])
+    }, [activeChannel?.id, messages.length, unreadDividerCount, snapToBottom])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
     useLayoutEffect(() => {
@@ -216,6 +225,18 @@ export default function ChatArea({
         if (!becameVisible || messages.length === 0) return
         shouldAutoScrollRef.current = true
         snapToBottom()
+        requestAnimationFrame(() => {
+            snapToBottom()
+            requestAnimationFrame(() => {
+                snapToBottom()
+            })
+        })
+        const timeoutId = window.setTimeout(() => {
+            snapToBottom()
+        }, 48)
+        return () => {
+            window.clearTimeout(timeoutId)
+        }
     }, [isViewActive, messages.length, snapToBottom])
 
     /* When replying to a message, scroll so the replied-to message stays visible above the reply bar */
@@ -285,6 +306,12 @@ export default function ChatArea({
         if (!current?.created_at || !previous?.created_at) return false
         return new Date(current.created_at).toDateString() !== new Date(previous.created_at).toDateString()
     }
+
+    const firstUnreadIndex = useMemo(() => {
+        if (!Number.isFinite(unreadDividerCount) || unreadDividerCount <= 0) return -1
+        if (messages.length === 0) return -1
+        return Math.max(0, messages.length - unreadDividerCount)
+    }, [messages.length, unreadDividerCount])
 
     const scrollToMessageId = useCallback((messageId: string) => {
         const index = messages.findIndex((m) => m.id === messageId)
@@ -839,7 +866,13 @@ export default function ChatArea({
                         </button>
                     </div>
                 )}
-                {messages.length === 0 ? (
+                {loading ? (
+                    <div className="chat-loading-state" aria-hidden="true">
+                        <div className="chat-loading-bubble" />
+                        <div className="chat-loading-bubble short" />
+                        <div className="chat-loading-bubble" />
+                    </div>
+                ) : messages.length === 0 ? (
                     <div className="welcome-screen">
                         <div className="welcome-icon">
                             <Hash size={36} />
@@ -869,6 +902,7 @@ export default function ChatArea({
                             }
                             const msg = messages[virtualRow.index]
                             const showDayDivider = isNewMessageDay(virtualRow.index)
+                            const showUnreadDivider = firstUnreadIndex >= 0 && virtualRow.index === firstUnreadIndex
                             return (
                                 <div
                                     key={msg.id}
@@ -880,6 +914,11 @@ export default function ChatArea({
                                     {showDayDivider && (
                                         <div className="message-day-divider" aria-label={`Messages from ${formatDayDivider(msg.created_at)}`}>
                                             <span>{formatDayDivider(msg.created_at)}</span>
+                                        </div>
+                                    )}
+                                    {showUnreadDivider && (
+                                        <div className="message-unread-divider" aria-label="New unread messages">
+                                            <span>New messages</span>
                                         </div>
                                     )}
                                     <div className={`message${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>

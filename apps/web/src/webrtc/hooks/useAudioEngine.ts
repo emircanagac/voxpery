@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
+import { getOrCreateAudioContext, playCueStack } from '../../audioCues'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 
@@ -11,14 +12,7 @@ export function useAudioEngine() {
     const isSoundEnabled = useCallback(() => localStorage.getItem(SOUND_KEY) !== '0', [])
 
     const getAudioContext = useCallback((): AudioContext | null => {
-        const AudioCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-        if (!AudioCtor) return null
-        if (!audioCtxRef.current) audioCtxRef.current = new AudioCtor()
-        const ctx = audioCtxRef.current
-        if (ctx.state === 'suspended') {
-            void ctx.resume().catch(() => { })
-        }
-        return ctx
+        return getOrCreateAudioContext(audioCtxRef)
     }, [])
 
     const playVoiceCue = useCallback((kind: VoiceCueKind) => {
@@ -26,66 +20,40 @@ export function useAudioEngine() {
         const ctx = getAudioContext()
         if (!ctx) return
 
-        const playTone = (opts: {
-            from: number
-            to?: number
-            offsetSec: number
-            durationSec: number
-            wave?: OscillatorType
-            peak?: number
-        }) => {
-            const {
-                from,
-                to,
-                offsetSec,
-                durationSec,
-                wave = 'sine',
-                peak = 0.026,
-            } = opts
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            const startAt = ctx.currentTime + offsetSec
-            const endAt = startAt + durationSec
-            const attack = Math.max(0.006, Math.min(0.012, durationSec * 0.3))
-            const releaseAt = startAt + Math.max(attack + 0.004, durationSec * 0.45)
-
-            osc.type = wave
-            osc.frequency.setValueAtTime(from, startAt)
-            if (typeof to === 'number' && Number.isFinite(to) && to > 0) {
-                osc.frequency.exponentialRampToValueAtTime(to, endAt)
-            }
-            gain.gain.setValueAtTime(0.0001, startAt)
-            gain.gain.exponentialRampToValueAtTime(peak, startAt + attack)
-            gain.gain.setValueAtTime(peak * 0.92, releaseAt)
-            gain.gain.exponentialRampToValueAtTime(0.0001, endAt)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(startAt)
-            osc.stop(endAt)
-        }
-
         switch (kind) {
             case 'join':
-                playTone({ from: 640, to: 820, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.024 })
-                playTone({ from: 980, to: 1220, offsetSec: 0.085, durationSec: 0.1, wave: 'triangle', peak: 0.026 })
+                playCueStack(ctx, [
+                    { from: 520, to: 620, durationSec: 0.1, peak: 0.016, type: 'sine', overtoneGain: 0.07, filterHz: 1600 },
+                    { from: 760, to: 900, offsetSec: 0.08, durationSec: 0.12, peak: 0.013, type: 'triangle', overtoneGain: 0.1, filterHz: 2200 },
+                ])
                 break
             case 'leave':
-                playTone({ from: 760, to: 600, offsetSec: 0, durationSec: 0.08, wave: 'triangle', peak: 0.024 })
-                playTone({ from: 520, to: 390, offsetSec: 0.085, durationSec: 0.11, wave: 'sine', peak: 0.023 })
+                playCueStack(ctx, [
+                    { from: 760, to: 620, durationSec: 0.1, peak: 0.015, type: 'sine', overtoneGain: 0.06, filterHz: 1700 },
+                    { from: 480, to: 380, offsetSec: 0.08, durationSec: 0.125, peak: 0.012, type: 'triangle', overtoneGain: 0.08, filterHz: 1500 },
+                ])
                 break
             case 'mute':
-                playTone({ from: 430, to: 350, offsetSec: 0, durationSec: 0.07, wave: 'square', peak: 0.019 })
+                playCueStack(ctx, [
+                    { from: 520, to: 410, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.14, filterHz: 1700, q: 1.1 },
+                ])
                 break
             case 'unmute':
-                playTone({ from: 360, to: 520, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.023 })
+                playCueStack(ctx, [
+                    { from: 390, to: 560, durationSec: 0.09, peak: 0.022, type: 'triangle', overtoneGain: 0.18, filterHz: 2200, q: 0.9 },
+                ])
                 break
             case 'deafen':
-                playTone({ from: 420, to: 330, offsetSec: 0, durationSec: 0.075, wave: 'sawtooth', peak: 0.02 })
-                playTone({ from: 280, to: 220, offsetSec: 0.078, durationSec: 0.09, wave: 'sine', peak: 0.018 })
+                playCueStack(ctx, [
+                    { from: 480, to: 360, durationSec: 0.08, peak: 0.019, type: 'triangle', overtoneGain: 0.12, filterHz: 1600, q: 1.2 },
+                    { from: 300, to: 230, offsetSec: 0.07, durationSec: 0.105, peak: 0.016, type: 'sine', overtoneGain: 0.06, filterHz: 1100, q: 0.8 },
+                ])
                 break
             case 'undeafen':
-                playTone({ from: 250, to: 320, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.02 })
-                playTone({ from: 420, to: 590, offsetSec: 0.078, durationSec: 0.095, wave: 'triangle', peak: 0.024 })
+                playCueStack(ctx, [
+                    { from: 270, to: 340, durationSec: 0.08, peak: 0.018, type: 'sine', overtoneGain: 0.08, filterHz: 1400, q: 0.8 },
+                    { from: 430, to: 640, offsetSec: 0.065, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.2, filterHz: 2400, q: 0.9 },
+                ])
                 break
         }
     }, [getAudioContext, isSoundEnabled])

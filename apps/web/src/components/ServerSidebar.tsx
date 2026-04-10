@@ -28,23 +28,33 @@ export default function ServerSidebar({
     const { user, token } = useAuthStore()
     const {
         servers,
+        serversLoading,
         activeServerId,
         setActiveServer,
         setServers,
         channelsByServerId,
         setChannelsForServer,
         setMembersForServer,
+        serverUnreadByChannel,
+        clearServerUnread,
+        mutedServerIds,
+        toggleMutedServer,
         voiceStates,
         voiceStateServerIds,
     } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
+            serversLoading: s.serversLoading,
             activeServerId: s.activeServerId,
             setActiveServer: s.setActiveServer,
             setServers: s.setServers,
             channelsByServerId: s.channelsByServerId,
             setChannelsForServer: s.setChannelsForServer,
             setMembersForServer: s.setMembersForServer,
+            serverUnreadByChannel: s.serverUnreadByChannel,
+            clearServerUnread: s.clearServerUnread,
+            mutedServerIds: s.mutedServerIds,
+            toggleMutedServer: s.toggleMutedServer,
             voiceStates: s.voiceStates,
             voiceStateServerIds: s.voiceStateServerIds,
         })),
@@ -62,6 +72,16 @@ export default function ServerSidebar({
         () => new Set<string>(Object.keys(serverVoiceCounts)),
         [serverVoiceCounts],
     )
+    const serverUnreadCounts = useMemo(() => {
+        const counts: Record<string, number> = {}
+        for (const server of servers) {
+            if (mutedServerIds.includes(server.id)) continue
+            const serverChannels = channelsByServerId[server.id] ?? []
+            const total = serverChannels.reduce((sum, channel) => sum + (serverUnreadByChannel[channel.id] ?? 0), 0)
+            if (total > 0) counts[server.id] = total
+        }
+        return counts
+    }, [channelsByServerId, mutedServerIds, serverUnreadByChannel, servers])
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
     const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -268,6 +288,16 @@ export default function ServerSidebar({
         }
     }
 
+    const handleToggleMuteServer = (serverId: string) => {
+        const willMute = !mutedServerIds.includes(serverId)
+        toggleMutedServer(serverId)
+        if (willMute) {
+            const serverChannels = channelsByServerId[serverId] ?? []
+            serverChannels.forEach((channel) => clearServerUnread(channel.id))
+        }
+        setContextMenu(null)
+    }
+
     const leaveServerConfirmTarget = leaveServerConfirmId
         ? servers.find((s) => s.id === leaveServerConfirmId) ?? null
         : null
@@ -277,12 +307,17 @@ export default function ServerSidebar({
     const renderServerButton = (server: (typeof servers)[0]) => {
         const isVoiceActive = serverIdsWithActiveVoice.has(server.id)
         const voiceCount = serverVoiceCounts[server.id] ?? 0
+        const unreadCount = serverUnreadCounts[server.id] ?? 0
         const dropLineClass = getDropLineClass(server.id)
+        const isMuted = mutedServerIds.includes(server.id)
         return (
-            <div key={server.id} className={`server-icon-wrapper ${dropLineClass}`}>
+            <div
+                key={server.id}
+                className={`server-icon-wrapper ${dropLineClass} ${unreadCount > 0 ? 'has-unread' : ''}`}
+            >
                 <button
                     type="button"
-                    className={`server-icon ${effectiveActiveId === server.id ? 'active' : ''} is-draggable ${isVoiceActive ? 'has-active-voice' : ''}`}
+                    className={`server-icon ${effectiveActiveId === server.id ? 'active' : ''} ${isMuted ? 'is-muted' : ''} is-draggable ${isVoiceActive ? 'has-active-voice' : ''}`}
                     onClick={() => (onSelectServer ? onSelectServer(server.id) : setActiveServer(server.id))}
                     onMouseEnter={() => handleServerMouseEnter(server.id)}
                     onMouseLeave={handleServerMouseLeave}
@@ -349,7 +384,15 @@ export default function ServerSidebar({
                             <span className="server-voice-indicator-count">{voiceCount > 9 ? '9+' : voiceCount}</span>
                         </span>
                     )}
+                    {isMuted && <span className="server-muted-indicator" aria-hidden="true" />}
                 </button>
+                {unreadCount > 0 && (
+                    <span
+                        className="server-unread-dot"
+                        aria-label={`${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`}
+                        title={unreadCount === 1 ? '1 unread message' : `${unreadCount} unread messages`}
+                    />
+                )}
             </div>
         )
     }
@@ -421,6 +464,16 @@ export default function ServerSidebar({
                 clearDragUiState()
             }}
         >
+            {serversLoading && orderedServers.length === 0 && (
+                <>
+                    {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={`server-skeleton-${index}`} className="server-icon-wrapper">
+                            <div className="server-icon server-icon-skeleton" aria-hidden="true" />
+                        </div>
+                    ))}
+                    <div className="server-separator" />
+                </>
+            )}
             {orderedServers.map((server) => renderServerButton(server))}
 
             {draggedServerId && dragOverState?.targetId === SIDEBAR_END_DROP_ID && (
@@ -481,19 +534,26 @@ export default function ServerSidebar({
                             >
                                 Server Settings
                             </button>
-                        ) : (
-                            <button
-                                type="button"
-                                className="server-context-menu-item danger"
-                                onClick={() => {
-                                    setContextMenu(null)
-                                    setLeaveServerConfirmId(contextMenu.id)
-                                }}
-                            >
-                                <LogOut size={14} />
-                                Leave Server
-                            </button>
-                        )}
+                        ) : null}
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            onClick={() => handleToggleMuteServer(contextMenu.id)}
+                        >
+                            <Volume2 size={14} />
+                            {mutedServerIds.includes(contextMenu.id) ? 'Unmute Server' : 'Mute Server'}
+                        </button>
+                        <button
+                            type="button"
+                            className="server-context-menu-item danger"
+                            onClick={() => {
+                                setContextMenu(null)
+                                setLeaveServerConfirmId(contextMenu.id)
+                            }}
+                        >
+                            <LogOut size={14} />
+                            Leave Server
+                        </button>
                     </div>
                 )
             })()}

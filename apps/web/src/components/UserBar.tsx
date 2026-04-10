@@ -27,6 +27,12 @@ import {
   setDesktopAutostartEnabled,
   setDesktopMinimizeToTrayOnClose,
 } from '../desktopSettings'
+import {
+  getPushNotificationPermission,
+  getPushNotificationsEnabled,
+  requestPushNotificationPermission,
+  setPushNotificationsEnabled as persistPushNotificationsEnabled,
+} from '../pushNotifications'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -127,6 +133,8 @@ export default function UserBar() {
   const [statusSaving, setStatusSaving] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
+  const [pushNotificationsEnabled, setPushNotificationsEnabledState] = useState(true)
+  const [pushNotificationPermission, setPushNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
   const [inputVolume, setInputVolume] = useState(80)
   const [outputVolume, setOutputVolume] = useState(100)
   const [voiceMode, setVoiceMode] = useState<'voice_activity' | 'push_to_talk'>('voice_activity')
@@ -296,6 +304,9 @@ export default function UserBar() {
     const speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
     const preset = localStorage.getItem(SPEAKING_PRESET_KEY)
     if (sound != null) setSoundEnabled(sound === '1')
+    const enabled = getPushNotificationsEnabled()
+    setPushNotificationsEnabledState(enabled)
+    setPushNotificationPermission(getPushNotificationPermission())
     if (input != null) setInputVolume(Math.min(100, Math.max(1, Number(input) || 80)))
     if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || 100)))
     if (mode === 'push_to_talk' || mode === 'voice_activity') setVoiceMode(mode)
@@ -960,7 +971,7 @@ export default function UserBar() {
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Notification sounds</div>
-                    <div className="user-setting-desc">Play sound for mentions and new messages.</div>
+                    <div className="user-setting-desc">Play alert sounds for direct messages, mentions, and friend requests.</div>
                   </div>
                   <button
                     type="button"
@@ -972,6 +983,44 @@ export default function UserBar() {
                     }}
                   >
                     {soundEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Browser notifications</div>
+                    <div className="user-setting-desc">
+                      {pushNotificationPermission === 'unsupported'
+                        ? 'This environment does not support system notifications.'
+                        : pushNotificationPermission === 'denied'
+                          ? 'Notifications are blocked in your browser or desktop shell.'
+                          : 'Show browser or desktop pop-up notifications for direct messages and friend requests.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`user-toggle ${pushNotificationsEnabled && pushNotificationPermission !== 'unsupported' && pushNotificationPermission !== 'denied' ? 'active' : ''}`}
+                    disabled={pushNotificationPermission === 'unsupported'}
+                    onClick={async () => {
+                      if (!pushNotificationsEnabled || pushNotificationPermission !== 'granted') {
+                        const permission = await requestPushNotificationPermission()
+                        setPushNotificationPermission(permission)
+                        if (permission === 'granted') {
+                          setPushNotificationsEnabledState(true)
+                          persistPushNotificationsEnabled(true, true)
+                        }
+                        return
+                      }
+                      setPushNotificationsEnabledState(false)
+                      persistPushNotificationsEnabled(false, true)
+                    }}
+                  >
+                    {pushNotificationPermission === 'unsupported'
+                      ? 'N/A'
+                      : pushNotificationPermission === 'denied'
+                        ? 'Blocked'
+                        : pushNotificationsEnabled
+                          ? 'On'
+                          : 'Off'}
                   </button>
                 </div>
                 <div className="user-setting-row">
@@ -1235,6 +1284,25 @@ export default function UserBar() {
               {activeSettingsSection === 'profile' && (
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Profile</h3>
+                <div className="user-profile-preview-card">
+                  <div className={`user-profile-preview-avatar avatar-status-${(user?.status ?? 'online') as StatusValue}`} aria-hidden>
+                    {user?.avatar_url ? (
+                      <img src={user.avatar_url} alt="" className="user-avatar-image" />
+                    ) : (
+                      user ? getInitial(user.username) : '?'
+                    )}
+                  </div>
+                  <div className="user-profile-preview-meta">
+                    <div className="user-profile-preview-eyebrow">Current profile</div>
+                    <div className="user-profile-preview-name">{user?.username ?? 'Unknown user'}</div>
+                    <div className="user-profile-preview-subtitle">
+                      <span className={`user-profile-presence-pill user-profile-presence-pill-${user?.status === 'dnd' ? 'dnd' : user?.status === 'offline' || user?.status === 'invisible' ? 'offline' : 'online'}`}>
+                        <span className="user-profile-presence-pill-dot" aria-hidden />
+                        {statusLabel(user?.status)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
                 <div className="user-setting-row">
                   <div className="user-setting-profile-photo">
                     <div className="user-setting-profile-avatar" aria-hidden>

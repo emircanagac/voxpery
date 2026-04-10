@@ -6,10 +6,15 @@ interface AppState {
     // Servers
     servers: Server[]
     activeServerId: string | null
+    serversLoading: boolean
     setServers: (servers: Server[]) => void
+    setServersLoading: (loading: boolean) => void
     setActiveServer: (id: string | null) => void
     addServer: (server: Server) => void
     removeServer: (id: string) => void
+    mutedServerIds: string[]
+    toggleMutedServer: (serverId: string) => void
+    setMutedServer: (serverId: string, muted: boolean) => void
 
     // Channels (current + cache per server for instant switch-back)
     channels: Channel[]
@@ -38,6 +43,9 @@ interface AppState {
     dmUnread: Record<string, number>
     incrementDmUnread: (channelId: string) => void
     clearDmUnread: (channelId: string) => void
+    serverUnreadByChannel: Record<string, number>
+    incrementServerUnread: (channelId: string) => void
+    clearServerUnread: (channelId: string) => void
     incomingRequestCount: number
     setIncomingRequestCount: (count: number) => void
     resetIncomingRequestCount: () => void
@@ -61,7 +69,6 @@ interface AppState {
     // Voice channel we are currently in (stays set when navigating to Social so call does not drop)
     joinedVoiceChannelId: string | null
     setJoinedVoiceChannelId: (id: string | null) => void
-
     // Modals
     showCreateServer: boolean
     showJoinServer: boolean
@@ -82,7 +89,9 @@ export const useAppStore = create<AppState>()(
             // Servers
             servers: [],
             activeServerId: null,
+            serversLoading: false,
             setServers: (servers) => set((s) => JSON.stringify(s.servers) === JSON.stringify(servers) ? s : { servers }),
+            setServersLoading: (loading) => set({ serversLoading: loading }),
             setActiveServer: (id) =>
                 set((s) => {
                     if (s.activeServerId === id) return s
@@ -118,6 +127,22 @@ export const useAppStore = create<AppState>()(
                 }),
             addServer: (server) => set((s) => ({ servers: [...s.servers, server] })),
             removeServer: (id) => set((s) => ({ servers: s.servers.filter((srv) => srv.id !== id) })),
+            mutedServerIds: [],
+            toggleMutedServer: (serverId) =>
+                set((s) => {
+                    const isMuted = s.mutedServerIds.includes(serverId)
+                    return {
+                        mutedServerIds: isMuted
+                            ? s.mutedServerIds.filter((id) => id !== serverId)
+                            : [...s.mutedServerIds, serverId],
+                    }
+                }),
+            setMutedServer: (serverId, muted) =>
+                set((s) => ({
+                    mutedServerIds: muted
+                        ? (s.mutedServerIds.includes(serverId) ? s.mutedServerIds : [...s.mutedServerIds, serverId])
+                        : s.mutedServerIds.filter((id) => id !== serverId),
+                })),
 
             // Channels
             channels: [],
@@ -149,6 +174,21 @@ export const useAppStore = create<AppState>()(
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: (s.dmUnread[channelId] ?? 0) + 1 } })),
             clearDmUnread: (channelId) =>
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: 0 } })),
+            serverUnreadByChannel: {},
+            incrementServerUnread: (channelId) =>
+                set((s) => ({
+                    serverUnreadByChannel: {
+                        ...s.serverUnreadByChannel,
+                        [channelId]: (s.serverUnreadByChannel[channelId] ?? 0) + 1,
+                    },
+                })),
+            clearServerUnread: (channelId) =>
+                set((s) => {
+                    if (!s.serverUnreadByChannel[channelId]) return s
+                    const next = { ...s.serverUnreadByChannel }
+                    delete next[channelId]
+                    return { serverUnreadByChannel: next }
+                }),
             incomingRequestCount: 0,
             setIncomingRequestCount: (count) => set({ incomingRequestCount: Math.max(0, count) }),
             resetIncomingRequestCount: () => set({ incomingRequestCount: 0 }),
@@ -218,6 +258,7 @@ export const useAppStore = create<AppState>()(
                 set({
                     servers: [],
                     activeServerId: null,
+                    serversLoading: false,
                     channels: [],
                     activeChannelId: null,
                     channelsByServerId: {},
@@ -228,6 +269,7 @@ export const useAppStore = create<AppState>()(
                     friends: [],
                     dmChannels: [],
                     dmUnread: {},
+                    serverUnreadByChannel: {},
                     incomingRequestCount: 0,
                     voiceStates: {},
                     voiceStateServerIds: {},
@@ -243,8 +285,13 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'voxpery-app-storage',
-            // Persist activeDmChannelId so Social tab restores the open DM (single path /). Do not persist dmUnread (stale badge).
-            partialize: (s) => ({ activeDmChannelId: s.activeDmChannelId }),
+            // Persist lightweight navigation + unread state so refresh doesn't silently clear routing cues.
+            partialize: (s) => ({
+                activeDmChannelId: s.activeDmChannelId,
+                dmUnread: s.dmUnread,
+                serverUnreadByChannel: s.serverUnreadByChannel,
+                mutedServerIds: s.mutedServerIds,
+            }),
         },
     ),
 )

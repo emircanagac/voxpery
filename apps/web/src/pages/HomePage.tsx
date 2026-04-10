@@ -19,34 +19,28 @@ import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 
-type SocialView = 'friends' | 'dm'
 type FriendsFilter = 'all' | 'online' | 'requests'
 
 const HIDDEN_DM_PEERS_KEY = 'voxpery-hidden-dm-peers'
-const SOCIAL_VIEW_KEY = 'voxpery-social-view'
-
-function getPersistedSocialView(): SocialView | null {
-  try {
-    const v = sessionStorage.getItem(SOCIAL_VIEW_KEY)
-    if (v === 'friends' || v === 'dm') return v
-    return null
-  } catch {
-    return null
-  }
-}
-
-function setPersistedSocialView(view: SocialView) {
-  try {
-    sessionStorage.setItem(SOCIAL_VIEW_KEY, view)
-  } catch {
-    /* ignore */
-  }
-}
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.includes('No access') || msg.includes('403') || msg.includes('Forbidden')
+}
+
+function normalizePresence(status?: string | null): 'online' | 'dnd' | 'offline' {
+  const normalized = (status ?? 'offline').toLowerCase()
+  if (normalized === 'online' || normalized === 'dnd') return normalized
+  return 'offline'
+}
+
+function presenceLabel(status?: string | null): string {
+  const normalized = normalizePresence(status)
+  if (normalized === 'dnd') return 'Do Not Disturb'
+  if (normalized === 'offline') return 'Offline'
+  return 'Online'
 }
 
 type UiDmMessage = MessageWithAuthor & {
@@ -92,9 +86,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const { subscribe, send, isConnected } = useSocketStore()
   const {
     servers: storeServers,
+    setServersLoading,
     setServers,
     setActiveServer,
-    voiceSpeakingUserIds,
     dmUnread,
     clearDmUnread,
     activeDmChannelId,
@@ -110,9 +104,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   } = useAppStore(
     useShallow((s) => ({
       servers: s.servers,
+      setServersLoading: s.setServersLoading,
       setServers: s.setServers,
       setActiveServer: s.setActiveServer,
-      voiceSpeakingUserIds: s.voiceSpeakingUserIds,
       dmUnread: s.dmUnread,
       clearDmUnread: s.clearDmUnread,
       activeDmChannelId: s.activeDmChannelId,
@@ -133,6 +127,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const [view, setView] = useState<SocialView>('friends')
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
+  const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(true)
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
   const [hiddenDmPeerIds, setHiddenDmPeerIds] = useState<string[]>(() => {
@@ -189,6 +184,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [storeServers],
   )
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
+  const [dmUnreadDividerCount, setDmUnreadDividerCount] = useState(0)
   const [dmInput, setDmInput] = useState('')
   const [dmSearch, setDmSearch] = useState('')
   const [dmSearchResults, setDmSearchResults] = useState<MessageWithAuthor[] | null>(null)
@@ -208,23 +204,26 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   // Use user so web works: on web token is null, auth is via httpOnly cookie.
   const refreshServersAndFriends = useCallback(async () => {
     if (!user) return
-    const [serverList, friendList, req, dms] = await Promise.all([
-      serverApi.list(token),
-      friendApi.list(token),
-      friendApi.requests(token),
-      dmApi.listChannels(token),
-    ])
-    setServers(serverList)
-    setStoreFriends(friendList)
-    setIncomingRequests(req.incoming)
-    setIncomingRequestCount(req.incoming.length)
-    setOutgoingRequests(req.outgoing)
-    setStoreDmChannels(dms)
-    setDmChannelIds(dms.map((d) => d.id))
-    if (!activeDmChannelId && dms.length > 0) {
-      setActiveDmChannelId(dms[0].id)
+    setServersLoading(true)
+    try {
+      const [serverList, friendList, req, dms] = await Promise.all([
+        serverApi.list(token),
+        friendApi.list(token),
+        friendApi.requests(token),
+        dmApi.listChannels(token),
+      ])
+      setServers(serverList)
+      setStoreFriends(friendList)
+      setIncomingRequests(req.incoming)
+      setIncomingRequestCount(req.incoming.length)
+      setOutgoingRequests(req.outgoing)
+      setStoreDmChannels(dms)
+      setDmChannelIds(dms.map((d) => d.id))
+    } finally {
+      setServersLoading(false)
+      setSocialBootstrapLoading(false)
     }
-  }, [activeDmChannelId, setDmChannelIds, setIncomingRequestCount, setServers, setActiveDmChannelId, setStoreFriends, setStoreDmChannels, token, user])
+  }, [setDmChannelIds, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, user])
 
   useEffect(() => {
     try {
@@ -242,6 +241,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   useEffect(() => {
     if (!user) return
+    setSocialBootstrapLoading(true)
     refreshServersAndFriends().catch(console.error)
   }, [refreshServersAndFriends, user])
 
@@ -379,8 +379,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   /* Mark DM as read whenever the conversation is visible (fixes badge when landing on / with same DM still in state) */
   useEffect(() => {
     if (view === 'dm' && activeDmChannelId) {
+      const unreadCount = useAppStore.getState().dmUnread[activeDmChannelId] ?? 0
+      setDmUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
       clearDmUnread(activeDmChannelId)
+      return
     }
+
+    setDmUnreadDividerCount(0)
   }, [view, activeDmChannelId, clearDmUnread, location.pathname])
 
   useEffect(() => {
@@ -812,7 +817,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">Direct Messages</div>
-        {dmChannels.length === 0 ? (
+        {socialBootstrapLoading ? (
+          <div className="home-sidebar-skeleton" aria-hidden="true">
+            <div className="home-sidebar-skeleton-row" />
+            <div className="home-sidebar-skeleton-row" />
+            <div className="home-sidebar-skeleton-row short" />
+          </div>
+        ) : dmChannels.length === 0 ? (
           <div className="home-empty-row home-empty-row--sidebar">
             No DMs yet
             <span>
@@ -847,6 +858,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               </div>
               <div className="home-member-meta">
                 <div>{channel.peer_username}</div>
+                <span>
+                  <span className={`home-presence-pill home-presence-pill-${normalizePresence(channel.peer_status)}`}>
+                    <span className="home-presence-pill-dot" aria-hidden />
+                    {presenceLabel(channel.peer_status)}
+                  </span>
+                </span>
               </div>
               <div className="social-dm-actions">
                 {(dmUnread[channel.id] ?? 0) > 0 && <span className="social-dm-unread">{dmUnread[channel.id]}</span>}
@@ -1011,7 +1028,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     ? `Online Friends — ${onlineFriends.length}`
                     : `All Friends — ${friends.length}`}
                 </div>
-                {visibleFriends.length === 0 ? (
+                {socialBootstrapLoading ? (
+                  <div className="home-list-skeleton" aria-hidden="true">
+                    <div className="home-list-skeleton-row" />
+                    <div className="home-list-skeleton-row" />
+                    <div className="home-list-skeleton-row" />
+                  </div>
+                ) : visibleFriends.length === 0 ? (
                   friends.length === 0 ? (
                     <OnboardingCard
                       title="Start your social graph"
@@ -1041,14 +1064,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   )
                 ) : (
                   visibleFriends.map((friend) => {
-                    const isSpeaking = voiceSpeakingUserIds.includes(friend.id)
                     return (
                       <div
                         key={friend.id}
                         className="home-member-row is-clickable"
                         onClick={() => openMessageForFriend(friend.id)}
                       >
-                        <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'} ${isSpeaking ? 'is-speaking' : ''}`}>
+                        <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
                           {friend.avatar_url ? (
                             <img src={friend.avatar_url} alt="" />
                           ) : (
@@ -1057,6 +1079,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         </div>
                         <div className="home-member-meta">
                           <div>{friend.username}</div>
+                          <span>
+                            <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
+                              <span className="home-presence-pill-dot" aria-hidden />
+                              {presenceLabel(friend.status)}
+                            </span>
+                          </span>
                         </div>
                         <button
                           type="button"
@@ -1080,6 +1108,17 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
           {view === 'dm' && (() => {
             const dmChannel = activeDmChannelId ? storeDmChannels.find((c) => c.id === activeDmChannelId) : null
+            if (socialBootstrapLoading) {
+              return (
+                <div className="home-dm-chat">
+                  <div className="home-list-skeleton" aria-hidden="true" style={{ padding: 24 }}>
+                    <div className="home-list-skeleton-row" />
+                    <div className="home-list-skeleton-row" />
+                    <div className="home-list-skeleton-row" />
+                  </div>
+                </div>
+              )
+            }
             if (!dmChannel) {
               return (
                 <div className="home-dm-chat">
@@ -1133,6 +1172,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
+                unreadDividerCount={dmUnreadDividerCount}
                 draftAttachments={dmDraftAttachments}
                 messageInput={dmInput}
                 onPickAttachments={handleDmAttachmentPick}

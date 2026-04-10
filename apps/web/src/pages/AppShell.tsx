@@ -1,15 +1,22 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Menu } from 'lucide-react'
+import { Menu, Search } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
+import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
+import {
+  shouldShowPushNotification,
+  showPushNotification,
+} from '../pushNotifications'
+import { isSocialDmViewVisible } from '../socialView'
 import { isTauri } from '../secureStorage'
 import {
   checkForUpdates,
@@ -18,6 +25,8 @@ import {
   type DesktopUpdateStatusDetail,
   type UpdateResult,
 } from '../updater'
+import { ROUTES } from '../routes'
+import { setPersistedSocialView } from '../socialView'
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -33,6 +42,8 @@ export default function AppShell() {
     setDmChannels,
     setFriends,
     activeDmChannelId,
+    setActiveServer,
+    setActiveChannel,
     incrementDmUnread,
     clearDmUnread,
     setActiveDmChannelId,
@@ -49,6 +60,8 @@ export default function AppShell() {
       setDmChannels: s.setDmChannels,
       setFriends: s.setFriends,
       activeDmChannelId: s.activeDmChannelId,
+      setActiveServer: s.setActiveServer,
+      setActiveChannel: s.setActiveChannel,
       incrementDmUnread: s.incrementDmUnread,
       clearDmUnread: s.clearDmUnread,
       setActiveDmChannelId: s.setActiveDmChannelId,
@@ -63,11 +76,31 @@ export default function AppShell() {
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
   const lastDesktopUpdateToastVersionRef = useRef<string | null>(null)
+  const channels = useAppStore((s) => s.channels)
+  const channelsByServerId = useAppStore((s) => s.channelsByServerId)
+  const servers = useAppStore((s) => s.servers)
+  const activeChannelId = useAppStore((s) => s.activeChannelId)
+  const activeServerId = useAppStore((s) => s.activeServerId)
+  const joinedVoiceChannelId = useAppStore((s) => s.joinedVoiceChannelId)
+  const previousUnreadCountRef = useRef(0)
+  const desktopUnreadInitializedRef = useRef(false)
+  const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
 
   useEffect(() => {
     if (!user) return
     connect(token ?? null)
   }, [connect, token, user])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setShowQuickSwitcher(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -111,6 +144,66 @@ export default function AppShell() {
       window.clearInterval(intervalId)
     }
   }, [pushToast])
+
+  useEffect(() => {
+    const syncUnreadFeedback = (state: ReturnType<typeof useAppStore.getState>) => {
+      const dmTotal = state.dmChannels.reduce(
+        (sum, channel) => sum + (state.dmUnread[channel.id] ?? 0),
+        0,
+      )
+      const serverTotal = state.servers.reduce((sum, server) => {
+        if (state.mutedServerIds.includes(server.id)) return sum
+        const serverChannels = state.channelsByServerId[server.id] ?? []
+        const serverUnread = serverChannels.reduce(
+          (serverSum, channel) => serverSum + (state.serverUnreadByChannel[channel.id] ?? 0),
+          0,
+        )
+        return sum + serverUnread
+      }, 0)
+      const totalUnreadCount = dmTotal + serverTotal + state.incomingRequestCount
+      document.title = 'Voxpery'
+
+      if (!isTauri()) {
+        previousUnreadCountRef.current = totalUnreadCount
+        return
+      }
+
+      const isFirstDesktopSync = !desktopUnreadInitializedRef.current
+      const effectiveUnreadCount = isFirstDesktopSync ? 0 : totalUnreadCount
+      const unreadIncreasedSinceLastSync =
+        !isFirstDesktopSync
+        && totalUnreadCount > 0
+        && totalUnreadCount > previousUnreadCountRef.current
+
+      previousUnreadCountRef.current = totalUnreadCount
+      desktopUnreadInitializedRef.current = true
+
+      void invoke('desktop_update_unread_feedback', {
+        unreadCount: effectiveUnreadCount,
+        unreadIncreased: unreadIncreasedSinceLastSync,
+      }).catch(() => {
+        // Keep browser title as fallback even if native desktop feedback fails.
+      })
+    }
+
+    syncUnreadFeedback(useAppStore.getState())
+
+    const unsubscribe = useAppStore.subscribe((state, prev) => {
+      if (
+        state.dmUnread !== prev.dmUnread
+        || state.dmChannels !== prev.dmChannels
+        || state.serverUnreadByChannel !== prev.serverUnreadByChannel
+        || state.incomingRequestCount !== prev.incomingRequestCount
+        || state.channelsByServerId !== prev.channelsByServerId
+        || state.servers !== prev.servers
+        || state.mutedServerIds !== prev.mutedServerIds
+      ) {
+        syncUnreadFeedback(state)
+      }
+    })
+
+    return () => unsubscribe()
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -256,7 +349,7 @@ export default function AppShell() {
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
           const authorId = incomingMessage?.author?.user_id
-          const isSocialWithDm = location.pathname === '/'
+          const isSocialWithVisibleDm = isSocialDmViewVisible(location.pathname)
           if (!channelId || channelType !== 'dm') return
           if (authorId && authorId === user?.id) return
 
@@ -290,24 +383,41 @@ export default function AppShell() {
 
             if (!channel || !dmIds.includes(channel.id)) return
 
+            let unreadHandled = false
+
             if (channel.id !== channelId && activeDmChannelId !== channel.id) {
               clearDmUnread(channelId)
               incrementDmUnread(channel.id)
+              unreadHandled = true
             }
 
             const nextChannels = [channel, ...dmChannels.filter((c) => c.id !== channel.id)]
             setDmChannels(nextChannels)
             setDmChannelIds(nextChannels.map((c) => c.id))
 
-            if (isSocialWithDm && activeDmChannelId === channel.id) {
+            const canAutoReadActiveDm =
+              isSocialWithVisibleDm
+              && activeDmChannelId === channel.id
+
+            if (canAutoReadActiveDm) {
               clearDmUnread(channel.id)
               return
             }
 
-            if (!isSocialWithDm || activeDmChannelId !== channel.id) {
+            if (!unreadHandled) {
               incrementDmUnread(channel.id)
+            }
+
+            if (!canAutoReadActiveDm) {
               if (shouldPlayNotificationSound(myStatus)) {
                 playMessageNotificationSound()
+              }
+              if (shouldShowPushNotification(myStatus)) {
+                showPushNotification({
+                  title: incomingMessage?.author?.username ?? channel.peer_username,
+                  body: 'sent you a direct message',
+                  tag: `dm:${channel.id}`,
+                })
               }
             }
           })()
@@ -318,10 +428,6 @@ export default function AppShell() {
     })
     return () => unsub()
   }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setVoiceControl, setVoiceState, subscribe, token, user?.id])
-  const channels = useAppStore((s) => s.channels)
-  const activeChannelId = useAppStore((s) => s.activeChannelId)
-  const activeServerId = useAppStore((s) => s.activeServerId)
-  const joinedVoiceChannelId = useAppStore((s) => s.joinedVoiceChannelId)
   const activeChannel = useMemo(() => channels.find((c) => c.id === activeChannelId), [channels, activeChannelId])
   // Prefer the voice channel the user is viewing so switching channels leaves current and joins the new one.
   const selectedVoiceChannelId =
@@ -333,6 +439,72 @@ export default function AppShell() {
   const isServerView = !!activeServerId && location.pathname.startsWith('/servers')
   const showVoiceStage = isServerView ? !!activeChannelId : false
   const mobileSidebarTarget = isFriendsOrDm ? 'social' : isServerView ? 'channels' : 'none'
+
+  const quickSwitcherItems = useMemo<QuickSwitcherItem[]>(() => {
+    const serverItems: QuickSwitcherItem[] = servers.map((server) => ({
+      id: `server:${server.id}`,
+      kind: 'server',
+      label: server.name,
+      subtitle: 'Jump to server',
+      searchText: `${server.name} ${server.invite_code ?? ''}`,
+    }))
+
+    const channelItems: QuickSwitcherItem[] = Object.values(channelsByServerId)
+      .flatMap((serverChannels) => serverChannels)
+      .filter((channel) => channel.channel_type === 'text')
+      .map((channel) => {
+        const serverName = servers.find((server) => server.id === channel.server_id)?.name ?? 'Server'
+        return {
+          id: `channel:${channel.id}`,
+          kind: 'channel' as const,
+          label: `# ${channel.name}`,
+          subtitle: serverName,
+          searchText: `${channel.name} ${serverName}`,
+        }
+      })
+
+    const dmItems: QuickSwitcherItem[] = dmChannels.map((channel) => ({
+      id: `dm:${channel.id}`,
+      kind: 'dm',
+      label: channel.peer_username,
+      subtitle: 'Direct message',
+      searchText: `${channel.peer_username} direct message dm`,
+    }))
+
+    return [...dmItems, ...serverItems, ...channelItems]
+  }, [channelsByServerId, dmChannels, servers])
+
+  const handleQuickSwitchSelect = (item: QuickSwitcherItem) => {
+    setShowQuickSwitcher(false)
+
+    if (item.kind === 'dm') {
+      const dmChannelId = item.id.replace('dm:', '')
+      setPersistedSocialView('dm')
+      setActiveDmChannelId(dmChannelId)
+      clearDmUnread(dmChannelId)
+      navigate(ROUTES.home)
+      return
+    }
+
+    if (item.kind === 'server') {
+      const serverId = item.id.replace('server:', '')
+      const serverChannels = channelsByServerId[serverId] ?? []
+      const defaultChannelId = serverChannels.find((channel) => channel.channel_type === 'text')?.id ?? serverChannels[0]?.id ?? null
+      setActiveServer(serverId)
+      setActiveChannel(defaultChannelId)
+      navigate(ROUTES.servers)
+      return
+    }
+
+    const channelId = item.id.replace('channel:', '')
+    const channel = Object.values(channelsByServerId)
+      .flatMap((serverChannels) => serverChannels)
+      .find((entry) => entry.id === channelId)
+    if (!channel) return
+    setActiveServer(channel.server_id)
+    setActiveChannel(channel.id)
+    navigate(ROUTES.servers)
+  }
 
   useEffect(() => {
     closeMobileSidebar()
@@ -384,8 +556,18 @@ export default function AppShell() {
             <span className="shell-brand-beta" title="Preview build">Beta</span>
           </button>
         </div>
-        {isTauri() && desktopUpdate?.available && (
-          <div className="shell-topbar-right">
+        <div className="shell-topbar-right">
+          <button
+            type="button"
+            className="shell-quick-switch-btn"
+            onClick={() => setShowQuickSwitcher(true)}
+            title="Quick switcher"
+          >
+            <Search size={14} />
+            <span>Search</span>
+            <span className="shell-quick-switch-shortcut">Ctrl K</span>
+          </button>
+          {isTauri() && desktopUpdate?.available && (
             <button
               type="button"
               className="shell-update-btn"
@@ -395,8 +577,8 @@ export default function AppShell() {
             >
               {installingDesktopUpdate ? 'Installing update…' : `Update ${desktopUpdate.version}`}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
       <main className="shell-content">
         <Outlet />
@@ -412,7 +594,13 @@ export default function AppShell() {
       <div className="left-bottom-panel">
         <UserBar />
       </div>
-
+      {showQuickSwitcher && (
+        <QuickSwitcher
+          items={quickSwitcherItems}
+          onClose={() => setShowQuickSwitcher(false)}
+          onSelect={handleQuickSwitchSelect}
+        />
+      )}
     </div>
   )
 }

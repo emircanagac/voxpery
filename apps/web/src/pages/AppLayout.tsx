@@ -19,6 +19,7 @@ import { useToastStore } from '../stores/toast'
 import { AlertTriangle, Ban, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -200,17 +201,35 @@ function resolveInviteBaseUrl(): string {
     return deriveInviteBaseFromApiEnv() ?? 'https://voxpery.com'
 }
 
+function escapeMentionPattern(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function messageMentionsUser(content: string | undefined, username: string | undefined): boolean {
+    if (!content) return false
+    const normalized = content.toLowerCase()
+    if (normalized.includes('@all') || normalized.includes('@everyone')) return true
+    if (!username) return false
+    const pattern = new RegExp(`(^|\\s)@${escapeMentionPattern(username)}(?=\\s|$)`, 'i')
+    return pattern.test(content)
+}
+
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
     const navigate = useNavigate()
     const {
-        servers, activeServerId, activeChannelId, channels, members,
-        setServers, setActiveServer, setActiveChannel, setChannels, setMembers,
+        servers, serversLoading, activeServerId, activeChannelId, channels, members,
+        setServers, setServersLoading, setActiveServer, setActiveChannel, setChannels, setMembers,
         setChannelsForServer, setMembersForServer,
+        channelsByServerId,
         friends, setFriends,
         dmChannels, setDmChannels, setActiveDmChannelId, setDmChannelIds,
         voiceControls,
+        serverUnreadByChannel,
+        incrementServerUnread,
+        clearServerUnread,
+        mutedServerIds,
         setShowCreateServer, setShowJoinServer,
         showCreateServer, showJoinServer,
         openServerSettingsForServerId,
@@ -220,17 +239,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
+            serversLoading: s.serversLoading,
             activeServerId: s.activeServerId,
             activeChannelId: s.activeChannelId,
             channels: s.channels,
             members: s.members,
             setServers: s.setServers,
+            setServersLoading: s.setServersLoading,
             setActiveServer: s.setActiveServer,
             setActiveChannel: s.setActiveChannel,
             setChannels: s.setChannels,
             setMembers: s.setMembers,
             setChannelsForServer: s.setChannelsForServer,
             setMembersForServer: s.setMembersForServer,
+            channelsByServerId: s.channelsByServerId,
             friends: s.friends,
             setFriends: s.setFriends,
             dmChannels: s.dmChannels,
@@ -238,6 +260,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setActiveDmChannelId: s.setActiveDmChannelId,
             setDmChannelIds: s.setDmChannelIds,
             voiceControls: s.voiceControls,
+            serverUnreadByChannel: s.serverUnreadByChannel,
+            incrementServerUnread: s.incrementServerUnread,
+            clearServerUnread: s.clearServerUnread,
+            mutedServerIds: s.mutedServerIds,
             setShowCreateServer: s.setShowCreateServer,
             setShowJoinServer: s.setShowJoinServer,
             showCreateServer: s.showCreateServer,
@@ -293,8 +319,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [renameChannelId, setRenameChannelId] = useState<string | null>(null)
     const [renameChannelName, setRenameChannelName] = useState('')
     const [renameChannelError, setRenameChannelError] = useState<string | null>(null)
-    const [unreadByChannel, setUnreadByChannel] = useState<Record<string, number>>({})
-    const [, setChannelServerMap] = useState<Record<string, string>>({})
+    const [channelServerMap, setChannelServerMap] = useState<Record<string, string>>({})
     const [deleteMessageConfirmId, setDeleteMessageConfirmId] = useState<string | null>(null)
     const [deleteChannelConfirm, setDeleteChannelConfirm] = useState<Channel | null>(null)
     const [channelSettingsTarget, setChannelSettingsTarget] = useState<Channel | null>(null)
@@ -302,10 +327,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [hasMoreOlder, setHasMoreOlder] = useState(true)
     const [loadingOlder, setLoadingOlder] = useState(false)
     const [olderMessagesReady, setOlderMessagesReady] = useState(false)
+    const [channelUnreadDividerCount, setChannelUnreadDividerCount] = useState(0)
     const [channelSearch, setChannelSearch] = useState('')
     const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
+    const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const pushToast = useToastStore((s) => s.pushToast)
     const { connect, send, subscribe, isConnected } = useSocketStore()
@@ -333,6 +360,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         for (const member of members) byId.set(member.user_id, member.username)
         return byId
     }, [members])
+    const allKnownChannelIds = useMemo(() => {
+        const seen = new Set<string>()
+        for (const channel of channels) seen.add(channel.id)
+        Object.values(channelsByServerId).forEach((serverChannels) => {
+            serverChannels.forEach((channel) => seen.add(channel.id))
+        })
+        return Array.from(seen)
+    }, [channels, channelsByServerId])
     const visibleServerRoles = useMemo(
         () => serverRoles.slice(0, Math.min(visibleRoleCount, serverRoles.length)),
         [serverRoles, visibleRoleCount]
@@ -342,6 +377,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // Refs to avoid stale closures in WebSocket handlers
     const activeChannelIdRef = useRef(activeChannelId)
     const activeServerIdRef = useRef(activeServerId)
+    const channelServerMapRef = useRef<Record<string, string>>({})
     const tokenRef = useRef(token)
     const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
     const createServerInFlightRef = useRef(false)
@@ -350,6 +386,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
+    useEffect(() => { channelServerMapRef.current = channelServerMap }, [channelServerMap])
     useEffect(() => { tokenRef.current = token }, [token])
     useEffect(() => { selectedRoleIdRef.current = selectedRoleId }, [selectedRoleId])
 
@@ -367,8 +404,41 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (!isLoggedIn) return
-        serverApi.list(token).then(setServers).catch(console.error)
-    }, [isLoggedIn, token, setServers])
+        setServersLoading(true)
+        serverApi.list(token)
+            .then(setServers)
+            .catch(console.error)
+            .finally(() => setServersLoading(false))
+    }, [isLoggedIn, token, setServers, setServersLoading])
+
+    useEffect(() => {
+        if (!isLoggedIn || servers.length === 0) return
+        const missingServerIds = servers
+            .map((server) => server.id)
+            .filter((serverId) => !(serverId in channelsByServerId))
+        if (missingServerIds.length === 0) return
+        let cancelled = false
+        void Promise.all(
+            missingServerIds.map(async (serverId) => {
+                try {
+                    const chs = await serverApi.channels(serverId, token)
+                    if (!cancelled) {
+                        setChannelsForServer(serverId, chs)
+                        setChannelServerMap((prev) => {
+                            const next = { ...prev }
+                            for (const ch of chs) next[ch.id] = ch.server_id
+                            return next
+                        })
+                    }
+                } catch {
+                    // ignore prefetch failures; active server fetch still handles visible route
+                }
+            }),
+        )
+        return () => {
+            cancelled = true
+        }
+    }, [channelsByServerId, isLoggedIn, servers, setChannelsForServer, token])
 
     useEffect(() => {
         if (!isLoggedIn) return
@@ -428,6 +498,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) return
         const serverId = activeServerId
+        const hasCachedChannels = (useAppStore.getState().channelsByServerId[serverId] ?? []).length > 0
+        setServerBootstrapLoading(!hasCachedChannels)
         Promise.all([
             serverApi.channels(serverId, token),
             channelApi.listCategories(serverId, token).catch(() => []),
@@ -448,7 +520,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 const target = storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null)
                 setActiveChannel(target)
             }
-        }).catch(console.error)
+        }).catch(console.error).finally(() => setServerBootstrapLoading(false))
 
         serverApi.get(serverId, token).then((detail) => {
             setMembers(detail.members)
@@ -560,14 +632,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }, [activeChannelId, isLoggedIn, token, loadingOlder, hasMoreOlder])
 
     useEffect(() => {
-        if (!activeChannelId) return
-        setUnreadByChannel((prev) => {
-            if (!prev[activeChannelId]) return prev
-            const next = { ...prev }
-            delete next[activeChannelId]
-            return next
-        })
-    }, [activeChannelId])
+        if (!activeChannelId || !isViewActive) {
+            setChannelUnreadDividerCount(0)
+            return
+        }
+
+        const unreadCount = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
+        setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
+        clearServerUnread(activeChannelId)
+    }, [activeChannelId, clearServerUnread, isViewActive])
 
     useEffect(() => {
         if (!activeChannelId) return
@@ -627,7 +700,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const rawMsg = d.message
                     if (!incomingChannelId || !rawMsg) break
                     const incoming = rawMsg as MessageWithAuthor
-                    if (incomingChannelId === activeChannelIdRef.current) {
+                    const isCurrentVisibleChannel =
+                        incomingChannelId === activeChannelIdRef.current
+                        && isViewActive
+                    if (isCurrentVisibleChannel) {
                         setMessages((prev) => {
                             if (prev.some((m) => m.id === incoming.id)) return prev
                             const withoutMatchingOptimistic = prev.filter((m) => !(
@@ -645,7 +721,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
                         }
                         if (incoming.author?.user_id !== user?.id) {
-                            // Server-side notifications are intentionally disabled.
+                            const incomingServerId = channelServerMapRef.current[incomingChannelId]
+                            if (!incomingServerId || !mutedServerIds.includes(incomingServerId)) {
+                                incrementServerUnread(incomingChannelId)
+                                if (
+                                    incomingServerId &&
+                                    messageMentionsUser(incoming.content, user?.username) &&
+                                    shouldPlayNotificationSound(user?.status)
+                                ) {
+                                    playMessageNotificationSound()
+                                }
+                            }
                         }
                     }
                     break
@@ -820,7 +906,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [setChannels, user?.id])
+    }, [incrementServerUnread, isViewActive, mutedServerIds, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -833,15 +919,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }, [isLoggedIn, token, connect, subscribe, handleWsEvent])
 
-    // Subscribe to all active-server channels to keep unread badges in sync.
+    // Subscribe to all known server channels so unread state works across servers.
     useEffect(() => {
-        if (!isConnected || channels.length === 0) return
-        const channelIds = channels.map((c) => c.id)
-        send('Subscribe', { channel_ids: channelIds })
+        if (!isConnected || allKnownChannelIds.length === 0) return
+        send('Subscribe', { channel_ids: allKnownChannelIds })
         return () => {
-            send('Unsubscribe', { channel_ids: channelIds })
+            send('Unsubscribe', { channel_ids: allKnownChannelIds })
         }
-    }, [channels, isConnected, send])
+    }, [allKnownChannelIds, isConnected, send])
 
     // ─── Handlers ──────────────────────────────
 
@@ -2184,6 +2269,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 />
             )}
             <ChannelSidebar
+                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
                 onOpenServerSettings={openServerSettingsModal}
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
@@ -2199,7 +2285,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 canManageChannels={canManageChannels}
                 canMuteMembers={canMuteMembers}
                 canDeafenMembers={canDeafenMembers}
-                unreadByChannel={unreadByChannel}
+                unreadByChannel={serverUnreadByChannel}
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
@@ -2215,7 +2301,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             )}
             <ChatArea
                 activeChannel={activeChannel}
+                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
                 messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
+                unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
                 draftAttachments={draftAttachments}
                 messageInput={messageInput}
                 onPickAttachments={handleAttachmentPick}
@@ -2312,14 +2400,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     {/* Create Server Modal */}
                     {showCreateServer && (
                         <div
-                            className="modal-overlay"
+                            className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
                             onClick={() => {
                                 if (isCreatingServer) return
                                 setShowCreateServer(false)
                                 setCreateServerError(null)
                             }}
                         >
-                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
+                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
                                 <h2>Create a Server</h2>
                                 {createServerError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{createServerError}</div>
@@ -2359,8 +2447,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
                     {/* Join Server Modal */}
                     {showJoinServer && (
-                        <div className="modal-overlay" onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>
-                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
+                        <div className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`} onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>
+                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
                                 <h2>Join a Server</h2>
                                 {joinServerError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
