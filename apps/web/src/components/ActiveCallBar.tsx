@@ -8,6 +8,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
+import { applyPreferredAudioOutputDevice, buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -167,7 +168,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   )
   const lastShownErrorRef = useRef<string | null>(null)
   const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
-  const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+  const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
   const PEER_VOLUME_KEY = 'voxpery-voice-peer-volume'
   const PEER_VOLUME_CHANGED_EVENT = 'voxpery-voice-peer-volume-changed'
   const [outputVolume, setOutputVolume] = useState(() =>
@@ -294,6 +295,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     attempt()
   }, [])
 
+  const applyOutputDeviceToElements = useCallback(() => {
+    for (const el of remoteAudioRefsRef.current.values()) {
+      void applyPreferredAudioOutputDevice(el)
+    }
+  }, [])
+
   const applyOutputVolumeToElements = useCallback((vol: number) => {
     const global = Math.min(1, Math.max(0, vol))
     const isDeafened = deafenedRef.current
@@ -361,10 +368,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       setOutputVolume(raw)
       outputVolumeRef.current = raw
       applyOutputVolumeToElements(raw / 100)
+      applyOutputDeviceToElements()
     }
     window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
     return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
-  }, [applyOutputVolumeToElements])
+  }, [SETTINGS_CHANGED_EVENT, applyOutputDeviceToElements, applyOutputVolumeToElements])
 
   useEffect(() => {
     const onPeerVolumeChanged = () => {
@@ -451,6 +459,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (el.srcObject !== stream || currentTrackIds !== prevTrackIds) {
         el.srcObject = new MediaStream(stream.getTracks())
         el.__voxpery_trackIds = currentTrackIds
+        void applyPreferredAudioOutputDevice(el)
       }
       if (!perPeerAudioCtxRef.current.has(peerId)) {
         el.muted = deafenedRef.current
@@ -531,7 +540,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       let micStream: MediaStream | null = null
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: buildPreferredMicrophoneConstraints(), video: false })
         await joinVoice(channelId, { preflightStream: micStream })
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
@@ -620,7 +629,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     let stream: MediaStream | null = null
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: buildPreferredMicrophoneConstraints(), video: false })
       await joinVoice(channelId, { preflightStream: stream })
     } catch (err: unknown) {
       stream?.getTracks().forEach((t) => t.stop())
@@ -993,6 +1002,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       if (el) {
                         remoteAudioRefsRef.current.set(peerId, el)
                         if (el.srcObject !== stream) el.srcObject = stream
+                        void applyPreferredAudioOutputDevice(el)
                         const shouldMute = deafenedRef.current
                         const isCaptured = perPeerAudioCtxRef.current.has(peerId)
                         if (!isCaptured) {

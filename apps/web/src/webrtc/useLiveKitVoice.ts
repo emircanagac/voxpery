@@ -15,6 +15,7 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useLocalMedia } from './hooks/useLocalMedia'
 import { useVoiceActivity } from './hooks/useVoiceActivity'
 import { useWebrtcDiagnostics } from './hooks/useWebrtcDiagnostics'
+import { getStoredVoiceInputDeviceId, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 
 type PeerId = string
 
@@ -64,6 +65,7 @@ export function useLiveKitVoice() {
   const remoteMonitorCleanupsRef = useRef<Map<PeerId, () => void>>(new Map())
   const joinedChannelIdRef = useRef<string | null>(null)
   const desiredMicMutedRef = useRef(false)
+  const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
 
   const [joinedChannelId, setJoinedChannelId] = useState<string | null>(null)
   const isJoiningRef = useRef(false)
@@ -184,6 +186,49 @@ export function useLiveKitVoice() {
     }
   }, [])
 
+  const switchMicrophoneDevice = useCallback(async () => {
+    const room = roomRef.current
+    const publishedTrack = localAudioTrackRef.current
+    if (!room || !publishedTrack) return
+
+    const nextDeviceId = getStoredVoiceInputDeviceId()
+    const previousTrack = publishedTrack
+    const previousGateCancel = gateCancelRef.current
+    let nextGateCancel: (() => void) | null = null
+
+    try {
+      const stream = await getMicrophoneStream(true)
+      const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
+      const { track: nextTrack, vadStream, cancelGate } = await buildMicSendTrack(
+        stream,
+        getInputVolumeFactor(),
+        desiredMicMutedRef.current,
+        rawMicTrackRef,
+        inputGainNodeRef,
+        noiseSuppressionEnabled,
+      )
+      nextGateCancel = cancelGate
+
+      await room.localParticipant.unpublishTrack(previousTrack)
+      previousTrack.stop()
+
+      const publication = await room.localParticipant.publishTrack(nextTrack, { source: Track.Source.Microphone })
+      previousGateCancel?.()
+      gateCancelRef.current = nextGateCancel
+      localAudioTrackRef.current = publication.track as LocalAudioTrack
+      vadStreamRef.current = vadStream
+      activeInputDeviceIdRef.current = nextDeviceId
+
+      refreshLocalStreams()
+      startLocalSpeakingMonitor(vadStreamRef.current)
+      await setLocalMicMuted(desiredMicMutedRef.current)
+    } catch (error) {
+      nextGateCancel?.()
+      gateCancelRef.current = previousGateCancel ?? null
+      setLastError(error instanceof Error ? error.message : 'Could not switch microphone device')
+    }
+  }, [buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor])
+
   const closePeer = useCallback((peerId: PeerId) => {
     remoteMonitorCleanupsRef.current.get(peerId)?.()
     remoteMonitorCleanupsRef.current.delete(peerId)
@@ -242,6 +287,7 @@ export function useLiveKitVoice() {
       if (!preflightStream) {
         preflightStream = await getMicrophoneStream()
       }
+      activeInputDeviceIdRef.current = getStoredVoiceInputDeviceId()
 
       const rawMicTrack = preflightStream.getAudioTracks()[0]
       if (!rawMicTrack) throw new Error('No microphone track available')
@@ -265,7 +311,9 @@ export function useLiveKitVoice() {
       } catch { /* ignore unsupported constraints */ }
 
       // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
-      const { track: publishTrack, vadStream } = await buildMicSendTrack(
+      gateCancelRef.current?.()
+      gateCancelRef.current = null
+      const { track: publishTrack, vadStream, cancelGate } = await buildMicSendTrack(
         preflightStream,
         getInputVolumeFactor(),
         desiredMicMutedRef.current,
@@ -273,6 +321,7 @@ export function useLiveKitVoice() {
         inputGainNodeRef,
         noiseSuppressionEnabled,
       )
+      gateCancelRef.current = cancelGate
 
       // Keep vadStream ref so we can pass it to the speaking monitor after room connect
       vadStreamRef.current = vadStream
@@ -658,6 +707,11 @@ export function useLiveKitVoice() {
         gainNode.gain.value = getInputVolumeFactor()
       }
 
+      const nextInputDeviceId = getStoredVoiceInputDeviceId()
+      if (nextInputDeviceId !== activeInputDeviceIdRef.current && joinedChannelIdRef.current) {
+        void switchMicrophoneDevice()
+      }
+
       // ── Live RNNoise hot-swap ──
       const track = localAudioTrackRef.current
       if (!track || !joinedChannelIdRef.current) return
@@ -669,9 +723,9 @@ export function useLiveKitVoice() {
 
       setRnnoiseEnabled(nowEnabled)
     }
-    window.addEventListener('voxpery-voice-settings-changed', onSettingsChanged)
-    return () => window.removeEventListener('voxpery-voice-settings-changed', onSettingsChanged)
-  }, [applyLocalMicSettings, getInputVolumeFactor, setRnnoiseEnabled])
+    window.addEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [applyLocalMicSettings, getInputVolumeFactor, setRnnoiseEnabled, switchMicrophoneDevice])
 
   useEffect(() => {
     return () => {

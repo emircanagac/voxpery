@@ -33,9 +33,24 @@ import {
   requestPushNotificationPermission,
   setPushNotificationsEnabled as persistPushNotificationsEnabled,
 } from '../pushNotifications'
+import {
+  DEFAULT_INPUT_DEVICE_LABEL,
+  DEFAULT_OUTPUT_DEVICE_LABEL,
+  enumerateVoiceDevices,
+  getMicrophonePermissionState,
+  getStoredVoiceInputDeviceId,
+  getStoredVoiceOutputDeviceId,
+  requestVoiceDeviceAccess,
+  supportsAudioOutputSelection,
+  VOICE_INPUT_DEVICE_KEY,
+  VOICE_OUTPUT_DEVICE_KEY,
+  VOICE_SETTINGS_CHANGED_EVENT,
+  type MicrophonePermissionState,
+  type VoiceDeviceOption,
+} from '../voiceDevices'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
-const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
@@ -45,8 +60,20 @@ const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
+const DEFAULT_SPEAKING_PRESET = 'quiet' as const
+const DEFAULT_INPUT_DEVICE_OPTION: VoiceDeviceOption = {
+  id: '',
+  label: DEFAULT_INPUT_DEVICE_LABEL,
+  fullLabel: 'System default microphone',
+}
+const DEFAULT_OUTPUT_DEVICE_OPTION: VoiceDeviceOption = {
+  id: '',
+  label: DEFAULT_OUTPUT_DEVICE_LABEL,
+  fullLabel: 'System default speaker',
+}
 
 type SettingsSection = 'profile' | 'communication' | 'voice' | 'desktop' | 'privacy'
+type VoiceDeviceMenu = 'input' | 'output'
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
 
 function getInitial(name: string) {
@@ -110,9 +137,9 @@ function isValidUsername(value: string) {
 
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
 function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
-  if (preset === 'quiet') return 16    // −36dB: sensitive but avoids false positives
-  if (preset === 'noisy') return 55    // −15dB: only loud direct speech passes
-  return 25    // −29dB: balanced for standard speaking volume
+  if (preset === 'quiet') return 14    // ~−38dB: higher sensitivity for quiet rooms
+  if (preset === 'noisy') return 42    // ~−20dB: stricter gate for noisy spaces
+  return 23    // ~−30dB: balanced default for typical speaking volume
 }
 
 export default function UserBar() {
@@ -128,6 +155,14 @@ export default function UserBar() {
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
   )
   const [statusPopoverAnchor, setStatusPopoverAnchor] = useState<{ left: number; bottom: number; width: number } | null>(null)
+  const [openDeviceMenu, setOpenDeviceMenu] = useState<VoiceDeviceMenu | null>(null)
+  const [deviceMenuAnchor, setDeviceMenuAnchor] = useState<{
+    left: number
+    width: number
+    maxHeight: number
+    top?: number
+    bottom?: number
+  } | null>(null)
   const [showSettingsPanel, setShowSettingsPanel] = useState(false)
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>(DEFAULT_SETTINGS_SECTION)
   const [statusSaving, setStatusSaving] = useState(false)
@@ -137,6 +172,15 @@ export default function UserBar() {
   const [pushNotificationPermission, setPushNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
   const [inputVolume, setInputVolume] = useState(80)
   const [outputVolume, setOutputVolume] = useState(100)
+  const [inputDevices, setInputDevices] = useState<VoiceDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION])
+  const [outputDevices, setOutputDevices] = useState<VoiceDeviceOption[]>([DEFAULT_OUTPUT_DEVICE_OPTION])
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState(() => getStoredVoiceInputDeviceId())
+  const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState(() => getStoredVoiceOutputDeviceId())
+  const [voiceDevicesLoading, setVoiceDevicesLoading] = useState(false)
+  const [voiceDevicesUnlocking, setVoiceDevicesUnlocking] = useState(false)
+  const [voiceDevicesNeedAccess, setVoiceDevicesNeedAccess] = useState(false)
+  const [microphonePermissionState, setMicrophonePermissionState] = useState<MicrophonePermissionState>('unsupported')
+  const [canSelectOutputDevice, setCanSelectOutputDevice] = useState(() => supportsAudioOutputSelection())
   const [voiceMode, setVoiceMode] = useState<'voice_activity' | 'push_to_talk'>('voice_activity')
   const [pttKey, setPttKey] = useState('V')
   const [capturingPtt, setCapturingPtt] = useState(false)
@@ -145,8 +189,8 @@ export default function UserBar() {
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
     (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
   )
-  const [speakingThreshold, setSpeakingThreshold] = useState(30)
-  const [speakingPreset, setSpeakingPreset] = useState<'quiet' | 'normal' | 'noisy' | 'custom'>('normal')
+  const [speakingThreshold, setSpeakingThreshold] = useState(() => thresholdByPreset(DEFAULT_SPEAKING_PRESET))
+  const [speakingPreset, setSpeakingPreset] = useState<'quiet' | 'normal' | 'noisy' | 'custom'>(DEFAULT_SPEAKING_PRESET)
   const [pwOld, setPwOld] = useState('')
   const [pwNew, setPwNew] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
@@ -179,17 +223,77 @@ export default function UserBar() {
   const [usernameChecking, setUsernameChecking] = useState(false)
   const [usernameCheckFailed, setUsernameCheckFailed] = useState(false)
   const statusMenuRef = useRef<HTMLDivElement>(null)
+  const deviceMenuRef = useRef<HTMLDivElement>(null)
   const usernameCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusToggleRef = useRef<HTMLDivElement>(null)
   const userBarWrapRef = useRef<HTMLDivElement>(null)
   const userPanelRef = useRef<HTMLDivElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const settingsModalRef = useRef<HTMLDivElement>(null)
+  const settingsScrollRef = useRef<HTMLDivElement>(null)
+  const inputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
+  const outputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
   const desktopStartupTargetLabel = getDesktopStartupTargetLabel()
 
   const closeStatusMenu = () => {
     setShowStatusMenu(false)
     setStatusError(null)
   }
+
+  const closeDeviceMenu = useCallback(() => {
+    setOpenDeviceMenu(null)
+    setDeviceMenuAnchor(null)
+  }, [])
+
+  const updateDeviceMenuAnchor = useCallback((menu: VoiceDeviceMenu) => {
+    if (typeof window === 'undefined') return
+    const trigger = menu === 'input' ? inputDeviceTriggerRef.current : outputDeviceTriggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const modalRect = settingsModalRef.current?.getBoundingClientRect()
+    const viewportPadding = 8
+    const leftBoundary = modalRect ? Math.max(viewportPadding, modalRect.left + 12) : viewportPadding
+    const rightBoundary = modalRect ? Math.min(window.innerWidth - viewportPadding, modalRect.right - 12) : window.innerWidth - viewportPadding
+    const width = Math.min(
+      Math.max(rect.width, 280),
+      Math.min(380, Math.max(rect.width, rightBoundary - leftBoundary)),
+    )
+    const left = Math.max(
+      leftBoundary,
+      Math.min(rect.left, rightBoundary - width),
+    )
+    const lowerBoundary = modalRect ? Math.min(window.innerHeight - viewportPadding, modalRect.bottom - 12) : window.innerHeight - viewportPadding
+    const upperBoundary = modalRect ? Math.max(viewportPadding, modalRect.top + 12) : viewportPadding
+    const availableBelow = lowerBoundary - rect.bottom - 6
+    const availableAbove = rect.top - upperBoundary - 6
+    const openAbove = availableBelow < 180 && availableAbove > availableBelow
+    const maxHeight = Math.max(120, Math.min(280, (openAbove ? availableAbove : availableBelow)))
+
+    setDeviceMenuAnchor(
+      openAbove
+        ? {
+          left,
+          width,
+          maxHeight,
+          bottom: Math.max(viewportPadding, window.innerHeight - rect.top + 6),
+        }
+        : {
+          left,
+          width,
+          maxHeight,
+          top: Math.min(rect.bottom + 6, lowerBoundary - maxHeight),
+        },
+    )
+  }, [])
+
+  const toggleDeviceMenu = useCallback((menu: VoiceDeviceMenu) => {
+    if (openDeviceMenu === menu) {
+      closeDeviceMenu()
+      return
+    }
+    updateDeviceMenuAnchor(menu)
+    setOpenDeviceMenu(menu)
+  }, [closeDeviceMenu, openDeviceMenu, updateDeviceMenuAnchor])
 
   const updateStatusPopoverAnchor = useCallback(() => {
     if (!isMobileViewport) {
@@ -257,6 +361,92 @@ export default function UserBar() {
     return () => media.removeEventListener('change', sync)
   }, [])
 
+  const refreshVoiceDevices = useCallback(async (unlockLabels = false) => {
+    setVoiceDevicesLoading(true)
+    try {
+      let permissionState = await getMicrophonePermissionState()
+      if (unlockLabels || permissionState === 'granted') {
+        setVoiceDevicesUnlocking(true)
+        await requestVoiceDeviceAccess()
+        permissionState = await getMicrophonePermissionState()
+      }
+      const { inputs, outputs, canSelectOutput, labelsUnlocked } = await enumerateVoiceDevices()
+      const devicesUnlocked = labelsUnlocked
+      const effectivePermissionState: MicrophonePermissionState = devicesUnlocked
+        ? 'granted'
+        : permissionState === 'unsupported'
+          ? 'prompt'
+          : permissionState
+      const resolvedInputs = devicesUnlocked ? inputs : [DEFAULT_INPUT_DEVICE_OPTION]
+      const resolvedOutputs = devicesUnlocked ? outputs : [DEFAULT_OUTPUT_DEVICE_OPTION]
+      const resolvedCanSelectOutput = devicesUnlocked && canSelectOutput
+
+      setInputDevices(resolvedInputs)
+      setOutputDevices(resolvedOutputs)
+      setCanSelectOutputDevice(resolvedCanSelectOutput)
+      setMicrophonePermissionState(effectivePermissionState)
+      setVoiceDevicesNeedAccess(effectivePermissionState !== 'granted')
+
+      const storedInput = getStoredVoiceInputDeviceId()
+      const nextInput = storedInput && resolvedInputs.some((device) => device.id === storedInput) ? storedInput : ''
+      if (storedInput !== nextInput) {
+        if (nextInput) localStorage.setItem(VOICE_INPUT_DEVICE_KEY, nextInput)
+        else localStorage.removeItem(VOICE_INPUT_DEVICE_KEY)
+        window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+      }
+      setSelectedInputDeviceId(nextInput)
+
+      const storedOutput = getStoredVoiceOutputDeviceId()
+      const nextOutput = resolvedCanSelectOutput && storedOutput && resolvedOutputs.some((device) => device.id === storedOutput)
+        ? storedOutput
+        : ''
+      if (storedOutput !== nextOutput) {
+        if (nextOutput) localStorage.setItem(VOICE_OUTPUT_DEVICE_KEY, nextOutput)
+        else localStorage.removeItem(VOICE_OUTPUT_DEVICE_KEY)
+        window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+      }
+      setSelectedOutputDeviceId(nextOutput)
+    } catch {
+      setInputDevices([DEFAULT_INPUT_DEVICE_OPTION])
+      setOutputDevices([DEFAULT_OUTPUT_DEVICE_OPTION])
+      setCanSelectOutputDevice(supportsAudioOutputSelection())
+      setMicrophonePermissionState('prompt')
+      setVoiceDevicesNeedAccess(true)
+    } finally {
+      setVoiceDevicesUnlocking(false)
+      setVoiceDevicesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshVoiceDevices()
+    const mediaDevices = navigator.mediaDevices
+    if (!mediaDevices?.addEventListener) return
+    const handleDeviceChange = () => {
+      void refreshVoiceDevices()
+    }
+    mediaDevices.addEventListener('devicechange', handleDeviceChange)
+    return () => mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+  }, [refreshVoiceDevices])
+
+  useEffect(() => {
+    if (!showSettingsPanel || activeSettingsSection !== 'voice') return
+    void refreshVoiceDevices()
+  }, [activeSettingsSection, refreshVoiceDevices, showSettingsPanel])
+
+  useEffect(() => {
+    if (!showSettingsPanel || activeSettingsSection !== 'voice') return
+    const handleRefresh = () => {
+      void refreshVoiceDevices()
+    }
+    window.addEventListener('focus', handleRefresh)
+    document.addEventListener('visibilitychange', handleRefresh)
+    return () => {
+      window.removeEventListener('focus', handleRefresh)
+      document.removeEventListener('visibilitychange', handleRefresh)
+    }
+  }, [activeSettingsSection, refreshVoiceDevices, showSettingsPanel])
+
   useEffect(() => {
     if (!pendingStatusMenuOpen) return
     if (mobileSidebarPanel !== 'none') return
@@ -313,15 +503,22 @@ export default function UserBar() {
     if (ptt) setPttKey(ptt)
     if (ns != null) setNoiseSuppressionEnabled(ns === '1')
     if (voiceJoinConfirm != null) setVoiceJoinConfirmEnabled(voiceJoinConfirm !== '0')
-    if (speaking != null) setSpeakingThreshold(Math.min(100, Math.max(0, Number(speaking) || 30)))
+    if (speaking != null) {
+      setSpeakingThreshold(Math.min(100, Math.max(0, Number(speaking) || thresholdByPreset(DEFAULT_SPEAKING_PRESET))))
+    } else {
+      setSpeakingThreshold(thresholdByPreset(DEFAULT_SPEAKING_PRESET))
+    }
     if (preset === 'quiet' || preset === 'normal' || preset === 'noisy' || preset === 'custom') {
       setSpeakingPreset(preset)
+      if (speaking == null && preset !== 'custom') {
+        setSpeakingThreshold(thresholdByPreset(preset))
+      }
     } else {
-      setSpeakingPreset('normal')
-      setSpeakingThreshold(thresholdByPreset('normal'))
+      setSpeakingPreset(DEFAULT_SPEAKING_PRESET)
+      setSpeakingThreshold(thresholdByPreset(DEFAULT_SPEAKING_PRESET))
       try {
-        localStorage.setItem(SPEAKING_PRESET_KEY, 'normal')
-        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(thresholdByPreset('normal')))
+        localStorage.setItem(SPEAKING_PRESET_KEY, DEFAULT_SPEAKING_PRESET)
+        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(thresholdByPreset(DEFAULT_SPEAKING_PRESET)))
         window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
       } catch {
         // ignore storage errors
@@ -399,10 +596,14 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
   useEffect(() => {
-    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showPwModal) return
+    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showPwModal && !openDeviceMenu) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
+      if (openDeviceMenu) {
+        closeDeviceMenu()
+        return
+      }
       if (showDeleteModal) {
         closeDeleteModal()
         return
@@ -427,7 +628,7 @@ export default function UserBar() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [showDeleteModal, showPwModal, showSettingsPanel, showStatusMenu, showUsernameModal])
+  }, [closeDeviceMenu, openDeviceMenu, showDeleteModal, showPwModal, showSettingsPanel, showStatusMenu, showUsernameModal])
 
   useEffect(() => {
     if (!showSettingsPanel) return
@@ -440,6 +641,33 @@ export default function UserBar() {
     if (showSettingsPanel) return
     if (capturingPtt) setCapturingPtt(false)
   }, [capturingPtt, showSettingsPanel])
+
+  useEffect(() => {
+    if (!showSettingsPanel || activeSettingsSection !== 'voice') {
+      closeDeviceMenu()
+    }
+  }, [activeSettingsSection, closeDeviceMenu, showSettingsPanel])
+
+  useEffect(() => {
+    if (!openDeviceMenu) return
+    const trigger = openDeviceMenu === 'input' ? inputDeviceTriggerRef.current : outputDeviceTriggerRef.current
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (deviceMenuRef.current?.contains(target) || trigger?.contains(target)) return
+      closeDeviceMenu()
+    }
+    const onWindowChange = () => closeDeviceMenu()
+    const scrollHost = settingsScrollRef.current
+    window.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('resize', onWindowChange)
+    scrollHost?.addEventListener('scroll', onWindowChange, { passive: true })
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('resize', onWindowChange)
+      scrollHost?.removeEventListener('scroll', onWindowChange)
+    }
+  }, [closeDeviceMenu, openDeviceMenu])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -790,6 +1018,59 @@ export default function UserBar() {
   }
 
   const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
+  const currentInputDevice = inputDevices.find((device) => device.id === selectedInputDeviceId) ?? DEFAULT_INPUT_DEVICE_OPTION
+  const currentOutputDevice = outputDevices.find((device) => device.id === selectedOutputDeviceId) ?? DEFAULT_OUTPUT_DEVICE_OPTION
+  const microphoneAccessAllowed = microphonePermissionState === 'granted'
+  const microphoneAccessButtonLabel = microphonePermissionState === 'denied' ? 'Retry mic access' : 'Allow mic access'
+
+  const voiceDeviceMenu = openDeviceMenu && deviceMenuAnchor && typeof document !== 'undefined'
+    ? createPortal(
+      <div
+        ref={deviceMenuRef}
+        className="device-select-menu"
+        style={{
+          left: `${deviceMenuAnchor.left}px`,
+          width: `${deviceMenuAnchor.width}px`,
+          maxHeight: `${deviceMenuAnchor.maxHeight}px`,
+          top: deviceMenuAnchor.top != null ? `${deviceMenuAnchor.top}px` : undefined,
+          bottom: deviceMenuAnchor.bottom != null ? `${deviceMenuAnchor.bottom}px` : undefined,
+        }}
+        role="listbox"
+        aria-label={openDeviceMenu === 'input' ? 'Input device' : 'Output device'}
+      >
+        {(openDeviceMenu === 'input' ? inputDevices : outputDevices).map((device) => {
+          const isActive = openDeviceMenu === 'input'
+            ? device.id === selectedInputDeviceId
+            : device.id === selectedOutputDeviceId
+          return (
+            <button
+              key={`${openDeviceMenu}-${device.id || 'default'}`}
+              type="button"
+              className={`device-select-menu__item ${isActive ? 'is-active' : ''}`}
+              title={device.fullLabel}
+              onClick={() => {
+                if (openDeviceMenu === 'input') {
+                  setSelectedInputDeviceId(device.id)
+                  if (device.id) localStorage.setItem(VOICE_INPUT_DEVICE_KEY, device.id)
+                  else localStorage.removeItem(VOICE_INPUT_DEVICE_KEY)
+                } else {
+                  setSelectedOutputDeviceId(device.id)
+                  if (device.id) localStorage.setItem(VOICE_OUTPUT_DEVICE_KEY, device.id)
+                  else localStorage.removeItem(VOICE_OUTPUT_DEVICE_KEY)
+                }
+                window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                closeDeviceMenu()
+              }}
+            >
+              <span className="device-select-menu__label">{device.label}</span>
+              {isActive && <span className="device-select-menu__check" aria-hidden>✓</span>}
+            </button>
+          )
+        })}
+      </div>,
+      document.body,
+    )
+    : null
 
   const statusPopover = (
     <div
@@ -911,9 +1192,14 @@ export default function UserBar() {
       </button>
       {showStatusMenu && !isMobileViewport && statusPopover}
       {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(statusPopover, document.body)}
+      {voiceDeviceMenu}
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={closeSettingsPanel}>
-          <div className="modal user-settings-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''}`}
+            ref={settingsModalRef}
+            onClick={(e) => e.stopPropagation()}
+          >
             <header className="user-settings-header">
               <div className="user-settings-header-copy">
                 <h2>Settings</h2>
@@ -965,11 +1251,11 @@ export default function UserBar() {
                   </button>
                 )}
               </nav>
-              <div className="user-settings-scroll">
+              <div className="user-settings-scroll" ref={settingsScrollRef}>
               {activeSettingsSection === 'communication' && (
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Communication</h3>
-                <div className="user-setting-row">
+                <div className="user-setting-row user-setting-row--span-two">
                   <div>
                     <div className="user-setting-title">Notification sounds</div>
                     <div className="user-setting-desc">Play alert sounds for direct messages, mentions, and friend requests.</div>
@@ -986,7 +1272,7 @@ export default function UserBar() {
                     {soundEnabled ? 'On' : 'Off'}
                   </button>
                 </div>
-                <div className="user-setting-row">
+                <div className="user-setting-row user-setting-row--span-two">
                   <div>
                     <div className="user-setting-title">Browser notifications</div>
                     <div className="user-setting-desc">
@@ -1024,7 +1310,7 @@ export default function UserBar() {
                           : 'Off'}
                   </button>
                 </div>
-                <div className="user-setting-row">
+                <div className="user-setting-row user-setting-row--span-two">
                   <div>
                     <div className="user-setting-title">Who can send you DMs</div>
                     <div className="user-setting-desc">Who can start a DM with you.</div>
@@ -1056,9 +1342,9 @@ export default function UserBar() {
               </section>
               )}
               {activeSettingsSection === 'voice' && (
-              <section className="user-settings-section">
+              <section className="user-settings-section user-settings-section--voice">
                 <h3 className="user-settings-section-title">Voice & Audio</h3>
-                <div className="user-setting-row">
+                <div className="user-setting-row user-setting-row--span-two">
                   <div>
                     <div className="user-setting-title">Voice mode</div>
                     <div className="user-setting-desc">How your mic is activated.</div>
@@ -1078,7 +1364,7 @@ export default function UserBar() {
                   </select>
                 </div>
                 {voiceMode === 'push_to_talk' && (
-                  <div className="user-setting-row">
+                  <div className="user-setting-row user-setting-row--span-two">
                     <div>
                       <div className="user-setting-title">Push-to-talk key</div>
                       <div className="user-setting-desc">Current: {pttKey}</div>
@@ -1092,83 +1378,79 @@ export default function UserBar() {
                     </button>
                   </div>
                 )}
-                <div className="user-setting-row">
+                <div className="user-setting-row user-setting-row--span-two">
                   <div>
-                    <div className="user-setting-title">Noise suppression</div>
+                    <div className="user-setting-title">Microphone access</div>
                     <div className="user-setting-desc">
-                      Removes background noise (keyboard, fan, etc.) from your mic signal in real time.
+                      {microphonePermissionState === 'granted'
+                        ? 'Voxpery can use your mic for voice, device selection, and mic testing.'
+                        : microphonePermissionState === 'denied'
+                          ? 'Microphone access is blocked. Allow it in your browser to choose devices and join voice.'
+                          : 'Allow microphone access to choose devices, join voice channels, and run mic test.'}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className={`user-toggle ${noiseSuppressionEnabled ? 'active' : ''}`}
-                    onClick={() => {
-                      const next = !noiseSuppressionEnabled
-                      setNoiseSuppressionEnabled(next)
-                      localStorage.setItem(NOISE_SUPPRESSION_KEY, next ? '1' : '0')
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  >
-                    {noiseSuppressionEnabled ? 'On' : 'Off'}
-                  </button>
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Voice join confirmation</div>
-                    <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
+                  <div className="user-setting-actions user-setting-actions--device">
+                    {microphoneAccessAllowed ? (
+                      <div className="user-setting-inline-note">Allowed</div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="user-toggle account-action-btn"
+                        disabled={voiceDevicesUnlocking}
+                        onClick={() => void refreshVoiceDevices(true)}
+                      >
+                        {voiceDevicesUnlocking ? 'Allowing…' : microphoneAccessButtonLabel}
+                      </button>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
-                    onClick={() => {
-                      const next = !voiceJoinConfirmEnabled
-                      setVoiceJoinConfirmEnabled(next)
-                      localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  >
-                    {voiceJoinConfirmEnabled ? 'On' : 'Off'}
-                  </button>
                 </div>
                 <div className="user-setting-row">
                   <div>
-                    <div className="user-setting-title">Input sensitivity</div>
+                    <div className="user-setting-title">Input device</div>
                     <div className="user-setting-desc">
-                      Your mic is only active when audio volume exceeds this threshold.
+                      {voiceDevicesNeedAccess
+                        ? 'Uses System Default until microphone access is allowed.'
+                        : 'Choose which microphone Voxpery uses for voice.'}
                     </div>
                   </div>
-                  <select
-                    className="user-select"
-                    value={speakingPreset}
-                    onChange={(e) => {
-                      const next = e.target.value as 'quiet' | 'normal' | 'noisy' | 'custom'
-                      setSpeakingPreset(next)
-                      localStorage.setItem(SPEAKING_PRESET_KEY, next)
-                      if (next !== 'custom') {
-                        const threshold = thresholdByPreset(next)
-                        setSpeakingThreshold(threshold)
-                        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(threshold))
-                      }
-                    }}
-                  >
-                    <option value="quiet">Quiet room</option>
-                    <option value="normal">Normal</option>
-                    <option value="noisy">Noisy room</option>
-                    <option value="custom">Custom</option>
-                  </select>
+                  <div className="user-setting-actions user-setting-actions--device">
+                    <button
+                      ref={inputDeviceTriggerRef}
+                      type="button"
+                      className={`device-select-trigger ${openDeviceMenu === 'input' ? 'is-open' : ''}`}
+                      title={currentInputDevice.fullLabel}
+                      disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess}
+                      onClick={() => toggleDeviceMenu('input')}
+                    >
+                      <span className="device-select-trigger__label">{currentInputDevice.label}</span>
+                      <ChevronsUpDown size={15} strokeWidth={1.9} />
+                    </button>
+                  </div>
                 </div>
-                <div className="user-setting-row user-setting-row-full">
-                  <SensitivityBar
-                    threshold={speakingThreshold}
-                    onThresholdChange={(v) => {
-                      setSpeakingThreshold(v)
-                      localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(v))
-                    }}
-                    onPresetChange={(preset) => {
-                      setSpeakingPreset(preset)
-                      localStorage.setItem(SPEAKING_PRESET_KEY, preset)
-                    }}
-                  />
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Output device</div>
+                    <div className="user-setting-desc">
+                      {voiceDevicesNeedAccess
+                        ? 'Uses System Default until microphone access is allowed.'
+                        : canSelectOutputDevice
+                          ? 'Choose which speaker plays incoming voice audio.'
+                          : 'This browser uses your system default output.'}
+                    </div>
+                  </div>
+                  <div className="user-setting-actions user-setting-actions--device">
+                    <button
+                      ref={outputDeviceTriggerRef}
+                      type="button"
+                      className={`device-select-trigger ${openDeviceMenu === 'output' ? 'is-open' : ''}`}
+                      title={currentOutputDevice.fullLabel}
+                      disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess || !canSelectOutputDevice}
+                      onClick={() => toggleDeviceMenu('output')}
+                    >
+                      <span className="device-select-trigger__label">{currentOutputDevice.label}</span>
+                      <ChevronsUpDown size={15} strokeWidth={1.9} />
+                    </button>
+                  </div>
                 </div>
                 <div className="user-setting-row">
                   <div>
@@ -1207,6 +1489,63 @@ export default function UserBar() {
                       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
                     }}
                   />
+                </div>
+                <div className="user-setting-row user-setting-row-full user-setting-row--span-two">
+                  <SensitivityBar
+                    threshold={speakingThreshold}
+                    preset={speakingPreset}
+                    onThresholdChange={(v) => {
+                      setSpeakingThreshold(v)
+                      localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(v))
+                    }}
+                    onPresetChange={(preset) => {
+                      setSpeakingPreset(preset)
+                      localStorage.setItem(SPEAKING_PRESET_KEY, preset)
+                      if (preset !== 'custom') {
+                        const threshold = thresholdByPreset(preset)
+                        setSpeakingThreshold(threshold)
+                        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(threshold))
+                      }
+                    }}
+                  />
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Noise suppression</div>
+                    <div className="user-setting-desc">
+                      Removes background noise (keyboard, fan, etc.) from your mic signal in real time.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`user-toggle ${noiseSuppressionEnabled ? 'active' : ''}`}
+                    onClick={() => {
+                      const next = !noiseSuppressionEnabled
+                      setNoiseSuppressionEnabled(next)
+                      localStorage.setItem(NOISE_SUPPRESSION_KEY, next ? '1' : '0')
+                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                    }}
+                  >
+                    {noiseSuppressionEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Voice join confirmation</div>
+                    <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
+                    onClick={() => {
+                      const next = !voiceJoinConfirmEnabled
+                      setVoiceJoinConfirmEnabled(next)
+                      localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
+                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                    }}
+                  >
+                    {voiceJoinConfirmEnabled ? 'On' : 'Off'}
+                  </button>
                 </div>
               </section>
               )}

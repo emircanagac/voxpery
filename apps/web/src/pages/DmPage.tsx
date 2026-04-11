@@ -222,19 +222,6 @@ export default function DmPage() {
     [activeChannel],
   )
 
-  const otherDmChannels = useMemo(() => channels.filter((channel) => channel.id !== activeChannelId), [activeChannelId, channels])
-  const channelsForForward = useMemo(
-    () =>
-      otherDmChannels.map((channel) => ({
-        id: channel.id,
-        server_id: '',
-        name: channel.peer_username,
-        channel_type: 'text' as const,
-        position: 0,
-      })),
-    [otherDmChannels],
-  )
-
   const typingIndicatorLabel = typingPeer ? `${typingPeer} is typing...` : null
 
   const handleSend = async (event?: FormEvent) => {
@@ -453,27 +440,6 @@ export default function DmPage() {
     }
   }
 
-  const handleForwardDm = async (message: { author?: { username?: string }; content: string }, targetChannelId: string) => {
-    if (!user) return
-    const from = message.author?.username ?? 'Someone'
-    const forwardedContent = `[Forwarded from @${from}]: ${message.content}`
-    const targetChannel = channels.find((channel) => channel.id === targetChannelId)
-
-    if (targetChannelId !== activeChannelId && targetChannel) {
-      setActiveChannelId(targetChannelId)
-      navigate('/')
-    }
-
-    try {
-      const sent = await dmApi.sendMessage(targetChannelId, forwardedContent, [], token)
-      if (targetChannelId === activeChannelId) {
-        setMessages((prev) => (prev.some((entry) => entry.id === sent.id) ? prev : [...prev, sent]))
-      }
-    } catch {
-      // Ignore forward send failures here; ChatArea already closes the menu and this route stays stable.
-    }
-  }
-
   return (
     <div className="dm-page">
       <aside className="dm-sidebar">
@@ -538,8 +504,6 @@ export default function DmPage() {
           }}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
-          onForwardMessage={handleForwardDm}
-          channelsForForward={channelsForForward}
           editingMessageId={editingMessageId}
           editingContent={editingContent}
           onEditMessage={(message) => {

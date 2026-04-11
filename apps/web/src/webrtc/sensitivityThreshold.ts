@@ -6,8 +6,8 @@
 
 export const SENSITIVITY_THRESHOLD_KEY = 'voxpery-settings-speaking-threshold'
 
-/** Default slider value when not set (matches "Normal" preset). */
-export const DEFAULT_SENSITIVITY_SLIDER = 25
+/** Default slider value when not set (matches "Quiet room" preset). */
+export const DEFAULT_SENSITIVITY_SLIDER = 14
 
 /** Slider 0 → ~0.001 (-60dB), slider 100 → ~0.561 (-5dB). Exponential curve for natural feel. */
 export function onThresholdFromSlider(slider: number): number {

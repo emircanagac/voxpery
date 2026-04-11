@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
-import type { MessageWithAuthor, Channel, Friend } from '../api'
+import type { MessageWithAuthor, Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from './EmojiPicker'
@@ -38,6 +38,22 @@ function mentionStatusTone(status?: string | null): 'online' | 'dnd' | 'offline'
     if (normalized === 'dnd') return 'dnd'
     return 'offline'
 }
+
+function extractEmbeddedMediaMarkdown(content: string): { text: string; gifUrls: string[]; stickerUrls: string[] } {
+    const gifUrls: string[] = []
+    const stickerUrls: string[] = []
+    const text = content
+        .replace(/!\[gif\]\((https?:\/\/[^\s)]+)\)/gi, (_match, url: string) => {
+        gifUrls.push(url)
+        return ''
+    })
+        .replace(/!\[sticker\]\((https?:\/\/[^\s)]+)\)/gi, (_match, url: string) => {
+            stickerUrls.push(url)
+            return ''
+        })
+        .trim()
+    return { text, gifUrls, stickerUrls }
+}
 interface ChatAreaProps {
     activeChannel: Channel | undefined
     messages: UiMessage[]
@@ -47,17 +63,15 @@ interface ChatAreaProps {
     onRemoveAttachment: (index: number) => void
     onRetryAttachment?: (localId: string) => void
     onMessageInputChange: (value: string) => void
-    onSendMessage: (e?: FormEvent) => void
+    onSendMessage: (e?: FormEvent, forceContent?: string) => void
     onRetryMessage: (clientId: string) => void
     onDeleteMessage?: (messageId: string) => void
     onReportMessage?: (msg: { id: string; author?: { user_id?: string; username?: string }; content: string }) => void
     onReplyToMessage?: (msg: { id: string; author?: { username?: string }; content: string }) => void
     replyingTo?: { id: string; username: string; contentSnippet: string } | null
     onCancelReply?: () => void
-    onForwardMessage?: (msg: { author?: { username?: string }; content: string }, targetChannelId: string) => void
-    onForwardToFriend?: (msg: { author?: { username?: string }; content: string }, friendId: string) => void
-    channelsForForward?: Channel[]
-    friendsForForward?: Friend[]
+    onToggleSaveMessage?: (msg: MessageWithAuthor) => void
+    savedMessageIds?: Set<string>
     editingMessageId?: string | null
     editingContent?: string
     onEditMessage?: (msg: { id: string; content: string; contentToEdit?: string; replyQuotePart?: string }) => void
@@ -94,6 +108,8 @@ interface ChatAreaProps {
     emptyStateTitle?: string
     emptyStateDescription?: string
     emptyStateActions?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>
+    jumpToMessageId?: string | null
+    onJumpToMessageHandled?: () => void
 }
 
 export default function ChatArea({
@@ -112,10 +128,8 @@ export default function ChatArea({
     onReplyToMessage,
     replyingTo,
     onCancelReply,
-    onForwardMessage,
-    onForwardToFriend,
-    channelsForForward,
-    friendsForForward,
+    onToggleSaveMessage,
+    savedMessageIds,
     editingMessageId,
     editingContent = '',
     onEditMessage,
@@ -147,11 +161,15 @@ export default function ChatArea({
     emptyStateTitle,
     emptyStateDescription,
     emptyStateActions,
+    jumpToMessageId = null,
+    onJumpToMessageHandled,
 }: ChatAreaProps) {
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
+    const chatAreaRef = useRef<HTMLDivElement | null>(null)
     const messagesScrollRef = useRef<HTMLDivElement>(null)
+    const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
     const setMessagesScrollRef = useCallback(
         (el: HTMLDivElement | null) => {
             (messagesScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
@@ -162,7 +180,6 @@ export default function ChatArea({
     const shouldAutoScrollRef = useRef(true)
     const prevViewActiveRef = useRef(isViewActive)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
-    const [forwardPickerMessageId, setForwardPickerMessageId] = useState<string | null>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
     const [searchOpen, setSearchOpen] = useState(false)
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
@@ -178,11 +195,14 @@ export default function ChatArea({
     const [emojiOpen, setEmojiOpen] = useState(false)
     const emojiPickerRef = useRef<HTMLDivElement | null>(null)
     const emojiButtonRef = useRef<HTMLButtonElement | null>(null)
+    const messageInputWrapperRef = useRef<HTMLDivElement | null>(null)
     const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
     const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
+    const reactionPickerRef = useRef<HTMLDivElement | null>(null)
+    const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
+    const [reactionPickerPosition, setReactionPickerPosition] = useState<{ top: number; left: number } | null>(null)
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
-    const textChannelsForForward = channelsForForward?.filter((c) => c.channel_type === 'text' && c.id !== activeChannel?.id) ?? []
     const mentionCandidates = useMemo(() => {
         const seen = new Set<string>()
         return mentionUsers
@@ -249,6 +269,23 @@ export default function ChatArea({
         if (!shouldAutoScrollRef.current) return
         snapToBottom()
     }, [activeChannel?.id, messages.length, unreadDividerCount, snapToBottom])
+
+    useLayoutEffect(() => {
+        if (draftAttachments.length === 0) return
+        if (!shouldAutoScrollRef.current) return
+        snapToBottom()
+    }, [draftAttachments.length, snapToBottom])
+
+    useEffect(() => {
+        const spacer = virtualListSpacerRef.current
+        if (!spacer || typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(() => {
+            if (!shouldAutoScrollRef.current) return
+            snapToBottom()
+        })
+        observer.observe(spacer)
+        return () => observer.disconnect()
+    }, [activeChannel?.id, messages.length, snapToBottom])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
     useLayoutEffect(() => {
@@ -363,6 +400,15 @@ export default function ChatArea({
         if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
     }, [])
 
+    useEffect(() => {
+        if (!jumpToMessageId || messages.length === 0) return
+        const exists = messages.some((message) => message.id === jumpToMessageId)
+        if (!exists) return
+        shouldAutoScrollRef.current = false
+        scrollToMessageId(jumpToMessageId)
+        onJumpToMessageHandled?.()
+    }, [jumpToMessageId, messages, onJumpToMessageHandled, scrollToMessageId])
+
     const closeMentionMenu = () => {
         setMentionOpen(false)
         setMentionStartIndex(null)
@@ -418,6 +464,13 @@ export default function ChatArea({
 
     const insertEmoji = (emoji: string) => {
         if (!canSendMessages) return
+        const isInstantMedia = /^!\[(gif|sticker)\]\(https?:\/\/[^\s)]+\)$/i.test(emoji.trim())
+        if (isInstantMedia) {
+            onSendMessage(undefined, emoji.trim())
+            setEmojiOpen(false)
+            closeMentionMenu()
+            return
+        }
         const inputEl = textareaRef.current
         const start = inputEl?.selectionStart ?? messageInput.length
         const end = inputEl?.selectionEnd ?? start
@@ -525,18 +578,39 @@ export default function ChatArea({
         const syncPosition = () => {
             const button = emojiButtonRef.current
             if (!button) return
+            const chatAreaRect = chatAreaRef.current?.getBoundingClientRect()
+            const messageInputRect = messageInputWrapperRef.current?.getBoundingClientRect()
             const rect = button.getBoundingClientRect()
             const pickerWidth = 232
-            const pickerHeight = 336
+            const pickerHeight = emojiPickerRef.current?.getBoundingClientRect().height ?? 336
             const viewportPadding = 16
-            const left = Math.max(
+            const containerPadding = 8
+            const minLeft = Math.max(
                 viewportPadding,
-                Math.min(rect.right - pickerWidth, window.innerWidth - pickerWidth - viewportPadding)
+                (chatAreaRect?.left ?? viewportPadding) + containerPadding
             )
-            const top = Math.max(
+            const maxRight = Math.min(
+                window.innerWidth - viewportPadding,
+                (chatAreaRect?.right ?? (window.innerWidth - viewportPadding)) - containerPadding
+            )
+            const minTop = Math.max(
                 viewportPadding,
-                Math.min(rect.top - pickerHeight - 8, window.innerHeight - pickerHeight - viewportPadding)
+                (chatAreaRect?.top ?? viewportPadding) + containerPadding
             )
+            const maxBottom = Math.min(
+                window.innerHeight - viewportPadding,
+                (chatAreaRect?.bottom ?? (window.innerHeight - viewportPadding)) - containerPadding
+            )
+            const inputSafeTop = messageInputRect ? messageInputRect.top : maxBottom
+            const boundedBottom = Math.min(maxBottom, inputSafeTop)
+
+            const maxLeft = Math.max(minLeft, maxRight - pickerWidth)
+            const preferredLeft = rect.right - pickerWidth
+            const left = Math.max(minLeft, Math.min(preferredLeft, maxLeft))
+
+            const maxTop = Math.max(minTop, boundedBottom - pickerHeight)
+            const preferredTop = inputSafeTop - pickerHeight
+            const top = Math.max(minTop, Math.min(preferredTop, maxTop))
             setEmojiPickerPosition({ top, left })
         }
         const close = (e: MouseEvent) => {
@@ -553,20 +627,96 @@ export default function ChatArea({
         document.addEventListener('keydown', onKeyDown)
         window.addEventListener('resize', syncPosition)
         window.addEventListener('scroll', syncPosition, true)
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => {
+                syncPosition()
+            })
+            : null
+        if (resizeObserver && emojiPickerRef.current) {
+            resizeObserver.observe(emojiPickerRef.current)
+        }
         return () => {
             document.removeEventListener('click', close)
             document.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('resize', syncPosition)
             window.removeEventListener('scroll', syncPosition, true)
+            resizeObserver?.disconnect()
         }
     }, [emojiOpen])
 
 
     useEffect(() => {
         if (!reactionPickerMessageId) return
-        const close = () => setReactionPickerMessageId(null)
+        const syncReactionPickerPosition = () => {
+            const anchor = reactionPickerAnchorRef.current
+            if (!anchor) return
+            const chatAreaRect = chatAreaRef.current?.getBoundingClientRect()
+            const anchorRect = anchor.getBoundingClientRect()
+            const pickerWidth = 240
+            const pickerHeight = reactionPickerRef.current?.getBoundingClientRect().height ?? 280
+            const viewportPadding = 12
+            const containerPadding = 8
+            const minLeft = Math.max(
+                viewportPadding,
+                (chatAreaRect?.left ?? viewportPadding) + containerPadding
+            )
+            const maxRight = Math.min(
+                window.innerWidth - viewportPadding,
+                (chatAreaRect?.right ?? (window.innerWidth - viewportPadding)) - containerPadding
+            )
+            const minTop = Math.max(
+                viewportPadding,
+                (chatAreaRect?.top ?? viewportPadding) + containerPadding
+            )
+            const maxBottom = Math.min(
+                window.innerHeight - viewportPadding,
+                (chatAreaRect?.bottom ?? (window.innerHeight - viewportPadding)) - containerPadding
+            )
+            const maxLeft = Math.max(minLeft, maxRight - pickerWidth)
+            const preferredLeft = anchorRect.right - pickerWidth
+            const left = Math.max(minLeft, Math.min(preferredLeft, maxLeft))
+            const preferredAbove = anchorRect.top - pickerHeight - 8
+            const preferredBelow = anchorRect.bottom + 8
+            const canFitAbove = preferredAbove >= minTop
+            const canFitBelow = preferredBelow + pickerHeight <= maxBottom + pickerHeight
+            const top = canFitAbove
+                ? preferredAbove
+                : canFitBelow
+                    ? Math.min(preferredBelow, maxBottom - pickerHeight)
+                    : Math.max(minTop, Math.min(preferredAbove, maxBottom - pickerHeight))
+            setReactionPickerPosition({ top, left })
+        }
+        const close = (e: MouseEvent) => {
+            if (reactionPickerRef.current?.contains(e.target as Node)) return
+            if (reactionPickerAnchorRef.current?.contains(e.target as Node)) return
+            setReactionPickerMessageId(null)
+            reactionPickerAnchorRef.current = null
+        }
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            setReactionPickerMessageId(null)
+            reactionPickerAnchorRef.current = null
+        }
+        syncReactionPickerPosition()
         document.addEventListener('click', close)
-        return () => document.removeEventListener('click', close)
+        document.addEventListener('keydown', onKeyDown)
+        window.addEventListener('resize', syncReactionPickerPosition)
+        window.addEventListener('scroll', syncReactionPickerPosition, true)
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => {
+                syncReactionPickerPosition()
+            })
+            : null
+        if (resizeObserver && reactionPickerRef.current) {
+            resizeObserver.observe(reactionPickerRef.current)
+        }
+        return () => {
+            document.removeEventListener('click', close)
+            document.removeEventListener('keydown', onKeyDown)
+            window.removeEventListener('resize', syncReactionPickerPosition)
+            window.removeEventListener('scroll', syncReactionPickerPosition, true)
+            resizeObserver?.disconnect()
+        }
     }, [reactionPickerMessageId])
 
     useEffect(() => {
@@ -602,11 +752,12 @@ export default function ChatArea({
     }
 
     const renderMessageWithMentions = (content: string) => {
+        const { text, gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
         // Split by mentions OR direct http/https URLs
         // We match mentions: @[^\s@]{2,32} or @all or @everyone
         // And we match urls: https?:\/\/[^\s]+
-        const parts = content.split(/(@[^\s@]{2,32}|@all|@everyone|https?:\/\/[^\s]+)/g)
-        return parts.map((part, idx) => {
+        const parts = text.split(/(@[^\s@]{2,32}|@all|@everyone|https?:\/\/[^\s]+)/g)
+        const rendered = parts.map((part, idx) => {
             if (!part) return null
             if (part === '@all') {
                 return <span key={idx} className="mention-pill mention-pill-all">{part}</span>
@@ -640,13 +791,30 @@ export default function ChatArea({
             }
             return <span key={idx}>{part}</span>
         })
-    }
-
-    /** Parses "[Forwarded from @username]: body" into { forwardFrom, body } or null. */
-    const parseForwardedContent = (content: string): { forwardFrom: string; body: string } | null => {
-        const match = content.match(/^\[Forwarded from @([^\]]+)\]:\s*([\s\S]*)$/)
-        if (!match) return null
-        return { forwardFrom: match[1].trim(), body: match[2] }
+        if (gifUrls.length === 0 && stickerUrls.length === 0) return rendered
+        return (
+            <>
+                {rendered}
+                {stickerUrls.length > 0 && (
+                    <div className="chat-inline-gif-list">
+                        {stickerUrls.map((url, index) => (
+                            <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link chat-inline-sticker-link">
+                                <img src={url} alt="Sticker preview" className="chat-inline-sticker" loading="lazy" />
+                            </a>
+                        ))}
+                    </div>
+                )}
+                {gifUrls.length > 0 && (
+                    <div className="chat-inline-gif-list">
+                        {gifUrls.map((url, index) => (
+                            <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link">
+                                <img src={url} alt="GIF preview" className="chat-inline-gif" loading="lazy" />
+                            </a>
+                        ))}
+                    </div>
+                )}
+            </>
+        )
     }
 
     /** Parses "> @username: quote\n\nreply" into { replyUsername, replyQuote, replyBody } or null. */
@@ -662,17 +830,6 @@ export default function ChatArea({
     }
 
     const renderMessageContent = (content: string) => {
-        const forwarded = parseForwardedContent(content)
-        if (forwarded) {
-            return (
-                <div className="message-forwarded-block">
-                    <div className="message-forwarded-quote">
-                        <span className="message-forwarded-label">Forwarded from @{forwarded.forwardFrom}</span>
-                        {forwarded.body ? <div className="message-forwarded-body">{renderMessageContent(forwarded.body)}</div> : null}
-                    </div>
-                </div>
-            )
-        }
         const parsed = parseReplyContent(content)
         if (parsed) {
             return (
@@ -749,7 +906,7 @@ export default function ChatArea({
     }
 
     return (
-        <div className="chat-area">
+        <div className="chat-area" ref={chatAreaRef}>
             <div className="chat-header">
                 <span className="channel-hash">
                     <Hash size={20} />
@@ -944,6 +1101,7 @@ export default function ChatArea({
                     </div>
                 ) : (
                     <div
+                        ref={virtualListSpacerRef}
                         className="virtual-list-spacer"
                         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                     >
@@ -1010,7 +1168,9 @@ export default function ChatArea({
                                                         authorUserId={msg.author?.user_id}
                                                         canModerate={canModerate}
                                                         canReact={!!onToggleReaction}
-                                                        onToggleReactionPicker={(messageId) => {
+                                                        reactionPickerOpen={reactionPickerMessageId === msg.id}
+                                                        onToggleReactionPicker={(messageId, anchorEl) => {
+                                                            reactionPickerAnchorRef.current = anchorEl
                                                             setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
                                                         }}
                                                         canPin={!!(onPinMessage || onUnpinMessage)}
@@ -1021,8 +1181,9 @@ export default function ChatArea({
                                                             onReplyToMessage(msg)
                                                             setTimeout(() => textareaRef.current?.focus(), 0)
                                                         } : undefined}
-                                                        canForward={!!onForwardMessage}
-                                                        onForward={onForwardMessage ? () => setForwardPickerMessageId(forwardPickerMessageId === msg.id ? null : msg.id) : undefined}
+                                                        canSave={Array.isArray(msg.attachments) && msg.attachments.length > 0 && !!onToggleSaveMessage}
+                                                        isSaved={!!savedMessageIds?.has(msg.id)}
+                                                        onToggleSave={onToggleSaveMessage ? () => onToggleSaveMessage(msg) : undefined}
                                                         onReport={msg.author?.user_id !== currentUserId && onReportMessage ? () => onReportMessage(msg) : undefined}
                                                         onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
                                                             const parsed = parseReplyContent(msg.content)
@@ -1035,21 +1196,6 @@ export default function ChatArea({
                                                         } : undefined}
                                                         onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
                                                     />
-                                                )}
-                                                {reactionPickerMessageId === msg.id && onToggleReaction && (
-                                                    <div
-                                                        className="message-reaction-picker"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <EmojiPicker
-                                                            compact
-                                                            reactionMode
-                                                            onSelect={(emoji) => {
-                                                                onToggleReaction(msg.id, emoji, false)
-                                                                setReactionPickerMessageId(null)
-                                                            }}
-                                                        />
-                                                    </div>
                                                 )}
                                                 {msg.clientStatus === 'failed' && (
                                                     <span className="message-send-state is-failed">Failed</span>
@@ -1182,7 +1328,42 @@ export default function ChatArea({
                         ))}
                     </div>
                 )}
-                <div className="message-input-wrapper">
+                {draftAttachments.length > 0 && (
+                    <div className="dm-draft-attachments">
+                        {draftAttachments.map((att, i) => (
+                            <div key={`${att.name}-${i}`} className="dm-draft-attachment">
+                                <div className="dm-draft-attachment-meta">
+                                    <span>{att.name}</span>
+                                    {att.uploadStatus === 'uploading' && (
+                                        <span className="dm-draft-attachment-state">Uploading...</span>
+                                    )}
+                                    {att.uploadStatus === 'failed' && (
+                                        <span className="dm-draft-attachment-state is-failed">
+                                            {att.uploadError || 'Upload failed'}
+                                        </span>
+                                    )}
+                                </div>
+                                {att.uploadStatus === 'failed' && onRetryAttachment && (
+                                    <button
+                                        type="button"
+                                        className="dm-draft-attachment-retry"
+                                        onClick={() => onRetryAttachment(att.localId)}
+                                    >
+                                        Retry
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    className="dm-msg-btn"
+                                    onClick={() => onRemoveAttachment(i)}
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <div className="message-input-wrapper" ref={messageInputWrapperRef}>
                     <label className="dm-attach-btn" title="Attach files">
                         <Paperclip size={16} />
                         <input
@@ -1261,82 +1442,29 @@ export default function ChatArea({
                         }}
                     />
                 </div>
-                {draftAttachments.length > 0 && (
-                    <div className="dm-draft-attachments">
-                        {draftAttachments.map((att, i) => (
-                            <div key={`${att.name}-${i}`} className="dm-draft-attachment">
-                                <div className="dm-draft-attachment-meta">
-                                    <span>{att.name}</span>
-                                    {att.uploadStatus === 'uploading' && (
-                                        <span className="dm-draft-attachment-state">Uploading...</span>
-                                    )}
-                                    {att.uploadStatus === 'failed' && (
-                                        <span className="dm-draft-attachment-state is-failed">
-                                            {att.uploadError || 'Upload failed'}
-                                        </span>
-                                    )}
-                                </div>
-                                {att.uploadStatus === 'failed' && onRetryAttachment && (
-                                    <button
-                                        type="button"
-                                        className="dm-draft-attachment-retry"
-                                        onClick={() => onRetryAttachment(att.localId)}
-                                    >
-                                        Retry
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    className="dm-msg-btn"
-                                    onClick={() => onRemoveAttachment(i)}
-                                >
-                                    <X size={12} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
-            {forwardPickerMessageId && onForwardMessage && (() => {
-                const msg = messages.find((m) => m.id === forwardPickerMessageId)
-                if (!msg) return null
-                const hasOptions = textChannelsForForward.length > 0 || (friendsForForward && friendsForForward.length > 0)
-                return createPortal(
-                    <div className="modal-overlay" onClick={() => setForwardPickerMessageId(null)}>
-                        <div className="modal forward-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="forward-modal-title">
-                            <h2 id="forward-modal-title">Forward to?</h2>
-                            {hasOptions ? (
-                                <div className="forward-modal-list">
-                                    {textChannelsForForward.length > 0 && (
-                                        <div className="forward-modal-section">
-                                            <div className="forward-modal-section-title">{isDm ? 'Direct Messages' : 'Channels'}</div>
-                                            {textChannelsForForward.map((ch) => (
-                                                <button key={ch.id} type="button" className="forward-modal-item" onClick={() => { onForwardMessage(msg, ch.id); setForwardPickerMessageId(null) }}>
-                                                    # {ch.name}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {friendsForForward && friendsForForward.length > 0 && onForwardToFriend && (
-                                        <div className="forward-modal-section">
-                                            <div className="forward-modal-section-title">Friends</div>
-                                            {friendsForForward.map((friend) => (
-                                                <button key={friend.id} type="button" className="forward-modal-item" onClick={() => { onForwardToFriend(msg, friend.id); setForwardPickerMessageId(null) }}>
-                                                    {friend.username}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <p className="forward-modal-empty">No channel or friend to forward to.</p>
-                            )}
-                        </div>
-                    </div>,
-                    document.body
-                )
-            })()}
-
+            {reactionPickerMessageId && reactionPickerPosition && onToggleReaction && createPortal(
+                <div
+                    ref={reactionPickerRef}
+                    className="message-reaction-picker message-reaction-picker-portal"
+                    style={{
+                        top: reactionPickerPosition.top,
+                        left: reactionPickerPosition.left,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <EmojiPicker
+                        compact
+                        reactionMode
+                        onSelect={(emoji) => {
+                            onToggleReaction(reactionPickerMessageId, emoji, false)
+                            setReactionPickerMessageId(null)
+                            reactionPickerAnchorRef.current = null
+                        }}
+                    />
+                </div>,
+                document.body
+            )}
             {clickedLink && createPortal(
                 <div className="modal-overlay" onClick={() => setClickedLink(null)}>
                     <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>

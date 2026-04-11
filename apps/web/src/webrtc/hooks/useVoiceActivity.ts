@@ -110,8 +110,9 @@ export function useVoiceActivity(options: {
         const source = ctx.createMediaStreamSource(stream)
         const analyser = ctx.createAnalyser()
         analyser.fftSize = 256
-        // No smoothing → instant reaction when you start speaking (Discord-like).
-        analyser.smoothingTimeConstant = 0
+        // Keep attack snappy so the ring lights up as soon as speech starts,
+        // while release smoothness is handled below with hold + RMS smoothing.
+        analyser.smoothingTimeConstant = 0.16
         source.connect(analyser)
 
         const monBufLen = Math.max(128, analyser.frequencyBinCount || 128, analyser.fftSize || 256)
@@ -119,11 +120,11 @@ export function useVoiceActivity(options: {
         let monLastSpeaking = false
         let monBelowCount = 0
         let smoothRms = 0
-        // Hold after going quiet: only turn off after sustained near-silence (Discord-like:
-        // no flicker during one sentence). ~38 frames @ 60fps ≈ 630ms.
-        const monHoldFrames = 38
-        // Smoothed RMS for turn-off only: brief mid-speech dips don't close the ring (Discord-like).
-        const smoothAlpha = 0.92
+        // Hold after going quiet so short pauses inside one sentence do not drop the ring.
+        // ~52 frames @ 60fps ≈ 860ms.
+        const monHoldFrames = 52
+        // Stronger smoothing on release keeps the indicator feeling steadier mid-speech.
+        const smoothAlpha = 0.96
 
         if (inlineMonitorIntervalRef.current != null) {
             cancelAnimationFrame(inlineMonitorIntervalRef.current)

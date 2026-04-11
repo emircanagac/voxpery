@@ -4,8 +4,9 @@ import {
     onThresholdFromSlider,
 } from '../webrtc/sensitivityThreshold'
 import { createRnnoiseNode, type RnnoiseNode } from '../webrtc/rnnoise'
+import { buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 
-const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
 const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
 const NS_KEY = 'voxpery-settings-noise-suppression'
 
@@ -50,16 +51,24 @@ const DB_TICKS = [
 
 interface SensitivityBarProps {
     threshold: number               // 0–100 slider value
+    preset: 'quiet' | 'normal' | 'noisy' | 'custom'
     onThresholdChange: (v: number) => void
-    onPresetChange: (preset: 'custom') => void
+    onPresetChange: (preset: 'quiet' | 'normal' | 'noisy' | 'custom') => void
+}
+
+function dbToPercent(db: number): number {
+    if (!Number.isFinite(db)) return 0
+    const pct = ((db + 60) / 60) * 100
+    return Math.min(100, Math.max(0, pct))
 }
 
 export default function SensitivityBar({
     threshold,
+    preset,
     onThresholdChange,
     onPresetChange,
 }: SensitivityBarProps) {
-    const [micLevel, setMicLevel] = useState(0)         // 0–100 display %
+    const [liveDb, setLiveDb] = useState(-60)
     const [micActive, setMicActive] = useState(false)
     const [monitorEnabled, setMonitorEnabled] = useState(false)
     const [monitorState, setMonitorState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'unavailable'>('idle')
@@ -69,7 +78,7 @@ export default function SensitivityBar({
     const contextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
     const streamRef = useRef<MediaStream | null>(null)
-    const smoothLevelRef = useRef(0)
+    const smoothLevelRef = useRef(-60)
 
     // ── Mic monitoring ──
     useEffect(() => {
@@ -80,6 +89,7 @@ export default function SensitivityBar({
 
         const startMic = async () => {
             setMonitorState('requesting')
+            smoothLevelRef.current = -60
             try {
                 if (!navigator.mediaDevices?.getUserMedia) {
                     setMicActive(false)
@@ -87,7 +97,7 @@ export default function SensitivityBar({
                     return
                 }
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: true,
+                    audio: buildPreferredMicrophoneConstraints(),
                     video: false,
                 })
                 if (cancelled) {
@@ -139,7 +149,8 @@ export default function SensitivityBar({
 
                 const bufLen = Math.max(128, analyser.frequencyBinCount, analyser.fftSize)
                 const data = new Float32Array(bufLen)
-                const alpha = 0.35 // smoothing for display
+                const attackAlpha = 0.42
+                const releaseAlpha = 0.14
 
                 const tick = () => {
                     if (cancelled) return
@@ -148,11 +159,16 @@ export default function SensitivityBar({
                             analyser.getFloatTimeDomainData(data)
                             let sum = 0
                             for (let i = 0; i < data.length; i++) sum += data[i] * data[i]
-                            const rms = Math.sqrt(sum / data.length)
-                            const pct = rmsToPercent(rms)
+                            const rmsRaw = Math.sqrt(sum / data.length)
+                            const rms = Number.isFinite(rmsRaw) ? rmsRaw : 0
+                            const dbRaw = 20 * Math.log10(Math.max(rms, 1e-6))
+                            const db = Math.max(-60, Math.min(0, Math.round(Number.isFinite(dbRaw) ? dbRaw : -60)))
+                            const previousDb = smoothLevelRef.current
+                            const smoothingAlpha = db > previousDb ? attackAlpha : releaseAlpha
                             smoothLevelRef.current =
-                                alpha * pct + (1 - alpha) * smoothLevelRef.current
-                            setMicLevel(smoothLevelRef.current)
+                                smoothingAlpha * db + (1 - smoothingAlpha) * previousDb
+                            const smoothedDb = Math.max(-60, Math.min(0, Math.round(Number.isFinite(smoothLevelRef.current) ? smoothLevelRef.current : -60)))
+                            setLiveDb(smoothedDb)
                         }
                     } catch {
                         // ignore
@@ -176,6 +192,9 @@ export default function SensitivityBar({
             rnnoiseNode?.destroy()
             streamRef.current?.getTracks().forEach((t) => t.stop())
             streamRef.current = null
+            setMicActive(false)
+            smoothLevelRef.current = -60
+            setLiveDb(-60)
             try {
                 contextRef.current?.close()
             } catch {
@@ -228,44 +247,77 @@ export default function SensitivityBar({
         [applyPosition]
     )
 
+    const liveLevelPos = dbToPercent(liveDb)
+
     // Determine color of level fill: green (low), yellow (mid), red (high)
     const levelColor =
-        micLevel < 40
+        liveLevelPos < 40
             ? 'var(--sensitivity-green, #43b581)'
-            : micLevel < 70
+            : liveLevelPos < 70
                 ? 'var(--sensitivity-yellow, #faa61a)'
                 : 'var(--sensitivity-red, #f04747)'
 
     // Is the live level above the threshold?
-    const aboveThreshold = micLevel >= thresholdPos
-
+    const aboveThreshold = micActive && liveLevelPos >= thresholdPos
     return (
         <div className="sensitivity-bar-wrap">
-            {!micActive && (
-                <div className="sensitivity-bar-permission">
+            <div className="sensitivity-bar-top">
+                <div className="sensitivity-bar-copy">
+                    <div className="sensitivity-bar-title">Input sensitivity</div>
+                    <div className="sensitivity-bar-subtitle">Use a quick preset or fine-tune the threshold below.</div>
+                </div>
+                <div className="sensitivity-bar-controls">
                     <button
                         type="button"
-                        className="user-toggle"
-                        onClick={() => setMonitorEnabled(true)}
-                        disabled={monitorState === 'requesting'}
+                        className="user-toggle sensitivity-bar-test-btn"
+                        onClick={() => {
+                            if (monitorEnabled) {
+                                setMonitorEnabled(false)
+                                setMonitorState('idle')
+                                setMicActive(false)
+                                smoothLevelRef.current = -60
+                                setLiveDb(-60)
+                                return
+                            }
+                            setMonitorEnabled(true)
+                        }}
+                        disabled={monitorState === 'requesting' || monitorState === 'unavailable'}
                     >
-                        {monitorState === 'requesting' ? 'Requesting…' : monitorState === 'denied' ? 'Retry mic access' : 'Enable mic test'}
+                        {monitorEnabled
+                            ? 'Disable mic test'
+                            : monitorState === 'requesting'
+                                ? 'Requesting…'
+                                : monitorState === 'denied'
+                                    ? 'Retry mic access'
+                                    : 'Enable mic test'}
                     </button>
-                    <span className="sensitivity-bar-permission-note">
-                        {monitorState === 'denied'
-                            ? 'Microphone access denied. Allow it in browser settings and retry.'
-                            : monitorState === 'unavailable'
-                                ? 'Microphone API is not available in this environment.'
-                                : 'Microphone access is only requested when you enable testing.'}
-                    </span>
+                    <select
+                        className="user-select sensitivity-bar-select"
+                        value={preset}
+                        onChange={(e) => onPresetChange(e.target.value as 'quiet' | 'normal' | 'noisy' | 'custom')}
+                    >
+                        <option value="quiet">Quiet room</option>
+                        <option value="normal">Normal</option>
+                        <option value="noisy">Noisy room</option>
+                        <option value="custom">Custom</option>
+                    </select>
                 </div>
-            )}
+            </div>
+            <div className="sensitivity-bar-permission-note">
+                {monitorEnabled && micActive
+                    ? 'Mic test is active. Speak to check your live level against the threshold.'
+                    : monitorState === 'denied'
+                        ? 'Microphone access denied. Allow it in browser settings and retry.'
+                        : monitorState === 'unavailable'
+                            ? 'Microphone API is not available in this environment.'
+                            : 'Microphone access is only requested when you enable testing.'}
+            </div>
             <div className="sensitivity-bar-header">
                 <span className="sensitivity-bar-title">Input sensitivity ({thresholdDb}dB)</span>
                 <span className="sensitivity-bar-value">
                     {micActive ? (
-                        <span className={`sensitivity-bar-indicator ${aboveThreshold ? 'is-active' : ''}`}>
-                            {aboveThreshold ? '● Voice detected' : '○ Below threshold'}
+                        <span className={`sensitivity-bar-indicator ${aboveThreshold ? 'is-active' : 'is-listening'}`}>
+                            {aboveThreshold ? 'Voice detected' : 'Listening'}
                         </span>
                     ) : (
                         <span className="sensitivity-bar-indicator is-no-mic">No mic</span>
@@ -289,10 +341,17 @@ export default function SensitivityBar({
                 <div
                     className="sensitivity-bar-level"
                     style={{
-                        width: `${micLevel}%`,
+                        width: `${liveLevelPos}%`,
                         background: levelColor,
                         opacity: micActive ? 1 : 0.3,
                     }}
+                />
+
+                {/* Live input marker so the current speaking point is always visible */}
+                <div
+                    className={`sensitivity-bar-live-marker ${micActive ? '' : 'is-hidden'}`}
+                    style={{ left: `${liveLevelPos}%` }}
+                    aria-hidden
                 />
 
                 {/* Dimmed zone (below threshold) */}

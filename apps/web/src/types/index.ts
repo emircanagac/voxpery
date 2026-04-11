@@ -46,6 +46,23 @@ export interface Attachment {
     sha256?: string;
 }
 
+export interface SavedMediaItem {
+    id: string;
+    message_id: string;
+    source: 'server' | 'dm';
+    channel_id: string;
+    channel_name: string;
+    server_id: string | null;
+    server_name: string | null;
+    peer_user_id: string | null;
+    peer_username: string | null;
+    author_username: string;
+    content: string;
+    attachments: Attachment[];
+    created_at: string;
+    saved_at: string;
+}
+
 export interface Message {
     id: string;
     channel_id: string;

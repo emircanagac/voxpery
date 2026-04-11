@@ -1,11 +1,10 @@
 import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, dmApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -30,6 +29,8 @@ import {
 } from '../draftAttachments'
 import { mergeRemoteWithRetryableLocals } from '../messageResilience'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
+import { createSavedMediaItem } from '../savedMedia'
+import { clearPendingSavedMediaJump, getPendingSavedMediaJump } from '../savedMediaJump'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -244,14 +245,12 @@ function messageMentionsUser(content: string | undefined, username: string | und
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
-    const navigate = useNavigate()
     const {
         servers, serversLoading, activeServerId, activeChannelId, channels, members,
         setServers, setServersLoading, setActiveServer, setActiveChannel, setChannels, setMembers,
         setChannelsForServer, setMembersForServer,
         channelsByServerId,
-        friends, setFriends,
-        dmChannels, setDmChannels, setActiveDmChannelId, setDmChannelIds,
+        setFriends,
         voiceControls,
         serverUnreadByChannel,
         serverMentionsByChannel,
@@ -266,6 +265,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setOpenServerSettingsForServerId,
         mobileSidebarPanel,
         setMobileSidebarPanel,
+        savedMediaByUserId,
+        toggleSavedMedia,
     } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
@@ -305,10 +306,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
             mobileSidebarPanel: s.mobileSidebarPanel,
             setMobileSidebarPanel: s.setMobileSidebarPanel,
+            savedMediaByUserId: s.savedMediaByUserId,
+            toggleSavedMedia: s.toggleSavedMedia,
         }))
     )
 
     const [messages, setMessages] = useState<UiMessage[]>([])
+    const [pendingSavedJumpMessageId, setPendingSavedJumpMessageId] = useState<string | null>(null)
     const [messageInput, setMessageInput] = useState('')
     const [replyingTo, setReplyingTo] = useState<{ id: string; username: string; contentSnippet: string } | null>(null)
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
@@ -652,6 +656,40 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }, [isLoggedIn, token])
 
+    const ensureChannelMessageLoaded = useCallback(async (channelId: string, messageId: string) => {
+        if (!isLoggedIn) return false
+        let current = messagesByChannelRef.current[channelId] ?? []
+        if (current.length === 0) {
+            const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            current = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+        }
+        if (current.some((message) => message.id === messageId)) {
+            messagesByChannelRef.current[channelId] = current
+            setMessages(current)
+            return true
+        }
+        let before = current[0]?.id
+        while (before) {
+            const rows = await messageApi.list(channelId, token, before, MESSAGE_PAGE_SIZE)
+            if (rows.length === 0) break
+            const older = rows
+                .map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+                .filter((message) => !current.some((existing) => existing.id === message.id))
+            if (older.length === 0) break
+            current = [...older, ...current]
+            messagesByChannelRef.current[channelId] = current
+            setMessages(current)
+            if (current.some((message) => message.id === messageId)) {
+                return true
+            }
+            if (rows.length < MESSAGE_PAGE_SIZE) break
+            const nextBefore = current[0]?.id
+            if (!nextBefore || nextBefore === before) break
+            before = nextBefore
+        }
+        return current.some((message) => message.id === messageId)
+    }, [isLoggedIn, token])
+
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
         const q = channelSearch.trim()
@@ -666,6 +704,26 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }, 220)
         return () => window.clearTimeout(id)
     }, [activeChannelId, channelSearch, token, isLoggedIn])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn || !olderMessagesReady) return
+        const pendingJump = getPendingSavedMediaJump()
+        if (!pendingJump || pendingJump.source !== 'server' || pendingJump.channelId !== activeChannelId) return
+        let cancelled = false
+        void (async () => {
+            const found = await ensureChannelMessageLoaded(activeChannelId, pendingJump.messageId)
+            if (cancelled) return
+            if (found) {
+                setPendingSavedJumpMessageId(pendingJump.messageId)
+            }
+            clearPendingSavedMediaJump()
+        })().catch(() => {
+            clearPendingSavedMediaJump()
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [activeChannelId, ensureChannelMessageLoaded, isLoggedIn, olderMessagesReady])
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
@@ -1053,7 +1111,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     // ─── Handlers ──────────────────────────────
 
-    const handleSendMessage = async (e?: FormEvent) => {
+    const handleSendMessage = async (e?: FormEvent, forceContent?: string) => {
         e?.preventDefault()
         if (!canSendMessages) return
         if (!activeChannelId || !isLoggedIn) return
@@ -1066,8 +1124,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             return
         }
         const attachments = getUploadedDraftAttachments(draftAttachments)
-        if ((!messageInput.trim() && attachments.length === 0)) return
-        const bodyText = messageInput.trim()
+        const inputValue = typeof forceContent === 'string' ? forceContent : messageInput
+        if ((!inputValue.trim() && attachments.length === 0)) return
+        const bodyText = inputValue.trim()
         const content = replyingTo
             ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
             : bodyText
@@ -1249,56 +1308,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setEditingReplyQuotePart(null)
     }, [])
 
-    const handleForwardMessage = useCallback(async (msg: { author?: { username?: string }; content: string }, targetChannelId: string) => {
-        if (!isLoggedIn) return
-        const from = msg.author?.username ?? 'Someone'
-        const content = `[Forwarded from @${from}]: ${msg.content}`
-        try {
-            const sent = await messageApi.send(targetChannelId, content, [], token)
-            setMessages((prev) => {
-                if (targetChannelId !== activeChannelId) return prev
-                if (prev.some((m) => m.id === sent.id)) return prev
-                const next = [...prev, sent]
-                messagesByChannelRef.current[targetChannelId] = next
-                return next
-            })
-            if (targetChannelId !== activeChannelId && messagesByChannelRef.current[targetChannelId]) {
-                messagesByChannelRef.current[targetChannelId] = [...(messagesByChannelRef.current[targetChannelId] ?? []), sent]
-            }
-            if (targetChannelId !== activeChannelId) {
-                setActiveChannel(targetChannelId)
-            }
-        } catch (err) {
-            pushToast({
-                level: 'error',
-                title: 'Forward failed',
-                message: err instanceof Error ? err.message : 'Could not forward message',
-            })
-        }
-    }, [isLoggedIn, token, activeChannelId, setActiveChannel, pushToast])
-
-    const handleForwardToFriend = useCallback(async (msg: { author?: { username?: string }; content: string }, friendId: string) => {
-        if (!isLoggedIn) return
-        const from = msg.author?.username ?? 'Someone'
-        const content = `[Forwarded from @${from}]: ${msg.content}`
-        try {
-            const dmChannel = await dmApi.getOrCreateChannel(friendId, token)
-            if (!dmChannels.some((c) => c.id === dmChannel.id)) {
-                setDmChannels([dmChannel, ...dmChannels])
-                setDmChannelIds([dmChannel.id, ...dmChannels.map((c) => c.id)])
-            }
-            setActiveDmChannelId(dmChannel.id)
-            navigate('/')
-            await dmApi.sendMessage(dmChannel.id, content, [], token)
-        } catch (err) {
-            pushToast({
-                level: 'error',
-                title: 'Forward failed',
-                message: err instanceof Error ? err.message : 'Could not forward to friend',
-            })
-        }
-    }, [token, dmChannels, setDmChannels, setDmChannelIds, setActiveDmChannelId, navigate, pushToast, isLoggedIn])
-
     const handleAttachmentPick = async (files: FileList | null) => {
         if (!files) return
         const incoming = Array.from(files)
@@ -1430,6 +1439,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
+    const savedMedia = useMemo(
+        () => (user?.id ? (savedMediaByUserId[user.id] ?? []) : []),
+        [savedMediaByUserId, user?.id],
+    )
+    const savedMessageIds = useMemo(() => new Set(savedMedia.map((item) => item.message_id)), [savedMedia])
     const activeServerInviteLink = activeServer ? `${inviteBaseUrl}/invite/${activeServer.invite_code}` : ''
     const isSoloServer = !!activeServer && members.length <= 1
     const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
@@ -2165,6 +2179,19 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     ])
 
     const activeChannel = channels.find((c) => c.id === activeChannelId)
+    const handleToggleSaveChannelMessage = useCallback((msg: MessageWithAuthor) => {
+        if (!user?.id || !activeServer || !activeChannel || !Array.isArray(msg.attachments) || msg.attachments.length === 0) return
+        toggleSavedMedia(
+            user.id,
+            createSavedMediaItem(msg, {
+                kind: 'server',
+                serverId: activeServer.id,
+                serverName: activeServer.name,
+                channelId: activeChannel.id,
+                channelName: activeChannel.name,
+            }),
+        )
+    }, [activeChannel, activeServer, toggleSavedMedia, user?.id])
     const channelCategorySuggestions = useMemo(
         () =>
             Array.from(
@@ -2621,10 +2648,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onReplyToMessage={handleReplyToMessage}
                 replyingTo={replyingTo}
                 onCancelReply={() => setReplyingTo(null)}
-                onForwardMessage={handleForwardMessage}
-                onForwardToFriend={handleForwardToFriend}
-                channelsForForward={channels}
-                friendsForForward={friends}
+                onToggleSaveMessage={handleToggleSaveChannelMessage}
+                savedMessageIds={savedMessageIds}
                 editingMessageId={editingMessageId}
                 editingContent={editingContent}
                 onEditMessage={(msg) => {
@@ -2668,6 +2693,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                         onClick: copyActiveServerInvite,
                     },
                 ] : undefined}
+                jumpToMessageId={pendingSavedJumpMessageId}
+                onJumpToMessageHandled={() => setPendingSavedJumpMessageId(null)}
             />
             <MemberSidebar
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}

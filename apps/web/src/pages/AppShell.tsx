@@ -561,24 +561,26 @@ export default function AppShell() {
             type="button"
             className="shell-quick-switch-btn"
             onClick={() => setShowQuickSwitcher(true)}
-            title="Quick switcher"
+            title="Search servers, channels, and direct messages"
           >
             <Search size={14} />
-            <span>Search</span>
+            <span className="shell-quick-switch-label">Quick Search</span>
             <span className="shell-quick-switch-shortcut">Ctrl K</span>
           </button>
-          {isTauri() && desktopUpdate?.available && (
+        </div>
+        {isTauri() && desktopUpdate?.available && (
+          <div className="shell-topbar-center">
             <button
               type="button"
-              className="shell-update-btn"
+              className="shell-update-btn shell-update-btn--topbar"
               onClick={() => void installDesktopUpdateNow()}
               disabled={installingDesktopUpdate}
               title={`Install Voxpery ${desktopUpdate.version}`}
             >
               {installingDesktopUpdate ? 'Installing update…' : `Update ${desktopUpdate.version}`}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </header>
       <main className="shell-content">
         <Outlet />

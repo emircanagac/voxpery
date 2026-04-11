@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from 'react'
-import { Edit3, Flag, Pin, PinOff, Reply, Share2, Smile, Trash2 } from 'lucide-react'
+import { Bookmark, Edit3, Flag, Pin, PinOff, Reply, Smile, Trash2 } from 'lucide-react'
 
 type MessageInlineActionsProps = {
   messageId: string
@@ -7,14 +7,16 @@ type MessageInlineActionsProps = {
   authorUserId?: string | null
   canModerate?: boolean
   canReact?: boolean
-  onToggleReactionPicker?: (messageId: string) => void
+  onToggleReactionPicker?: (messageId: string, anchorEl: HTMLButtonElement) => void
+  reactionPickerOpen?: boolean
   canPin?: boolean
   isPinned?: boolean
   onPin?: (messageId: string) => void
   onUnpin?: (messageId: string) => void
   onReply?: () => void
-  canForward?: boolean
-  onForward?: () => void
+  canSave?: boolean
+  isSaved?: boolean
+  onToggleSave?: () => void
   onReport?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -29,18 +31,20 @@ export default function MessageInlineActions({
   canModerate = false,
   canReact = false,
   onToggleReactionPicker,
+  reactionPickerOpen = false,
   canPin = false,
   isPinned = false,
   onPin,
   onUnpin,
   onReply,
-  canForward = false,
-  onForward,
+  canSave = false,
+  isSaved = false,
+  onToggleSave,
   onReport,
   onEdit,
   onDelete,
-  children,
-  containerRef,
+      children,
+      containerRef,
 }: MessageInlineActionsProps) {
   const isOwnMessage = !!authorUserId && authorUserId === currentUserId
   const canDelete = !!onDelete && (isOwnMessage || canModerate)
@@ -50,7 +54,7 @@ export default function MessageInlineActions({
     !canReact &&
     !canPin &&
     !onReply &&
-    !canForward &&
+    !canSave &&
     !onReport &&
     !canEdit &&
     !canDelete &&
@@ -60,16 +64,16 @@ export default function MessageInlineActions({
   }
 
   return (
-    <div className="message-inline-actions" ref={containerRef}>
+    <div className={`message-inline-actions${reactionPickerOpen ? ' is-visible' : ''}`} ref={containerRef}>
       {canReact && onToggleReactionPicker && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className={`message-inline-action-btn${reactionPickerOpen ? ' active' : ''}`}
           title="Add reaction"
           aria-label="Add reaction"
           onClick={(e) => {
             e.stopPropagation()
-            onToggleReactionPicker(messageId)
+            onToggleReactionPicker(messageId, e.currentTarget)
           }}
         >
           <Smile size={14} />
@@ -117,20 +121,6 @@ export default function MessageInlineActions({
           <Reply size={14} />
         </button>
       )}
-      {canForward && onForward && (
-        <button
-          type="button"
-          className="message-inline-action-btn"
-          title="Forward"
-          aria-label="Forward"
-          onClick={(e) => {
-            e.stopPropagation()
-            onForward()
-          }}
-        >
-          <Share2 size={14} />
-        </button>
-      )}
       {onReport && (
         <button
           type="button"
@@ -157,6 +147,20 @@ export default function MessageInlineActions({
           }}
         >
           <Edit3 size={14} />
+        </button>
+      )}
+      {canSave && onToggleSave && (
+        <button
+          type="button"
+          className={`message-inline-action-btn ${isSaved ? 'active' : ''}`}
+          title={isSaved ? 'Remove from saved' : 'Save media'}
+          aria-label={isSaved ? 'Remove from saved' : 'Save media'}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSave()
+          }}
+        >
+          <Bookmark size={14} />
         </button>
       )}
       {canDelete && (

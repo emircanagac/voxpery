@@ -3,6 +3,11 @@ import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
 import { getOrCreateAudioContext, playCueStack } from '../../audioCues'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
+const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
+
+function dbToLinear(db: number): number {
+    return Math.pow(10, db / 20)
+}
 
 export type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
 
@@ -67,7 +72,7 @@ export function useAudioEngine() {
         }
     }, [])
 
-    // Build the mic send pipeline: source → [RNNoise] → volumeGain → destination.
+    // Build the mic send pipeline: source -> high-pass -> [RNNoise] -> low-level noise tamer -> volume -> destination.
     const rnnoiseRef = useRef<RnnoiseNode | null>(null)
 
     const buildMicSendTrack = useCallback(async (
@@ -91,12 +96,18 @@ export function useAudioEngine() {
         }
 
         const source = ctx.createMediaStreamSource(sourceStream)
+        const highPassFilter = ctx.createBiquadFilter()
+        highPassFilter.type = 'highpass'
+        highPassFilter.frequency.value = 110
+        highPassFilter.Q.value = 0.82
 
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
         const rnnoise = await createRnnoiseNode(ctx, noiseSuppressionEnabled)
         rnnoiseRef.current = rnnoise
 
+        const noiseFloorGainNode = ctx.createGain()
+        noiseFloorGainNode.gain.value = 1
         const volumeGainNode = ctx.createGain()
         volumeGainNode.gain.value = volumeFactor
         const destination = ctx.createMediaStreamDestination()
@@ -104,9 +115,15 @@ export function useAudioEngine() {
         // VAD tap: post-RNNoise, pre-volume — speaking indicator reflects
         // the denoised signal so background noise won't light up the ring.
         const vadDestination = ctx.createMediaStreamDestination()
+        const refinementAnalyser = ctx.createAnalyser()
+        refinementAnalyser.fftSize = 256
+        refinementAnalyser.smoothingTimeConstant = 0.88
 
-        source.connect(rnnoise.node)
-        rnnoise.node.connect(volumeGainNode)
+        source.connect(highPassFilter)
+        highPassFilter.connect(rnnoise.node)
+        rnnoise.node.connect(refinementAnalyser)
+        rnnoise.node.connect(noiseFloorGainNode)
+        noiseFloorGainNode.connect(volumeGainNode)
         rnnoise.node.connect(vadDestination)   // branch for VAD analyser
         volumeGainNode.connect(destination)
 
@@ -114,8 +131,93 @@ export function useAudioEngine() {
         if (!processedTrack) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
 
         inputGainNodeRef.current = volumeGainNode
+        const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
+        const lowFloorThr = dbToLinear(-54)
+        const openFloorThr = dbToLinear(-44)
+        const minFloorGain = 0.22
+        let rafId: number | null = null
+        let currentFloorGain = 1
 
-        return { track: processedTrack, vadStream: vadDestination.stream, cancelGate: () => {} }
+        const cancelGate = () => {
+            if (rafId != null) {
+                cancelAnimationFrame(rafId)
+                rafId = null
+            }
+            currentFloorGain = 1
+            try {
+                noiseFloorGainNode.gain.cancelScheduledValues(ctx.currentTime)
+                noiseFloorGainNode.gain.setValueAtTime(1, ctx.currentTime)
+            } catch {
+                noiseFloorGainNode.gain.value = 1
+            }
+            try {
+                source.disconnect()
+            } catch {
+                // ignore
+            }
+            try {
+                highPassFilter.disconnect()
+            } catch {
+                // ignore
+            }
+            try {
+                rnnoise.node.disconnect(refinementAnalyser)
+            } catch {
+                // ignore
+            }
+            try {
+                rnnoise.node.disconnect(noiseFloorGainNode)
+            } catch {
+                // ignore
+            }
+            try {
+                rnnoise.node.disconnect(vadDestination)
+            } catch {
+                // ignore
+            }
+            try {
+                noiseFloorGainNode.disconnect()
+            } catch {
+                // ignore
+            }
+            try {
+                volumeGainNode.disconnect()
+            } catch {
+                // ignore
+            }
+        }
+
+        const tickNoiseFloor = () => {
+            try {
+                refinementAnalyser.getFloatTimeDomainData(analyserBuffer)
+                let sum = 0
+                for (let i = 0; i < analyserBuffer.length; i++) sum += analyserBuffer[i] * analyserBuffer[i]
+                const rms = Math.sqrt(sum / analyserBuffer.length)
+                const refinementEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
+                let targetGain = 1
+
+                if (refinementEnabled) {
+                    if (rms <= lowFloorThr) {
+                        targetGain = minFloorGain
+                    } else if (rms < openFloorThr) {
+                        const ratio = (rms - lowFloorThr) / (openFloorThr - lowFloorThr)
+                        const eased = ratio * ratio * (3 - 2 * ratio)
+                        targetGain = minFloorGain + eased * (1 - minFloorGain)
+                    }
+                }
+
+                const alpha = targetGain > currentFloorGain ? 0.42 : 0.08
+                currentFloorGain = alpha * targetGain + (1 - alpha) * currentFloorGain
+                noiseFloorGainNode.gain.setTargetAtTime(currentFloorGain, ctx.currentTime, targetGain > currentFloorGain ? 0.012 : 0.06)
+            } catch {
+                // ignore
+            }
+            rafId = requestAnimationFrame(tickNoiseFloor)
+        }
+
+        rafId = requestAnimationFrame(tickNoiseFloor)
+
+        return { track: processedTrack, vadStream: vadDestination.stream, cancelGate }
     }, [getAudioContext])
 
     /** Toggle RNNoise on/off without rebuilding the audio graph. */

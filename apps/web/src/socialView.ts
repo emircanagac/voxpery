@@ -1,11 +1,11 @@
-export type SocialView = 'friends' | 'dm'
+export type SocialView = 'friends' | 'dm' | 'saved'
 
 const SOCIAL_VIEW_KEY = 'voxpery-social-view'
 
 export function getPersistedSocialView(): SocialView | null {
   try {
     const v = sessionStorage.getItem(SOCIAL_VIEW_KEY)
-    if (v === 'friends' || v === 'dm') return v
+    if (v === 'friends' || v === 'dm' || v === 'saved') return v
     return null
   } catch {
     return null

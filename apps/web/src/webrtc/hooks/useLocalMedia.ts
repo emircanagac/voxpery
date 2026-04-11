@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react'
+import { buildPreferredMicrophoneConstraints, getStoredVoiceInputDeviceId } from '../../voiceDevices'
 
 const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
@@ -22,6 +23,7 @@ const PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenSharePro
 
 export function useLocalMedia() {
     const cachedMicStreamRef = useRef<MediaStream | null>(null)
+    const cachedMicDeviceIdRef = useRef<string>('')
     const cachedScreenStreamRef = useRef<MediaStream | null>(null)
 
     const resolveQualityMode = useCallback((): ScreenShareQuality => {
@@ -73,23 +75,28 @@ export function useLocalMedia() {
         }
     }, [])
 
-    const getMicrophoneStream = useCallback(async (): Promise<MediaStream> => {
-        if (cachedMicStreamRef.current) {
+    const getMicrophoneStream = useCallback(async (forceRefresh = false): Promise<MediaStream> => {
+        const preferredDeviceId = getStoredVoiceInputDeviceId()
+        if (
+            !forceRefresh
+            && cachedMicStreamRef.current
+            && cachedMicDeviceIdRef.current === preferredDeviceId
+            && cachedMicStreamRef.current.getAudioTracks().some((track) => track.readyState === 'live')
+        ) {
             return cachedMicStreamRef.current
         }
+        cachedMicStreamRef.current?.getTracks().forEach((track) => track.stop())
+        cachedMicStreamRef.current = null
         if (!navigator.mediaDevices?.getUserMedia) {
             throw new Error('Microphone access is not supported in this browser')
         }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    noiseSuppression: false,
-                    echoCancellation: true,
-                    autoGainControl: true,
-                },
+                audio: buildPreferredMicrophoneConstraints(),
                 video: false,
             })
             cachedMicStreamRef.current = stream
+            cachedMicDeviceIdRef.current = preferredDeviceId
             return stream
         } catch (err: unknown) {
             const name = (err as { name?: string })?.name ?? ''
@@ -198,6 +205,7 @@ export function useLocalMedia() {
     const cleanupLocalMedia = useCallback(() => {
         cachedMicStreamRef.current?.getTracks().forEach(t => t.stop())
         cachedMicStreamRef.current = null
+        cachedMicDeviceIdRef.current = ''
         cachedScreenStreamRef.current?.getTracks().forEach(t => t.stop())
         cachedScreenStreamRef.current = null
     }, [])

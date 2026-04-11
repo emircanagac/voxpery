@@ -1,13 +1,15 @@
 # Voice System
 
-Voxpery uses **LiveKit SFU** for voice, screen sharing, and camera. Audio is processed client-side with noise suppression, voice activity detection (VAD), and gain control.
+Voxpery uses **LiveKit SFU** for voice, screen sharing, and camera. Audio is processed client-side with layered cleanup, voice activity detection (VAD), and gain control.
 
 ## Architecture
 
 ```
 Microphone → getUserMedia → AudioContext pipeline → LiveKit Room → SFU → Remote peers
                                     ↓
-                           Noise suppression
+                           High-pass cleanup
+                           RNNoise denoiser
+                           Low-level noise taming
                            Input gain
                            VAD gate (optional)
                            Sensitivity threshold
@@ -47,13 +49,23 @@ Microphone → getUserMedia → AudioContext pipeline → LiveKit Room → SFU �
 ```
 Raw mic track
     ↓
-getUserMedia({ noiseSuppression: false })  ← Browser NS disabled
+getUserMedia({
+  noiseSuppression: false,
+  echoCancellation: true,
+  autoGainControl: true
+})  ← Browser NS disabled, EC + AGC enabled
     ↓
 AudioContext.createMediaStreamSource
     ↓
-RNNoise ScriptProcessorNode (ML-based denoiser)
+High-pass filter (~110 Hz)
+    ↓
+RNNoise AudioWorkletNode (ML-based denoiser)
+    ↓
+Low-level noise tamer (post-RNNoise floor shaping)
     ↓
 GainNode (input volume: 0.0–2.0 from settings)
+    ↓
+VAD analyser tap (post-RNNoise, pre-volume)
     ↓
 VAD gate (optional, voice_activity mode)
     ↓
@@ -66,10 +78,15 @@ Room.localParticipant.publishTrack
 
 - **RNNoise WASM**: ML-based denoiser (Mozilla-grade, open source)
   - Implemented via `@shiguredo/rnnoise-wasm` v2025.1.5 (maintained by Shiguredo, Japanese Jitsi infrastructure company)
-  - Processes 480-sample frames (~10ms at 48kHz) with ring-buffer bridging to browser's 4096-sample callbacks
+  - Runs inside an `AudioWorkletNode` for low-latency realtime processing
   - Lazy-loaded on first enable (~4.8 MB WASM, 3.1 MB gzipped) → separate chunk in Vite build
   - Removes keyboard clicks, fan noise, background hum while preserving voice clarity
   - Toggle: Live on/off in Voice Settings (no voice channel re-join required)
+- **High-pass cleanup**
+  - A light ~110 Hz high-pass filter removes low rumble, desk vibration, plosive energy, and some breath boom before denoising
+- **Low-level noise tamer**
+  - A gentle post-RNNoise gain stage reduces very quiet residual noise between phrases without hard-gating speech
+  - Helps with dip hiss, room hum, and lingering background texture while keeping speech natural
 - **Why RNNoise?**
   - Browser native `noiseSuppression` is too weak for noisy backgrounds
   - Krisp required LiveKit Cloud (self-hosted setups can't use it)
@@ -80,21 +97,22 @@ Room.localParticipant.publishTrack
 Two modes:
 
 1. **Voice Activity**: Mic auto-mutes when RMS below threshold (Discord-like)
-   - Analyser reads RMS from raw mic track
-   - If above `onThreshold`, enable track; below `offThreshold` for N frames, disable
-   - Hysteresis + hold frames prevent flicker during speech pauses
+   - Analyser reads RMS from the denoised signal (`post-RNNoise`, `pre-volume`)
+   - If above `onThreshold`, enable track; below `offThreshold` for enough held frames, disable
+   - Fast attack + slower release + hysteresis keep speaking feedback responsive without flicker during short pauses
 2. **Push-to-Talk**: Manual control via keyboard (default: `V` key)
 
 ### Sensitivity Threshold
 
 - **Range**: 0–100 (slider in Voice Settings)
 - **Presets**:
-  - `Quiet` (16): −36dB — sensitive but avoids false positives in quiet rooms
-  - `Normal` (25): −29dB — **default**, balanced for standard speaking volume
-  - `Noisy` (55): −15dB — only loud direct speech passes in noisy backgrounds
+  - `Quiet room` (14): ~−38dB — more sensitive, best for calm rooms and soft speakers
+  - `Normal` (23): ~−30dB — balanced for typical speaking volume
+  - `Noisy room` (42): ~−20dB — stricter gate for louder environments
+- **Default preset**: `Quiet room`
 - **Mapping**: Exponential curve to natural dB range
   - `0` → `0.001` (-60 dB, very sensitive to whispers)
-  - `25` → `0.064` (-29 dB, normal conversation)
+  - `23` → `~0.032` (~-30 dB, normal conversation)
   - `100` → `0.561` (-5 dB, only loud speech)
 - **Hysteresis**: `offThreshold = onThreshold × 0.1` (10× lower) to prevent rapid on/off flicker during speech pauses
 
