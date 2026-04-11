@@ -6367,6 +6367,16 @@ body {
   gap: 10px;
 }
 
+.home-onboarding-actions--equal {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 360px);
+}
+
+.home-onboarding-actions--equal .home-onboarding-btn {
+  width: 100%;
+}
+
 .home-onboarding-btn {
   display: inline-flex;
   align-items: center;
@@ -6399,6 +6409,13 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--text-primary);
+}
+
+@media (max-width: 500px) {
+  .home-onboarding-actions--equal {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 
 .home-member-row {

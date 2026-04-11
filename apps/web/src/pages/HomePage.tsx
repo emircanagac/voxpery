@@ -66,10 +66,12 @@ function OnboardingCard({
   title,
   description,
   actions,
+  actionsLayout = 'default',
 }: {
   title: string
   description: string
   actions: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary'; icon?: ReactNode }>
+  actionsLayout?: 'default' | 'equal'
 }) {
   return (
     <div className="home-onboarding-card">
@@ -77,7 +79,7 @@ function OnboardingCard({
         <h3>{title}</h3>
         <p>{description}</p>
       </div>
-      <div className="home-onboarding-actions">
+      <div className={`home-onboarding-actions ${actionsLayout === 'equal' ? 'home-onboarding-actions--equal' : ''}`}>
         {actions.map((action) => (
           <button
             key={action.label}
@@ -1270,6 +1272,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 <OnboardingCard
                   title="Save media for later"
                   description="Bookmark images and files from chats so you can jump back to them from one place."
+                  actionsLayout="equal"
                   actions={[
                     {
                       label: 'Open friends',
