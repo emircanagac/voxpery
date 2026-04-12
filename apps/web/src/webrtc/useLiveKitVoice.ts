@@ -199,6 +199,7 @@ export function useLiveKitVoice() {
 
     try {
       const stream = await getMicrophoneStream(true)
+      await applyLocalMicSettings(stream.getAudioTracks()[0] ?? null)
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
       const { track: nextTrack, vadStream, cancelGate } = await buildMicSendTrack(
         stream,
@@ -228,7 +229,7 @@ export function useLiveKitVoice() {
       gateCancelRef.current = previousGateCancel ?? null
       setLastError(error instanceof Error ? error.message : 'Could not switch microphone device')
     }
-  }, [buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor])
+  }, [applyLocalMicSettings, buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor])
 
   const closePeer = useCallback((peerId: PeerId) => {
     remoteMonitorCleanupsRef.current.get(peerId)?.()
@@ -301,15 +302,9 @@ export function useLiveKitVoice() {
 
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
 
-      // Always keep echo cancellation & auto gain from browser; noise suppression
-      // is handled by RNNoise when enabled, so we leave browser NS off.
-      try {
-        await rawMicTrack.applyConstraints({
-          noiseSuppression: false,
-          echoCancellation: true,
-          autoGainControl: true,
-        })
-      } catch { /* ignore unsupported constraints */ }
+      // Keep browser constraints in sync with the user's setting. RNNoise still
+      // runs when enabled, and browser NS acts as a reliable fallback layer.
+      await applyLocalMicSettings(rawMicTrack)
 
       // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
       gateCancelRef.current?.()
@@ -504,7 +499,7 @@ export function useLiveKitVoice() {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
     isJoiningRef.current = false

@@ -72,7 +72,8 @@ export function useAudioEngine() {
         }
     }, [])
 
-    // Build the mic send pipeline: source -> high-pass -> [RNNoise] -> low-level noise tamer -> volume -> destination.
+    // Build the mic send pipeline:
+    // source -> speech-focused filtering -> [RNNoise] -> keyboard transient tamer -> noise floor tamer -> volume -> destination.
     const rnnoiseRef = useRef<RnnoiseNode | null>(null)
 
     const buildMicSendTrack = useCallback(async (
@@ -98,13 +99,25 @@ export function useAudioEngine() {
         const source = ctx.createMediaStreamSource(sourceStream)
         const highPassFilter = ctx.createBiquadFilter()
         highPassFilter.type = 'highpass'
-        highPassFilter.frequency.value = 110
-        highPassFilter.Q.value = 0.82
+        highPassFilter.frequency.value = 140
+        highPassFilter.Q.value = 0.9
+        const lowPassFilter = ctx.createBiquadFilter()
+        lowPassFilter.type = 'lowpass'
+        lowPassFilter.frequency.value = 7200
+        lowPassFilter.Q.value = 0.7
 
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
         const rnnoise = await createRnnoiseNode(ctx, noiseSuppressionEnabled)
         rnnoiseRef.current = rnnoise
+
+        // Tame sharp keyboard peaks before the final send gain.
+        const transientCompressor = ctx.createDynamicsCompressor()
+        transientCompressor.threshold.value = -30
+        transientCompressor.knee.value = 10
+        transientCompressor.ratio.value = 3.5
+        transientCompressor.attack.value = 0.003
+        transientCompressor.release.value = 0.085
 
         const noiseFloorGainNode = ctx.createGain()
         noiseFloorGainNode.gain.value = 1
@@ -121,10 +134,12 @@ export function useAudioEngine() {
 
         source.connect(highPassFilter)
         highPassFilter.connect(rnnoise.node)
-        rnnoise.node.connect(refinementAnalyser)
-        rnnoise.node.connect(noiseFloorGainNode)
+        rnnoise.node.connect(lowPassFilter)
+        lowPassFilter.connect(refinementAnalyser)
+        lowPassFilter.connect(vadDestination)   // branch for VAD analyser
+        lowPassFilter.connect(transientCompressor)
+        transientCompressor.connect(noiseFloorGainNode)
         noiseFloorGainNode.connect(volumeGainNode)
-        rnnoise.node.connect(vadDestination)   // branch for VAD analyser
         volumeGainNode.connect(destination)
 
         const processedTrack = destination.stream.getAudioTracks()[0]
@@ -132,9 +147,9 @@ export function useAudioEngine() {
 
         inputGainNodeRef.current = volumeGainNode
         const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
-        const lowFloorThr = dbToLinear(-54)
-        const openFloorThr = dbToLinear(-44)
-        const minFloorGain = 0.22
+        const lowFloorThr = dbToLinear(-51)
+        const openFloorThr = dbToLinear(-40)
+        const minFloorGain = 0.12
         let rafId: number | null = null
         let currentFloorGain = 1
 
@@ -161,17 +176,27 @@ export function useAudioEngine() {
                 // ignore
             }
             try {
-                rnnoise.node.disconnect(refinementAnalyser)
+                lowPassFilter.disconnect(refinementAnalyser)
             } catch {
                 // ignore
             }
             try {
-                rnnoise.node.disconnect(noiseFloorGainNode)
+                lowPassFilter.disconnect(vadDestination)
             } catch {
                 // ignore
             }
             try {
-                rnnoise.node.disconnect(vadDestination)
+                lowPassFilter.disconnect(transientCompressor)
+            } catch {
+                // ignore
+            }
+            try {
+                rnnoise.node.disconnect(lowPassFilter)
+            } catch {
+                // ignore
+            }
+            try {
+                transientCompressor.disconnect()
             } catch {
                 // ignore
             }

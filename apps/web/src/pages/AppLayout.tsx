@@ -378,6 +378,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
     const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+    const currentServerMember = useMemo(
+        () => (user?.id ? members.find((member) => member.user_id === user.id) ?? null : null),
+        [members, user?.id],
+    )
     const pushToast = useToastStore((s) => s.pushToast)
     const { connect, send, subscribe, isConnected, onReconnect } = useSocketStore()
     const [showUnsavedServerSettingsConfirm, setShowUnsavedServerSettingsConfirm] = useState(false)
@@ -1174,6 +1178,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 user_id: user?.id ?? 'local',
                 username: user?.username ?? 'You',
                 avatar_url: user?.avatar_url,
+                role_color: currentServerMember?.role_color ?? null,
             },
             clientId,
             clientStatus: 'sending',
