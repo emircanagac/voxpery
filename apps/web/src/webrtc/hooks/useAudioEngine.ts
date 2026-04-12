@@ -9,6 +9,67 @@ function dbToLinear(db: number): number {
     return Math.pow(10, db / 20)
 }
 
+function getBandAverageDb(
+    frequencyData: Float32Array,
+    sampleRate: number,
+    fftSize: number,
+    minHz: number,
+    maxHz: number,
+): number {
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0 || fftSize <= 0 || maxHz <= minHz) return -100
+    const nyquist = sampleRate / 2
+    const clampedMin = Math.max(0, Math.min(minHz, nyquist))
+    const clampedMax = Math.max(clampedMin, Math.min(maxHz, nyquist))
+    const binWidth = sampleRate / fftSize
+    const start = Math.max(0, Math.floor(clampedMin / binWidth))
+    const end = Math.min(frequencyData.length - 1, Math.ceil(clampedMax / binWidth))
+    let sum = 0
+    let count = 0
+    for (let i = start; i <= end; i++) {
+        const value = frequencyData[i]
+        if (!Number.isFinite(value)) continue
+        sum += value
+        count++
+    }
+    return count > 0 ? sum / count : -100
+}
+
+function getSpeechIsolationTarget(
+    frequencyData: Float32Array,
+    sampleRate: number,
+    fftSize: number,
+    rms: number,
+    lowFloorThr: number,
+    openFloorThr: number,
+): number {
+    const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1500)
+    const bodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2400)
+    const upperSpeechDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 1600, 3400)
+    const highNoiseDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 3400, 7200)
+    const lowNoiseDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 0, 140)
+
+    const speechLike =
+        (presenceDb >= highNoiseDb - 3 && bodyDb >= highNoiseDb - 5)
+        || upperSpeechDb >= highNoiseDb - 3.5
+    const quietish = rms < openFloorThr * 1.35
+    const boomyNoise = lowNoiseDb > bodyDb + 2.5
+    const clickyNoise = highNoiseDb > presenceDb + 2.5
+
+    if (!speechLike) {
+        if (rms <= lowFloorThr || quietish) return 0.015
+        return clickyNoise || boomyNoise ? 0.045 : 0.08
+    }
+
+    if (rms <= lowFloorThr) return 0.08
+    if (rms < openFloorThr) {
+        const ratio = (rms - lowFloorThr) / Math.max(1e-6, openFloorThr - lowFloorThr)
+        const eased = ratio * ratio * (3 - 2 * ratio)
+        return 0.22 + eased * 0.66
+    }
+
+    return clickyNoise && quietish ? 0.7 : 1
+}
+
 export type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
 
 export function useAudioEngine() {
@@ -103,8 +164,15 @@ export function useAudioEngine() {
         highPassFilter.Q.value = 0.9
         const lowPassFilter = ctx.createBiquadFilter()
         lowPassFilter.type = 'lowpass'
-        lowPassFilter.frequency.value = noiseSuppressionEnabled ? 6400 : 7200
+        lowPassFilter.frequency.value = noiseSuppressionEnabled ? 4600 : 7200
         lowPassFilter.Q.value = 0.8
+        const speechPresenceFilter = ctx.createBiquadFilter()
+        speechPresenceFilter.type = 'peaking'
+        speechPresenceFilter.frequency.value = 1850
+        speechPresenceFilter.Q.value = 1.05
+        speechPresenceFilter.gain.value = noiseSuppressionEnabled ? 2.2 : 0
+        const speechIsolationGainNode = ctx.createGain()
+        speechIsolationGainNode.gain.value = 1
 
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
@@ -137,7 +205,9 @@ export function useAudioEngine() {
         rnnoise.node.connect(lowPassFilter)
         lowPassFilter.connect(refinementAnalyser)
         lowPassFilter.connect(vadDestination)   // branch for VAD analyser
-        lowPassFilter.connect(transientCompressor)
+        lowPassFilter.connect(speechPresenceFilter)
+        speechPresenceFilter.connect(speechIsolationGainNode)
+        speechIsolationGainNode.connect(transientCompressor)
         transientCompressor.connect(noiseFloorGainNode)
         noiseFloorGainNode.connect(volumeGainNode)
         volumeGainNode.connect(destination)
@@ -147,11 +217,13 @@ export function useAudioEngine() {
 
         inputGainNodeRef.current = volumeGainNode
         const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
+        const frequencyBuffer = new Float32Array(Math.max(32, refinementAnalyser.frequencyBinCount))
         const lowFloorThr = dbToLinear(noiseSuppressionEnabled ? -47 : -51)
         const openFloorThr = dbToLinear(noiseSuppressionEnabled ? -35 : -40)
         const minFloorGain = noiseSuppressionEnabled ? 0.05 : 0.12
         let rafId: number | null = null
         let currentFloorGain = 1
+        let currentIsolationGain = 1
 
         const cancelGate = () => {
             if (rafId != null) {
@@ -159,11 +231,18 @@ export function useAudioEngine() {
                 rafId = null
             }
             currentFloorGain = 1
+            currentIsolationGain = 1
             try {
                 noiseFloorGainNode.gain.cancelScheduledValues(ctx.currentTime)
                 noiseFloorGainNode.gain.setValueAtTime(1, ctx.currentTime)
             } catch {
                 noiseFloorGainNode.gain.value = 1
+            }
+            try {
+                speechIsolationGainNode.gain.cancelScheduledValues(ctx.currentTime)
+                speechIsolationGainNode.gain.setValueAtTime(1, ctx.currentTime)
+            } catch {
+                speechIsolationGainNode.gain.value = 1
             }
             try {
                 source.disconnect()
@@ -191,7 +270,22 @@ export function useAudioEngine() {
                 // ignore
             }
             try {
+                lowPassFilter.disconnect(speechPresenceFilter)
+            } catch {
+                // ignore
+            }
+            try {
                 rnnoise.node.disconnect(lowPassFilter)
+            } catch {
+                // ignore
+            }
+            try {
+                speechPresenceFilter.disconnect()
+            } catch {
+                // ignore
+            }
+            try {
+                speechIsolationGainNode.disconnect()
             } catch {
                 // ignore
             }
@@ -215,11 +309,13 @@ export function useAudioEngine() {
         const tickNoiseFloor = () => {
             try {
                 refinementAnalyser.getFloatTimeDomainData(analyserBuffer)
+                refinementAnalyser.getFloatFrequencyData(frequencyBuffer)
                 let sum = 0
                 for (let i = 0; i < analyserBuffer.length; i++) sum += analyserBuffer[i] * analyserBuffer[i]
                 const rms = Math.sqrt(sum / analyserBuffer.length)
                 const refinementEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
                 let targetGain = 1
+                let targetIsolationGain = 1
 
                 if (refinementEnabled) {
                     if (rms <= lowFloorThr) {
@@ -229,11 +325,26 @@ export function useAudioEngine() {
                         const eased = ratio * ratio * (3 - 2 * ratio)
                         targetGain = minFloorGain + eased * (1 - minFloorGain)
                     }
+                    targetIsolationGain = getSpeechIsolationTarget(
+                        frequencyBuffer,
+                        ctx.sampleRate,
+                        refinementAnalyser.fftSize,
+                        rms,
+                        lowFloorThr,
+                        openFloorThr,
+                    )
                 }
 
                 const alpha = targetGain > currentFloorGain ? 0.42 : (noiseSuppressionEnabled ? 0.18 : 0.08)
                 currentFloorGain = alpha * targetGain + (1 - alpha) * currentFloorGain
                 noiseFloorGainNode.gain.setTargetAtTime(currentFloorGain, ctx.currentTime, targetGain > currentFloorGain ? 0.012 : (noiseSuppressionEnabled ? 0.025 : 0.06))
+                const isolationAlpha = targetIsolationGain > currentIsolationGain ? 0.24 : 0.34
+                currentIsolationGain = isolationAlpha * targetIsolationGain + (1 - isolationAlpha) * currentIsolationGain
+                speechIsolationGainNode.gain.setTargetAtTime(
+                    currentIsolationGain,
+                    ctx.currentTime,
+                    targetIsolationGain > currentIsolationGain ? 0.02 : 0.012,
+                )
             } catch {
                 // ignore
             }
