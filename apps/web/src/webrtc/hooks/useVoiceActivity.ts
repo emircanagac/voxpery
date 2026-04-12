@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LocalAudioTrack } from 'livekit-client'
 import { useAppStore } from '../../stores/app'
 import { getThresholdsFromStorage } from '../sensitivityThreshold'
+import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../voiceInputProfile'
+import { evaluateVoiceGateFrame } from '../voiceGate'
 
 const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
@@ -9,45 +11,6 @@ const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 
 export type VoiceMode = 'voice_activity' | 'push_to_talk'
-
-function getBandAverageDb(
-    frequencyData: Float32Array,
-    sampleRate: number,
-    fftSize: number,
-    minHz: number,
-    maxHz: number,
-): number {
-    if (!Number.isFinite(sampleRate) || sampleRate <= 0 || fftSize <= 0 || maxHz <= minHz) return -100
-    const nyquist = sampleRate / 2
-    const clampedMin = Math.max(0, Math.min(minHz, nyquist))
-    const clampedMax = Math.max(clampedMin, Math.min(maxHz, nyquist))
-    const binWidth = sampleRate / fftSize
-    const start = Math.max(0, Math.floor(clampedMin / binWidth))
-    const end = Math.min(frequencyData.length - 1, Math.ceil(clampedMax / binWidth))
-    let sum = 0
-    let count = 0
-    for (let i = start; i <= end; i++) {
-        const value = frequencyData[i]
-        if (!Number.isFinite(value)) continue
-        sum += value
-        count++
-    }
-    return count > 0 ? sum / count : -100
-}
-
-function isSpeechLikeFrame(
-    frequencyData: Float32Array,
-    sampleRate: number,
-    fftSize: number,
-): boolean {
-    const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1400)
-    const speechBodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2200)
-    const highNoiseDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 2800, 7200)
-
-    // Speech tends to keep more energy in the presence/body bands, while keyboard
-    // clicks lean heavily into sharp high-frequency spikes.
-    return presenceDb >= highNoiseDb - 2.5 || speechBodyDb >= highNoiseDb - 4
-}
 
 export function useVoiceActivity(options: {
     userId: string | null
@@ -241,10 +204,6 @@ export function useVoiceActivity(options: {
         let smoothRms = 0
         // Hold after going quiet so short pauses inside one sentence do not drop the ring.
         // Keep release fairly short so keyboard clicks do not hold the gate open.
-        const monHoldFrames = 18
-        // Stronger smoothing on release keeps the indicator feeling steadier mid-speech.
-        const smoothAlpha = 0.96
-
         useAppStore.getState().setVoiceSpeaking(useAppStore.getState().voiceSpeakingUserIds, false)
         // Keep sender track open at start to avoid "audio for 1s then silence" regressions
         // when RMS thresholds are too strict or context sampling starts late.
@@ -260,43 +219,33 @@ export function useVoiceActivity(options: {
                     const { onThr, offThr } = getThresholdsFromStorage()
                     analyser.getFloatFrequencyData(monFreqData)
                     const noiseSuppressionEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
-                    const speechLike = isSpeechLikeFrame(monFreqData, ctx.sampleRate, analyser.fftSize)
-                    const openFramesRequired = noiseSuppressionEnabled ? 3 : 2
-                    const effectiveOffThr = Math.max(offThr, onThr * (noiseSuppressionEnabled ? 0.45 : 0.35))
-                    const shouldOpen = rms >= onThr && speechLike
-
-                    // Check if the remaining audio (voice) is loud enough to pass
-                    // the user's Sensitivity Threshold.
-                    if (shouldOpen) {
-                        monAboveCount++
-                        monBelowCount = 0
-                        smoothRms = smoothAlpha * smoothRms + (1 - smoothAlpha) * rms
-                        if (!monLastSpeaking && monAboveCount >= openFramesRequired) {
-                            monLastSpeaking = true
-                            voiceActivitySpeakingRef.current = true
-                            applyVoiceActivityGate(true)
-                            useAppStore.getState().setVoiceSpeaking(useAppStore.getState().voiceSpeakingUserIds, true)
-                        }
-                    } else {
-                        monAboveCount = 0
-                        if (!monLastSpeaking) {
-                            smoothRms = smoothAlpha * smoothRms + (1 - smoothAlpha) * rms
-                            inlineMonitorIntervalRef.current = requestAnimationFrame(tick)
-                            return
-                        }
-                        smoothRms = smoothAlpha * smoothRms + (1 - smoothAlpha) * rms
-                        // Use smoothed RMS for turn-off: brief mid-speech dips don't close the ring (Discord-like).
-                        if (smoothRms >= effectiveOffThr) { monBelowCount = 0 }
-                        else {
-                            monBelowCount++
-                            if (monBelowCount >= monHoldFrames) {
-                                monLastSpeaking = false
-                                monBelowCount = 0
-                                voiceActivitySpeakingRef.current = false
-                                applyVoiceActivityGate(false)
-                                useAppStore.getState().setVoiceSpeaking(useAppStore.getState().voiceSpeakingUserIds, false)
-                            }
-                        }
+                    const profile = getStoredVoiceInputProfile()
+                    const aggressiveIsolation = shouldUseAggressiveVoiceIsolation(profile, noiseSuppressionEnabled)
+                    const decision = evaluateVoiceGateFrame({
+                        rms,
+                        frequencyData: monFreqData,
+                        sampleRate: ctx.sampleRate,
+                        fftSize: analyser.fftSize,
+                        onThr,
+                        offThr,
+                        noiseSuppressionEnabled,
+                        aggressiveIsolation,
+                        speaking: monLastSpeaking,
+                        openFrames: monAboveCount,
+                        belowFrames: monBelowCount,
+                        smoothedRms: smoothRms,
+                    })
+                    monAboveCount = decision.openFrames
+                    monBelowCount = decision.belowFrames
+                    smoothRms = decision.smoothedRms
+                    if (decision.speaking !== monLastSpeaking) {
+                        monLastSpeaking = decision.speaking
+                        voiceActivitySpeakingRef.current = decision.speaking
+                        applyVoiceActivityGate(decision.speaking)
+                        useAppStore.getState().setVoiceSpeaking(
+                            useAppStore.getState().voiceSpeakingUserIds,
+                            decision.speaking,
+                        )
                     }
                 }
             } catch {

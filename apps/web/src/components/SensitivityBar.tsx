@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+    offThresholdFromOn,
+    SPEAKING_PRESET_KEY,
     SENSITIVITY_THRESHOLD_KEY,
     onThresholdFromSlider,
+    type SpeakingPreset,
 } from '../webrtc/sensitivityThreshold'
-import { createRnnoiseNode, type RnnoiseNode } from '../webrtc/rnnoise'
 import { buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
+import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../webrtc/voiceInputProfile'
+import { evaluateVoiceGateFrame } from '../webrtc/voiceGate'
+import { useAudioEngine } from '../webrtc/hooks/useAudioEngine'
 
 const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
-const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
 const NS_KEY = 'voxpery-settings-noise-suppression'
+const MIC_TEST_MONITOR_GAIN = 0.82
 
 /** Convert RMS (0–~0.5) to a 0–100 display percentage using a log (dB-like) scale. */
 function rmsToPercent(rms: number): number {
     if (rms <= 0) return 0
-    // Map RMS to dB: 20*log10(rms). Range roughly -60 dB to 0 dB.
+    // Map RMS to dB: 20*log10(rms). Display range -100 dB to 0 dB.
     const db = 20 * Math.log10(Math.max(rms, 1e-6))
-    const minDb = -60
+    const minDb = -100
     const maxDb = 0
     const pct = ((db - minDb) / (maxDb - minDb)) * 100
     return Math.min(100, Math.max(0, pct))
@@ -43,6 +48,8 @@ function barPositionToSlider(barPct: number): number {
 
 // dB tick marks to show on the bar
 const DB_TICKS = [
+    { db: -100, label: '-100' },
+    { db: -80, label: '-80' },
     { db: -60, label: '-60' },
     { db: -40, label: '-40' },
     { db: -20, label: '-20' },
@@ -51,14 +58,14 @@ const DB_TICKS = [
 
 interface SensitivityBarProps {
     threshold: number               // 0–100 slider value
-    preset: 'quiet' | 'normal' | 'noisy' | 'custom'
+    preset: SpeakingPreset
     onThresholdChange: (v: number) => void
-    onPresetChange: (preset: 'quiet' | 'normal' | 'noisy' | 'custom') => void
+    onPresetChange: (preset: SpeakingPreset) => void
 }
 
 function dbToPercent(db: number): number {
     if (!Number.isFinite(db)) return 0
-    const pct = ((db + 60) / 60) * 100
+    const pct = ((db + 100) / 100) * 100
     return Math.min(100, Math.max(0, pct))
 }
 
@@ -68,28 +75,46 @@ export default function SensitivityBar({
     onThresholdChange,
     onPresetChange,
 }: SensitivityBarProps) {
-    const [liveDb, setLiveDb] = useState(-60)
+    const [liveDb, setLiveDb] = useState(-100)
     const [micActive, setMicActive] = useState(false)
     const [monitorEnabled, setMonitorEnabled] = useState(false)
     const [monitorState, setMonitorState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'unavailable'>('idle')
+    const [gatePassing, setGatePassing] = useState(false)
     const barRef = useRef<HTMLDivElement>(null)
     const draggingRef = useRef(false)
     const rafRef = useRef<number | null>(null)
     const contextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
     const streamRef = useRef<MediaStream | null>(null)
-    const smoothLevelRef = useRef(-60)
+    const processedTrackRef = useRef<MediaStreamTrack | null>(null)
+    const gateCancelRef = useRef<(() => void) | null>(null)
+    const rawMicTrackRef = useRef<MediaStreamTrack | null>(null)
+    const inputGainNodeRef = useRef<GainNode | null>(null)
+    const smoothLevelRef = useRef(-100)
+    const thresholdRef = useRef(threshold)
+    const gateOpenRef = useRef(false)
+    const openFramesRef = useRef(0)
+    const belowFramesRef = useRef(0)
+    const smoothedRmsRef = useRef(0)
+    const { buildMicSendTrack, destroyRnnoise, setRnnoiseEnabled } = useAudioEngine()
+
+    useEffect(() => {
+        thresholdRef.current = threshold
+    }, [threshold])
 
     // ── Mic monitoring ──
     useEffect(() => {
         if (!monitorEnabled) return
         let cancelled = false
-        let rnnoiseNode: RnnoiseNode | null = null
         let settingsHandler: (() => void) | null = null
 
         const startMic = async () => {
             setMonitorState('requesting')
-            smoothLevelRef.current = -60
+            setGatePassing(false)
+            smoothLevelRef.current = -100
+            openFramesRef.current = 0
+            belowFramesRef.current = 0
+            smoothedRmsRef.current = 0
             try {
                 if (!navigator.mediaDevices?.getUserMedia) {
                     setMicActive(false)
@@ -106,30 +131,60 @@ export default function SensitivityBar({
                 }
                 streamRef.current = stream
 
+                const nsEnabled = localStorage.getItem(NS_KEY) !== '0'
+                const { track: processedTrack, vadStream, cancelGate } = await buildMicSendTrack(
+                    stream,
+                    1,
+                    false,
+                    rawMicTrackRef,
+                    inputGainNodeRef,
+                    nsEnabled,
+                )
+                if (cancelled) {
+                    cancelGate()
+                    processedTrack.stop()
+                    stream.getTracks().forEach((t) => t.stop())
+                    destroyRnnoise()
+                    return
+                }
+                gateCancelRef.current = cancelGate
+                processedTrackRef.current = processedTrack
+
                 const AudioCtor =
                     window.AudioContext ||
                     (window as Window & { webkitAudioContext?: typeof AudioContext })
                         .webkitAudioContext
-                if (!AudioCtor) return
+                if (!AudioCtor) {
+                    cancelGate()
+                    gateCancelRef.current = null
+                    processedTrack.stop()
+                    processedTrackRef.current = null
+                    stream.getTracks().forEach((t) => t.stop())
+                    streamRef.current = null
+                    destroyRnnoise()
+                    setMicActive(false)
+                    setMonitorState('unavailable')
+                    return
+                }
 
                 const ctx = new AudioCtor()
                 contextRef.current = ctx
                 if (ctx.state === 'suspended') void ctx.resume().catch(() => { })
 
-                const source = ctx.createMediaStreamSource(stream)
-
-                // Route through RNNoise when noise suppression is enabled,
-                // so the bar shows the same levels the speaking indicator sees.
-                const nsEnabled = localStorage.getItem(NS_KEY) !== '0'
-                rnnoiseNode = await createRnnoiseNode(ctx, nsEnabled)
+                const vadSource = ctx.createMediaStreamSource(vadStream)
+                const processedSource = ctx.createMediaStreamSource(new MediaStream([processedTrack]))
 
                 const analyser = ctx.createAnalyser()
                 analyser.fftSize = 256
                 analyser.smoothingTimeConstant = 0
-                source.connect(rnnoiseNode.node)
-                rnnoiseNode.node.connect(analyser)
+                const monitorGain = ctx.createGain()
+                monitorGain.gain.value = 0
+                gateOpenRef.current = false
+                vadSource.connect(analyser)
+                processedSource.connect(monitorGain)
+                monitorGain.connect(ctx.destination)
 
-                // Required to prevent the browser from pruning the graph branch
+                // Keep analyser branch alive in all browsers.
                 const silentSink = ctx.createGain()
                 silentSink.gain.value = 0
                 analyser.connect(silentSink)
@@ -142,13 +197,14 @@ export default function SensitivityBar({
                 // Live NS toggle: react to settings changes
                 const onSettingsChanged = () => {
                     const nowEnabled = localStorage.getItem(NS_KEY) !== '0'
-                    rnnoiseNode?.setEnabled(nowEnabled)
+                    setRnnoiseEnabled(nowEnabled)
                 }
                 settingsHandler = onSettingsChanged
                 window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
 
                 const bufLen = Math.max(128, analyser.frequencyBinCount, analyser.fftSize)
                 const data = new Float32Array(bufLen)
+                const frequencyData = new Float32Array(Math.max(32, analyser.frequencyBinCount))
                 const attackAlpha = 0.42
                 const releaseAlpha = 0.14
 
@@ -162,12 +218,44 @@ export default function SensitivityBar({
                             const rmsRaw = Math.sqrt(sum / data.length)
                             const rms = Number.isFinite(rmsRaw) ? rmsRaw : 0
                             const dbRaw = 20 * Math.log10(Math.max(rms, 1e-6))
-                            const db = Math.max(-60, Math.min(0, Math.round(Number.isFinite(dbRaw) ? dbRaw : -60)))
+                            const db = Math.max(-100, Math.min(0, Math.round(Number.isFinite(dbRaw) ? dbRaw : -100)))
+                            analyser.getFloatFrequencyData(frequencyData)
+                            const onThr = onThresholdFromSlider(thresholdRef.current)
+                            const offThr = offThresholdFromOn(onThr)
+                            const nsEnabled = localStorage.getItem(NS_KEY) !== '0'
+                            const profile = getStoredVoiceInputProfile()
+                            const aggressiveIsolation = shouldUseAggressiveVoiceIsolation(profile, nsEnabled)
+                            const decision = evaluateVoiceGateFrame({
+                                rms,
+                                frequencyData,
+                                sampleRate: ctx.sampleRate,
+                                fftSize: analyser.fftSize,
+                                onThr,
+                                offThr,
+                                noiseSuppressionEnabled: nsEnabled,
+                                aggressiveIsolation,
+                                speaking: gateOpenRef.current,
+                                openFrames: openFramesRef.current,
+                                belowFrames: belowFramesRef.current,
+                                smoothedRms: smoothedRmsRef.current,
+                            })
+                            openFramesRef.current = decision.openFrames
+                            belowFramesRef.current = decision.belowFrames
+                            smoothedRmsRef.current = decision.smoothedRms
+                            if (decision.speaking !== gateOpenRef.current) {
+                                gateOpenRef.current = decision.speaking
+                                setGatePassing(decision.speaking)
+                                monitorGain.gain.setTargetAtTime(
+                                    decision.speaking ? MIC_TEST_MONITOR_GAIN : 0,
+                                    ctx.currentTime,
+                                    decision.speaking ? 0.02 : 0.03,
+                                )
+                            }
                             const previousDb = smoothLevelRef.current
                             const smoothingAlpha = db > previousDb ? attackAlpha : releaseAlpha
                             smoothLevelRef.current =
                                 smoothingAlpha * db + (1 - smoothingAlpha) * previousDb
-                            const smoothedDb = Math.max(-60, Math.min(0, Math.round(Number.isFinite(smoothLevelRef.current) ? smoothLevelRef.current : -60)))
+                            const smoothedDb = Math.max(-100, Math.min(0, Math.round(Number.isFinite(smoothLevelRef.current) ? smoothLevelRef.current : -100)))
                             setLiveDb(smoothedDb)
                         }
                     } catch {
@@ -178,7 +266,19 @@ export default function SensitivityBar({
                 rafRef.current = requestAnimationFrame(tick)
             } catch {
                 // mic permission denied or unavailable
+                gateCancelRef.current?.()
+                gateCancelRef.current = null
+                try {
+                    processedTrackRef.current?.stop()
+                } catch {
+                    // ignore
+                }
+                processedTrackRef.current = null
+                streamRef.current?.getTracks().forEach((t) => t.stop())
+                streamRef.current = null
+                destroyRnnoise()
                 setMicActive(false)
+                setGatePassing(false)
                 setMonitorState('denied')
             }
         }
@@ -189,12 +289,28 @@ export default function SensitivityBar({
             cancelled = true
             if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
             if (settingsHandler) window.removeEventListener(SETTINGS_CHANGED_EVENT, settingsHandler)
-            rnnoiseNode?.destroy()
+            gateCancelRef.current?.()
+            gateCancelRef.current = null
             streamRef.current?.getTracks().forEach((t) => t.stop())
             streamRef.current = null
+            try {
+                processedTrackRef.current?.stop()
+            } catch {
+                // ignore
+            }
+            processedTrackRef.current = null
+            rawMicTrackRef.current = null
+            inputGainNodeRef.current = null
+            destroyRnnoise()
             setMicActive(false)
-            smoothLevelRef.current = -60
-            setLiveDb(-60)
+            setGatePassing(false)
+            smoothLevelRef.current = -100
+            setLiveDb(-100)
+            try {
+                analyserRef.current?.disconnect()
+            } catch {
+                // ignore
+            }
             try {
                 contextRef.current?.close()
             } catch {
@@ -203,12 +319,12 @@ export default function SensitivityBar({
             contextRef.current = null
             analyserRef.current = null
         }
-    }, [monitorEnabled])
+    }, [buildMicSendTrack, destroyRnnoise, monitorEnabled, setRnnoiseEnabled])
 
     // ── Threshold bar position + dB display ──
-    const thresholdPos = thresholdToBarPosition(threshold)
-    const thresholdRms = onThresholdFromSlider(threshold)
-    const thresholdDb = thresholdRms > 0 ? Math.round(20 * Math.log10(thresholdRms)) : -60
+    const thresholdDb = Math.round(Math.min(0, Math.max(-100, threshold - 100)))
+    const thresholdPosRaw = thresholdToBarPosition(threshold)
+    const thresholdPos = Math.min(100, Math.max(0, thresholdPosRaw))
 
     // ── Drag / click handling ──
     const applyPosition = useCallback(
@@ -258,7 +374,17 @@ export default function SensitivityBar({
                 : 'var(--sensitivity-red, #f04747)'
 
     // Is the live level above the threshold?
-    const aboveThreshold = micActive && liveLevelPos >= thresholdPos
+    const permissionNote =
+        monitorEnabled && micActive
+            ? 'Mic test is active. You hear yourself only when your voice passes the threshold.'
+            : monitorState === 'requesting'
+                ? 'Requesting microphone access…'
+                : monitorState === 'denied'
+                    ? 'Microphone access denied. Allow it and retry.'
+                    : monitorState === 'unavailable'
+                        ? 'Microphone API is not available in this environment.'
+                        : 'Microphone access is only requested when you start testing.'
+
     return (
         <div className="sensitivity-bar-wrap">
             <div className="sensitivity-bar-top">
@@ -275,8 +401,9 @@ export default function SensitivityBar({
                                 setMonitorEnabled(false)
                                 setMonitorState('idle')
                                 setMicActive(false)
-                                smoothLevelRef.current = -60
-                                setLiveDb(-60)
+                                setGatePassing(false)
+                                smoothLevelRef.current = -100
+                                setLiveDb(-100)
                                 return
                             }
                             setMonitorEnabled(true)
@@ -284,40 +411,32 @@ export default function SensitivityBar({
                         disabled={monitorState === 'requesting' || monitorState === 'unavailable'}
                     >
                         {monitorEnabled
-                            ? 'Disable mic test'
+                            ? 'Stop mic test'
                             : monitorState === 'requesting'
                                 ? 'Requesting…'
                                 : monitorState === 'denied'
                                     ? 'Retry mic access'
-                                    : 'Enable mic test'}
+                                    : 'Start mic test'}
                     </button>
                     <select
                         className="user-select sensitivity-bar-select"
                         value={preset}
-                        onChange={(e) => onPresetChange(e.target.value as 'quiet' | 'normal' | 'noisy' | 'custom')}
+                        onChange={(e) => onPresetChange(e.target.value as SpeakingPreset)}
                     >
                         <option value="quiet">Quiet room</option>
-                        <option value="normal">Normal</option>
+                        <option value="normal">Balanced</option>
                         <option value="noisy">Noisy room</option>
                         <option value="custom">Custom</option>
                     </select>
                 </div>
             </div>
-            <div className="sensitivity-bar-permission-note">
-                {monitorEnabled && micActive
-                    ? 'Mic test is active. Speak to check your live level against the threshold.'
-                    : monitorState === 'denied'
-                        ? 'Microphone access denied. Allow it in browser settings and retry.'
-                        : monitorState === 'unavailable'
-                            ? 'Microphone API is not available in this environment.'
-                            : 'Microphone access is only requested when you enable testing.'}
-            </div>
+            <div className="sensitivity-bar-permission-note" title={permissionNote}>{permissionNote}</div>
             <div className="sensitivity-bar-header">
                 <span className="sensitivity-bar-title">Input sensitivity ({thresholdDb}dB)</span>
                 <span className="sensitivity-bar-value">
                     {micActive ? (
-                        <span className={`sensitivity-bar-indicator ${aboveThreshold ? 'is-active' : 'is-listening'}`}>
-                            {aboveThreshold ? 'Voice detected' : 'Listening'}
+                        <span className={`sensitivity-bar-indicator ${gatePassing ? 'is-active' : 'is-listening'}`}>
+                            {gatePassing ? 'Passing threshold' : 'Below threshold'}
                         </span>
                     ) : (
                         <span className="sensitivity-bar-indicator is-no-mic">No mic</span>
@@ -372,12 +491,19 @@ export default function SensitivityBar({
             {/* dB ticks */}
             <div className="sensitivity-bar-ticks">
                 {DB_TICKS.map((tick) => {
-                    const pos = ((tick.db - -60) / (0 - -60)) * 100
+                    const pos = ((tick.db - -100) / (0 - -100)) * 100
                     return (
                         <span
                             key={tick.db}
                             className="sensitivity-bar-tick"
-                            style={{ left: `${pos}%` }}
+                            style={{
+                                left: `${pos}%`,
+                                transform: tick.db === -100
+                                    ? 'translateX(0)'
+                                    : tick.db === 0
+                                        ? 'translateX(-100%)'
+                                        : 'translateX(-50%)',
+                            }}
                         >
                             {tick.label}dB
                         </span>

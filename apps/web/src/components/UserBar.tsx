@@ -9,9 +9,23 @@ import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
 import { authApi, getAuthErrorMessage } from '../api'
 import { useSocketStore } from '../stores/socket'
-import { SENSITIVITY_THRESHOLD_KEY } from '../webrtc/sensitivityThreshold'
+import {
+  DEFAULT_SPEAKING_PRESET,
+  SPEAKING_PRESET_KEY,
+  SENSITIVITY_THRESHOLD_KEY,
+  thresholdByPreset,
+  type SpeakingPreset,
+} from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
 import { ROUTES } from '../routes'
+import {
+  DEFAULT_VOICE_INPUT_PROFILE,
+  getStoredVoiceInputProfile,
+  getVoiceInputProfileConfig,
+  isVoiceInputProfile,
+  type VoiceInputProfile,
+  VOICE_INPUT_PROFILE_KEY,
+} from '../webrtc/voiceInputProfile'
 import {
   checkForUpdates,
   getDesktopAppVersion,
@@ -59,23 +73,20 @@ const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
-const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
-const DEFAULT_SPEAKING_PRESET = 'quiet' as const
 const DEFAULT_INPUT_DEVICE_OPTION: VoiceDeviceOption = {
   id: '',
   label: DEFAULT_INPUT_DEVICE_LABEL,
-  fullLabel: 'System default microphone',
+  fullLabel: 'Windows default microphone',
 }
 const DEFAULT_OUTPUT_DEVICE_OPTION: VoiceDeviceOption = {
   id: '',
   label: DEFAULT_OUTPUT_DEVICE_LABEL,
-  fullLabel: 'System default speaker',
+  fullLabel: 'Windows default speaker',
 }
 
 type SettingsSection = 'profile' | 'communication' | 'voice' | 'desktop' | 'privacy'
 type VoiceDeviceMenu = 'input' | 'output'
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
-
 function getInitial(name: string) {
   return name.charAt(0).toUpperCase()
 }
@@ -135,13 +146,6 @@ function isValidUsername(value: string) {
   return !hasUsernameConsecutiveSeparator(value)
 }
 
-/** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
-function thresholdByPreset(preset: 'quiet' | 'normal' | 'noisy') {
-  if (preset === 'quiet') return 14    // ~−38dB: higher sensitivity for quiet rooms
-  if (preset === 'noisy') return 42    // ~−20dB: stricter gate for noisy spaces
-  return 23    // ~−30dB: balanced default for typical speaking volume
-}
-
 export default function UserBar() {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
   const mobileSidebarPanel = useAppStore((s) => s.mobileSidebarPanel)
@@ -184,12 +188,13 @@ export default function UserBar() {
   const [pttKey, setPttKey] = useState('V')
   const [capturingPtt, setCapturingPtt] = useState(false)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
+  const [voiceInputProfile, setVoiceInputProfile] = useState<VoiceInputProfile>(() => getStoredVoiceInputProfile())
   const [voiceJoinConfirmEnabled, setVoiceJoinConfirmEnabled] = useState(true)
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
     (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
   )
   const [speakingThreshold, setSpeakingThreshold] = useState(() => thresholdByPreset(DEFAULT_SPEAKING_PRESET))
-  const [speakingPreset, setSpeakingPreset] = useState<'quiet' | 'normal' | 'noisy' | 'custom'>(DEFAULT_SPEAKING_PRESET)
+  const [speakingPreset, setSpeakingPreset] = useState<SpeakingPreset>(DEFAULT_SPEAKING_PRESET)
   const [pwOld, setPwOld] = useState('')
   const [pwNew, setPwNew] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
@@ -233,6 +238,12 @@ export default function UserBar() {
   const inputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
   const outputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
   const desktopStartupTargetLabel = getDesktopStartupTargetLabel()
+
+  const markVoiceProfileCustom = useCallback(() => {
+    if (voiceInputProfile === 'custom') return
+    setVoiceInputProfile('custom')
+    localStorage.setItem(VOICE_INPUT_PROFILE_KEY, 'custom')
+  }, [voiceInputProfile])
 
   const closeStatusMenu = () => {
     setShowStatusMenu(false)
@@ -467,8 +478,39 @@ export default function UserBar() {
     const ptt = localStorage.getItem(PTT_KEY_KEY)
     const ns = localStorage.getItem(NOISE_SUPPRESSION_KEY)
     const voiceJoinConfirm = localStorage.getItem(VOICE_JOIN_CONFIRM_KEY)
-    const speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
-    const preset = localStorage.getItem(SPEAKING_PRESET_KEY)
+    let speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
+    let preset = localStorage.getItem(SPEAKING_PRESET_KEY)
+    const profileRaw = localStorage.getItem(VOICE_INPUT_PROFILE_KEY)
+    const shouldMigrateLegacyIsolationPreset = profileRaw === 'isolation' && preset === 'noisy'
+    const legacyPresetThresholds: Partial<Record<'quiet' | 'normal' | 'noisy', number[]>> = {
+      quiet: [16, 64, 30, 38],
+      normal: [30, 74, 45, 50],
+      noisy: [52, 80, 60, 62],
+    }
+    if (shouldMigrateLegacyIsolationPreset) {
+      const balancedThreshold = thresholdByPreset('normal')
+      preset = 'normal'
+      speaking = String(balancedThreshold)
+      try {
+        localStorage.setItem(SPEAKING_PRESET_KEY, 'normal')
+        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(balancedThreshold))
+      } catch {
+        // ignore storage errors
+      }
+    }
+    if ((preset === 'quiet' || preset === 'normal' || preset === 'noisy') && speaking != null) {
+      const parsedSpeaking = Math.min(100, Math.max(0, Number(speaking) || 0))
+      const legacyValues = legacyPresetThresholds[preset]
+      if (legacyValues != null && legacyValues.includes(parsedSpeaking)) {
+        const migratedThreshold = thresholdByPreset(preset)
+        speaking = String(migratedThreshold)
+        try {
+          localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(migratedThreshold))
+        } catch {
+          // ignore storage errors
+        }
+      }
+    }
     if (sound != null) setSoundEnabled(sound === '1')
     const enabled = getPushNotificationsEnabled()
     setPushNotificationsEnabledState(enabled)
@@ -477,7 +519,16 @@ export default function UserBar() {
     if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || 100)))
     if (mode === 'push_to_talk' || mode === 'voice_activity') setVoiceMode(mode)
     if (ptt) setPttKey(ptt)
-    if (ns != null) setNoiseSuppressionEnabled(ns === '1')
+    if (ns != null) {
+      setNoiseSuppressionEnabled(ns === '1')
+    } else {
+      setNoiseSuppressionEnabled(true)
+      try {
+        localStorage.setItem(NOISE_SUPPRESSION_KEY, '1')
+      } catch {
+        // ignore storage errors
+      }
+    }
     if (voiceJoinConfirm != null) setVoiceJoinConfirmEnabled(voiceJoinConfirm !== '0')
     if (speaking != null) {
       setSpeakingThreshold(Math.min(100, Math.max(0, Number(speaking) || thresholdByPreset(DEFAULT_SPEAKING_PRESET))))
@@ -496,6 +547,31 @@ export default function UserBar() {
         localStorage.setItem(SPEAKING_PRESET_KEY, DEFAULT_SPEAKING_PRESET)
         localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(thresholdByPreset(DEFAULT_SPEAKING_PRESET)))
         window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+      } catch {
+        // ignore storage errors
+      }
+    }
+    if (isVoiceInputProfile(profileRaw)) {
+      setVoiceInputProfile(profileRaw)
+    } else {
+      const hasExplicitLegacyVoiceSettings =
+        mode != null || ns != null || preset != null || speaking != null
+      const inferredProfile = hasExplicitLegacyVoiceSettings ? 'custom' : DEFAULT_VOICE_INPUT_PROFILE
+      setVoiceInputProfile(inferredProfile)
+      try {
+        localStorage.setItem(VOICE_INPUT_PROFILE_KEY, inferredProfile)
+        if (!hasExplicitLegacyVoiceSettings && inferredProfile !== 'custom') {
+          const defaults = getVoiceInputProfileConfig(inferredProfile)
+          setVoiceMode(defaults.voiceMode)
+          setNoiseSuppressionEnabled(defaults.noiseSuppressionEnabled)
+          setSpeakingPreset(defaults.speakingPreset)
+          setSpeakingThreshold(defaults.speakingThreshold)
+          localStorage.setItem(VOICE_MODE_KEY, defaults.voiceMode)
+          localStorage.setItem(NOISE_SUPPRESSION_KEY, defaults.noiseSuppressionEnabled ? '1' : '0')
+          localStorage.setItem(SPEAKING_PRESET_KEY, defaults.speakingPreset)
+          localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(defaults.speakingThreshold))
+          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+        }
       } catch {
         // ignore storage errors
       }
@@ -560,12 +636,13 @@ export default function UserBar() {
       if (!key) return
       setPttKey(key)
       localStorage.setItem(PTT_KEY_KEY, key)
+      markVoiceProfileCustom()
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
       setCapturingPtt(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [capturingPtt])
+  }, [capturingPtt, markVoiceProfileCustom])
 
   useEffect(() => {
     setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends')
@@ -1174,10 +1251,11 @@ export default function UserBar() {
       )}
       {voiceDeviceMenu}
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={closeSettingsPanel}>
+        <div className="modal-overlay" onMouseDown={closeSettingsPanel}>
           <div
             className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''}`}
             ref={settingsModalRef}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <header className="user-settings-header">
@@ -1324,55 +1402,16 @@ export default function UserBar() {
               {activeSettingsSection === 'voice' && (
               <section className="user-settings-section user-settings-section--voice">
                 <h3 className="user-settings-section-title">Voice & Audio</h3>
-                <div className="user-setting-row user-setting-row--span-two">
-                  <div>
-                    <div className="user-setting-title">Voice mode</div>
-                    <div className="user-setting-desc">How your mic is activated.</div>
-                  </div>
-                  <select
-                    className="user-select"
-                    value={voiceMode}
-                    onChange={(e) => {
-                      const next = e.target.value === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
-                      setVoiceMode(next)
-                      localStorage.setItem(VOICE_MODE_KEY, next)
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  >
-                    <option value="voice_activity">Voice Activity</option>
-                    <option value="push_to_talk">Push to Talk</option>
-                  </select>
-                </div>
-                {voiceMode === 'push_to_talk' && (
-                  <div className="user-setting-row user-setting-row--span-two">
-                    <div>
-                      <div className="user-setting-title">Push-to-talk key</div>
-                      <div className="user-setting-desc">Current: {pttKey}</div>
-                    </div>
-                    <button
-                      type="button"
-                      className={`user-toggle ${capturingPtt ? 'active' : ''}`}
-                      onClick={() => setCapturingPtt((v) => !v)}
-                    >
-                      {capturingPtt ? 'Press key...' : 'Rebind'}
-                    </button>
-                  </div>
-                )}
-                <div className="user-setting-row user-setting-row--span-two">
-                  <div>
-                    <div className="user-setting-title">Microphone access</div>
-                    <div className="user-setting-desc">
-                      {microphonePermissionState === 'granted'
-                        ? 'Voxpery can use your mic for voice, device selection, and mic testing.'
-                        : microphonePermissionState === 'denied'
-                          ? 'Microphone access is blocked. Allow it in your browser to choose devices and join voice.'
-                          : 'Allow microphone access to choose devices, join voice channels, and run mic test.'}
-                    </div>
-                  </div>
-                  <div className="user-setting-actions user-setting-actions--device">
-                    {microphoneAccessAllowed ? (
-                      <div className="user-setting-inline-note">Allowed</div>
-                    ) : (
+                <div className="voice-settings-block">
+                  <div className="voice-settings-block__title">Audio devices</div>
+                  <div className="voice-settings-block__desc">Pick microphone and speaker, then set comfortable levels.</div>
+                  {!microphoneAccessAllowed && (
+                    <div className="voice-settings-banner">
+                      <span>
+                        {microphonePermissionState === 'denied'
+                          ? 'Microphone access is blocked. Allow it to choose devices and run mic test.'
+                          : 'Allow microphone access to unlock full voice controls.'}
+                      </span>
                       <button
                         type="button"
                         className="user-toggle account-action-btn"
@@ -1381,151 +1420,206 @@ export default function UserBar() {
                       >
                         {voiceDevicesUnlocking ? 'Allowing…' : microphoneAccessButtonLabel}
                       </button>
+                    </div>
+                  )}
+                  <div className="voice-settings-grid voice-settings-grid--two voice-settings-grid--audio">
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Microphone</div>
+                        <div className="user-setting-desc">
+                          {voiceDevicesNeedAccess
+                            ? 'Uses Windows Default until microphone access is allowed.'
+                            : 'Choose which microphone Voxpery uses.'}
+                        </div>
+                      </div>
+                      <div className="user-setting-actions user-setting-actions--device">
+                        <button
+                          ref={inputDeviceTriggerRef}
+                          type="button"
+                          className={`device-select-trigger ${openDeviceMenu === 'input' ? 'is-open' : ''}`}
+                          title={currentInputDevice.fullLabel}
+                          disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess}
+                          onClick={() => toggleDeviceMenu('input')}
+                        >
+                          <span className="device-select-trigger__label">{currentInputDevice.label}</span>
+                          <ChevronsUpDown size={15} strokeWidth={1.9} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Speaker</div>
+                        <div className="user-setting-desc">
+                          {voiceDevicesNeedAccess
+                            ? 'Uses Windows Default until microphone access is allowed.'
+                            : canSelectOutputDevice
+                              ? 'Choose which speaker plays voice audio.'
+                              : 'Uses your system default output.'}
+                        </div>
+                      </div>
+                      <div className="user-setting-actions user-setting-actions--device">
+                        <button
+                          ref={outputDeviceTriggerRef}
+                          type="button"
+                          className={`device-select-trigger ${openDeviceMenu === 'output' ? 'is-open' : ''}`}
+                          title={currentOutputDevice.fullLabel}
+                          disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess || !canSelectOutputDevice}
+                          onClick={() => toggleDeviceMenu('output')}
+                        >
+                          <span className="device-select-trigger__label">{currentOutputDevice.label}</span>
+                          <ChevronsUpDown size={15} strokeWidth={1.9} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Input volume</div>
+                        <div className="user-setting-desc">Microphone level ({inputVolume}%).</div>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={100}
+                        value={inputVolume}
+                        className="user-slider"
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          setInputVolume(next)
+                          localStorage.setItem(INPUT_VOL_KEY, String(next))
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      />
+                    </div>
+                    <div className="user-setting-row">
+                      <div>
+                        <div className="user-setting-title">Output volume</div>
+                        <div className="user-setting-desc">Speaker level ({outputVolume}%).</div>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={100}
+                        value={outputVolume}
+                        className="user-slider"
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          setOutputVolume(next)
+                          localStorage.setItem(OUTPUT_VOL_KEY, String(next))
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="voice-settings-block">
+                  <div className="voice-settings-block__title">Input tuning</div>
+                  <div className="voice-settings-block__desc">Tune sensitivity and suppression for clearer voice pickup.</div>
+                  <div className="voice-settings-grid">
+                    <div className="user-setting-row user-setting-row-full user-setting-row--span-two">
+                      <SensitivityBar
+                        threshold={speakingThreshold}
+                        preset={speakingPreset}
+                        onThresholdChange={(v) => {
+                          setSpeakingThreshold(v)
+                          localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(v))
+                          markVoiceProfileCustom()
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                        onPresetChange={(preset) => {
+                          setSpeakingPreset(preset)
+                          localStorage.setItem(SPEAKING_PRESET_KEY, preset)
+                          markVoiceProfileCustom()
+                          if (preset !== 'custom') {
+                            const threshold = thresholdByPreset(preset)
+                            setSpeakingThreshold(threshold)
+                            localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(threshold))
+                          }
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      />
+                    </div>
+                    <div className="user-setting-row user-setting-row--span-two">
+                      <div>
+                        <div className="user-setting-title">Noise suppression</div>
+                        <div className="user-setting-desc">
+                          Removes background noise (keyboard, fan, etc.) from your mic signal in real time.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className={`user-toggle ${noiseSuppressionEnabled ? 'active' : ''}`}
+                        onClick={() => {
+                          const next = !noiseSuppressionEnabled
+                          setNoiseSuppressionEnabled(next)
+                          localStorage.setItem(NOISE_SUPPRESSION_KEY, next ? '1' : '0')
+                          markVoiceProfileCustom()
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      >
+                        {noiseSuppressionEnabled ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="voice-settings-block">
+                  <div className="voice-settings-block__title">Voice behavior</div>
+                  <div className="voice-settings-grid">
+                    <div className="user-setting-row user-setting-row--span-two">
+                      <div>
+                        <div className="user-setting-title">Activation mode</div>
+                        <div className="user-setting-desc">Choose between automatic voice pickup and manual push-to-talk.</div>
+                      </div>
+                      <select
+                        className="user-select"
+                        value={voiceMode}
+                        onChange={(e) => {
+                          const next = e.target.value === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
+                          setVoiceMode(next)
+                          localStorage.setItem(VOICE_MODE_KEY, next)
+                          markVoiceProfileCustom()
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      >
+                        <option value="voice_activity">Voice Activity</option>
+                        <option value="push_to_talk">Push to Talk</option>
+                      </select>
+                    </div>
+                    {voiceMode === 'push_to_talk' && (
+                      <div className="user-setting-row user-setting-row--span-two">
+                        <div>
+                          <div className="user-setting-title">Push-to-talk key</div>
+                          <div className="user-setting-desc">Current key: {pttKey}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className={`user-toggle ${capturingPtt ? 'active' : ''}`}
+                          onClick={() => setCapturingPtt((v) => !v)}
+                        >
+                          {capturingPtt ? 'Press key...' : 'Rebind'}
+                        </button>
+                      </div>
                     )}
-                  </div>
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Input device</div>
-                    <div className="user-setting-desc">
-                      {voiceDevicesNeedAccess
-                        ? 'Uses System Default until microphone access is allowed.'
-                        : 'Choose which microphone Voxpery uses for voice.'}
+                    <div className="user-setting-row user-setting-row--span-two">
+                      <div>
+                        <div className="user-setting-title">Voice join confirmation</div>
+                        <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
+                        onClick={() => {
+                          const next = !voiceJoinConfirmEnabled
+                          setVoiceJoinConfirmEnabled(next)
+                          localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
+                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+                        }}
+                      >
+                        {voiceJoinConfirmEnabled ? 'On' : 'Off'}
+                      </button>
                     </div>
                   </div>
-                  <div className="user-setting-actions user-setting-actions--device">
-                    <button
-                      ref={inputDeviceTriggerRef}
-                      type="button"
-                      className={`device-select-trigger ${openDeviceMenu === 'input' ? 'is-open' : ''}`}
-                      title={currentInputDevice.fullLabel}
-                      disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess}
-                      onClick={() => toggleDeviceMenu('input')}
-                    >
-                      <span className="device-select-trigger__label">{currentInputDevice.label}</span>
-                      <ChevronsUpDown size={15} strokeWidth={1.9} />
-                    </button>
-                  </div>
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Output device</div>
-                    <div className="user-setting-desc">
-                      {voiceDevicesNeedAccess
-                        ? 'Uses System Default until microphone access is allowed.'
-                        : canSelectOutputDevice
-                          ? 'Choose which speaker plays incoming voice audio.'
-                          : 'This browser uses your system default output.'}
-                    </div>
-                  </div>
-                  <div className="user-setting-actions user-setting-actions--device">
-                    <button
-                      ref={outputDeviceTriggerRef}
-                      type="button"
-                      className={`device-select-trigger ${openDeviceMenu === 'output' ? 'is-open' : ''}`}
-                      title={currentOutputDevice.fullLabel}
-                      disabled={voiceDevicesLoading || voiceDevicesUnlocking || voiceDevicesNeedAccess || !canSelectOutputDevice}
-                      onClick={() => toggleDeviceMenu('output')}
-                    >
-                      <span className="device-select-trigger__label">{currentOutputDevice.label}</span>
-                      <ChevronsUpDown size={15} strokeWidth={1.9} />
-                    </button>
-                  </div>
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Input volume</div>
-                    <div className="user-setting-desc">Microphone send level ({inputVolume}%).</div>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={inputVolume}
-                    className="user-slider"
-                    onChange={(e) => {
-                      const next = Number(e.target.value)
-                      setInputVolume(next)
-                      localStorage.setItem(INPUT_VOL_KEY, String(next))
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  />
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Output volume</div>
-                    <div className="user-setting-desc">Speaker/headphone level ({outputVolume}%).</div>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={outputVolume}
-                    className="user-slider"
-                    onChange={(e) => {
-                      const next = Number(e.target.value)
-                      setOutputVolume(next)
-                      localStorage.setItem(OUTPUT_VOL_KEY, String(next))
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  />
-                </div>
-                <div className="user-setting-row user-setting-row-full user-setting-row--span-two">
-                  <SensitivityBar
-                    threshold={speakingThreshold}
-                    preset={speakingPreset}
-                    onThresholdChange={(v) => {
-                      setSpeakingThreshold(v)
-                      localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(v))
-                    }}
-                    onPresetChange={(preset) => {
-                      setSpeakingPreset(preset)
-                      localStorage.setItem(SPEAKING_PRESET_KEY, preset)
-                      if (preset !== 'custom') {
-                        const threshold = thresholdByPreset(preset)
-                        setSpeakingThreshold(threshold)
-                        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(threshold))
-                      }
-                    }}
-                  />
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Noise suppression</div>
-                    <div className="user-setting-desc">
-                      Removes background noise (keyboard, fan, etc.) from your mic signal in real time.
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={`user-toggle ${noiseSuppressionEnabled ? 'active' : ''}`}
-                    onClick={() => {
-                      const next = !noiseSuppressionEnabled
-                      setNoiseSuppressionEnabled(next)
-                      localStorage.setItem(NOISE_SUPPRESSION_KEY, next ? '1' : '0')
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  >
-                    {noiseSuppressionEnabled ? 'On' : 'Off'}
-                  </button>
-                </div>
-                <div className="user-setting-row">
-                  <div>
-                    <div className="user-setting-title">Voice join confirmation</div>
-                    <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
-                  </div>
-                  <button
-                    type="button"
-                    className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
-                    onClick={() => {
-                      const next = !voiceJoinConfirmEnabled
-                      setVoiceJoinConfirmEnabled(next)
-                      localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
-                      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                    }}
-                  >
-                    {voiceJoinConfirmEnabled ? 'On' : 'Off'}
-                  </button>
                 </div>
               </section>
               )}

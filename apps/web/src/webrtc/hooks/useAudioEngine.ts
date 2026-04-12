@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react'
 import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
 import { getOrCreateAudioContext, playCueStack } from '../../audioCues'
+import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../voiceInputProfile'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -41,6 +42,7 @@ function getSpeechIsolationTarget(
     rms: number,
     lowFloorThr: number,
     openFloorThr: number,
+    aggressiveIsolation: boolean,
 ): number {
     const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1500)
     const bodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2400)
@@ -56,18 +58,21 @@ function getSpeechIsolationTarget(
     const clickyNoise = highNoiseDb > presenceDb + 2.5
 
     if (!speechLike) {
-        if (rms <= lowFloorThr || quietish) return 0.015
-        return clickyNoise || boomyNoise ? 0.045 : 0.08
+        if (rms <= lowFloorThr || quietish) return aggressiveIsolation ? 0.008 : 0.05
+        return clickyNoise || boomyNoise
+            ? (aggressiveIsolation ? 0.02 : 0.14)
+            : (aggressiveIsolation ? 0.05 : 0.2)
     }
 
-    if (rms <= lowFloorThr) return 0.08
+    if (rms <= lowFloorThr) return aggressiveIsolation ? 0.06 : 0.16
     if (rms < openFloorThr) {
         const ratio = (rms - lowFloorThr) / Math.max(1e-6, openFloorThr - lowFloorThr)
         const eased = ratio * ratio * (3 - 2 * ratio)
-        return 0.22 + eased * 0.66
+        return aggressiveIsolation ? (0.17 + eased * 0.74) : (0.28 + eased * 0.6)
     }
 
-    return clickyNoise && quietish ? 0.7 : 1
+    if (clickyNoise && quietish) return aggressiveIsolation ? 0.56 : 0.78
+    return 1
 }
 
 export type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
@@ -158,19 +163,25 @@ export function useAudioEngine() {
         }
 
         const source = ctx.createMediaStreamSource(sourceStream)
+        const profile = getStoredVoiceInputProfile()
+        const aggressiveIsolation = shouldUseAggressiveVoiceIsolation(profile, noiseSuppressionEnabled)
         const highPassFilter = ctx.createBiquadFilter()
         highPassFilter.type = 'highpass'
-        highPassFilter.frequency.value = 140
+        highPassFilter.frequency.value = aggressiveIsolation ? 170 : 140
         highPassFilter.Q.value = 0.9
         const lowPassFilter = ctx.createBiquadFilter()
         lowPassFilter.type = 'lowpass'
-        lowPassFilter.frequency.value = noiseSuppressionEnabled ? 4600 : 7200
+        lowPassFilter.frequency.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 4100 : 5200) : 7200
         lowPassFilter.Q.value = 0.8
+        const deClickFilter = ctx.createBiquadFilter()
+        deClickFilter.type = 'highshelf'
+        deClickFilter.frequency.value = 3200
+        deClickFilter.gain.value = aggressiveIsolation ? -8.5 : (noiseSuppressionEnabled ? -2.75 : 0)
         const speechPresenceFilter = ctx.createBiquadFilter()
         speechPresenceFilter.type = 'peaking'
         speechPresenceFilter.frequency.value = 1850
         speechPresenceFilter.Q.value = 1.05
-        speechPresenceFilter.gain.value = noiseSuppressionEnabled ? 2.2 : 0
+        speechPresenceFilter.gain.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 1.6 : 1.4) : 0
         const speechIsolationGainNode = ctx.createGain()
         speechIsolationGainNode.gain.value = 1
 
@@ -181,11 +192,11 @@ export function useAudioEngine() {
 
         // Tame sharp keyboard peaks before the final send gain.
         const transientCompressor = ctx.createDynamicsCompressor()
-        transientCompressor.threshold.value = noiseSuppressionEnabled ? -36 : -30
-        transientCompressor.knee.value = noiseSuppressionEnabled ? 8 : 10
-        transientCompressor.ratio.value = noiseSuppressionEnabled ? 5.5 : 3.5
-        transientCompressor.attack.value = noiseSuppressionEnabled ? 0.0018 : 0.003
-        transientCompressor.release.value = noiseSuppressionEnabled ? 0.06 : 0.085
+        transientCompressor.threshold.value = noiseSuppressionEnabled ? (aggressiveIsolation ? -40 : -32) : -30
+        transientCompressor.knee.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 6 : 10) : 10
+        transientCompressor.ratio.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 7.2 : 4.2) : 3.5
+        transientCompressor.attack.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 0.0012 : 0.0018) : 0.003
+        transientCompressor.release.value = noiseSuppressionEnabled ? (aggressiveIsolation ? 0.045 : 0.08) : 0.085
 
         const noiseFloorGainNode = ctx.createGain()
         noiseFloorGainNode.gain.value = 1
@@ -203,9 +214,10 @@ export function useAudioEngine() {
         source.connect(highPassFilter)
         highPassFilter.connect(rnnoise.node)
         rnnoise.node.connect(lowPassFilter)
-        lowPassFilter.connect(refinementAnalyser)
-        lowPassFilter.connect(vadDestination)   // branch for VAD analyser
-        lowPassFilter.connect(speechPresenceFilter)
+        lowPassFilter.connect(deClickFilter)
+        deClickFilter.connect(refinementAnalyser)
+        deClickFilter.connect(vadDestination)   // branch for VAD analyser
+        deClickFilter.connect(speechPresenceFilter)
         speechPresenceFilter.connect(speechIsolationGainNode)
         speechIsolationGainNode.connect(transientCompressor)
         transientCompressor.connect(noiseFloorGainNode)
@@ -218,9 +230,13 @@ export function useAudioEngine() {
         inputGainNodeRef.current = volumeGainNode
         const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
         const frequencyBuffer = new Float32Array(Math.max(32, refinementAnalyser.frequencyBinCount))
-        const lowFloorThr = dbToLinear(noiseSuppressionEnabled ? -47 : -51)
-        const openFloorThr = dbToLinear(noiseSuppressionEnabled ? -35 : -40)
-        const minFloorGain = noiseSuppressionEnabled ? 0.05 : 0.12
+        const lowFloorThr = dbToLinear(
+            noiseSuppressionEnabled ? (aggressiveIsolation ? -44 : -50) : -51
+        )
+        const openFloorThr = dbToLinear(
+            noiseSuppressionEnabled ? (aggressiveIsolation ? -32 : -38) : -40
+        )
+        const minFloorGain = noiseSuppressionEnabled ? (aggressiveIsolation ? 0.025 : 0.1) : 0.12
         let rafId: number | null = null
         let currentFloorGain = 1
         let currentIsolationGain = 1
@@ -255,27 +271,37 @@ export function useAudioEngine() {
                 // ignore
             }
             try {
-                lowPassFilter.disconnect(refinementAnalyser)
+                deClickFilter.disconnect(refinementAnalyser)
             } catch {
                 // ignore
             }
             try {
-                lowPassFilter.disconnect(vadDestination)
+                deClickFilter.disconnect(vadDestination)
             } catch {
                 // ignore
             }
             try {
-                lowPassFilter.disconnect(transientCompressor)
+                deClickFilter.disconnect(transientCompressor)
             } catch {
                 // ignore
             }
             try {
-                lowPassFilter.disconnect(speechPresenceFilter)
+                deClickFilter.disconnect(speechPresenceFilter)
             } catch {
                 // ignore
             }
             try {
                 rnnoise.node.disconnect(lowPassFilter)
+            } catch {
+                // ignore
+            }
+            try {
+                lowPassFilter.disconnect(deClickFilter)
+            } catch {
+                // ignore
+            }
+            try {
+                deClickFilter.disconnect()
             } catch {
                 // ignore
             }
@@ -314,6 +340,8 @@ export function useAudioEngine() {
                 for (let i = 0; i < analyserBuffer.length; i++) sum += analyserBuffer[i] * analyserBuffer[i]
                 const rms = Math.sqrt(sum / analyserBuffer.length)
                 const refinementEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
+                const liveProfile = getStoredVoiceInputProfile()
+                const liveAggressiveIsolation = shouldUseAggressiveVoiceIsolation(liveProfile, refinementEnabled)
                 let targetGain = 1
                 let targetIsolationGain = 1
 
@@ -332,13 +360,18 @@ export function useAudioEngine() {
                         rms,
                         lowFloorThr,
                         openFloorThr,
+                        liveAggressiveIsolation,
                     )
                 }
 
-                const alpha = targetGain > currentFloorGain ? 0.42 : (noiseSuppressionEnabled ? 0.18 : 0.08)
+                const alpha = targetGain > currentFloorGain ? 0.42 : (noiseSuppressionEnabled ? (aggressiveIsolation ? 0.23 : 0.18) : 0.08)
                 currentFloorGain = alpha * targetGain + (1 - alpha) * currentFloorGain
-                noiseFloorGainNode.gain.setTargetAtTime(currentFloorGain, ctx.currentTime, targetGain > currentFloorGain ? 0.012 : (noiseSuppressionEnabled ? 0.025 : 0.06))
-                const isolationAlpha = targetIsolationGain > currentIsolationGain ? 0.24 : 0.34
+                noiseFloorGainNode.gain.setTargetAtTime(
+                    currentFloorGain,
+                    ctx.currentTime,
+                    targetGain > currentFloorGain ? 0.012 : (noiseSuppressionEnabled ? (aggressiveIsolation ? 0.018 : 0.025) : 0.06),
+                )
+                const isolationAlpha = targetIsolationGain > currentIsolationGain ? 0.24 : (aggressiveIsolation ? 0.41 : 0.34)
                 currentIsolationGain = isolationAlpha * targetIsolationGain + (1 - isolationAlpha) * currentIsolationGain
                 speechIsolationGainNode.gain.setTargetAtTime(
                     currentIsolationGain,

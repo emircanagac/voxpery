@@ -1,8 +1,8 @@
 export const VOICE_SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
 export const VOICE_INPUT_DEVICE_KEY = 'voxpery-settings-input-device-id'
 export const VOICE_OUTPUT_DEVICE_KEY = 'voxpery-settings-output-device-id'
-export const DEFAULT_INPUT_DEVICE_LABEL = 'System Default'
-export const DEFAULT_OUTPUT_DEVICE_LABEL = 'System Default'
+export const DEFAULT_INPUT_DEVICE_LABEL = 'Windows Default'
+export const DEFAULT_OUTPUT_DEVICE_LABEL = 'Windows Default'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 
 export type VoiceDeviceOption = {
@@ -77,7 +77,7 @@ function createVoiceDeviceOptions(
     }
   })
   const defaultLabel = kind === 'audioinput' ? DEFAULT_INPUT_DEVICE_LABEL : DEFAULT_OUTPUT_DEVICE_LABEL
-  const defaultFullLabel = kind === 'audioinput' ? 'System default microphone' : 'System default speaker'
+  const defaultFullLabel = kind === 'audioinput' ? 'Windows default microphone' : 'Windows default speaker'
   return [{ id: '', label: defaultLabel, fullLabel: defaultFullLabel }, ...options]
 }
 
@@ -89,8 +89,8 @@ export async function enumerateVoiceDevices(): Promise<{
 }> {
   if (!navigator.mediaDevices?.enumerateDevices) {
     return {
-      inputs: [{ id: '', label: DEFAULT_INPUT_DEVICE_LABEL, fullLabel: 'System default microphone' }],
-      outputs: [{ id: '', label: DEFAULT_OUTPUT_DEVICE_LABEL, fullLabel: 'System default speaker' }],
+      inputs: [{ id: '', label: DEFAULT_INPUT_DEVICE_LABEL, fullLabel: 'Windows default microphone' }],
+      outputs: [{ id: '', label: DEFAULT_OUTPUT_DEVICE_LABEL, fullLabel: 'Windows default speaker' }],
       canSelectOutput: false,
       labelsUnlocked: false,
     }

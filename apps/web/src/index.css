@@ -2089,24 +2089,19 @@ body {
 }
 
 .user-settings-section--voice {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
 }
 
 .user-settings-section--voice > .user-settings-section-title {
-  grid-column: 1 / -1;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .user-settings-section--voice .user-setting-row {
   margin-bottom: 0;
   padding: 10px 12px;
-}
-
-.user-settings-section--voice .user-setting-row--span-two {
-  grid-column: 1 / -1;
 }
 
 .user-settings-section--voice .user-setting-title {
@@ -2140,6 +2135,85 @@ body {
 
 .user-settings-section--voice .user-setting-row.user-setting-row-full {
   padding: 10px 12px;
+}
+
+.voice-settings-block {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(20, 30, 56, 0.26);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voice-settings-block__title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.voice-settings-block__desc {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.voice-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.voice-settings-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.voice-settings-grid--audio .user-setting-row {
+  min-height: 72px;
+  align-items: stretch;
+  padding: 6px 12px;
+}
+
+.voice-settings-grid--audio .user-setting-row > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.voice-settings-grid--audio .user-setting-title {
+  min-height: 16px;
+  line-height: 1.2;
+}
+
+.voice-settings-grid--audio .user-setting-desc {
+  min-height: 20px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.voice-settings-banner {
+  border: 1px solid rgba(245, 172, 53, 0.28);
+  border-radius: 8px;
+  background: rgba(245, 172, 53, 0.08);
+  color: #ffe4b5;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.voice-settings-banner span {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .user-settings-section:last-child {
@@ -3206,6 +3280,10 @@ body {
   line-height: 1.15;
   text-align: right;
   margin-bottom: 4px;
+  min-height: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sensitivity-bar-header {
@@ -3259,7 +3337,7 @@ body {
   position: relative;
   height: 16px;
   background: rgba(0, 0, 0, 0.35);
-  border-radius: 6px;
+  border-radius: 2px;
   overflow: hidden;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -3280,7 +3358,7 @@ body {
   top: 0;
   left: 0;
   height: 100%;
-  border-radius: 5px 0 0 5px;
+  border-radius: 0;
   transition: width 0.09s ease-out, background 0.18s ease, opacity 0.16s ease;
   pointer-events: none;
   z-index: 2;
@@ -3291,10 +3369,10 @@ body {
 
 .sensitivity-bar-live-marker {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 4px;
-  border-radius: 999px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0;
   background: linear-gradient(180deg, #ffffff 0%, #b8d3ff 45%, #79abff 100%);
   transform: translateX(-50%);
   pointer-events: none;
@@ -3323,7 +3401,7 @@ body {
   pointer-events: none;
   z-index: 1;
   opacity: 0.52;
-  border-radius: 5px 0 0 5px;
+  border-radius: 0;
 }
 
 /* ── Threshold marker ── */
@@ -3339,12 +3417,12 @@ body {
 
 .sensitivity-bar-threshold-handle {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: -2px;
+  top: 0;
+  bottom: 0;
+  left: -1.5px;
   width: 4px;
   background: #fff;
-  border-radius: 3px;
+  border-radius: 0;
   box-shadow:
     0 0 6px rgba(255, 255, 255, 0.5),
     0 0 12px rgba(114, 137, 218, 0.3);
@@ -3356,7 +3434,7 @@ body {
 .sensitivity-bar-track:hover .sensitivity-bar-threshold-handle,
 .sensitivity-bar-threshold-handle:hover {
   width: 5px;
-  left: -2.5px;
+  left: -2px;
   box-shadow:
     0 0 8px rgba(255, 255, 255, 0.7),
     0 0 20px rgba(114, 137, 218, 0.5);
@@ -3381,6 +3459,10 @@ body {
 }
 
 @media (max-width: 820px) {
+  .voice-settings-grid--two {
+    grid-template-columns: 1fr;
+  }
+
   .sensitivity-bar-top {
     flex-direction: column;
     align-items: stretch;
@@ -12374,7 +12456,14 @@ textarea {
   }
 
   .user-settings-section--voice {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .voice-settings-banner {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .user-settings-section .user-setting-row {
