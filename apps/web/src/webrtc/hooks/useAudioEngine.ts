@@ -103,8 +103,8 @@ export function useAudioEngine() {
         highPassFilter.Q.value = 0.9
         const lowPassFilter = ctx.createBiquadFilter()
         lowPassFilter.type = 'lowpass'
-        lowPassFilter.frequency.value = 7200
-        lowPassFilter.Q.value = 0.7
+        lowPassFilter.frequency.value = noiseSuppressionEnabled ? 6400 : 7200
+        lowPassFilter.Q.value = 0.8
 
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
@@ -113,11 +113,11 @@ export function useAudioEngine() {
 
         // Tame sharp keyboard peaks before the final send gain.
         const transientCompressor = ctx.createDynamicsCompressor()
-        transientCompressor.threshold.value = -30
-        transientCompressor.knee.value = 10
-        transientCompressor.ratio.value = 3.5
-        transientCompressor.attack.value = 0.003
-        transientCompressor.release.value = 0.085
+        transientCompressor.threshold.value = noiseSuppressionEnabled ? -36 : -30
+        transientCompressor.knee.value = noiseSuppressionEnabled ? 8 : 10
+        transientCompressor.ratio.value = noiseSuppressionEnabled ? 5.5 : 3.5
+        transientCompressor.attack.value = noiseSuppressionEnabled ? 0.0018 : 0.003
+        transientCompressor.release.value = noiseSuppressionEnabled ? 0.06 : 0.085
 
         const noiseFloorGainNode = ctx.createGain()
         noiseFloorGainNode.gain.value = 1
@@ -147,9 +147,9 @@ export function useAudioEngine() {
 
         inputGainNodeRef.current = volumeGainNode
         const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
-        const lowFloorThr = dbToLinear(-51)
-        const openFloorThr = dbToLinear(-40)
-        const minFloorGain = 0.12
+        const lowFloorThr = dbToLinear(noiseSuppressionEnabled ? -47 : -51)
+        const openFloorThr = dbToLinear(noiseSuppressionEnabled ? -35 : -40)
+        const minFloorGain = noiseSuppressionEnabled ? 0.05 : 0.12
         let rafId: number | null = null
         let currentFloorGain = 1
 
@@ -231,9 +231,9 @@ export function useAudioEngine() {
                     }
                 }
 
-                const alpha = targetGain > currentFloorGain ? 0.42 : 0.08
+                const alpha = targetGain > currentFloorGain ? 0.42 : (noiseSuppressionEnabled ? 0.18 : 0.08)
                 currentFloorGain = alpha * targetGain + (1 - alpha) * currentFloorGain
-                noiseFloorGainNode.gain.setTargetAtTime(currentFloorGain, ctx.currentTime, targetGain > currentFloorGain ? 0.012 : 0.06)
+                noiseFloorGainNode.gain.setTargetAtTime(currentFloorGain, ctx.currentTime, targetGain > currentFloorGain ? 0.012 : (noiseSuppressionEnabled ? 0.025 : 0.06))
             } catch {
                 // ignore
             }

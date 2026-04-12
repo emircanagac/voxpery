@@ -444,19 +444,6 @@ body {
   flex: 0 1 auto;
 }
 
-.shell-topbar-center {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  max-width: min(300px, calc(100vw - 440px));
-  pointer-events: none;
-}
-
 .shell-quick-switch-btn {
   display: inline-flex;
   align-items: center;
@@ -542,24 +529,55 @@ body {
   font-size: 12px;
 }
 
-.shell-update-btn--topbar {
-  pointer-events: auto;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(79, 127, 216, 0.16);
+.shell-update-dock {
+  padding: 0 12px 10px;
+}
+
+.shell-update-btn--dock {
+  width: 100%;
+  min-height: 46px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(71, 102, 191, 0.28), rgba(49, 74, 148, 0.22));
   border-color: rgba(147, 197, 253, 0.28);
   color: #edf4ff;
-  box-shadow: 0 8px 22px rgba(12, 18, 36, 0.28);
-  max-width: 100%;
+  box-shadow:
+    0 16px 28px rgba(8, 13, 28, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell-update-btn--dock:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgba(79, 127, 216, 0.34), rgba(55, 83, 166, 0.28));
+  border-color: rgba(191, 219, 254, 0.42);
+}
+
+.shell-update-dock-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 2px;
+}
+
+.shell-update-dock-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(222, 236, 255, 0.72);
+}
+
+.shell-update-dock-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f3f7ff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.shell-update-btn--topbar:hover:not(:disabled) {
-  background: rgba(79, 127, 216, 0.24);
-  border-color: rgba(191, 219, 254, 0.42);
 }
 
 .shell-update-btn:hover:not(:disabled) {
@@ -11491,10 +11509,6 @@ textarea {
     padding: 0 10px;
   }
 
-  .shell-topbar-center {
-    display: none;
-  }
-
   .shell-topbar-right {
     display: none;
   }
@@ -11782,7 +11796,7 @@ textarea {
   .mobile-member-sheet-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 120;
+    z-index: 125;
     background: rgba(3, 6, 16, 0.48);
     border: none;
     padding: 0;
@@ -11800,15 +11814,17 @@ textarea {
 
   .mobile-member-sheet {
     position: fixed;
-    top: 72px;
-    right: 12px;
-    bottom: calc(var(--mobile-bottom-dock-height) + 8px + env(safe-area-inset-bottom, 0));
-    width: min(308px, calc(100vw - var(--server-bar-width) - 24px));
-    background: rgba(37, 45, 84, 0.96);
+    top: 104px;
+    left: calc(var(--server-bar-width) + 2px);
+    right: 0;
+    bottom: calc(var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0));
+    width: auto;
+    background: rgba(37, 45, 84, 0.985);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
-    z-index: 121;
+    border-right: none;
+    border-radius: 18px 0 0 0;
+    box-shadow: -18px 0 42px rgba(0, 0, 0, 0.32);
+    z-index: 126;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -11908,6 +11924,10 @@ textarea {
     width: 34px;
     height: 34px;
     font-size: 12px;
+  }
+
+  .shell-update-dock {
+    display: none;
   }
 
   .left-bottom-panel .user-bar-wrap {
@@ -12663,10 +12683,6 @@ textarea {
 }
 
 @media (max-width: 1180px) {
-  .shell-topbar-center {
-    max-width: min(240px, calc(100vw - 380px));
-  }
-
   .shell-quick-switch-btn {
     width: min(calc(var(--member-sidebar-width) - 24px), max(170px, calc(100vw - 580px)));
   }

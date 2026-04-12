@@ -1,7 +1,7 @@
 import { isTauri } from './secureStorage'
 
 const MINIMIZE_TO_TRAY_ON_CLOSE_KEY = 'voxpery-settings-minimize-to-tray-on-close'
-const AUTOSTART_INITIALIZED_KEY = 'voxpery-settings-autostart-initialized'
+const AUTOSTART_PREFERENCE_KEY = 'voxpery-settings-autostart-preference'
 
 function readBoolSetting(key: string, fallback: boolean) {
   try {
@@ -51,15 +51,14 @@ export async function setDesktopAutostartEnabled(enabled: boolean) {
 
 export function shouldEnableDesktopAutostartByDefault() {
   if (!isTauri()) return false
-  if (hasStoredSetting(AUTOSTART_INITIALIZED_KEY)) return false
+  if (hasStoredSetting(AUTOSTART_PREFERENCE_KEY)) return false
   if (typeof navigator === 'undefined') return false
-  const userAgent = navigator.userAgent.toLowerCase()
-  const platform = navigator.platform?.toLowerCase() ?? ''
-  return userAgent.includes('windows') || platform.startsWith('win')
+  const platformSignal = `${navigator.userAgent ?? ''} ${navigator.platform ?? ''}`.toLowerCase()
+  return platformSignal.includes('windows') || platformSignal.includes('win32') || platformSignal.includes('win64')
 }
 
-export function markDesktopAutostartInitialized() {
-  writeBoolSetting(AUTOSTART_INITIALIZED_KEY, true)
+export function setStoredDesktopAutostartPreference(enabled: boolean) {
+  writeBoolSetting(AUTOSTART_PREFERENCE_KEY, enabled)
 }
 
 export function getDesktopStartupTargetLabel() {

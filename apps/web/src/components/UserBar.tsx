@@ -22,9 +22,9 @@ import {
   getDesktopStartupTargetLabel,
   getDesktopAutostartEnabled,
   getStoredMinimizeToTrayOnCloseEnabled,
-  markDesktopAutostartInitialized,
   shouldEnableDesktopAutostartByDefault,
   setDesktopAutostartEnabled,
+  setStoredDesktopAutostartPreference,
   setDesktopMinimizeToTrayOnClose,
 } from '../desktopSettings'
 import {
@@ -681,7 +681,7 @@ export default function UserBar() {
             await setDesktopAutostartEnabled(true)
             autostartEnabled = true
           }
-          markDesktopAutostartInitialized()
+          setStoredDesktopAutostartPreference(true)
         }
         await setDesktopMinimizeToTrayOnClose(trayEnabled)
         if (cancelled) return
@@ -908,7 +908,7 @@ export default function UserBar() {
     setDesktopAutostartLoading(true)
     try {
       await setDesktopAutostartEnabled(next)
-      markDesktopAutostartInitialized()
+      setStoredDesktopAutostartPreference(next)
       setDesktopAutostartState(next)
       pushToast({
         level: 'info',

@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use image::ImageReader;
+use image::{
+    imageops::{crop_imm, overlay, resize, FilterType},
+    ImageReader, RgbaImage,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
@@ -66,8 +69,57 @@ fn blend_pixel(rgba: &mut [u8], idx: usize, r: u8, g: u8, b: u8, a: u8) {
     rgba[idx + 3] = ((255.0 * alpha) + (rgba[idx + 3] as f32 * inv_alpha)).round() as u8;
 }
 
+fn focus_tray_icon_canvas(img: RgbaImage, padding: u32) -> RgbaImage {
+    let (width, height) = img.dimensions();
+    if width == 0 || height == 0 {
+        return img;
+    }
+
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut found = false;
+
+    for (x, y, pixel) in img.enumerate_pixels() {
+        if pixel[3] <= 10 {
+            continue;
+        }
+        found = true;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+
+    if !found {
+        return img;
+    }
+
+    let crop_width = max_x.saturating_sub(min_x) + 1;
+    let crop_height = max_y.saturating_sub(min_y) + 1;
+    let available_width = width.saturating_sub(padding.saturating_mul(2)).max(1);
+    let available_height = height.saturating_sub(padding.saturating_mul(2)).max(1);
+    let scale = f32::min(
+        available_width as f32 / crop_width as f32,
+        available_height as f32 / crop_height as f32,
+    )
+    .max(1.0);
+
+    let target_width = ((crop_width as f32 * scale).round() as u32).clamp(1, width);
+    let target_height = ((crop_height as f32 * scale).round() as u32).clamp(1, height);
+    let cropped = crop_imm(&img, min_x, min_y, crop_width, crop_height).to_image();
+    let resized = resize(&cropped, target_width, target_height, FilterType::CatmullRom);
+
+    let mut canvas = RgbaImage::new(width, height);
+    let offset_x = ((width - target_width) / 2) as i64;
+    let offset_y = ((height - target_height) / 2) as i64;
+    overlay(&mut canvas, &resized, offset_x, offset_y);
+    canvas
+}
+
 fn make_base_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
-    let bytes = include_bytes!("../icons/32x32.png");
+    let bytes = include_bytes!("../icons/64x64.png");
     let img = ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()?
@@ -75,8 +127,9 @@ fn make_base_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
         .ok()?
         .to_rgba8();
 
-    let (width, height) = img.dimensions();
-    Some(apply_icon_variant(img.into_raw(), width, height, variant))
+    let focused = focus_tray_icon_canvas(img, 2);
+    let (width, height) = focused.dimensions();
+    Some(apply_icon_variant(focused.into_raw(), width, height, variant))
 }
 
 fn make_unread_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
@@ -85,15 +138,16 @@ fn make_unread_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> 
     let height = base.height();
     let mut rgba = base.rgba().to_vec();
 
-    let center_x = width as i32 - 8;
-    let center_y = height as i32 - 8;
-    let core_radius = 4i32;
-    let border_radius = 5i32;
-    let glow_radius = 7i32;
-    let shadow_radius = 8i32;
-    let highlight_x = center_x - 1;
-    let highlight_y = center_y - 2;
-    let highlight_radius = 2i32;
+    let icon_size = width.min(height) as i32;
+    let core_radius = (icon_size as f32 * 0.17).round() as i32;
+    let border_radius = core_radius + 2;
+    let glow_radius = core_radius + 5;
+    let shadow_radius = core_radius + 7;
+    let center_x = width as i32 - (core_radius + 7);
+    let center_y = height as i32 - (core_radius + 7);
+    let highlight_x = center_x - (core_radius / 3).max(1);
+    let highlight_y = center_y - (core_radius / 2).max(1);
+    let highlight_radius = (core_radius / 2).max(2);
 
     for y in 0..height as i32 {
         for x in 0..width as i32 {
@@ -106,19 +160,19 @@ fn make_unread_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> 
             let highlight_distance_sq = hx * hx + hy * hy;
 
             if distance_sq <= shadow_radius * shadow_radius {
-                blend_pixel(&mut rgba, idx, 6, 10, 18, 34);
+                blend_pixel(&mut rgba, idx, 4, 8, 18, 44);
             }
 
             if distance_sq <= glow_radius * glow_radius {
-                blend_pixel(&mut rgba, idx, 72, 191, 255, 72);
+                blend_pixel(&mut rgba, idx, 86, 201, 255, 96);
             }
 
             if distance_sq <= border_radius * border_radius {
-                blend_pixel(&mut rgba, idx, 14, 20, 30, 235);
+                blend_pixel(&mut rgba, idx, 10, 17, 28, 242);
             }
 
             if distance_sq <= core_radius * core_radius {
-                blend_pixel(&mut rgba, idx, 111, 216, 255, 255);
+                blend_pixel(&mut rgba, idx, 116, 220, 255, 255);
             }
 
             if highlight_distance_sq <= highlight_radius * highlight_radius {

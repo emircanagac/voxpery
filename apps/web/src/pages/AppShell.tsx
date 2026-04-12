@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Menu, Search } from 'lucide-react'
+import { ArrowDownToLine, Menu, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
@@ -575,19 +575,6 @@ export default function AppShell() {
             <span className="shell-quick-switch-shortcut">Ctrl K</span>
           </button>
         </div>
-        {isTauri() && desktopUpdate?.available && (
-          <div className="shell-topbar-center">
-            <button
-              type="button"
-              className="shell-update-btn shell-update-btn--topbar"
-              onClick={() => void installDesktopUpdateNow()}
-              disabled={installingDesktopUpdate}
-              title={`Install Voxpery ${desktopUpdate.version}`}
-            >
-              {installingDesktopUpdate ? 'Installing update…' : `Update ${desktopUpdate.version}`}
-            </button>
-          </div>
-        )}
       </header>
       <main className="shell-content">
         <Outlet />
@@ -601,6 +588,25 @@ export default function AppShell() {
       </div>
       {/* User profile bar — stays in left sidebar */}
       <div className="left-bottom-panel">
+        {isTauri() && desktopUpdate?.available && (
+          <div className="shell-update-dock">
+            <button
+              type="button"
+              className="shell-update-btn shell-update-btn--dock"
+              onClick={() => void installDesktopUpdateNow()}
+              disabled={installingDesktopUpdate}
+              title={`Install Voxpery ${desktopUpdate.version}`}
+            >
+              <span className="shell-update-dock-copy">
+                <span className="shell-update-dock-eyebrow">Desktop update ready</span>
+                <span className="shell-update-dock-title">
+                  {installingDesktopUpdate ? 'Installing update…' : `Install ${desktopUpdate.version}`}
+                </span>
+              </span>
+              <ArrowDownToLine size={16} aria-hidden />
+            </button>
+          </div>
+        )}
         <UserBar />
       </div>
       {showQuickSwitcher && (

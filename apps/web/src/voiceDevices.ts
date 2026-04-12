@@ -3,6 +3,7 @@ export const VOICE_INPUT_DEVICE_KEY = 'voxpery-settings-input-device-id'
 export const VOICE_OUTPUT_DEVICE_KEY = 'voxpery-settings-output-device-id'
 export const DEFAULT_INPUT_DEVICE_LABEL = 'System Default'
 export const DEFAULT_OUTPUT_DEVICE_LABEL = 'System Default'
+const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 
 export type VoiceDeviceOption = {
   id: string
@@ -27,6 +28,14 @@ function readStoredDeviceId(key: string): string {
   }
 }
 
+function isNoiseSuppressionEnabled(): boolean {
+  try {
+    return localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
 export function getStoredVoiceInputDeviceId(): string {
   return readStoredDeviceId(VOICE_INPUT_DEVICE_KEY)
 }
@@ -37,11 +46,12 @@ export function getStoredVoiceOutputDeviceId(): string {
 
 export function buildPreferredMicrophoneConstraints(): MediaTrackConstraints {
   const deviceId = getStoredVoiceInputDeviceId()
+  const noiseSuppressionEnabled = isNoiseSuppressionEnabled()
   return {
     deviceId: deviceId ? { exact: deviceId } : undefined,
-    noiseSuppression: false,
+    noiseSuppression: noiseSuppressionEnabled,
     echoCancellation: true,
-    autoGainControl: true,
+    autoGainControl: !noiseSuppressionEnabled,
   }
 }
 
@@ -120,11 +130,12 @@ export async function getMicrophonePermissionState(): Promise<MicrophonePermissi
 export async function requestVoiceDeviceAccess(): Promise<boolean> {
   if (!navigator.mediaDevices?.getUserMedia) return false
   try {
+    const noiseSuppressionEnabled = isNoiseSuppressionEnabled()
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        noiseSuppression: false,
+        noiseSuppression: noiseSuppressionEnabled,
         echoCancellation: true,
-        autoGainControl: true,
+        autoGainControl: !noiseSuppressionEnabled,
       },
       video: false,
     })
