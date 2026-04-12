@@ -27,6 +27,8 @@ export default function UnifiedLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, token } = useAuthStore()
+  const userId = user?.id ?? null
+  const userStatus = user?.status
   const { onReconnect } = useSocketStore()
   const {
     activeServerId,
@@ -84,7 +86,7 @@ export default function UnifiedLayout() {
   const previousIncomingCountRef = useRef(incomingRequestCount)
 
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       resetIncomingRequestCount()
       previousIncomingCountRef.current = 0
       return
@@ -96,10 +98,10 @@ export default function UnifiedLayout() {
         if (cancelled) return
         setIncomingRequestCount(req.incoming.length)
         if (req.incoming.length > previousIncomingCountRef.current) {
-          if (shouldPlayNotificationSound(user.status)) {
+          if (shouldPlayNotificationSound(userStatus)) {
             playMessageNotificationSound()
           }
-          if (shouldShowPushNotification(user.status)) {
+          if (shouldShowPushNotification(userStatus)) {
             showPushNotification({
               title: 'New friend request',
               body: req.incoming.length === 1
@@ -122,17 +124,17 @@ export default function UnifiedLayout() {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [resetIncomingRequestCount, setIncomingRequestCount, token, user])
+  }, [resetIncomingRequestCount, setIncomingRequestCount, token, userId, userStatus])
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     const unsubscribe = onReconnect(() => {
       friendApi.requests(token)
         .then((req) => setIncomingRequestCount(req.incoming.length))
         .catch(() => {})
     })
     return () => unsubscribe()
-  }, [onReconnect, setIncomingRequestCount, token, user])
+  }, [onReconnect, setIncomingRequestCount, token, userId])
 
   const handleOpenServerSettings = (id: string, initialTab: ServerSettingsTab = 'overview') => {
     setOpenServerSettingsForServerTab(initialTab)

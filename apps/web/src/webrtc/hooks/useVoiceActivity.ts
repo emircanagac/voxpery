@@ -26,6 +26,8 @@ export function useVoiceActivity(options: {
     const pttPressedRef = useRef(false)
     const voiceActivitySpeakingRef = useRef(false)
     const inlineMonitorIntervalRef = useRef<number | null>(null)
+    const monitorSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+    const monitorAnalyserRef = useRef<AnalyserNode | null>(null)
 
     const getVoiceModeSettings = useCallback(() => {
         const modeRaw = localStorage.getItem(VOICE_MODE_KEY)
@@ -52,7 +54,71 @@ export function useVoiceActivity(options: {
     // then swap it with a silent track when below threshold.
     const realSenderTrackRef = useRef<MediaStreamTrack | null>(null)
     const silentTrackRef = useRef<MediaStreamTrack | null>(null)
+    const silentTrackContextRef = useRef<AudioContext | null>(null)
+    const silentOscillatorRef = useRef<OscillatorNode | null>(null)
     const gateOpenRef = useRef(true)
+
+    const cleanupMonitorNodes = useCallback(() => {
+        try {
+            monitorSourceRef.current?.disconnect()
+        } catch {
+            // ignore
+        }
+        try {
+            monitorAnalyserRef.current?.disconnect()
+        } catch {
+            // ignore
+        }
+        monitorSourceRef.current = null
+        monitorAnalyserRef.current = null
+    }, [])
+
+    const cleanupSilentTrack = useCallback(() => {
+        try {
+            silentOscillatorRef.current?.stop()
+        } catch {
+            // ignore
+        }
+        try {
+            silentOscillatorRef.current?.disconnect()
+        } catch {
+            // ignore
+        }
+        silentOscillatorRef.current = null
+
+        try {
+            silentTrackRef.current?.stop()
+        } catch {
+            // ignore
+        }
+        silentTrackRef.current = null
+
+        const silentContext = silentTrackContextRef.current
+        silentTrackContextRef.current = null
+        if (silentContext) {
+            void silentContext.close().catch(() => {
+                // ignore
+            })
+        }
+    }, [])
+
+    const resetVoiceActivityGate = useCallback(() => {
+        const track = localAudioTrackRef.current
+        const sender = (track as unknown as { sender?: RTCRtpSender })?.sender
+        const realTrack = realSenderTrackRef.current
+
+        gateOpenRef.current = true
+        voiceActivitySpeakingRef.current = false
+
+        if (sender && realTrack && sender.track !== realTrack) {
+            void sender.replaceTrack(realTrack).catch(() => {
+                // ignore
+            })
+        }
+
+        realSenderTrackRef.current = null
+        cleanupSilentTrack()
+    }, [cleanupSilentTrack, localAudioTrackRef])
 
     const applyVoiceActivityGate = useCallback((speaking: boolean) => {
         voiceActivitySpeakingRef.current = speaking
@@ -92,6 +158,8 @@ export function useVoiceActivity(options: {
                     osc.connect(gain)
                     gain.connect(dest)
                     osc.start()
+                    silentTrackContextRef.current = ctx
+                    silentOscillatorRef.current = osc
                     silentTrackRef.current = dest.stream.getAudioTracks()[0]
                 } catch {
                     return
@@ -107,8 +175,17 @@ export function useVoiceActivity(options: {
         const ctx = getAudioContext()
         if (!ctx) return
 
+        if (inlineMonitorIntervalRef.current != null) {
+            cancelAnimationFrame(inlineMonitorIntervalRef.current)
+            inlineMonitorIntervalRef.current = null
+        }
+        cleanupMonitorNodes()
+        resetVoiceActivityGate()
+
         const source = ctx.createMediaStreamSource(stream)
         const analyser = ctx.createAnalyser()
+        monitorSourceRef.current = source
+        monitorAnalyserRef.current = analyser
         analyser.fftSize = 256
         // Keep attack snappy so the ring lights up as soon as speech starts,
         // while release smoothness is handled below with hold + RMS smoothing.
@@ -126,13 +203,10 @@ export function useVoiceActivity(options: {
         // Stronger smoothing on release keeps the indicator feeling steadier mid-speech.
         const smoothAlpha = 0.96
 
-        if (inlineMonitorIntervalRef.current != null) {
-            cancelAnimationFrame(inlineMonitorIntervalRef.current)
-            inlineMonitorIntervalRef.current = null
-        }
-
         useAppStore.getState().setVoiceSpeaking(useAppStore.getState().voiceSpeakingUserIds, false)
-        applyVoiceActivityGate(false) // Initially mute until we actually speak
+        // Keep sender track open at start to avoid "audio for 1s then silence" regressions
+        // when RMS thresholds are too strict or context sampling starts late.
+        applyVoiceActivityGate(true)
 
         const tick = () => {
             try {
@@ -176,7 +250,7 @@ export function useVoiceActivity(options: {
             inlineMonitorIntervalRef.current = requestAnimationFrame(tick)
         }
         inlineMonitorIntervalRef.current = requestAnimationFrame(tick)
-    }, [applyVoiceActivityGate, getAudioContext, localStream])
+    }, [applyVoiceActivityGate, cleanupMonitorNodes, getAudioContext, localStream, resetVoiceActivityGate])
 
     useEffect(() => {
         if (!joinedChannelId) return
@@ -226,8 +300,10 @@ export function useVoiceActivity(options: {
             window.cancelAnimationFrame(inlineMonitorIntervalRef.current)
             inlineMonitorIntervalRef.current = null
         }
+        cleanupMonitorNodes()
+        resetVoiceActivityGate()
         useAppStore.getState().setVoiceSpeaking([], false)
-    }, [])
+    }, [cleanupMonitorNodes, resetVoiceActivityGate])
 
     useEffect(() => {
         return () => {

@@ -832,9 +832,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     : [
       `Quality: ${qualityLevel === 'good' ? 'Good' : qualityLevel === 'fair' ? 'Fair' : qualityLevel === 'poor' ? 'Poor' : 'Measuring'}`,
       state.pingMs != null ? `Ping: ${state.pingMs} ms` : null,
-      pingJitterMs != null ? `Ping jitter: ${pingJitterMs} ms` : null,
-      networkJitterMs != null ? `Audio jitter: ${networkJitterMs} ms` : null,
-      packetLossPct != null ? `Loss: ${packetLossPct.toFixed(1)}%` : null,
     ]
       .filter(Boolean)
       .join(' • ')

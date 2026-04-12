@@ -111,6 +111,8 @@ pub enum WsClientMessage {
     JoinVoice { channel_id: Uuid },
     /// Leave voice channel.
     LeaveVoice,
+    /// Disconnect another member from voice (server moderation).
+    DisconnectVoiceMember { target_user_id: Uuid },
     /// Update voice controls.
     SetVoiceControl {
         #[serde(default)]

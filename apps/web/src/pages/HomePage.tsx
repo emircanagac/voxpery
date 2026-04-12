@@ -99,6 +99,7 @@ function OnboardingCard({
 
 export default function HomePage({ isMessagesView = true }: { isMessagesView?: boolean }) {
   const { token, user } = useAuthStore()
+  const userId = user?.id ?? null
   const { subscribe, send, isConnected, onReconnect } = useSocketStore()
   const {
     servers: storeServers,
@@ -176,12 +177,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const savedMedia = useMemo(
-    () => (user?.id ? (savedMediaByUserId[user.id] ?? []) : []),
-    [savedMediaByUserId, user?.id],
+    () => (userId ? (savedMediaByUserId[userId] ?? []) : []),
+    [savedMediaByUserId, userId],
   )
   const unseenSavedCount = useMemo(
-    () => (user?.id ? (unseenSavedMediaIdsByUserId[user.id] ?? []).length : 0),
-    [unseenSavedMediaIdsByUserId, user?.id],
+    () => (userId ? (unseenSavedMediaIdsByUserId[userId] ?? []).length : 0),
+    [unseenSavedMediaIdsByUserId, userId],
   )
   const savedMessageIds = useMemo(() => new Set(savedMedia.map((item) => item.message_id)), [savedMedia])
   const dmChannels = useMemo(
@@ -241,7 +242,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   // Use user so web works: on web token is null, auth is via httpOnly cookie.
   const refreshServersAndFriends = useCallback(async () => {
-    if (!user) return
+    if (!userId) return
     setServersLoading(true)
     try {
       const [serverList, friendList, req, dms] = await Promise.all([
@@ -261,7 +262,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setServersLoading(false)
       setSocialBootstrapLoading(false)
     }
-  }, [setDmChannelIds, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, user])
+  }, [setDmChannelIds, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, userId])
 
   useEffect(() => {
     try {
@@ -278,10 +279,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   }, [storeDmChannels])
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     setSocialBootstrapLoading(true)
     refreshServersAndFriends().catch(console.error)
-  }, [refreshServersAndFriends, user])
+  }, [refreshServersAndFriends, userId])
 
   const openOfficialCommunity = useCallback(async () => {
     if (voxperyServer) {
@@ -600,16 +601,16 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   // Instant social refresh when friend requests/friendships change on either side.
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     const unsub = subscribe((evt: unknown) => {
       const e = evt as { type?: string; data?: { user_id?: string } }
       if (e?.type !== 'FriendUpdate') return
       const uid = e.data?.user_id
-      if (uid !== user.id) return
+      if (uid !== userId) return
       refreshServersAndFriends().catch(() => { })
     })
     return () => unsub()
-  }, [refreshServersAndFriends, subscribe, user])
+  }, [refreshServersAndFriends, subscribe, userId])
 
   const openMessageForFriend = async (friendId: string) => {
     if (!user) return

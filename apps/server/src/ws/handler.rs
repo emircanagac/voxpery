@@ -628,6 +628,61 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                                     ));
                                 }
                             }
+                            WsClientMessage::DisconnectVoiceMember { target_user_id } => {
+                                let target_channel =
+                                    recv_state.voice_sessions.get(&target_user_id).map(|r| *r);
+                                let Some(target_channel_id) = target_channel else {
+                                    continue;
+                                };
+                                let target_server_id =
+                                    server_id_for_channel(&recv_state.db, target_channel_id).await;
+                                let Some(target_server_id) = target_server_id else {
+                                    continue;
+                                };
+
+                                let perms = match get_user_server_permissions(
+                                    &recv_state.db,
+                                    target_server_id,
+                                    user_id,
+                                )
+                                .await
+                                {
+                                    Ok(p) => p,
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "DisconnectVoiceMember permission lookup failed: {}",
+                                            e
+                                        );
+                                        continue;
+                                    }
+                                };
+
+                                let can_disconnect = perms.contains(Permissions::MUTE_MEMBERS)
+                                    || perms.contains(Permissions::DEAFEN_MEMBERS)
+                                    || perms.contains(Permissions::MANAGE_SERVER);
+                                if !can_disconnect {
+                                    continue;
+                                }
+
+                                if let Some((_, previous_channel_id)) =
+                                    recv_state.voice_sessions.remove(&target_user_id)
+                                {
+                                    let previous_server_id =
+                                        server_id_for_channel(&recv_state.db, previous_channel_id)
+                                            .await;
+                                    let _ = recv_state.voice_controls.remove(&target_user_id);
+                                    let _ = recv_state.tx.send(WsEvent::VoiceStateUpdate {
+                                        channel_id: None,
+                                        user_id: target_user_id,
+                                        server_id: previous_server_id,
+                                    });
+                                    let _ = recv_state.tx.send(voice_control_event_from_state(
+                                        target_user_id,
+                                        previous_server_id,
+                                        (false, false, false, false, false, false),
+                                    ));
+                                }
+                            }
                             WsClientMessage::SetVoiceControl {
                                 target_user_id,
                                 muted,

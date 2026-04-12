@@ -48,6 +48,7 @@ export interface UseLiveKitVoiceState {
 
 export function useLiveKitVoice() {
   const { user, token } = useAuthStore()
+  const syncedJoinedVoiceChannelId = useAppStore((s) => s.joinedVoiceChannelId)
   const { send, subscribe, isConnected, onReconnect } = useSocketStore()
   const userId = user?.id ?? null
 
@@ -753,6 +754,12 @@ export function useLiveKitVoice() {
     if (userId) return
     leaveVoice()
   }, [leaveVoice, userId])
+
+  useEffect(() => {
+    if (!joinedChannelIdRef.current) return
+    if (syncedJoinedVoiceChannelId !== null) return
+    leaveVoice({ skipLeaveSound: true })
+  }, [leaveVoice, syncedJoinedVoiceChannelId])
 
   // ── WS reconnect → re-sync voice state with backend ──
   // When the WebSocket drops and reconnects, the backend clears our voice_sessions

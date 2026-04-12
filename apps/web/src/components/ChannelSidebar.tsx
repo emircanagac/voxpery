@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock, Settings2 } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock, Settings2, PhoneOff } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -27,6 +27,7 @@ interface ChannelSidebarProps {
     canManageChannels?: boolean
     canMuteMembers?: boolean
     canDeafenMembers?: boolean
+    canDisconnectMembers?: boolean
     unreadByChannel?: Record<string, number>
     mentionByChannel?: Record<string, number>
     voiceControls?: Record<string, { muted: boolean; deafened: boolean; serverMuted?: boolean; serverDeafened?: boolean; screenSharing: boolean; cameraOn?: boolean }>
@@ -49,6 +50,7 @@ export default function ChannelSidebar({
     canManageChannels,
     canMuteMembers = false,
     canDeafenMembers = false,
+    canDisconnectMembers = false,
     unreadByChannel = {},
     mentionByChannel = {},
     voiceControls = {},
@@ -575,7 +577,13 @@ export default function ChannelSidebar({
                                                                 return
                                                             }
                                                             const estimatedWidth = 192
-                                                            const estimatedHeight = (canMuteMembers || canDeafenMembers) ? 206 : 116
+                                                            const moderationActions =
+                                                                (canMuteMembers ? 1 : 0)
+                                                                + (canDeafenMembers ? 1 : 0)
+                                                                + (canDisconnectMembers ? 1 : 0)
+                                                            const estimatedHeight = moderationActions > 0
+                                                                ? 154 + moderationActions * 46
+                                                                : 116
                                                             const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
@@ -735,7 +743,7 @@ export default function ChannelSidebar({
                         <div className="server-context-menu-item member-volume-menu-username">
                             {participantMenu.username}
                         </div>
-                        {!isSelf && (canMuteMembers || canDeafenMembers) && (
+                        {!isSelf && (canMuteMembers || canDeafenMembers || canDisconnectMembers) && (
                             <>
                                 <div className="member-volume-menu-section-label">
                                     <Shield size={12} />
@@ -783,6 +791,23 @@ export default function ChannelSidebar({
                                 <span className="member-volume-menu-action-with-icon">
                                     <VolumeX size={12} />
                                     {(targetVoice.serverDeafened ?? false) ? 'Undeafen member (server)' : 'Deafen member (server)'}
+                                </span>
+                            </button>
+                        )}
+                        {!isSelf && canDisconnectMembers && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item danger"
+                                onClick={() => {
+                                    sendWs('DisconnectVoiceMember', {
+                                        target_user_id: participantMenu.userId,
+                                    })
+                                    setParticipantMenu(null)
+                                }}
+                            >
+                                <span className="member-volume-menu-action-with-icon">
+                                    <PhoneOff size={12} />
+                                    Disconnect from voice
                                 </span>
                             </button>
                         )}

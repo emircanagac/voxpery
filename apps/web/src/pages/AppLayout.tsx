@@ -1499,6 +1499,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         hasManageServer || (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
     const canDeafenMembers =
         hasManageServer || (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
+    const canDisconnectMembers = hasManageServer || canMuteMembers || canDeafenMembers
     const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
     const canManageBans = canBanMembers
     const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
@@ -2651,6 +2652,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 canManageChannels={canManageChannels}
                 canMuteMembers={canMuteMembers}
                 canDeafenMembers={canDeafenMembers}
+                canDisconnectMembers={canDisconnectMembers}
                 unreadByChannel={serverUnreadByChannel}
                 mentionByChannel={serverMentionsByChannel}
                 voiceControls={voiceControls}

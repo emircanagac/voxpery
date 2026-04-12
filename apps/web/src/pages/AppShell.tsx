@@ -30,12 +30,14 @@ import { setPersistedSocialView } from '../socialView'
 
 export default function AppShell() {
   const { user } = useAuthStore()
+  const userId = user?.id ?? null
   const myStatus = useAuthStore((s) => s.user?.status)
   const token = useAuthStore((s) => s.token)
   const { connect, subscribe, send, isConnected } = useSocketStore()
   const {
     setVoiceState,
     setVoiceControl,
+    setJoinedVoiceChannelId,
     dmChannelIds,
     dmChannels,
     setDmChannelIds,
@@ -54,6 +56,7 @@ export default function AppShell() {
     useShallow((s) => ({
       setVoiceState: s.setVoiceState,
       setVoiceControl: s.setVoiceControl,
+      setJoinedVoiceChannelId: s.setJoinedVoiceChannelId,
       dmChannelIds: s.dmChannelIds,
       dmChannels: s.dmChannels,
       setDmChannelIds: s.setDmChannelIds,
@@ -87,9 +90,9 @@ export default function AppShell() {
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     connect(token ?? null)
-  }, [connect, token, user])
+  }, [connect, token, userId])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -206,7 +209,7 @@ export default function AppShell() {
   }, [])
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     const syncSocial = async () => {
       try {
         const [channels, friendList] = await Promise.all([
@@ -223,7 +226,7 @@ export default function AppShell() {
     syncSocial()
     const id = window.setInterval(syncSocial, 2000)
     return () => window.clearInterval(id)
-  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, token, user])
+  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, token, userId])
 
   useEffect(() => {
     if (!isConnected || dmChannelIds.length === 0) return
@@ -242,6 +245,9 @@ export default function AppShell() {
           if (user_id) {
             setVoiceState(user_id, channel_id ?? null)
             useAppStore.getState().setVoiceStateServerId(user_id, server_id ?? null)
+            if (user_id === userId) {
+              setJoinedVoiceChannelId(channel_id ?? null)
+            }
           }
         }
         if (e?.type === 'PresenceUpdate') {
@@ -427,7 +433,7 @@ export default function AppShell() {
       }
     })
     return () => unsub()
-  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setVoiceControl, setVoiceState, subscribe, token, user?.id])
+  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, token, userId])
   const activeChannel = useMemo(() => channels.find((c) => c.id === activeChannelId), [channels, activeChannelId])
   // Prefer the voice channel the user is viewing so switching channels leaves current and joins the new one.
   const selectedVoiceChannelId =
