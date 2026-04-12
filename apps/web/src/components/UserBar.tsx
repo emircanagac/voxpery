@@ -93,7 +93,7 @@ function footerStatusLabel(status?: string) {
 }
 
 function mobilePopoverStatusLabel(status: 'online' | 'dnd' | 'invisible') {
-  if (status === 'dnd') return 'DND'
+  if (status === 'dnd') return 'Do Not Disturb'
   if (status === 'invisible') return 'Invisible'
   return 'Online'
 }
@@ -154,7 +154,6 @@ export default function UserBar() {
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
   )
-  const [statusPopoverAnchor, setStatusPopoverAnchor] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const [openDeviceMenu, setOpenDeviceMenu] = useState<VoiceDeviceMenu | null>(null)
   const [deviceMenuAnchor, setDeviceMenuAnchor] = useState<{
     left: number
@@ -294,29 +293,6 @@ export default function UserBar() {
     updateDeviceMenuAnchor(menu)
     setOpenDeviceMenu(menu)
   }, [closeDeviceMenu, openDeviceMenu, updateDeviceMenuAnchor])
-
-  const updateStatusPopoverAnchor = useCallback(() => {
-    if (!isMobileViewport) {
-      setStatusPopoverAnchor(null)
-      return
-    }
-    const footer = userBarWrapRef.current
-    const anchor = statusToggleRef.current
-    if (!footer) return
-    const footerRect = footer.getBoundingClientRect()
-    const anchorRect = anchor?.getBoundingClientRect() ?? footerRect
-    const viewportPadding = 8
-    const width = Math.min(136, Math.max(124, anchorRect.width + 12))
-    const left = Math.max(
-      viewportPadding,
-      Math.min(footerRect.left, window.innerWidth - width - viewportPadding),
-    )
-    setStatusPopoverAnchor({
-      left,
-      bottom: window.innerHeight - footerRect.top + 1,
-      width,
-    })
-  }, [isMobileViewport])
 
   const updateMobileVoiceFooterBounds = useCallback(() => {
     if (typeof document === 'undefined') return
@@ -528,7 +504,6 @@ export default function UserBar() {
 
   useEffect(() => {
     if (!showStatusMenu) return
-    updateStatusPopoverAnchor()
     updateMobileVoiceFooterBounds()
     const close = (evt: PointerEvent) => {
       const target = evt.target as Node | null
@@ -537,19 +512,20 @@ export default function UserBar() {
       setShowStatusMenu(false)
       setStatusError(null)
     }
-    const refreshAnchor = () => {
-      updateStatusPopoverAnchor()
-      updateMobileVoiceFooterBounds()
+    const refreshAnchor = () => updateMobileVoiceFooterBounds()
+    if (!isMobileViewport) {
+      window.addEventListener('pointerdown', close)
     }
-    window.addEventListener('pointerdown', close)
     window.addEventListener('resize', refreshAnchor)
     window.addEventListener('scroll', refreshAnchor, true)
     return () => {
-      window.removeEventListener('pointerdown', close)
+      if (!isMobileViewport) {
+        window.removeEventListener('pointerdown', close)
+      }
       window.removeEventListener('resize', refreshAnchor)
       window.removeEventListener('scroll', refreshAnchor, true)
     }
-  }, [showStatusMenu, updateMobileVoiceFooterBounds, updateStatusPopoverAnchor])
+  }, [isMobileViewport, showStatusMenu, updateMobileVoiceFooterBounds])
 
   useEffect(() => {
     updateMobileVoiceFooterBounds()
@@ -1076,13 +1052,6 @@ export default function UserBar() {
     <div
       ref={statusMenuRef}
       className={`user-status-popover ${isMobileViewport ? 'user-status-popover--fixed' : ''}`}
-      style={isMobileViewport && statusPopoverAnchor
-        ? {
-          left: `${statusPopoverAnchor.left}px`,
-          bottom: `${statusPopoverAnchor.bottom}px`,
-          width: `${statusPopoverAnchor.width}px`,
-        }
-        : undefined}
       role="dialog"
       aria-label="SET YOUR STATUS"
     >
@@ -1191,7 +1160,18 @@ export default function UserBar() {
         <Settings size={18} />
       </button>
       {showStatusMenu && !isMobileViewport && statusPopover}
-      {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(statusPopover, document.body)}
+      {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(
+        <>
+          <button
+            type="button"
+            className="user-status-mobile-backdrop"
+            aria-label="Close status menu"
+            onClick={closeStatusMenu}
+          />
+          {statusPopover}
+        </>,
+        document.body,
+      )}
       {voiceDeviceMenu}
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={closeSettingsPanel}>

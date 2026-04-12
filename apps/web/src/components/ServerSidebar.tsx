@@ -1,14 +1,18 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
-import { PlusCircle, LogIn, LogOut, Volume2 } from 'lucide-react'
+import { PlusCircle, LogIn, LogOut, Settings, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { serverApi } from '../api'
+import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 interface ServerSidebarProps {
   onCreateServer: () => void
   onJoinServer: () => void
-  onOpenServerSettings?: (serverId: string) => void
+  onOpenServerSettings?: (
+    serverId: string,
+    initialTab?: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger',
+  ) => void
   onSelectServer?: (serverId: string) => void
   displayActiveServerId?: string | null
 }
@@ -89,6 +93,7 @@ export default function ServerSidebar({
     const [dragOverState, setDragOverState] = useState<{ targetId: string; intent: DragIntent } | null>(null)
     const [orderedServerIds, setOrderedServerIds] = useState<string[]>([])
     const [leaveServerConfirmId, setLeaveServerConfirmId] = useState<string | null>(null)
+    const [ownerLeaveGuardServerId, setOwnerLeaveGuardServerId] = useState<string | null>(null)
 
     const sidebarRef = useRef<HTMLDivElement>(null)
     const prefetchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -243,15 +248,16 @@ export default function ServerSidebar({
     }, [draggedServerId])
 
     useEffect(() => {
-        if (!leaveServerConfirmId) return
+        if (!leaveServerConfirmId && !ownerLeaveGuardServerId) return
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return
             e.preventDefault()
             setLeaveServerConfirmId(null)
+            setOwnerLeaveGuardServerId(null)
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-    }, [leaveServerConfirmId])
+    }, [leaveServerConfirmId, ownerLeaveGuardServerId])
 
     const orderedServers = (orderedServerIds.length > 0 ? orderedServerIds : servers.map((s) => s.id))
         .map((id) => servers.find((s) => s.id === id))
@@ -300,6 +306,9 @@ export default function ServerSidebar({
 
     const leaveServerConfirmTarget = leaveServerConfirmId
         ? servers.find((s) => s.id === leaveServerConfirmId) ?? null
+        : null
+    const ownerLeaveGuardTarget = ownerLeaveGuardServerId
+        ? servers.find((s) => s.id === ownerLeaveGuardServerId) ?? null
         : null
 
     const isDraggingSidebar = !!draggedServerId
@@ -381,7 +390,7 @@ export default function ServerSidebar({
                             title={voiceCount === 1 ? '1 user in voice' : `${voiceCount} users in voice`}
                         >
                             <Volume2 size={8} strokeWidth={2.4} aria-hidden />
-                            <span className="server-voice-indicator-count">{voiceCount > 9 ? '9+' : voiceCount}</span>
+                            <span className="server-voice-indicator-count">{formatBadgeCount(voiceCount)}</span>
                         </span>
                     )}
                     {isMuted && <span className="server-muted-indicator" aria-hidden="true" />}
@@ -464,57 +473,60 @@ export default function ServerSidebar({
                 clearDragUiState()
             }}
         >
-            {serversLoading && orderedServers.length === 0 && (
-                <>
-                    {Array.from({ length: 3 }).map((_, index) => (
-                        <div key={`server-skeleton-${index}`} className="server-icon-wrapper">
-                            <div className="server-icon server-icon-skeleton" aria-hidden="true" />
-                        </div>
-                    ))}
-                    <div className="server-separator" />
-                </>
-            )}
-            {orderedServers.map((server) => renderServerButton(server))}
+            <div className="server-sidebar-scroll">
+                {serversLoading && orderedServers.length === 0 && (
+                    <>
+                        {Array.from({ length: 3 }).map((_, index) => (
+                            <div key={`server-skeleton-${index}`} className="server-icon-wrapper">
+                                <div className="server-icon server-icon-skeleton" aria-hidden="true" />
+                            </div>
+                        ))}
+                    </>
+                )}
+                {orderedServers.map((server) => renderServerButton(server))}
 
-            {draggedServerId && dragOverState?.targetId === SIDEBAR_END_DROP_ID && (
-                <div className="server-drop-end-indicator" aria-hidden="true" />
-            )}
+                {draggedServerId && dragOverState?.targetId === SIDEBAR_END_DROP_ID && (
+                    <div className="server-drop-end-indicator" aria-hidden="true" />
+                )}
+            </div>
 
-            <div className="server-separator" />
+            <div className="server-sidebar-actions">
+                <div className="server-separator" />
 
-            <button
-                type="button"
-                className="server-icon server-add"
-                onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    onCreateServer()
-                }}
-                title="Create Server"
-                aria-label="Create Server"
-            >
-                <PlusCircle size={20} />
-            </button>
-            <div className="server-action-label">Create</div>
+                <button
+                    type="button"
+                    className="server-icon server-add"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onCreateServer()
+                    }}
+                    title="Create Server"
+                    aria-label="Create Server"
+                >
+                    <PlusCircle size={20} />
+                </button>
+                <div className="server-action-label">Create</div>
 
-            <button
-                type="button"
-                className="server-icon server-add"
-                onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    onJoinServer()
-                }}
-                title="Join Server"
-                aria-label="Join Server"
-            >
-                <LogIn size={18} />
-            </button>
-            <div className="server-action-label">Join</div>
+                <button
+                    type="button"
+                    className="server-icon server-add"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onJoinServer()
+                    }}
+                    title="Join Server"
+                    aria-label="Join Server"
+                >
+                    <LogIn size={18} />
+                </button>
+                <div className="server-action-label">Join</div>
+            </div>
 
             {contextMenu && (() => {
                 const server = servers.find((s) => s.id === contextMenu.id)
-                const isOwner = server && user && server.owner_id === user.id
+                const isOwner = !!(server && user && server.owner_id === user.id)
                 if (!server) return null
                 return (
                     <div
@@ -532,6 +544,7 @@ export default function ServerSidebar({
                                     onOpenServerSettings?.(contextMenu.id)
                                 }}
                             >
+                                <Settings size={14} />
                                 Server Settings
                             </button>
                         ) : null}
@@ -548,6 +561,10 @@ export default function ServerSidebar({
                             className="server-context-menu-item danger"
                             onClick={() => {
                                 setContextMenu(null)
+                                if (isOwner) {
+                                    setOwnerLeaveGuardServerId(contextMenu.id)
+                                    return
+                                }
                                 setLeaveServerConfirmId(contextMenu.id)
                             }}
                         >
@@ -582,6 +599,42 @@ export default function ServerSidebar({
                                 }}
                             >
                                 Leave Server
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {ownerLeaveGuardTarget && (
+                <div className="modal-overlay" onClick={() => setOwnerLeaveGuardServerId(null)}>
+                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Server owner action required</h2>
+                        <p style={{ marginBottom: 10, color: 'var(--text-secondary)' }}>
+                            You are the owner of <strong>{ownerLeaveGuardTarget.name}</strong>. You cannot leave while you
+                            are the owner.
+                        </p>
+                        <p style={{ marginBottom: 16, color: 'var(--text-muted)', fontSize: 13 }}>
+                            Instead of leaving, open Server Settings and delete the server from Danger Zone.
+                        </p>
+                        <div className="modal-actions">
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setOwnerLeaveGuardServerId(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                disabled={!onOpenServerSettings}
+                                onClick={() => {
+                                    const id = ownerLeaveGuardTarget.id
+                                    setOwnerLeaveGuardServerId(null)
+                                    setActiveServer(id)
+                                    onOpenServerSettings?.(id, 'danger')
+                                }}
+                            >
+                                {onOpenServerSettings ? 'Open Server Settings' : 'Settings unavailable'}
                             </button>
                         </div>
                     </div>

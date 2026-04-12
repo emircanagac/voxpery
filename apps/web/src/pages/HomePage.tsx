@@ -33,6 +33,7 @@ import { mergeRemoteWithRetryableLocals } from '../messageResilience'
 import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump, setPendingSavedMediaJump } from '../savedMediaJump'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
+import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 type FriendsFilter = 'all' | 'online' | 'requests'
 
@@ -971,7 +972,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         >
           <Bookmark size={14} />
           <span className="social-nav-item-label">Saved</span>
-          {unseenSavedCount > 0 && <span className="home-chip-badge">{unseenSavedCount}</span>}
+          {unseenSavedCount > 0 && <span className="home-chip-badge">{formatBadgeCount(unseenSavedCount)}</span>}
         </button>
 
         <div className="social-sidebar-divider" />
@@ -1017,15 +1018,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               </div>
               <div className="home-member-meta">
                 <div>{channel.peer_username}</div>
-                <span>
-                  <span className={`home-presence-pill home-presence-pill-${normalizePresence(channel.peer_status)}`}>
-                    <span className="home-presence-pill-dot" aria-hidden />
-                    {presenceLabel(channel.peer_status)}
-                  </span>
-                </span>
               </div>
               <div className="social-dm-actions">
-                {(dmUnread[channel.id] ?? 0) > 0 && <span className="social-dm-unread">{dmUnread[channel.id]}</span>}
+                {(dmUnread[channel.id] ?? 0) > 0 && <span className="social-dm-unread">{formatBadgeCount(dmUnread[channel.id] ?? 0)}</span>}
                 <div
                   role="button"
                   tabIndex={0}
@@ -1108,7 +1103,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   <MessageSquarePlus size={14} />
                   Requests
                   {incomingRequests.length > 0 && (
-                    <span className="home-chip-badge">{incomingRequests.length}</span>
+                    <span className="home-chip-badge">{formatBadgeCount(incomingRequests.length)}</span>
                   )}
                 </button>
               </div>
@@ -1134,7 +1129,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     <div className="home-list-title home-list-title-with-icon">
                       <Inbox size={16} />
                       <span>Incoming</span>
-                      <span className="home-list-count">{incomingRequests.length}</span>
+                      <span className="home-list-count">{formatBadgeCount(incomingRequests.length)}</span>
                     </div>
                     {incomingRequests.length === 0 ? (
                       <div className="home-empty-row home-empty-muted">No incoming requests.</div>
@@ -1156,7 +1151,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     <div className="home-list-title home-list-title-with-icon home-list-title-secondary">
                       <Send size={16} />
                       <span>Outgoing</span>
-                      <span className="home-list-count">{outgoingRequests.length}</span>
+                      <span className="home-list-count">{formatBadgeCount(outgoingRequests.length)}</span>
                     </div>
                     {outgoingRequests.length === 0 ? (
                       <div className="home-empty-row home-empty-muted">No outgoing requests.</div>
@@ -1267,7 +1262,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
           {view === 'saved' && (
             <div className="home-list-group home-list-group--saved">
-              <div className="home-list-title">Saved media — {savedMedia.length}</div>
+              <div className="home-list-title home-list-title-with-icon">
+                <Bookmark size={16} />
+                <span>Saved media</span>
+                <span className="home-list-count">{formatBadgeCount(savedMedia.length)}</span>
+              </div>
               {savedMedia.length === 0 ? (
                 <OnboardingCard
                   title="Save media for later"

@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware'
 import type { Server, Channel, MemberInfo, Friend, DmChannel } from '../api'
 import type { SavedMediaItem } from '../types'
 
+export type ServerSettingsTab = 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger'
+
 interface AppState {
     // Servers
     servers: Server[]
@@ -86,6 +88,9 @@ interface AppState {
     /** When set, AppLayout opens server settings for this server (then clears). Used from unified sidebar. */
     openServerSettingsForServerId: string | null
     setOpenServerSettingsForServerId: (id: string | null) => void
+    /** Optional preferred initial tab for unified server settings open request. */
+    openServerSettingsForServerTab: ServerSettingsTab | null
+    setOpenServerSettingsForServerTab: (tab: ServerSettingsTab | null) => void
     mobileSidebarPanel: 'none' | 'social' | 'channels'
     setMobileSidebarPanel: (panel: 'none' | 'social' | 'channels') => void
     closeMobileSidebar: () => void
@@ -316,6 +321,8 @@ export const useAppStore = create<AppState>()(
             setShowJoinServer: (show) => set({ showJoinServer: show }),
             openServerSettingsForServerId: null,
             setOpenServerSettingsForServerId: (id) => set({ openServerSettingsForServerId: id }),
+            openServerSettingsForServerTab: null,
+            setOpenServerSettingsForServerTab: (tab) => set({ openServerSettingsForServerTab: tab }),
             mobileSidebarPanel: 'none',
             setMobileSidebarPanel: (panel) => set({ mobileSidebarPanel: panel }),
             closeMobileSidebar: () => set({ mobileSidebarPanel: 'none' }),
@@ -348,6 +355,7 @@ export const useAppStore = create<AppState>()(
                     showCreateServer: false,
                     showJoinServer: false,
                     openServerSettingsForServerId: null,
+                    openServerSettingsForServerTab: null,
                     mobileSidebarPanel: 'none',
                 })),
         }),

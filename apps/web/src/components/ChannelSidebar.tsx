@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock, Settings2 } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -7,6 +7,7 @@ import { useSocketStore } from '../stores/socket'
 import type { Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
+import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
@@ -266,11 +267,26 @@ export default function ChannelSidebar({
             <div
                 className={`channel-header ${activeServer && onOpenServerSettings ? 'channel-header--clickable' : ''}`}
                 onClick={activeServer && onOpenServerSettings ? onOpenServerSettings : undefined}
+                role={activeServer && onOpenServerSettings ? 'button' : undefined}
+                tabIndex={activeServer && onOpenServerSettings ? 0 : undefined}
+                onKeyDown={
+                    activeServer && onOpenServerSettings
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                onOpenServerSettings()
+                            }
+                        }
+                        : undefined
+                }
+                title={activeServer && onOpenServerSettings ? 'Open server settings' : undefined}
             >
                 {activeServer ? (
                     <>
-                        <span style={{ flex: 1 }}>{activeServer.name}</span>
-                        <ChevronDown size={16} />
+                        <span className="channel-header-title">{activeServer.name}</span>
+                        <span className="channel-header-action" aria-hidden="true">
+                            <Settings2 size={14} />
+                        </span>
                     </>
                 ) : (
                     <span style={{ color: 'var(--text-muted)' }}>{loading ? 'Loading server…' : 'Select a Server'}</span>
@@ -533,7 +549,7 @@ export default function ChannelSidebar({
                                             </span>
                                         )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
-                                            <span className="channel-unread-badge">{hasMention ? '@' : unreadByChannel[ch.id]}</span>
+                                            <span className="channel-unread-badge">{hasMention ? '@' : formatBadgeCount(unreadByChannel[ch.id] ?? 0)}</span>
                                         )}
                                     </div>
                                     {ch.channel_type === 'voice' && voiceMembers.length > 0 && (

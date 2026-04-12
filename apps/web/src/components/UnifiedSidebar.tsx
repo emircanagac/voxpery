@@ -2,12 +2,14 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { MessageCircle } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
+import type { ServerSettingsTab } from '../stores/app'
 import ServerSidebar from './ServerSidebar'
+import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 interface UnifiedSidebarProps {
   onCreateServer: () => void
   onJoinServer: () => void
-  onOpenServerSettings?: (serverId: string) => void
+  onOpenServerSettings?: (serverId: string, initialTab?: ServerSettingsTab) => void
   totalDmUnread?: number
   incomingRequestCount?: number
 }
@@ -49,7 +51,7 @@ export default function UnifiedSidebar({
         >
           <MessageCircle size={22} />
           {totalSocialUnread > 0 && (
-            <span className="server-unread-badge">{totalSocialUnread}</span>
+            <span className="server-unread-badge">{formatBadgeCount(totalSocialUnread)}</span>
           )}
         </NavLink>
       </div>

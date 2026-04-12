@@ -481,6 +481,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [])
 
   const currentVoiceChannelId = state.joinedChannelId
+  const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
   const channelParticipants = useMemo(() => {
     if (!currentVoiceChannelId) return []
     return members.filter((m) => voiceStates[m.user_id] === currentVoiceChannelId)
@@ -517,6 +518,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     media.addEventListener('change', sync)
     return () => media.removeEventListener('change', sync)
   }, [])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    if (isMobileViewport && showActiveCallBar) {
+      root.style.setProperty('--mobile-voice-callbar-offset', '44px')
+      return () => {
+        root.style.removeProperty('--mobile-voice-callbar-offset')
+      }
+    }
+    root.style.removeProperty('--mobile-voice-callbar-offset')
+    return () => {
+      root.style.removeProperty('--mobile-voice-callbar-offset')
+    }
+  }, [isMobileViewport, showActiveCallBar])
 
   // Auto-join disabled intentionally:
   // voice join/leave should only happen on explicit user action (sidebar confirm or callbar button).
@@ -860,8 +876,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     </div>
   )
 
-  const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
-
   return (
     <>
       {typeof document !== 'undefined' && createPortal(screenShareModal, document.body)}
@@ -1050,9 +1064,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}>
                   {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
                 </button>
-                <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}>
-                  <Monitor size={16} />
-                </button>
+                {!isMobileViewport && (
+                  <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}>
+                    <Monitor size={16} />
+                  </button>
+                )}
               </div>
               <div className="callbar-controls-right">
                 <span className="callbar-connection-inline">

@@ -68,7 +68,7 @@ export default function MessageInlineActions({
       {canReact && onToggleReactionPicker && (
         <button
           type="button"
-          className={`message-inline-action-btn${reactionPickerOpen ? ' active' : ''}`}
+          className={`message-inline-action-btn message-inline-action-btn--reaction${reactionPickerOpen ? ' active' : ''}`}
           title="Add reaction"
           aria-label="Add reaction"
           onClick={(e) => {
@@ -82,7 +82,7 @@ export default function MessageInlineActions({
       {canPin && !isPinned && onPin && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className="message-inline-action-btn message-inline-action-btn--pin"
           title="Pin message"
           aria-label="Pin"
           onClick={(e) => {
@@ -96,7 +96,7 @@ export default function MessageInlineActions({
       {canPin && isPinned && onUnpin && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className="message-inline-action-btn message-inline-action-btn--pin"
           title="Unpin message"
           aria-label="Unpin"
           onClick={(e) => {
@@ -110,7 +110,7 @@ export default function MessageInlineActions({
       {onReply && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className="message-inline-action-btn message-inline-action-btn--reply"
           title="Reply"
           aria-label="Reply"
           onClick={(e) => {
@@ -124,7 +124,7 @@ export default function MessageInlineActions({
       {onReport && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className="message-inline-action-btn message-inline-action-btn--report"
           title="Report"
           aria-label="Report"
           onClick={(e) => {
@@ -138,7 +138,7 @@ export default function MessageInlineActions({
       {canEdit && (
         <button
           type="button"
-          className="message-inline-action-btn"
+          className="message-inline-action-btn message-inline-action-btn--edit"
           title="Edit"
           aria-label="Edit"
           onClick={(e) => {
@@ -152,7 +152,7 @@ export default function MessageInlineActions({
       {canSave && onToggleSave && (
         <button
           type="button"
-          className={`message-inline-action-btn ${isSaved ? 'active' : ''}`}
+          className={`message-inline-action-btn message-inline-action-btn--save ${isSaved ? 'active' : ''}`}
           title={isSaved ? 'Remove from saved' : 'Save media'}
           aria-label={isSaved ? 'Remove from saved' : 'Save media'}
           onClick={(e) => {
@@ -166,7 +166,7 @@ export default function MessageInlineActions({
       {canDelete && (
         <button
           type="button"
-          className="message-inline-action-btn danger"
+          className="message-inline-action-btn message-inline-action-btn--delete danger"
           title="Delete"
           aria-label="Delete"
           onClick={(e) => {

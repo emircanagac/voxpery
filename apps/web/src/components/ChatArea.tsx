@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { MessageWithAuthor, Channel } from '../api'
@@ -24,6 +24,7 @@ type MentionUser = {
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
+const BOTTOM_LOCK_THRESHOLD_PX = 120
 
 function mentionPresenceRank(status?: string | null): number {
     const normalized = (status ?? 'offline').toLowerCase()
@@ -178,7 +179,9 @@ export default function ChatArea({
         [onScrollRefReady]
     )
     const shouldAutoScrollRef = useRef(true)
+    const pendingSubmitAutoScrollRef = useRef(false)
     const prevViewActiveRef = useRef(isViewActive)
+    const [showJumpToLatest, setShowJumpToLatest] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
     const [searchOpen, setSearchOpen] = useState(false)
@@ -247,6 +250,8 @@ export default function ChatArea({
     const snapToBottom = useCallback(() => {
         const el = messagesScrollRef.current
         if (!el || el.clientHeight <= 0) return false
+        shouldAutoScrollRef.current = true
+        setShowJumpToLatest(false)
         el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
         requestAnimationFrame(() => {
             const latest = messagesScrollRef.current
@@ -255,6 +260,16 @@ export default function ChatArea({
         })
         return true
     }, [])
+
+    const syncAutoScrollState = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el) return
+        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        const isNearBottom = distanceToBottom < BOTTOM_LOCK_THRESHOLD_PX
+        shouldAutoScrollRef.current = isNearBottom
+        const nextShowJump = !isNearBottom && messages.length > 0
+        setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
+    }, [messages.length])
 
     /* When switching channel/DM, reset auto-scroll and scroll to bottom so user sees latest messages */
     useEffect(() => {
@@ -269,6 +284,18 @@ export default function ChatArea({
         if (!shouldAutoScrollRef.current) return
         snapToBottom()
     }, [activeChannel?.id, messages.length, unreadDividerCount, snapToBottom])
+
+    /* If user sends while reading older messages, force snap to newest after the new row mounts. */
+    useLayoutEffect(() => {
+        if (!pendingSubmitAutoScrollRef.current) return
+        if (messages.length === 0) return
+        shouldAutoScrollRef.current = true
+        snapToBottom()
+        requestAnimationFrame(() => {
+            snapToBottom()
+            pendingSubmitAutoScrollRef.current = false
+        })
+    }, [messages.length, snapToBottom])
 
     useLayoutEffect(() => {
         if (draftAttachments.length === 0) return
@@ -406,8 +433,11 @@ export default function ChatArea({
         if (!exists) return
         shouldAutoScrollRef.current = false
         scrollToMessageId(jumpToMessageId)
+        requestAnimationFrame(() => {
+            syncAutoScrollState()
+        })
         onJumpToMessageHandled?.()
-    }, [jumpToMessageId, messages, onJumpToMessageHandled, scrollToMessageId])
+    }, [jumpToMessageId, messages, onJumpToMessageHandled, scrollToMessageId, syncAutoScrollState])
 
     const closeMentionMenu = () => {
         setMentionOpen(false)
@@ -462,11 +492,25 @@ export default function ChatArea({
         syncMentionMenu(value, cursor)
     }
 
+    const submitMessage = useCallback((forceContent?: string) => {
+        const hasForcedContent = typeof forceContent === 'string' && forceContent.trim().length > 0
+        const hasText = messageInput.trim().length > 0
+        const hasAttachments = draftAttachments.length > 0
+        if (!hasForcedContent && !hasText && !hasAttachments) return
+        pendingSubmitAutoScrollRef.current = true
+        shouldAutoScrollRef.current = true
+        onSendMessage(undefined, forceContent)
+        snapToBottom()
+        requestAnimationFrame(() => {
+            snapToBottom()
+        })
+    }, [draftAttachments.length, messageInput, onSendMessage, snapToBottom])
+
     const insertEmoji = (emoji: string) => {
         if (!canSendMessages) return
         const isInstantMedia = /^!\[(gif|sticker)\]\(https?:\/\/[^\s)]+\)$/i.test(emoji.trim())
         if (isInstantMedia) {
-            onSendMessage(undefined, emoji.trim())
+            submitMessage(emoji.trim())
             setEmojiOpen(false)
             closeMentionMenu()
             return
@@ -514,7 +558,7 @@ export default function ChatArea({
         }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            onSendMessage()
+            submitMessage()
         }
     }
 
@@ -533,7 +577,12 @@ export default function ChatArea({
         closeMentionMenu()
         setEmojiOpen(false)
         setReactionPickerMessageId(null)
+        setShowJumpToLatest(false)
     }, [activeChannel?.id])
+
+    useLayoutEffect(() => {
+        syncAutoScrollState()
+    }, [messages.length, syncAutoScrollState])
 
     useEffect(() => {
         if (!pinnedOpen) return
@@ -906,7 +955,7 @@ export default function ChatArea({
     }
 
     return (
-        <div className="chat-area" ref={chatAreaRef}>
+        <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}`} ref={chatAreaRef}>
             <div className="chat-header">
                 <span className="channel-hash">
                     <Hash size={20} />
@@ -1053,10 +1102,7 @@ export default function ChatArea({
                 className="chat-messages chat-messages-virtual"
                 ref={setMessagesScrollRef}
                 onScroll={() => {
-                    const el = messagesScrollRef.current
-                    if (!el) return
-                    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-                    shouldAutoScrollRef.current = distanceToBottom < 120
+                    syncAutoScrollState()
                 }}
             >
                 {hasMoreOlder && messages.length > 0 && (
@@ -1293,6 +1339,22 @@ export default function ChatArea({
             </div>
 
             <div className="message-input-container">
+                {showJumpToLatest && (
+                    <button
+                        type="button"
+                        className="chat-jump-to-latest"
+                        onClick={() => {
+                            snapToBottom()
+                            requestAnimationFrame(() => {
+                                snapToBottom()
+                            })
+                        }}
+                        aria-label="Jump to latest messages"
+                    >
+                        <ArrowDown size={14} />
+                        Newest
+                    </button>
+                )}
                 {replyingTo && onCancelReply && (
                     <div className="message-reply-bar">
                         <span className="message-reply-bar-label">Replying to @{replyingTo.username}</span>
@@ -1438,7 +1500,7 @@ export default function ChatArea({
                         }}
                         onClick={() => {
                             if (!canSendMessages) return
-                            onSendMessage()
+                            submitMessage()
                         }}
                     />
                 </div>

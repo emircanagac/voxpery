@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
+import type { ServerSettingsTab } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import UnifiedSidebar from '../components/UnifiedSidebar'
@@ -33,6 +34,7 @@ export default function UnifiedLayout() {
     setShowCreateServer,
     setShowJoinServer,
     setOpenServerSettingsForServerId,
+    setOpenServerSettingsForServerTab,
     dmUnread,
     servers,
     incomingRequestCount,
@@ -45,6 +47,7 @@ export default function UnifiedLayout() {
       setShowCreateServer: s.setShowCreateServer,
       setShowJoinServer: s.setShowJoinServer,
       setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
+      setOpenServerSettingsForServerTab: s.setOpenServerSettingsForServerTab,
       dmUnread: s.dmUnread,
       servers: s.servers,
       incomingRequestCount: s.incomingRequestCount,
@@ -131,7 +134,8 @@ export default function UnifiedLayout() {
     return () => unsubscribe()
   }, [onReconnect, setIncomingRequestCount, token, user])
 
-  const handleOpenServerSettings = (id: string) => {
+  const handleOpenServerSettings = (id: string, initialTab: ServerSettingsTab = 'overview') => {
+    setOpenServerSettingsForServerTab(initialTab)
     setOpenServerSettingsForServerId(id)
     setActiveServer(id)
     navigate(ROUTES.servers)

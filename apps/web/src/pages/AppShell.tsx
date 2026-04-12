@@ -565,6 +565,7 @@ export default function AppShell() {
           >
             <Search size={14} />
             <span className="shell-quick-switch-label">Quick Search</span>
+            <span className="shell-quick-switch-mobile-label">Search</span>
             <span className="shell-quick-switch-shortcut">Ctrl K</span>
           </button>
         </div>

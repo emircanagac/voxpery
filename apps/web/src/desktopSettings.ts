@@ -52,7 +52,10 @@ export async function setDesktopAutostartEnabled(enabled: boolean) {
 export function shouldEnableDesktopAutostartByDefault() {
   if (!isTauri()) return false
   if (hasStoredSetting(AUTOSTART_INITIALIZED_KEY)) return false
-  return navigator.userAgent.toLowerCase().includes('windows')
+  if (typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent.toLowerCase()
+  const platform = navigator.platform?.toLowerCase() ?? ''
+  return userAgent.includes('windows') || platform.startsWith('win')
 }
 
 export function markDesktopAutostartInitialized() {

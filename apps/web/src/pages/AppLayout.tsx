@@ -263,6 +263,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         showCreateServer, showJoinServer,
         openServerSettingsForServerId,
         setOpenServerSettingsForServerId,
+        openServerSettingsForServerTab,
+        setOpenServerSettingsForServerTab,
         mobileSidebarPanel,
         setMobileSidebarPanel,
         savedMediaByUserId,
@@ -304,6 +306,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             showJoinServer: s.showJoinServer,
             openServerSettingsForServerId: s.openServerSettingsForServerId,
             setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
+            openServerSettingsForServerTab: s.openServerSettingsForServerTab,
+            setOpenServerSettingsForServerTab: s.setOpenServerSettingsForServerTab,
             mobileSidebarPanel: s.mobileSidebarPanel,
             setMobileSidebarPanel: s.setMobileSidebarPanel,
             savedMediaByUserId: s.savedMediaByUserId,
@@ -513,6 +517,21 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }, [isMobileViewport])
 
     useEffect(() => {
+        if (typeof document === 'undefined') return
+        const root = document.documentElement
+        if (isMobileViewport && showMobileMemberSheet) {
+            root.classList.add('mobile-member-sheet-open')
+            return () => {
+                root.classList.remove('mobile-member-sheet-open')
+            }
+        }
+        root.classList.remove('mobile-member-sheet-open')
+        return () => {
+            root.classList.remove('mobile-member-sheet-open')
+        }
+    }, [isMobileViewport, showMobileMemberSheet])
+
+    useEffect(() => {
         setShowMobileMemberSheet(false)
     }, [activeServerId, activeChannelId])
 
@@ -536,12 +555,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 message: 'Server Settings are currently available on desktop screens only.',
             })
             setOpenServerSettingsForServerId(null)
+            setOpenServerSettingsForServerTab(null)
             return
         }
+        setServerSettingsTab(openServerSettingsForServerTab ?? 'overview')
         setServerSettingsServerId(activeServerId)
         setShowServerSettings(true)
         setOpenServerSettingsForServerId(null)
-    }, [activeServerId, isMobileViewport, openServerSettingsForServerId, pushToast, setOpenServerSettingsForServerId])
+        setOpenServerSettingsForServerTab(null)
+    }, [
+        activeServerId,
+        isMobileViewport,
+        openServerSettingsForServerId,
+        openServerSettingsForServerTab,
+        pushToast,
+        setOpenServerSettingsForServerId,
+        setOpenServerSettingsForServerTab,
+    ])
 
     useEffect(() => {
         if (!isMobileViewport || !showServerSettings) return
@@ -1416,7 +1446,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setJoinServerError(null)
         setShowJoinServer(true)
     }
-    const openServerSettingsModal = (serverId?: string | null) => {
+    const openServerSettingsModal = (
+        serverId?: string | null,
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+    ) => {
         if (isMobileViewport) {
             pushToast({
                 level: 'info',
@@ -1429,13 +1462,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setDeleteServerError(null)
         setDeleteServerInput('')
         setShowDeleteServerConfirm(false)
-        setServerSettingsTab('overview')
+        setServerSettingsTab(initialTab)
         setServerSettingsServerId(serverId ?? activeServerId ?? null)
         setShowServerSettings(true)
     }
-    const openServerSettingsForServer = (serverId: string) => {
+    const openServerSettingsForServer = (
+        serverId: string,
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+    ) => {
         if (activeServerId !== serverId) setActiveServer(serverId)
-        openServerSettingsModal(serverId)
+        openServerSettingsModal(serverId, initialTab)
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
