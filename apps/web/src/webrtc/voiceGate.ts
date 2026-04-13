@@ -97,15 +97,16 @@ export function evaluateVoiceGateFrame(input: VoiceGateFrameInput): VoiceGateFra
   const speechLike = aggressiveIsolation
     ? speechFrame.score >= -1.4 && !speechFrame.clicky
     : speechFrame.score >= -2.6
-  const openFramesRequired = aggressiveIsolation ? 4 : noiseSuppressionEnabled ? 3 : 2
-  const holdFrames = aggressiveIsolation ? 12 : noiseSuppressionEnabled ? 15 : 18
-  const smoothAlpha = aggressiveIsolation ? 0.94 : 0.96
+  const openFramesRequired = aggressiveIsolation ? 2 : 1
+  const holdFrames = aggressiveIsolation ? 8 : noiseSuppressionEnabled ? 9 : 7
+  const smoothAlpha = aggressiveIsolation ? 0.945 : 0.955
   const effectiveOffThr = Math.max(
     offThr,
-    onThr * (aggressiveIsolation ? 0.58 : noiseSuppressionEnabled ? 0.45 : 0.35),
+    onThr * (aggressiveIsolation ? 0.36 : noiseSuppressionEnabled ? 0.3 : 0.24),
   )
   const nextSmoothedRms = smoothAlpha * smoothedRms + (1 - smoothAlpha) * rms
-  const shouldOpen = rms >= onThr && speechLike
+  const strongOnset = rms >= onThr * (aggressiveIsolation ? 1.35 : 1.12)
+  const shouldOpen = (rms >= onThr && speechLike) || (strongOnset && !speechFrame.clicky)
 
   if (shouldOpen) {
     const nextOpenFrames = openFrames + 1
@@ -146,7 +147,9 @@ export function evaluateVoiceGateFrame(input: VoiceGateFrameInput): VoiceGateFra
     }
   }
 
-  if (nextSmoothedRms >= effectiveOffThr && !speechFrame.clicky) {
+  // Once speech is already open, prefer continuity over overreacting to a
+  // single frame that looks "clicky". This avoids chopping syllables mid-word.
+  if (nextSmoothedRms >= effectiveOffThr) {
     return {
       speaking: true,
       openFrames: 0,

@@ -50,20 +50,22 @@ Microphone → getUserMedia → AudioContext pipeline → LiveKit Room → SFU �
 Raw mic track
     ↓
 getUserMedia({
-  noiseSuppression: false,
+  noiseSuppression: <On/Off from settings>,
   echoCancellation: true,
-  autoGainControl: true
-})  ← Browser NS disabled, EC + AGC enabled
+  autoGainControl: !noiseSuppression
+})  ← Browser EC always on; browser NS is used as a light fallback layer
     ↓
 AudioContext.createMediaStreamSource
     ↓
-High-pass filter (~110 Hz)
+High-pass filter
     ↓
 RNNoise AudioWorkletNode (ML-based denoiser)
     ↓
+Speech / transient cleanup stage
+    ↓
 Low-level noise tamer (post-RNNoise floor shaping)
     ↓
-GainNode (input volume: 0.0–2.0 from settings)
+GainNode (input volume)
     ↓
 VAD analyser tap (post-RNNoise, pre-volume)
     ↓
@@ -82,11 +84,30 @@ Room.localParticipant.publishTrack
   - Lazy-loaded on first enable (~4.8 MB WASM, 3.1 MB gzipped) → separate chunk in Vite build
   - Removes keyboard clicks, fan noise, background hum while preserving voice clarity
   - Toggle: Live on/off in Voice Settings (no voice channel re-join required)
+- **Simple user-facing model**
+  - Voice Settings intentionally exposes only `Off` / `On`
+  - When `On`, Voxpery automatically changes cleanup strength based on the current **Input sensitivity** threshold
+  - This keeps `Custom` sensitivity values logically aligned with the actual environment instead of tying suppression strength to preset names only
+- **Threshold-based suppression tuning**
+  - `-100 .. -53 dB` → `balanced` cleanup
+  - `-52 .. 0 dB` → `high` cleanup
+  - In practice:
+    - quieter and everyday thresholds use the recommended balanced cleanup
+    - noisier thresholds apply stronger cleanup for keyboard and room noise
 - **High-pass cleanup**
-  - A light ~110 Hz high-pass filter removes low rumble, desk vibration, plosive energy, and some breath boom before denoising
+  - A high-pass stage removes low rumble, desk vibration, plosive energy, and some breath boom before denoising
 - **Low-level noise tamer**
   - A gentle post-RNNoise gain stage reduces very quiet residual noise between phrases without hard-gating speech
   - Helps with dip hiss, room hum, and lingering background texture while keeping speech natural
+- **Preset-aware DSP behavior**
+  - With suppression enabled, Voxpery adjusts multiple stages together:
+    - low-pass filtering for high-frequency keyboard/transient cleanup
+    - click / transient attenuation
+    - speech-presence shaping
+    - compressor strength
+    - residual noise floor attenuation
+  - `Balanced` is the recommended default
+  - `Noisy room` and stricter custom thresholds trend more aggressive for keyboard and room noise
 - **Why RNNoise?**
   - Browser native `noiseSuppression` is too weak for noisy backgrounds
   - Krisp required LiveKit Cloud (self-hosted setups can't use it)
@@ -104,17 +125,19 @@ Two modes:
 
 ### Sensitivity Threshold
 
-- **Range**: 0–100 (slider in Voice Settings)
+- **Range**: `-100 dB .. 0 dB` in the UI (`0..100` internal slider scale)
 - **Presets**:
-  - `Quiet room` (14): ~−38dB — more sensitive, best for calm rooms and soft speakers
-  - `Normal` (23): ~−30dB — balanced for typical speaking volume
-  - `Noisy room` (42): ~−20dB — stricter gate for louder environments
-- **Default preset**: `Quiet room`
-- **Mapping**: Exponential curve to natural dB range
-  - `0` → `0.001` (-60 dB, very sensitive to whispers)
-  - `23` → `~0.032` (~-30 dB, normal conversation)
-  - `100` → `0.561` (-5 dB, only loud speech)
-- **Hysteresis**: `offThreshold = onThreshold × 0.1` (10× lower) to prevent rapid on/off flicker during speech pauses
+  - `Balanced` (`-58 dB`) — recommended default for everyday use
+  - `Noisy room` (`-46 dB`) — stricter for louder environments
+  - `Custom` — manual threshold control across the full `-100 .. 0 dB` range
+- **Default preset**: `Balanced`
+- **Mapping**:
+  - UI shows a natural `-100 .. 0 dB` scale
+  - internally the slider is stored as `0..100`, with each step representing roughly `1 dB`
+  - `0` → `-100 dB`
+  - `42` → `-58 dB` (`Balanced`)
+  - `100` → `0 dB`
+- **Hysteresis**: `offThreshold = onThreshold × 0.14` to prevent rapid on/off flicker during speech pauses
 
 ### Output Chain (Remote Audio)
 

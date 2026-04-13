@@ -7,7 +7,7 @@
 export const SENSITIVITY_THRESHOLD_KEY = 'voxpery-settings-speaking-threshold'
 export const SPEAKING_PRESET_KEY = 'voxpery-settings-speaking-preset'
 
-export type SpeakingPreset = 'quiet' | 'normal' | 'noisy' | 'custom'
+export type SpeakingPreset = 'normal' | 'noisy' | 'custom'
 export const DEFAULT_SPEAKING_PRESET: Exclude<SpeakingPreset, 'custom'> = 'normal'
 
 /** Default slider value when not set (matches "Balanced" preset). */
@@ -15,14 +15,14 @@ export const DEFAULT_SENSITIVITY_SLIDER = 50
 
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
 export function thresholdByPreset(preset: Exclude<SpeakingPreset, 'custom'>): number {
-  if (preset === 'quiet') return 32   // −68dB
-  if (preset === 'noisy') return 56   // −44dB
-  return 44                           // −56dB (balanced default)
+  if (preset === 'noisy') return 54   // −46dB
+  return 42                           // −58dB (balanced default)
 }
 
 export function getStoredSpeakingPreset(): SpeakingPreset {
   const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAKING_PRESET_KEY) : null
-  if (raw === 'quiet' || raw === 'normal' || raw === 'noisy' || raw === 'custom') return raw
+  if (raw === 'quiet') return 'normal'
+  if (raw === 'normal' || raw === 'noisy' || raw === 'custom') return raw
   return DEFAULT_SPEAKING_PRESET
 }
 

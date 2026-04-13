@@ -168,11 +168,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   )
   const lastShownErrorRef = useRef<string | null>(null)
   const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
+  const DEFAULT_OUTPUT_VOLUME = 80
   const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
+  const MIC_TEST_AUTO_DEAFEN_EVENT = 'voxpery-mic-test-auto-deafen'
   const PEER_VOLUME_KEY = 'voxpery-voice-peer-volume'
   const PEER_VOLUME_CHANGED_EVENT = 'voxpery-voice-peer-volume-changed'
   const [outputVolume, setOutputVolume] = useState(() =>
-    Math.min(100, Math.max(1, Number(localStorage.getItem(OUTPUT_VOL_KEY)) || 100))
+    Math.min(100, Math.max(1, Number(localStorage.getItem(OUTPUT_VOL_KEY)) || DEFAULT_OUTPUT_VOLUME))
   )
   const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
     try {
@@ -201,6 +203,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const outputVolumeRef = useRef(outputVolume)
   const deafenedRef = useRef(deafened)
   const prevMutedBeforeDeafenRef = useRef(false)
+  const micTestAutoDeafenedRef = useRef(false)
+  const micTestPrevMutedRef = useRef(false)
   const remoteAudioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteAudioRetryTimerRef = useRef<Map<string, number>>(new Map())
   const remoteVideoStreamByTrackIdRef = useRef<Map<string, MediaStream>>(new Map())
@@ -364,7 +368,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     const onSettingsChanged = () => {
-      const raw = Math.min(100, Math.max(1, Number(localStorage.getItem(OUTPUT_VOL_KEY)) || 100))
+      const raw = Math.min(100, Math.max(1, Number(localStorage.getItem(OUTPUT_VOL_KEY)) || DEFAULT_OUTPUT_VOLUME))
       setOutputVolume(raw)
       outputVolumeRef.current = raw
       applyOutputVolumeToElements(raw / 100)
@@ -662,6 +666,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!selectedVoiceChannelId && !state.joinedChannelId) return
     if (!selectedVoiceChannelId) return
     if (isInThisChannel) {
+      micTestAutoDeafenedRef.current = false
       setVoiceControls(false, false, false)
       leaveVoice()
       setDeafened(false)
@@ -669,6 +674,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       setBlockedAutoJoinChannelId(selectedVoiceChannelId)
     } else {
       await joinWithPreflight(selectedVoiceChannelId)
+      micTestAutoDeafenedRef.current = false
       setMuted(false)
       setDeafened(false)
       setVoiceControls(false, false, false)
@@ -678,6 +684,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   const toggleDeafen = () => {
     if (!state.joinedChannelId) return
+    micTestAutoDeafenedRef.current = false
     const stream = localStreamRef.current ?? state.localStream
     const nextDeafened = !deafened
     if (nextDeafened) {
@@ -700,6 +707,52 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     playVoiceCue(nextDeafened ? 'deafen' : 'undeafen')
   }
+
+  useEffect(() => {
+    const onMicTestAutoDeafen = (event: Event) => {
+      const customEvent = event as CustomEvent<{ enabled?: boolean }>
+      const enabled = !!customEvent.detail?.enabled
+      if (!state.joinedChannelId) return
+      if (serverDeafened) return
+      const stream = localStreamRef.current ?? state.localStream
+
+      if (enabled) {
+        if (deafened) return
+        micTestPrevMutedRef.current = muted
+        micTestAutoDeafenedRef.current = true
+        if (stream) {
+          for (const t of stream.getAudioTracks()) t.enabled = false
+        }
+        setDeafened(true)
+        setMuted(true)
+        setVoiceControls(true, true, state.isScreenSharing)
+        return
+      }
+
+      if (!micTestAutoDeafenedRef.current) return
+      micTestAutoDeafenedRef.current = false
+      const restoreMuted = micTestPrevMutedRef.current
+      if (stream) {
+        const shouldMuteTrack = restoreMuted || serverMuted || serverDeafened
+        for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
+      }
+      setDeafened(false)
+      setMuted(restoreMuted)
+      setVoiceControls(restoreMuted, false, state.isScreenSharing)
+    }
+
+    window.addEventListener(MIC_TEST_AUTO_DEAFEN_EVENT, onMicTestAutoDeafen as EventListener)
+    return () => window.removeEventListener(MIC_TEST_AUTO_DEAFEN_EVENT, onMicTestAutoDeafen as EventListener)
+  }, [
+    deafened,
+    muted,
+    serverDeafened,
+    serverMuted,
+    setVoiceControls,
+    state.isScreenSharing,
+    state.joinedChannelId,
+    state.localStream,
+  ])
 
   const handleScreenShare = async () => {
     if (!state.joinedChannelId) return

@@ -68,10 +68,11 @@ const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
+const DEFAULT_INPUT_VOLUME = 80
+const DEFAULT_OUTPUT_VOLUME = 80
 const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
-const VOICE_JOIN_CONFIRM_KEY = 'voxpery-settings-voice-join-confirm'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
 const DEFAULT_INPUT_DEVICE_OPTION: VoiceDeviceOption = {
   id: '',
@@ -173,8 +174,8 @@ export default function UserBar() {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [pushNotificationsEnabled, setPushNotificationsEnabledState] = useState(true)
   const [pushNotificationPermission, setPushNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
-  const [inputVolume, setInputVolume] = useState(80)
-  const [outputVolume, setOutputVolume] = useState(100)
+  const [inputVolume, setInputVolume] = useState(DEFAULT_INPUT_VOLUME)
+  const [outputVolume, setOutputVolume] = useState(DEFAULT_OUTPUT_VOLUME)
   const [inputDevices, setInputDevices] = useState<VoiceDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION])
   const [outputDevices, setOutputDevices] = useState<VoiceDeviceOption[]>([DEFAULT_OUTPUT_DEVICE_OPTION])
   const [selectedInputDeviceId, setSelectedInputDeviceId] = useState(() => getStoredVoiceInputDeviceId())
@@ -189,7 +190,6 @@ export default function UserBar() {
   const [capturingPtt, setCapturingPtt] = useState(false)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
   const [voiceInputProfile, setVoiceInputProfile] = useState<VoiceInputProfile>(() => getStoredVoiceInputProfile())
-  const [voiceJoinConfirmEnabled, setVoiceJoinConfirmEnabled] = useState(true)
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
     (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
   )
@@ -477,46 +477,15 @@ export default function UserBar() {
     const mode = localStorage.getItem(VOICE_MODE_KEY)
     const ptt = localStorage.getItem(PTT_KEY_KEY)
     const ns = localStorage.getItem(NOISE_SUPPRESSION_KEY)
-    const voiceJoinConfirm = localStorage.getItem(VOICE_JOIN_CONFIRM_KEY)
     let speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
     let preset = localStorage.getItem(SPEAKING_PRESET_KEY)
     const profileRaw = localStorage.getItem(VOICE_INPUT_PROFILE_KEY)
-    const shouldMigrateLegacyIsolationPreset = profileRaw === 'isolation' && preset === 'noisy'
-    const legacyPresetThresholds: Partial<Record<'quiet' | 'normal' | 'noisy', number[]>> = {
-      quiet: [16, 64, 30, 38],
-      normal: [30, 74, 45, 50],
-      noisy: [52, 80, 60, 62],
-    }
-    if (shouldMigrateLegacyIsolationPreset) {
-      const balancedThreshold = thresholdByPreset('normal')
-      preset = 'normal'
-      speaking = String(balancedThreshold)
-      try {
-        localStorage.setItem(SPEAKING_PRESET_KEY, 'normal')
-        localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(balancedThreshold))
-      } catch {
-        // ignore storage errors
-      }
-    }
-    if ((preset === 'quiet' || preset === 'normal' || preset === 'noisy') && speaking != null) {
-      const parsedSpeaking = Math.min(100, Math.max(0, Number(speaking) || 0))
-      const legacyValues = legacyPresetThresholds[preset]
-      if (legacyValues != null && legacyValues.includes(parsedSpeaking)) {
-        const migratedThreshold = thresholdByPreset(preset)
-        speaking = String(migratedThreshold)
-        try {
-          localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(migratedThreshold))
-        } catch {
-          // ignore storage errors
-        }
-      }
-    }
     if (sound != null) setSoundEnabled(sound === '1')
     const enabled = getPushNotificationsEnabled()
     setPushNotificationsEnabledState(enabled)
     setPushNotificationPermission(getPushNotificationPermission())
-    if (input != null) setInputVolume(Math.min(100, Math.max(1, Number(input) || 80)))
-    if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || 100)))
+    if (input != null) setInputVolume(Math.min(100, Math.max(1, Number(input) || DEFAULT_INPUT_VOLUME)))
+    if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || DEFAULT_OUTPUT_VOLUME)))
     if (mode === 'push_to_talk' || mode === 'voice_activity') setVoiceMode(mode)
     if (ptt) setPttKey(ptt)
     if (ns != null) {
@@ -529,16 +498,36 @@ export default function UserBar() {
         // ignore storage errors
       }
     }
-    if (voiceJoinConfirm != null) setVoiceJoinConfirmEnabled(voiceJoinConfirm !== '0')
+    try {
+      localStorage.removeItem('voxpery-settings-voice-join-confirm')
+    } catch {
+      // ignore storage errors
+    }
     if (speaking != null) {
       setSpeakingThreshold(Math.min(100, Math.max(0, Number(speaking) || thresholdByPreset(DEFAULT_SPEAKING_PRESET))))
     } else {
       setSpeakingThreshold(thresholdByPreset(DEFAULT_SPEAKING_PRESET))
     }
-    if (preset === 'quiet' || preset === 'normal' || preset === 'noisy' || preset === 'custom') {
-      setSpeakingPreset(preset)
-      if (speaking == null && preset !== 'custom') {
-        setSpeakingThreshold(thresholdByPreset(preset))
+    const resolvedPreset: SpeakingPreset | null =
+      preset === 'quiet'
+        ? 'normal'
+        : (preset === 'normal' || preset === 'noisy' || preset === 'custom' ? preset : null)
+
+    if (resolvedPreset) {
+      setSpeakingPreset(resolvedPreset)
+      if (speaking == null && resolvedPreset !== 'custom') {
+        setSpeakingThreshold(thresholdByPreset(resolvedPreset))
+      }
+      if (preset === 'quiet') {
+        try {
+          localStorage.setItem(SPEAKING_PRESET_KEY, 'normal')
+          if (speaking == null) {
+            localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(thresholdByPreset('normal')))
+          }
+          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+        } catch {
+          // ignore storage errors
+        }
       }
     } else {
       setSpeakingPreset(DEFAULT_SPEAKING_PRESET)
@@ -1404,7 +1393,6 @@ export default function UserBar() {
                 <h3 className="user-settings-section-title">Voice & Audio</h3>
                 <div className="voice-settings-block">
                   <div className="voice-settings-block__title">Audio devices</div>
-                  <div className="voice-settings-block__desc">Pick microphone and speaker, then set comfortable levels.</div>
                   {!microphoneAccessAllowed && (
                     <div className="voice-settings-banner">
                       <span>
@@ -1426,11 +1414,6 @@ export default function UserBar() {
                     <div className="user-setting-row">
                       <div>
                         <div className="user-setting-title">Microphone</div>
-                        <div className="user-setting-desc">
-                          {voiceDevicesNeedAccess
-                            ? 'Uses Windows Default until microphone access is allowed.'
-                            : 'Choose which microphone Voxpery uses.'}
-                        </div>
                       </div>
                       <div className="user-setting-actions user-setting-actions--device">
                         <button
@@ -1449,13 +1432,6 @@ export default function UserBar() {
                     <div className="user-setting-row">
                       <div>
                         <div className="user-setting-title">Speaker</div>
-                        <div className="user-setting-desc">
-                          {voiceDevicesNeedAccess
-                            ? 'Uses Windows Default until microphone access is allowed.'
-                            : canSelectOutputDevice
-                              ? 'Choose which speaker plays voice audio.'
-                              : 'Uses your system default output.'}
-                        </div>
                       </div>
                       <div className="user-setting-actions user-setting-actions--device">
                         <button
@@ -1473,8 +1449,10 @@ export default function UserBar() {
                     </div>
                     <div className="user-setting-row">
                       <div>
-                        <div className="user-setting-title">Input volume</div>
-                        <div className="user-setting-desc">Microphone level ({inputVolume}%).</div>
+                        <div className="user-setting-title">
+                          Input volume
+                          <span className="voice-settings-inline-value">{inputVolume}%</span>
+                        </div>
                       </div>
                       <input
                         type="range"
@@ -1492,8 +1470,10 @@ export default function UserBar() {
                     </div>
                     <div className="user-setting-row">
                       <div>
-                        <div className="user-setting-title">Output volume</div>
-                        <div className="user-setting-desc">Speaker level ({outputVolume}%).</div>
+                        <div className="user-setting-title">
+                          Output volume
+                          <span className="voice-settings-inline-value">{outputVolume}%</span>
+                        </div>
                       </div>
                       <input
                         type="range"
@@ -1520,6 +1500,8 @@ export default function UserBar() {
                       <SensitivityBar
                         threshold={speakingThreshold}
                         preset={speakingPreset}
+                        previewAvatarUrl={user?.avatar_url ?? null}
+                        previewFallback={user ? getInitial(user.username) : '?'}
                         onThresholdChange={(v) => {
                           setSpeakingThreshold(v)
                           localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(v))
@@ -1560,12 +1542,6 @@ export default function UserBar() {
                         {noiseSuppressionEnabled ? 'On' : 'Off'}
                       </button>
                     </div>
-                  </div>
-                </div>
-
-                <div className="voice-settings-block">
-                  <div className="voice-settings-block__title">Voice behavior</div>
-                  <div className="voice-settings-grid">
                     <div className="user-setting-row user-setting-row--span-two">
                       <div>
                         <div className="user-setting-title">Activation mode</div>
@@ -1601,24 +1577,6 @@ export default function UserBar() {
                         </button>
                       </div>
                     )}
-                    <div className="user-setting-row user-setting-row--span-two">
-                      <div>
-                        <div className="user-setting-title">Voice join confirmation</div>
-                        <div className="user-setting-desc">Ask before joining a voice channel from the sidebar.</div>
-                      </div>
-                      <button
-                        type="button"
-                        className={`user-toggle ${voiceJoinConfirmEnabled ? 'active' : ''}`}
-                        onClick={() => {
-                          const next = !voiceJoinConfirmEnabled
-                          setVoiceJoinConfirmEnabled(next)
-                          localStorage.setItem(VOICE_JOIN_CONFIRM_KEY, next ? '1' : '0')
-                          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
-                        }}
-                      >
-                        {voiceJoinConfirmEnabled ? 'On' : 'Off'}
-                      </button>
-                    </div>
                   </div>
                 </div>
               </section>

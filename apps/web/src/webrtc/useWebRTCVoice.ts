@@ -93,6 +93,7 @@ export function useWebRTCVoice() {
   const SOUND_KEY = 'voxpery-settings-sound-enabled'
   const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
   const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
+  const DEFAULT_INPUT_VOLUME = 80
   const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
   const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
   const SCREEN_SHARE_RESOLUTION_KEY = 'voxpery-settings-screen-share-resolution'
@@ -692,7 +693,7 @@ export function useWebRTCVoice() {
         source.connect(gainNode)  // branch 2: voice send chain
         gainNode.connect(gateNode)
         gateNode.connect(dest)
-        const inputVol = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || 100)) / 100
+        const inputVol = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || DEFAULT_INPUT_VOLUME)) / 100
         gainNode.gain.value = inputVol
         inputGainNodeRef.current = gainNode
         voiceGateGainNodeRef.current = gateNode
@@ -1012,7 +1013,7 @@ export function useWebRTCVoice() {
   // Input volume: always listen for settings change so gain updates even when effect below hasn't run yet.
   useEffect(() => {
     const onInputVolumeChanged = () => {
-      const inputVol = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || 100)) / 100
+      const inputVol = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || DEFAULT_INPUT_VOLUME)) / 100
       if (inputGainNodeRef.current) inputGainNodeRef.current.gain.value = inputVol
 
       const nsEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'

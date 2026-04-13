@@ -4,6 +4,7 @@ import { buildPreferredMicrophoneConstraints, getStoredVoiceInputDeviceId } from
 const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
+const DEFAULT_INPUT_VOLUME = 80
 
 type ScreenShareResolution = '720p' | '1080p'
 type ScreenShareFramerate = 30 | 60
@@ -204,7 +205,7 @@ export function useLocalMedia() {
     }, [resolveScreenShareProfile])
 
     const getInputVolumeFactor = useCallback(() => {
-        const raw = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || 100))
+        const raw = Math.min(100, Math.max(1, Number(localStorage.getItem(INPUT_VOL_KEY)) || DEFAULT_INPUT_VOLUME))
         return raw / 100
     }, [])
 

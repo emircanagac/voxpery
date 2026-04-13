@@ -1,14 +1,19 @@
-import { DEFAULT_SPEAKING_PRESET, thresholdByPreset, type SpeakingPreset } from './sensitivityThreshold'
+import {
+  DEFAULT_SPEAKING_PRESET,
+  getSliderFromStorage,
+  thresholdByPreset,
+} from './sensitivityThreshold'
 
 export const VOICE_INPUT_PROFILE_KEY = 'voxpery-settings-voice-input-profile'
 
 export type VoiceInputProfile = 'isolation' | 'studio' | 'custom'
+export type VoiceSuppressionTuning = 'off' | 'balanced' | 'high'
 
 export interface VoiceInputProfileConfig {
   profile: VoiceInputProfile
   voiceMode: 'voice_activity' | 'push_to_talk'
   noiseSuppressionEnabled: boolean
-  speakingPreset: SpeakingPreset
+  speakingPreset: 'normal' | 'noisy' | 'custom'
   speakingThreshold: number
 }
 
@@ -31,8 +36,8 @@ export function getVoiceInputProfileConfig(profile: VoiceInputProfile): VoiceInp
       profile,
       voiceMode: 'voice_activity',
       noiseSuppressionEnabled: false,
-      speakingPreset: 'quiet',
-      speakingThreshold: thresholdByPreset('quiet'),
+      speakingPreset: 'normal',
+      speakingThreshold: thresholdByPreset('normal'),
     }
   }
 
@@ -66,7 +71,60 @@ export function shouldUseAggressiveVoiceIsolation(
   noiseSuppressionEnabled: boolean,
 ): boolean {
   if (!noiseSuppressionEnabled) return false
-  // Noise suppression behavior should stay stable across sensitivity presets.
-  // Presets/custom only tune the VAD threshold; profile controls the processing style.
+  // Profile still controls the overall isolation style; preset tuning is layered on top.
   return profile === 'isolation'
+}
+
+export function getVoiceSuppressionTuning(
+  profile: VoiceInputProfile,
+  speakingThreshold: number,
+  noiseSuppressionEnabled: boolean,
+): VoiceSuppressionTuning {
+  if (!noiseSuppressionEnabled || profile === 'studio') return 'off'
+  const thresholdDb = Math.max(-100, Math.min(0, Math.round(speakingThreshold - 100)))
+  if (thresholdDb <= -53) return 'balanced'
+  return 'high'
+}
+
+export function getVoiceSuppressionTuningLabel(tuning: VoiceSuppressionTuning): string {
+  if (tuning === 'high') return 'strong cleanup'
+  if (tuning === 'balanced') return 'balanced cleanup'
+  return 'suppression off'
+}
+
+export function getVoiceSuppressionTuningSummary(tuning: VoiceSuppressionTuning): string {
+  if (tuning === 'high') return 'Stronger cleanup for keyboard and room noise.'
+  if (tuning === 'balanced') return 'Recommended default for most setups.'
+  return 'Noise suppression is disabled.'
+}
+
+export function getVoiceSuppressionTuningForStoredThreshold(
+  profile: VoiceInputProfile,
+  noiseSuppressionEnabled: boolean,
+): VoiceSuppressionTuning {
+  const speakingThreshold = getSliderFromStorage()
+  return getVoiceSuppressionTuning(profile, speakingThreshold, noiseSuppressionEnabled)
+}
+
+export function getVoiceSuppressionTuningForThreshold(
+  threshold: number,
+  noiseSuppressionEnabled: boolean,
+): VoiceSuppressionTuning {
+  return getVoiceSuppressionTuning(getStoredVoiceInputProfile(), threshold, noiseSuppressionEnabled)
+}
+
+export function getStoredVoiceSuppressionTuning(
+  noiseSuppressionEnabled: boolean,
+): VoiceSuppressionTuning {
+  return getVoiceSuppressionTuningForStoredThreshold(
+    getStoredVoiceInputProfile(),
+    noiseSuppressionEnabled,
+  )
+}
+
+export function shouldRebuildSuppressionPipeline(
+  previous: VoiceSuppressionTuning,
+  next: VoiceSuppressionTuning,
+): boolean {
+  return previous !== next
 }
