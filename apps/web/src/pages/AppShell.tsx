@@ -357,7 +357,7 @@ export default function AppShell() {
           const authorId = incomingMessage?.author?.user_id
           const isSocialWithVisibleDm = isSocialDmViewVisible(location.pathname)
           if (!channelId || channelType !== 'dm') return
-          if (authorId && authorId === user?.id) return
+          if (authorId && authorId === userId) return
 
           void (async () => {
             let channel = dmChannels.find((c) => c.id === channelId)

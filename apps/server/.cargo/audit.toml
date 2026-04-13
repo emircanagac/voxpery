@@ -1,4 +1,8 @@
 # sqlx 0.8 on crates.io pulls mysql (and rsa) as required deps; we use postgres only.
 # RUSTSEC-2023-0071 (rsa) is not used at runtime. See README or prior discussion.
+# RUSTSEC-2026-0097 (rand) is currently reported through both direct rand 0.8 usage
+# and transitive stable dependencies (jsonwebtoken 10.3.0 / sqlx 0.8.x).
+# There is no clean stable upgrade path in this dependency set yet, so we ignore it
+# temporarily to keep CI actionable and will remove this once upstream stable fixes land.
 [advisories]
-ignore = ["RUSTSEC-2023-0071"]
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0097"]
