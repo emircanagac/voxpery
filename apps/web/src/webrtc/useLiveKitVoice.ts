@@ -98,7 +98,14 @@ export function useLiveKitVoice() {
     return new Map(remoteStreamsRef.current)
   }, [remoteStreamsVersion])
 
-  const { getAudioContext, playVoiceCue, disconnectAudioContext, buildMicSendTrack, setRnnoiseEnabled, destroyRnnoise } = useAudioEngine()
+  const {
+    getAudioContext,
+    playVoiceCue,
+    disconnectAudioContext,
+    buildMicSendTrack,
+    updateMicProcessingSettings,
+    destroyRnnoise,
+  } = useAudioEngine()
   const { applyLocalMicSettings, getMicrophoneStream, getCameraStream, getScreenStream, getScreenShareEncoding, getInputVolumeFactor, cleanupLocalMedia } = useLocalMedia()
 
   const updateRoomStats = useCallback(() => {
@@ -770,25 +777,18 @@ export function useLiveKitVoice() {
 
       const track = localAudioTrackRef.current
       if (track && joinedChannelIdRef.current) {
-        if (suppressionChanged) {
-          // Live suppression toggles should never risk dropping the published mic.
-          // RNNoise supports hot enable/disable, and the noise-floor logic already
-          // reads the latest suppression flag from storage on every frame.
-          // Keep the current published track alive even if the UI also flips the
-          // profile to "custom" as part of the same interaction.
-          setRnnoiseEnabled(nowEnabled)
-          return
-        }
-
-        if (profileChanged || suppressionTuningChanged) {
-          void rebuildPublishedMicrophoneTrack()
+        if (suppressionChanged || profileChanged || suppressionTuningChanged) {
+          const updated = updateMicProcessingSettings(nowEnabled)
+          if (!updated) {
+            void rebuildPublishedMicrophoneTrack()
+          }
           return
         }
       }
     }
     window.addEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
     return () => window.removeEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
-  }, [applyLocalMicSettings, getInputVolumeFactor, rebuildPublishedMicrophoneTrack, setRnnoiseEnabled, switchMicrophoneDevice])
+  }, [applyLocalMicSettings, getInputVolumeFactor, rebuildPublishedMicrophoneTrack, switchMicrophoneDevice, updateMicProcessingSettings])
 
   useEffect(() => {
     return () => {

@@ -14,7 +14,6 @@ import {
 import { evaluateVoiceGateFrame } from '../webrtc/voiceGate'
 import {
     getStoredVoiceInputProfile,
-    getVoiceSuppressionTuningForThreshold,
     shouldUseAggressiveVoiceIsolation,
 } from '../webrtc/voiceInputProfile'
 import { useAudioEngine } from '../webrtc/hooks/useAudioEngine'
@@ -122,6 +121,7 @@ export default function SensitivityBar({
     const inputGainNodeRef = useRef<GainNode | null>(null)
     const monitorAudioRef = useRef<(HTMLAudioElement & { playsInline?: boolean }) | null>(null)
     const smoothLevelRef = useRef(-100)
+    const monitorLevelRef = useRef(0)
     const thresholdRef = useRef(threshold)
     const gateOpenRef = useRef(false)
     const openFramesRef = useRef(0)
@@ -130,12 +130,7 @@ export default function SensitivityBar({
     const glowSuppressUntilRef = useRef(0)
     const interactionMuteUntilRef = useRef(0)
     const previousPresetRef = useRef<SpeakingPreset>(preset)
-    const { buildMicSendTrack, destroyRnnoise, setRnnoiseEnabled } = useAudioEngine()
-    const noiseSuppressionEnabled = typeof localStorage === 'undefined'
-        ? true
-        : localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
-    const suppressionTuningKey = getVoiceSuppressionTuningForThreshold(threshold, noiseSuppressionEnabled)
-
+    const { buildMicSendTrack, destroyRnnoise, updateMicProcessingSettings } = useAudioEngine()
     useEffect(() => {
         if (typeof window === 'undefined') return
         window.dispatchEvent(new CustomEvent(MIC_TEST_AUTO_DEAFEN_EVENT, { detail: { enabled: monitorEnabled } }))
@@ -164,6 +159,7 @@ export default function SensitivityBar({
             setGatePassing(false)
             setMicActive(false)
             smoothLevelRef.current = -100
+            monitorLevelRef.current = 0
             openFramesRef.current = 0
             belowFramesRef.current = 0
             smoothedRmsRef.current = 0
@@ -238,7 +234,7 @@ export default function SensitivityBar({
                 monitorAudio.autoplay = true
                 monitorAudio.playsInline = true
                 monitorAudio.muted = false
-                monitorAudio.volume = MIC_TEST_MONITOR_GAIN
+                monitorAudio.volume = 0
                 monitorAudio.srcObject = vadStream
                 monitorAudioRef.current = monitorAudio
                 void applyPreferredAudioOutputDevice(monitorAudio)
@@ -246,7 +242,7 @@ export default function SensitivityBar({
 
                 const onSettingsChanged = () => {
                     const nowEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
-                    setRnnoiseEnabled(nowEnabled)
+                    updateMicProcessingSettings(nowEnabled)
                     if (monitorAudioRef.current) {
                         void applyPreferredAudioOutputDevice(monitorAudioRef.current)
                     }
@@ -264,6 +260,8 @@ export default function SensitivityBar({
                 const frequencyData = new Float32Array(Math.max(32, analyser.frequencyBinCount))
                 const attackAlpha = 0.42
                 const releaseAlpha = 0.14
+                const monitorOpenAlpha = 0.5
+                const monitorCloseAlpha = 0.16
 
                 const tick = () => {
                     if (cancelled) return
@@ -325,7 +323,18 @@ export default function SensitivityBar({
                                 : smoothedDb
                             setLiveDb(displayedDb)
                             if (monitorAudioRef.current) {
-                                monitorAudioRef.current.volume = suppressInteractionPreview ? 0 : MIC_TEST_MONITOR_GAIN
+                                const targetMonitorLevel =
+                                    suppressInteractionPreview || !previewShouldPass
+                                        ? 0
+                                        : MIC_TEST_MONITOR_GAIN
+                                const previousMonitorLevel = monitorLevelRef.current
+                                const monitorAlpha = targetMonitorLevel > previousMonitorLevel
+                                    ? monitorOpenAlpha
+                                    : monitorCloseAlpha
+                                const nextMonitorLevel = previousMonitorLevel
+                                    + (targetMonitorLevel - previousMonitorLevel) * monitorAlpha
+                                monitorLevelRef.current = nextMonitorLevel
+                                monitorAudioRef.current.volume = nextMonitorLevel
                             }
                         }
                     } catch {
@@ -382,6 +391,7 @@ export default function SensitivityBar({
             setMicActive(false)
             setGatePassing(false)
             smoothLevelRef.current = -100
+            monitorLevelRef.current = 0
             setLiveDb(-100)
             try {
                 analyserRef.current?.disconnect()
@@ -396,7 +406,7 @@ export default function SensitivityBar({
             contextRef.current = null
             analyserRef.current = null
         }
-    }, [buildMicSendTrack, destroyRnnoise, monitorEnabled, setRnnoiseEnabled, suppressionTuningKey])
+    }, [buildMicSendTrack, destroyRnnoise, monitorEnabled, updateMicProcessingSettings])
 
     useEffect(() => {
         return () => {
