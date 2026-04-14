@@ -23,6 +23,13 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
   - deep-link scheme setup
   - frontend OAuth origin behavior
 
+## 2.1) Release Network Scope (required)
+
+- Release desktop capability scope must allow only Voxpery production network targets.
+- `apps/desktop/src-tauri/capabilities/default.json` must not allow `localhost` or `127.0.0.1` HTTP targets in release builds.
+- `apps/desktop/src-tauri/tauri.conf.json` CSP `connect-src` must not include local HTTP/WS backends in release builds.
+- If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
+
 ## 3) Signing Strategy
 
 Current strategy:

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Html, IntoResponse, Redirect},
@@ -11,10 +11,9 @@ use base64::{
     Engine,
 };
 use redis::AsyncCommands;
-use sha1::{Digest, Sha1};
-use sha2::Sha256;
-use std::net::IpAddr;
-use std::sync::Arc;
+use sha2::{Digest, Sha256};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -52,6 +51,10 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
 const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
+static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
+    hash_password("voxpery-login-dummy-password")
+        .expect("dummy Argon2 hash should be generated successfully")
+});
 
 /// Build Set-Cookie value to clear auth cookie.
 fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
@@ -249,14 +252,121 @@ fn visible_presence_from_preference(status: &str) -> &'static str {
     }
 }
 
-fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
+fn parse_forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
     headers
         .get("cf-connecting-ip")
         .or_else(|| headers.get("x-forwarded-for"))
         .and_then(|v| v.to_str().ok())
         .and_then(|raw| raw.split(',').next().map(str::trim))
         .and_then(|candidate| candidate.parse::<IpAddr>().ok())
-        .map(|ip| ip.to_string())
+}
+
+fn is_trusted_proxy_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+    }
+}
+
+fn extract_client_ip(
+    headers: &HeaderMap,
+    connect_info: Option<&ConnectInfo<SocketAddr>>,
+) -> Option<String> {
+    let Some(peer_ip) = connect_info.map(|info| info.ip()) else {
+        return None;
+    };
+    if is_trusted_proxy_ip(&peer_ip) {
+        Some(parse_forwarded_client_ip(headers).unwrap_or(peer_ip).to_string())
+    } else {
+        Some(peer_ip.to_string())
+    }
+}
+
+fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
+    let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str())?;
+    Ok(())
+}
+
+fn is_private_or_local_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || v4.is_unspecified()
+                || *v4 == Ipv4Addr::BROADCAST
+                || octets[0] == 0
+                || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000)
+                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.is_multicast()
+        }
+    }
+}
+
+fn is_forbidden_avatar_host(host: &str) -> bool {
+    let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "localhost"
+            | "localhost.localdomain"
+            | "metadata"
+            | "metadata.google.internal"
+            | "instance-data"
+    ) || normalized.ends_with(".localhost")
+        || normalized.ends_with(".local")
+        || normalized.ends_with(".internal")
+}
+
+fn validate_avatar_url(raw: &str) -> Result<String, AppError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Avatar URL cannot be empty".into()));
+    }
+    if trimmed.len() > 3_000_000 {
+        return Err(AppError::Validation("Avatar image is too large".into()));
+    }
+    if trimmed.to_ascii_lowercase().starts_with("data:image/svg+xml") {
+        return Err(AppError::Validation(
+            "SVG images are not allowed for avatars (security)".into(),
+        ));
+    }
+    if trimmed.starts_with("data:image/") {
+        return Ok(trimmed.to_string());
+    }
+
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| AppError::Validation("Avatar must be a valid HTTPS image URL".into()))?;
+    if parsed.scheme() != "https" {
+        return Err(AppError::Validation(
+            "Avatar image URLs must use https://".into(),
+        ));
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AppError::Validation("Avatar URL must include a host".into()))?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_or_local_ip(&ip) {
+            return Err(AppError::Validation(
+                "Avatar URL cannot point to local or private network addresses".into(),
+            ));
+        }
+    } else if is_forbidden_avatar_host(host) {
+        return Err(AppError::Validation(
+            "Avatar URL host is not allowed".into(),
+        ));
+    }
+
+    Ok(trimmed.to_string())
 }
 
 fn login_failure_user_key(identifier: &str) -> String {
@@ -481,6 +591,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// POST /api/auth/register
 async fn register(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
@@ -497,7 +608,10 @@ async fn register(
     .await?;
 
     // 2) IP-based rate limit (Flood protection)
-    let client_ip = extract_client_ip(&headers);
+    let client_ip = extract_client_ip(
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
 
     // Allow max 5 accounts per IP per hour as basic flood protection
     if let Some(ip) = client_ip.as_deref() {
@@ -923,11 +1037,15 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
 /// POST /api/auth/login
 async fn login(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let identifier = body.identifier.trim().to_lowercase();
-    let client_ip = extract_client_ip(&headers);
+    let client_ip = extract_client_ip(
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
 
     enforce_rate_limit(
         &state.redis,
@@ -960,12 +1078,14 @@ async fn login(
     .await?;
 
     let Some(user) = user else {
+        perform_dummy_password_verification(&body.password)?;
         record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     };
 
     // OAuth-only accounts do not have a local password yet.
     if user.password_hash == "oauth" {
+        perform_dummy_password_verification(&body.password)?;
         record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     }
@@ -1458,12 +1578,20 @@ async fn google_oauth_callback(
     let user = match user {
         Ok(Some(mut u)) => {
             if u.google_id.is_none() {
-                let _ = sqlx::query("UPDATE users SET google_id = $1 WHERE id = $2")
+                let _ = sqlx::query(
+                    "UPDATE users
+                     SET google_id = $1,
+                         password_hash = 'oauth',
+                         token_version = token_version + 1
+                     WHERE id = $2",
+                )
                     .bind(&google_id)
                     .bind(u.id)
                     .execute(&state.db)
                     .await;
                 u.google_id = Some(google_id.clone());
+                u.password_hash = "oauth".to_string();
+                u.token_version += 1;
             }
             u
         }
@@ -1851,27 +1979,7 @@ async fn update_profile(
     if body.clear_avatar.unwrap_or(false) {
         next_avatar = None;
     } else if let Some(url) = body.avatar_url {
-        let trimmed = url.trim().to_string();
-        if trimmed.is_empty() {
-            return Err(AppError::Validation("Avatar URL cannot be empty".into()));
-        }
-        if trimmed.len() > 3_000_000 {
-            return Err(AppError::Validation("Avatar image is too large".into()));
-        }
-        let valid_scheme = trimmed.starts_with("data:image/")
-            || trimmed.starts_with("http://")
-            || trimmed.starts_with("https://");
-        if !valid_scheme {
-            return Err(AppError::Validation(
-                "Avatar must be an image URL or data URL".into(),
-            ));
-        }
-        if trimmed.to_lowercase().starts_with("data:image/svg+xml") {
-            return Err(AppError::Validation(
-                "SVG images are not allowed for avatars (security)".into(),
-            ));
-        }
-        next_avatar = Some(trimmed);
+        next_avatar = Some(validate_avatar_url(&url)?);
     }
 
     if let Some(dm_privacy) = body.dm_privacy {
@@ -2348,7 +2456,7 @@ async fn forgot_password(
 
     // Generate token
     let token_plain = Uuid::new_v4().to_string();
-    let mut hasher = Sha1::new();
+    let mut hasher = Sha256::new();
     hasher.update(token_plain.as_bytes());
     let token_hash = BASE64.encode(hasher.finalize());
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
@@ -2419,7 +2527,7 @@ async fn reset_password(
         ));
     }
 
-    let mut hasher = Sha1::new();
+    let mut hasher = Sha256::new();
     hasher.update(body.token.as_bytes());
     let token_hash = BASE64.encode(hasher.finalize());
 

@@ -135,7 +135,12 @@ async fn main() {
     };
     tracing::info!("🚀 Voxpery server running on {}", addr);
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    {
         tracing::error!("HTTP server terminated with error: {}", e);
     }
 }

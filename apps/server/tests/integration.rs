@@ -11,7 +11,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use dashmap::DashMap;
 use http_body_util::BodyExt;
 use serde_json::json;
-use sha1::{Digest, Sha1};
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -1669,7 +1669,7 @@ async fn password_reset_invalidates_old_token() {
 
     // Seed a known reset token in DB (same hashing logic as backend).
     let reset_token_plain = Uuid::new_v4().to_string();
-    let mut hasher = Sha1::new();
+    let mut hasher = Sha256::new();
     hasher.update(reset_token_plain.as_bytes());
     let reset_token_hash = BASE64.encode(hasher.finalize());
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
@@ -2030,6 +2030,7 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
     let req = Request::builder()
         .method("GET")
         .uri(&signed_path)
+        .header("Authorization", &auth)
         .body(Body::empty())
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
@@ -2052,6 +2053,7 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
     let req = Request::builder()
         .method("GET")
         .uri(&tampered_path)
+        .header("Authorization", &auth)
         .body(Body::empty())
         .unwrap();
     let (status, _body) = oneshot(&mut app, req).await;

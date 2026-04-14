@@ -1,6 +1,6 @@
 use axum::{
     extract::{
-        ws::{Message, WebSocket},
+        ws::{CloseFrame, Message, WebSocket},
         Request, State, WebSocketUpgrade,
     },
     http::header,
@@ -10,12 +10,13 @@ use futures::{SinkExt, StreamExt};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::Duration,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
-use crate::middleware::auth::claims_match_current_token_version;
+use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::middleware::auth::token_from_request;
 use crate::services::permissions::{get_user_server_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
@@ -32,6 +33,22 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
 
 /// Max incoming WebSocket text message size (256 KB) to mitigate DoS via huge Signal payloads.
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
+const WS_MESSAGE_RATE_LIMIT_MAX: usize = 120;
+const WS_MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
+
+async fn enforce_ws_frame_rate_limit(
+    state: &AppState,
+    user_id: Uuid,
+) -> Result<(), crate::errors::AppError> {
+    crate::services::rate_limit::enforce_rate_limit(
+        &state.redis,
+        format!("ws:message:{}", user_id),
+        WS_MESSAGE_RATE_LIMIT_MAX,
+        WS_MESSAGE_RATE_LIMIT_WINDOW,
+        "Too many WebSocket messages. Please slow down.",
+    )
+    .await
+}
 
 fn voice_control_event_from_state(
     user_id: Uuid,
@@ -217,7 +234,7 @@ pub async fn ws_handler(
         ws
     };
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub, claims.username))
+    ws.on_upgrade(move |socket| handle_socket(socket, state, claims, token))
 }
 
 async fn validate_ws_token(
@@ -252,7 +269,39 @@ async fn validate_ws_token(
     Some(claims)
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, username: String) {
+async fn is_ws_session_still_valid(
+    state: &AppState,
+    token: &str,
+    claims: &Claims,
+) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    if now >= claims.exp as i64 {
+        return false;
+    }
+
+    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
+        Ok(true) => return false,
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!("Redis JWT blacklist check failed during WS session validation: {}", e);
+            return false;
+        }
+    }
+
+    matches!(
+        claims_match_current_token_version(&state.db, claims.sub, claims.ver).await,
+        Ok(true)
+    )
+}
+
+async fn handle_socket(
+    socket: WebSocket,
+    state: Arc<AppState>,
+    claims: Claims,
+    token: String,
+) {
+    let user_id = claims.sub;
+    let username = claims.username.clone();
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
@@ -276,6 +325,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
     let sub_channels = subscribed_channels.clone();
     let sub_server_counts = subscribed_server_counts.clone();
     let send_state = state.clone();
+    let send_claims = claims.clone();
+    let send_token = token.clone();
 
     // Do not overwrite persisted status on connect (online/dnd/offline).
     let current_status =
@@ -304,11 +355,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
         // drop without FIN) that would otherwise linger for minutes until OS TCP timeout.
         let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
         ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut auth_refresh_interval = tokio::time::interval(Duration::from_secs(30));
+        auth_refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // Skip the immediate first tick
         ping_interval.tick().await;
+        auth_refresh_interval.tick().await;
 
         loop {
             tokio::select! {
+                _ = auth_refresh_interval.tick() => {
+                    if !is_ws_session_still_valid(&send_state, &send_token, &send_claims).await {
+                        let _ = ws_sender.send(Message::Close(Some(CloseFrame {
+                            code: 4001,
+                            reason: "Authentication expired".into(),
+                        }))).await;
+                        break;
+                    }
+                }
                 // Server-side WS ping (Ping frame; browser/axum auto-reply with Pong)
                 _ = ping_interval.tick() => {
                     if ws_sender.send(Message::Ping(vec![].into())).await.is_err() {
@@ -426,10 +489,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
     let recv_sub_channel_servers = subscribed_channel_servers.clone();
     let recv_sub_server_counts = subscribed_server_counts.clone();
     let client_tx = tx.clone();
+    let recv_claims = claims.clone();
+    let recv_token = token.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_receiver.next().await {
+            if !is_ws_session_still_valid(&recv_state, &recv_token, &recv_claims).await {
+                break;
+            }
             match msg {
                 Message::Text(text) => {
+                    if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
+                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        break;
+                    }
                     if text.len() > MAX_WS_MESSAGE_BYTES {
                         tracing::warn!(
                             "WebSocket message too large ({} bytes), ignoring",
@@ -813,8 +885,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: Uuid, u
                         }
                     }
                 }
+                Message::Binary(bin) => {
+                    if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
+                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        break;
+                    }
+                    tracing::warn!(
+                        "Closing WS for unexpected binary frame from {} ({} bytes)",
+                        user_id,
+                        bin.len()
+                    );
+                    break;
+                }
+                Message::Ping(_) | Message::Pong(_) => {
+                    if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
+                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        break;
+                    }
+                }
                 Message::Close(_) => break,
-                _ => {}
             }
         }
     });
