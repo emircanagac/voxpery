@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 use uuid::Uuid;
 
 use crate::{
@@ -224,7 +225,9 @@ async fn consume_desktop_oauth_code(
 
 #[cfg(test)]
 mod oauth_pkce_tests {
-    use super::{is_valid_pkce_component, pkce_s256_challenge};
+    use super::{
+        is_valid_pkce_component, normalize_oauth_username_seed, pkce_s256_challenge,
+    };
 
     #[test]
     fn validates_pkce_component_charset_and_length() {
@@ -241,6 +244,21 @@ mod oauth_pkce_tests {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
         assert_eq!(pkce_s256_challenge(verifier), expected);
+    }
+
+    #[test]
+    fn transliterates_turkish_oauth_names_for_usernames() {
+        assert_eq!(normalize_oauth_username_seed("Çağdaş Şükrü"), "cagdas_sukru");
+        assert_eq!(normalize_oauth_username_seed("İrem Öztürk"), "irem_ozturk");
+    }
+
+    #[test]
+    fn normalizes_general_latin_names_for_usernames() {
+        assert_eq!(normalize_oauth_username_seed("Jürgen Müller"), "jurgen_muller");
+        assert_eq!(
+            normalize_oauth_username_seed("François d'Ævreux"),
+            "francois_d_aevreux"
+        );
     }
 }
 
@@ -367,6 +385,61 @@ fn validate_avatar_url(raw: &str) -> Result<String, AppError> {
     }
 
     Ok(trimmed.to_string())
+}
+
+fn transliterate_special_latin_char(c: char) -> &'static str {
+    match c {
+        'ß' => "ss",
+        'æ' => "ae",
+        'œ' => "oe",
+        'ø' => "o",
+        'ł' => "l",
+        'đ' | 'ð' => "d",
+        'þ' => "th",
+        'ı' => "i",
+        _ => "",
+    }
+}
+
+fn normalize_oauth_username_seed(input: &str) -> String {
+    let lower = input.trim().to_lowercase();
+    let decomposed = lower.nfkd().collect::<String>();
+    let mut normalized = String::with_capacity(decomposed.len());
+
+    for c in decomposed.chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' {
+            normalized.push(c);
+            continue;
+        }
+
+        if is_combining_mark(c) {
+            continue;
+        }
+
+        let mapped = transliterate_special_latin_char(c);
+        if !mapped.is_empty() {
+            normalized.push_str(mapped);
+        } else {
+            normalized.push('_');
+        }
+    }
+
+    let mut collapsed = String::with_capacity(normalized.len());
+    let mut last_was_sep = false;
+    for c in normalized.chars() {
+        let is_sep = c == '_' || c == '.';
+        if is_sep && last_was_sep {
+            continue;
+        }
+        collapsed.push(c);
+        last_was_sep = is_sep;
+    }
+
+    collapsed
+        .trim_matches(|c| c == '_' || c == '.')
+        .chars()
+        .take(32)
+        .collect()
 }
 
 fn login_failure_user_key(identifier: &str) -> String {
@@ -1602,17 +1675,7 @@ async fn google_oauth_callback(
                 .or(userinfo.given_name)
                 .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string())
                 .to_lowercase();
-            let base_username = name
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect::<String>();
-            let base_username = base_username.trim_matches('_');
+            let base_username = normalize_oauth_username_seed(&name);
             let base_username: String = if base_username.len() >= 3 {
                 base_username.chars().take(32).collect()
             } else {
