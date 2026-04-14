@@ -3029,7 +3029,7 @@ dependencies = [
  "http-body-util",
  "jsonwebtoken",
  "lettre",
- "rand 0.8.5",
+ "rand 0.9.3",
  "redis",
  "reqwest",
  "serde",
