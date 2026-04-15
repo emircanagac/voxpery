@@ -69,8 +69,10 @@ pub enum WsEvent {
         screen_sharing: bool,
         camera_on: bool,
     },
-    /// User profile details updated (e.g. avatar, username).
-    UserUpdated { user: crate::models::UserPublic },
+    /// User profile details updated (safe public subset only).
+    UserUpdated {
+        user: crate::models::UserBroadcastProfile,
+    },
     /// WebRTC signaling message (Offer, Answer, ICE Candidate).
     Signal {
         sender_id: Uuid,

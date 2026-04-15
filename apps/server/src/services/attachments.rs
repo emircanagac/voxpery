@@ -1,6 +1,7 @@
 //! Attachment upload, storage, malware scanning, and URL validation.
 
 use std::{
+    io::Cursor,
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -478,6 +479,35 @@ impl AttachmentService {
         }
     }
 
+    async fn strip_image_metadata_if_needed(
+        &self,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<Vec<u8>, AppError> {
+        let Some(format) = image_format_for_metadata_strip(content_type) else {
+            return Ok(bytes.to_vec());
+        };
+        let source = bytes.to_vec();
+
+        let reencoded = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+            let image = image::load_from_memory_with_format(&source, format)
+                .map_err(|e| format!("decode failed: {e}"))?;
+            let mut output = Cursor::new(Vec::<u8>::with_capacity(source.len()));
+            image
+                .write_to(&mut output, format)
+                .map_err(|e| format!("encode failed: {e}"))?;
+            Ok(output.into_inner())
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Image metadata cleanup task failed: {e}")))?;
+
+        reencoded.map_err(|e| {
+            AppError::Validation(format!(
+                "Uploaded image could not be processed safely ({e}). Try a different file."
+            ))
+        })
+    }
+
     pub async fn store_file(
         &self,
         original_name: &str,
@@ -485,7 +515,11 @@ impl AttachmentService {
         bytes: &[u8],
     ) -> Result<StoredAttachment, AppError> {
         self.validate_upload_file_meta(content_type, bytes.len())?;
-        self.scan_file_bytes(bytes).await?;
+        let prepared_bytes = self
+            .strip_image_metadata_if_needed(content_type, bytes)
+            .await?;
+        self.validate_upload_file_meta(content_type, prepared_bytes.len())?;
+        self.scan_file_bytes(&prepared_bytes).await?;
 
         let now = chrono::Utc::now();
         let object_id = Uuid::new_v4();
@@ -503,7 +537,7 @@ impl AttachmentService {
                 AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
             })?;
         }
-        fs::write(&path, bytes)
+        fs::write(&path, &prepared_bytes)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to write uploaded attachment: {e}")))?;
         Ok(StoredAttachment {
@@ -511,8 +545,8 @@ impl AttachmentService {
             storage_key: key,
             original_name: original_name.to_string(),
             content_type: content_type.to_string(),
-            size_bytes: bytes.len() as i64,
-            sha256: hex_encode(&Sha256::digest(bytes)),
+            size_bytes: prepared_bytes.len() as i64,
+            sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
         })
     }
 
@@ -595,6 +629,17 @@ impl AttachmentService {
         }
 
         Err(format!("Unexpected ClamAV response: {}", text.trim()))
+    }
+}
+
+fn image_format_for_metadata_strip(content_type: &str) -> Option<image::ImageFormat> {
+    let normalized = content_type.trim().to_ascii_lowercase();
+    if normalized.starts_with("image/jpeg") || normalized.starts_with("image/jpg") {
+        Some(image::ImageFormat::Jpeg)
+    } else if normalized.starts_with("image/png") {
+        Some(image::ImageFormat::Png)
+    } else {
+        None
     }
 }
 
@@ -869,7 +914,11 @@ mod tests {
             .expect("service");
 
         let stored = service
-            .store_file("../../very-unsafe-name.png", "image/png", b"hello")
+            .store_file(
+                "../../very-unsafe-name.png",
+                "application/octet-stream",
+                b"hello",
+            )
             .await
             .expect("store_file");
 

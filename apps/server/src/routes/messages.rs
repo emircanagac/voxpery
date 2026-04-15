@@ -69,6 +69,89 @@ fn escape_ilike_pattern(input: &str) -> String {
         .replace('_', "\\_")
 }
 
+fn is_mass_mention_boundary_char(ch: Option<char>) -> bool {
+    match ch {
+        None => true,
+        Some(c) => !(c.is_ascii_alphanumeric() || c == '_'),
+    }
+}
+
+fn mass_mention_token_len_at(content: &str, at_index: usize) -> Option<usize> {
+    if !content[at_index..].starts_with('@') {
+        return None;
+    }
+    let next_index = at_index + '@'.len_utf8();
+    if next_index >= content.len() {
+        return None;
+    }
+
+    let prev_char = content[..at_index].chars().next_back();
+    if !is_mass_mention_boundary_char(prev_char) {
+        return None;
+    }
+
+    for token in ["everyone", "here"] {
+        let Some(candidate) = content[next_index..].get(..token.len()) else {
+            continue;
+        };
+        if !candidate.eq_ignore_ascii_case(token) {
+            continue;
+        }
+        let after_char = content[next_index + token.len()..].chars().next();
+        if is_mass_mention_boundary_char(after_char) {
+            return Some(token.len());
+        }
+    }
+
+    None
+}
+
+fn neutralize_mass_mentions(content: &str) -> String {
+    let mut result = String::with_capacity(content.len() + 8);
+    let mut idx = 0usize;
+
+    while idx < content.len() {
+        let ch = content[idx..]
+            .chars()
+            .next()
+            .expect("valid UTF-8 character boundary");
+        let ch_len = ch.len_utf8();
+
+        if ch == '@' {
+            if let Some(token_len) = mass_mention_token_len_at(content, idx) {
+                let start = idx + 1;
+                let end = start + token_len;
+                result.push('@');
+                result.push('\u{200B}');
+                result.push_str(&content[start..end]);
+                idx = end;
+                continue;
+            }
+        }
+
+        result.push(ch);
+        idx += ch_len;
+    }
+
+    result
+}
+
+fn can_use_mass_mentions(perms: Permissions) -> bool {
+    perms.contains(Permissions::MANAGE_SERVER) || perms.contains(Permissions::MANAGE_MESSAGES)
+}
+
+fn audit_content_preview(content: &str) -> (String, bool) {
+    let mut out = String::new();
+    let mut chars = content.chars();
+    for _ in 0..160 {
+        let Some(ch) = chars.next() else {
+            return (out, false);
+        };
+        out.push(ch);
+    }
+    (out, chars.next().is_some())
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct MessageSearchQuery {
     q: Option<String>,
@@ -534,13 +617,11 @@ async fn send_message(
     Json(body): Json<SendMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
-    crate::services::permissions::ensure_channel_permission(
-        &state.db,
-        channel_id,
-        claims.sub,
-        crate::services::permissions::Permissions::SEND_MESSAGES,
-    )
-    .await?;
+    let channel_perms =
+        permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
+    if !channel_perms.contains(Permissions::SEND_MESSAGES) {
+        return Err(AppError::Forbidden("Missing required permission".into()));
+    }
 
     enforce_rate_limit(
         &state.redis,
@@ -551,7 +632,12 @@ async fn send_message(
     )
     .await?;
 
-    let content = body.content.unwrap_or_default();
+    let raw_content = body.content.unwrap_or_default();
+    let content = if can_use_mass_mentions(channel_perms) {
+        raw_content
+    } else {
+        neutralize_mass_mentions(&raw_content)
+    };
     let normalized_attachments = state
         .attachment_service
         .normalize_attachments_for_storage(&state.db, claims.sub, body.attachments.as_ref())
@@ -675,14 +761,15 @@ async fn edit_message(
     Path(message_id): Path<Uuid>,
     Json(body): Json<EditMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
-    let row =
-        sqlx::query_as::<_, (Uuid, Uuid)>("SELECT channel_id, user_id FROM messages WHERE id = $1")
-            .bind(message_id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or(AppError::NotFound("Message not found".into()))?;
+    let row = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+        "SELECT channel_id, user_id, content FROM messages WHERE id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Message not found".into()))?;
 
-    let (channel_id, author_id) = row;
+    let (channel_id, author_id, previous_content) = row;
     if claims.sub != author_id {
         return Err(AppError::Forbidden(
             "Only the author can edit this message".into(),
@@ -690,12 +777,19 @@ async fn edit_message(
     }
     check_channel_access(&state, channel_id, claims.sub).await?;
 
-    let content = body.content.trim();
-    if content.is_empty() {
+    let raw_content = body.content.trim();
+    if raw_content.is_empty() {
         return Err(AppError::Validation(
             "Message content cannot be empty".into(),
         ));
     }
+    let channel_perms =
+        permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
+    let content = if can_use_mass_mentions(channel_perms) {
+        raw_content.to_string()
+    } else {
+        neutralize_mass_mentions(raw_content)
+    };
     if content.len() > 4000 {
         return Err(AppError::Validation(
             "Message must be 1-4000 characters".into(),
@@ -703,10 +797,34 @@ async fn edit_message(
     }
 
     sqlx::query("UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2")
-        .bind(content)
+        .bind(&content)
         .bind(message_id)
         .execute(&state.db)
         .await?;
+
+    let server_id: Uuid = sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_one(&state.db)
+        .await?;
+    let (before_preview, before_truncated) = audit_content_preview(&previous_content);
+    let (after_preview, after_truncated) = audit_content_preview(&content);
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "message_edit",
+        "message",
+        Some(message_id),
+        Some(serde_json::json!({
+            "channel_id": channel_id,
+            "changed": previous_content != content,
+            "before_preview": before_preview,
+            "after_preview": after_preview,
+            "before_truncated": before_truncated,
+            "after_truncated": after_truncated
+        })),
+    )
+    .await?;
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -955,4 +1073,29 @@ async fn check_channel_access(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::neutralize_mass_mentions;
+
+    #[test]
+    fn neutralizes_everyone_and_here_mentions() {
+        let content = "@everyone please check. Also @here now.";
+        let out = neutralize_mass_mentions(content);
+        assert!(out.contains("@\u{200B}everyone"));
+        assert!(out.contains("@\u{200B}here"));
+    }
+
+    #[test]
+    fn keeps_non_mass_mentions_unchanged() {
+        let content = "@emircan can you review this?";
+        assert_eq!(neutralize_mass_mentions(content), content);
+    }
+
+    #[test]
+    fn keeps_embedded_words_unchanged() {
+        let content = "email@everyone.example should not be touched";
+        assert_eq!(neutralize_mass_mentions(content), content);
+    }
 }

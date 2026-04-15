@@ -25,7 +25,7 @@ use crate::{
     },
     models::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
-        User, UserPublic,
+        User, UserBroadcastProfile, UserPublic,
     },
     services::auth::{generate_token, hash_password, verify_password},
     services::rate_limit::enforce_rate_limit,
@@ -2081,7 +2081,7 @@ async fn update_profile(
 
     let public_user = UserPublic::from(updated);
     let _ = state.tx.send(WsEvent::UserUpdated {
-        user: public_user.clone(),
+        user: UserBroadcastProfile::from(&public_user),
     });
 
     Ok(Json(public_user))

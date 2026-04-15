@@ -64,6 +64,15 @@ pub struct UserPublic {
     pub username_changed_at: Option<DateTime<Utc>>,
 }
 
+/// Minimal profile surface safe to broadcast over WebSocket to other users.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserBroadcastProfile {
+    pub id: Uuid,
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub status: String,
+}
+
 impl From<User> for UserPublic {
     fn from(u: User) -> Self {
         Self {
@@ -75,6 +84,17 @@ impl From<User> for UserPublic {
             google_connected: u.google_id.is_some(),
             has_password: u.password_hash != "oauth",
             username_changed_at: u.username_changed_at,
+        }
+    }
+}
+
+impl From<&UserPublic> for UserBroadcastProfile {
+    fn from(u: &UserPublic) -> Self {
+        Self {
+            id: u.id,
+            username: u.username.clone(),
+            avatar_url: u.avatar_url.clone(),
+            status: u.status.clone(),
         }
     }
 }

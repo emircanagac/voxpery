@@ -173,6 +173,13 @@ async fn livekit_token(
 
     let room = query.channel_id;
     let identity = claims.sub.to_string();
+    // Enforce server moderation over media publish in voice.
+    // Tuple shape: (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
+    let can_publish = !state
+        .voice_controls
+        .get(&claims.sub)
+        .map(|control| control.2 || control.3)
+        .unwrap_or(false);
 
     let token = encode(
         &Header::default(),
@@ -185,7 +192,7 @@ async fn livekit_token(
             video: LivekitVideoGrant {
                 room: room.clone(),
                 room_join: true,
-                can_publish: true,
+                can_publish,
                 can_subscribe: true,
             },
         },

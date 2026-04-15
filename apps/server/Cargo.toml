@@ -42,6 +42,7 @@ bitflags = "2"
 lettre = { version = "0.11.21", features = ["tokio1", "tokio1-native-tls", "builder"] }
 sha2 = "0.10"
 unicode-normalization = "0.1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
