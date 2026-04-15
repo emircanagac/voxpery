@@ -1,6 +1,7 @@
 //! Voxpery server binary. Uses the library for app setup and serving.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
@@ -22,13 +23,20 @@ async fn main() {
 
     let config = config::Config::from_env();
 
-    if let Err(msg) = validate_security_config(&config.cors_origins, config.cookie_secure) {
+    if let Err(msg) = validate_security_config(
+        &config.cors_origins,
+        config.cookie_secure,
+        config.is_production,
+    ) {
         tracing::error!("Invalid security configuration: {}", msg);
         return;
     }
 
     let db = PgPoolOptions::new()
-        .max_connections(20)
+        .max_connections(config.db_max_connections)
+        .acquire_timeout(Duration::from_secs(config.db_acquire_timeout_secs))
+        .idle_timeout(Some(Duration::from_secs(config.db_idle_timeout_secs)))
+        .max_lifetime(Some(Duration::from_secs(config.db_max_lifetime_secs)))
         .connect(&config.database_url)
         .await
         .expect("Failed to connect to database");

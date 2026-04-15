@@ -147,19 +147,38 @@ fn is_local_origin(origin: &str) -> bool {
         || origin.starts_with("https://localhost")
         || origin.starts_with("http://127.0.0.1")
         || origin.starts_with("https://127.0.0.1")
+        || origin.starts_with("http://tauri.localhost")
+        || origin.starts_with("https://tauri.localhost")
         || origin.starts_with("tauri://localhost")
         || origin.starts_with("tauri://127.0.0.1")
         || origin.starts_with("voxpery://auth")
+}
+
+fn is_dev_web_origin(origin: &str) -> bool {
+    origin.starts_with("http://localhost")
+        || origin.starts_with("https://localhost")
+        || origin.starts_with("http://127.0.0.1")
+        || origin.starts_with("https://127.0.0.1")
 }
 
 /// Validates CORS and cookie security configuration (used at startup).
 pub fn validate_security_config(
     cors_origins: &[String],
     cookie_secure: bool,
+    is_production: bool,
 ) -> Result<(), String> {
+    if cors_origins.is_empty() {
+        return Err("Invalid CORS configuration: CORS_ORIGINS cannot be empty".into());
+    }
     if cors_origins.iter().any(|o| o == "*") {
         return Err(
             "Invalid CORS configuration: CORS_ORIGINS cannot contain '*' when credentials are enabled"
+                .into(),
+        );
+    }
+    if is_production && cors_origins.iter().any(|origin| is_dev_web_origin(origin)) {
+        return Err(
+            "Invalid CORS configuration: localhost/127.0.0.1 web origins are not allowed in production"
                 .into(),
         );
     }
@@ -230,35 +249,49 @@ mod tests {
     #[test]
     fn rejects_wildcard_cors() {
         let origins = vec!["*".to_string()];
-        let result = validate_security_config(&origins, true);
+        let result = validate_security_config(&origins, true, false);
         assert!(result.is_err());
     }
 
     #[test]
     fn rejects_non_local_without_secure_cookie() {
         let origins = vec!["https://voxpery.com".to_string()];
-        let result = validate_security_config(&origins, false);
+        let result = validate_security_config(&origins, false, false);
         assert!(result.is_err());
     }
 
     #[test]
     fn allows_local_without_secure_cookie() {
         let origins = vec!["http://localhost:5173".to_string()];
-        let result = validate_security_config(&origins, false);
+        let result = validate_security_config(&origins, false, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn allows_tauri_local_without_secure_cookie() {
         let origins = vec!["tauri://localhost".to_string()];
-        let result = validate_security_config(&origins, false);
+        let result = validate_security_config(&origins, false, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn allows_non_local_with_secure_cookie() {
         let origins = vec!["https://voxpery.com".to_string()];
-        let result = validate_security_config(&origins, true);
+        let result = validate_security_config(&origins, true, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_dev_web_origins_in_production() {
+        let origins = vec!["http://localhost:5173".to_string()];
+        let result = validate_security_config(&origins, true, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn allows_tauri_localhost_origin_in_production() {
+        let origins = vec!["http://tauri.localhost".to_string()];
+        let result = validate_security_config(&origins, true, true);
         assert!(result.is_ok());
     }
 

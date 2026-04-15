@@ -1,11 +1,16 @@
 /// Application configuration loaded from environment variables.
 pub struct Config {
     pub database_url: String,
+    pub db_max_connections: u32,
+    pub db_acquire_timeout_secs: u64,
+    pub db_idle_timeout_secs: u64,
+    pub db_max_lifetime_secs: u64,
     pub redis_url: String,
     pub jwt_secret: String,
     pub jwt_expiration: i64,
     pub server_host: String,
     pub server_port: u16,
+    pub is_production: bool,
     /// Allowed CORS origins. Use `CORS_ORIGINS` (comma-separated) or legacy `CORS_ORIGIN`. Include `null` for Tauri desktop app (release build often sends Origin: null).
     pub cors_origins: Vec<String>,
     pub auth_rate_limit_max: usize,
@@ -74,7 +79,13 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Self {
-        let cors_origins = std::env::var("CORS_ORIGINS")
+        let app_env = std::env::var("APP_ENV")
+            .ok()
+            .or_else(|| std::env::var("NODE_ENV").ok())
+            .unwrap_or_else(|| "development".into());
+        let is_production = app_env.eq_ignore_ascii_case("production");
+
+        let cors_origins_from_env = std::env::var("CORS_ORIGINS")
             .ok()
             .map(|s| {
                 s.split(',')
@@ -82,23 +93,42 @@ impl Config {
                     .filter(|x| !x.is_empty())
                     .collect::<Vec<_>>()
             })
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| {
-                // DEV ONLY: For production, set CORS_ORIGINS explicitly.
-                // Include "null" only if Tauri desktop app (release build) needs it.
-                // Example: CORS_ORIGINS=https://voxpery.com,tauri://localhost,null
-                vec![
-                    std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into()),
-                    "http://127.0.0.1:5173".into(),
-                    "tauri://localhost".into(),
-                    "tauri://127.0.0.1".into(),
-                    "voxpery://auth".into(),
-                    // "null" removed from default - add explicitly via CORS_ORIGINS if needed for Tauri
-                ]
-            });
+            .filter(|v| !v.is_empty());
+        if is_production && cors_origins_from_env.is_none() {
+            panic!("CORS_ORIGINS must be explicitly set when APP_ENV/NODE_ENV is production");
+        }
+        let cors_origins = cors_origins_from_env.unwrap_or_else(|| {
+            // DEV ONLY: For production, set CORS_ORIGINS explicitly.
+            // Include "null" only if Tauri desktop app (release build) needs it.
+            // Example: CORS_ORIGINS=https://voxpery.com,tauri://localhost,null
+            vec![
+                std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into()),
+                "http://127.0.0.1:5173".into(),
+                "tauri://localhost".into(),
+                "tauri://127.0.0.1".into(),
+                "voxpery://auth".into(),
+                // "null" removed from default - add explicitly via CORS_ORIGINS if needed for Tauri
+            ]
+        });
 
         Self {
             database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+            db_max_connections: std::env::var("DB_MAX_CONNECTIONS")
+                .unwrap_or_else(|_| "50".into())
+                .parse()
+                .expect("DB_MAX_CONNECTIONS must be a number"),
+            db_acquire_timeout_secs: std::env::var("DB_ACQUIRE_TIMEOUT")
+                .unwrap_or_else(|_| "10".into())
+                .parse()
+                .expect("DB_ACQUIRE_TIMEOUT must be a number (seconds)"),
+            db_idle_timeout_secs: std::env::var("DB_IDLE_TIMEOUT")
+                .unwrap_or_else(|_| "600".into())
+                .parse()
+                .expect("DB_IDLE_TIMEOUT must be a number (seconds)"),
+            db_max_lifetime_secs: std::env::var("DB_MAX_LIFETIME")
+                .unwrap_or_else(|_| "1800".into())
+                .parse()
+                .expect("DB_MAX_LIFETIME must be a number (seconds)"),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
             jwt_secret: std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"),
@@ -111,6 +141,7 @@ impl Config {
                 .unwrap_or_else(|_| "3001".into())
                 .parse()
                 .expect("SERVER_PORT must be a number"),
+            is_production,
             cors_origins,
             auth_rate_limit_max: std::env::var("AUTH_RATE_LIMIT_MAX")
                 .unwrap_or_else(|_| "10".into())

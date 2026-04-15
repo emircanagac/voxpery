@@ -1,5 +1,8 @@
 use argon2::{
-    password_hash::{rand_core::OsRng, SaltString},
+    password_hash::{
+        rand_core::{OsRng, RngCore},
+        SaltString,
+    },
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -55,14 +58,24 @@ pub fn generate_token(
 
 /// Generate a random invite code for servers.
 pub fn generate_invite_code() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let chars: Vec<char> = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-        .chars()
-        .collect();
-    (0..8)
-        .map(|_| chars[rng.gen_range(0..chars.len())])
-        .collect()
+    const INVITE_CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    const INVITE_LEN: usize = 10;
+
+    let mut rng = OsRng;
+    let mut code = String::with_capacity(INVITE_LEN);
+    let range = INVITE_CHARSET.len() as u32;
+    let max_acceptable = u32::MAX - (u32::MAX % range);
+
+    while code.len() < INVITE_LEN {
+        let value = rng.next_u32();
+        if value >= max_acceptable {
+            continue;
+        }
+        let idx = (value % range) as usize;
+        code.push(INVITE_CHARSET[idx] as char);
+    }
+
+    code
 }
 
 #[cfg(test)]
@@ -103,7 +116,7 @@ mod tests {
     #[test]
     fn generate_invite_code_format() {
         let code = generate_invite_code();
-        assert_eq!(code.len(), 8);
+        assert_eq!(code.len(), 10);
         let allowed: std::collections::HashSet<char> =
             "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
                 .chars()

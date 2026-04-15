@@ -1,11 +1,15 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
+    http::HeaderMap,
     middleware,
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
-use std::net::IpAddr;
 use std::sync::Arc;
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -19,6 +23,7 @@ use crate::{
         audit,
         auth::generate_invite_code,
         permissions::{self, Permissions},
+        rate_limit::enforce_rate_limit,
     },
     ws::WsEvent,
     AppState,
@@ -191,6 +196,40 @@ fn visible_presence(status: &str, has_session: bool) -> String {
         "dnd" => "dnd".to_string(),
         "invisible" | "offline" => "offline".to_string(),
         _ => "online".to_string(),
+    }
+}
+
+fn parse_forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.split(',').next().map(str::trim))
+        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
+}
+
+fn is_trusted_proxy_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+    }
+}
+
+fn extract_client_ip(
+    headers: &HeaderMap,
+    connect_info: Option<&ConnectInfo<SocketAddr>>,
+) -> Option<String> {
+    let Some(peer_ip) = connect_info.map(|info| info.ip()) else {
+        return None;
+    };
+    if is_trusted_proxy_ip(&peer_ip) {
+        Some(
+            parse_forwarded_client_ip(headers)
+                .unwrap_or(peer_ip)
+                .to_string(),
+        )
+    } else {
+        Some(peer_ip.to_string())
     }
 }
 
@@ -917,8 +956,31 @@ async fn get_audit_log(
 async fn join_server(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<JoinServerRequest>,
 ) -> Result<Json<Server>, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("servers:join:user:{}", claims.sub),
+        5,
+        Duration::from_secs(60),
+        "Too many invite join attempts. Please wait a moment and try again.",
+    )
+    .await?;
+
+    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
+    if let Some(ip) = client_ip {
+        enforce_rate_limit(
+            &state.redis,
+            format!("servers:join:ip:{ip}"),
+            5,
+            Duration::from_secs(60),
+            "Too many invite join attempts from this IP. Please wait and try again.",
+        )
+        .await?;
+    }
+
     let invite_code = body.invite_code.trim();
     if invite_code.is_empty() || invite_code.len() > 32 {
         return Err(AppError::Validation(

@@ -21,6 +21,8 @@ use crate::{
     AppState,
 };
 
+const FREE_TIER_STORAGE_QUOTA_BYTES: i64 = 1_073_741_824; // 1 GiB
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .route("/upload", post(upload_attachments))
@@ -79,6 +81,17 @@ async fn upload_attachments(
     let mut uploaded = Vec::<AttachmentResponseItem>::new();
     let mut file_count = 0usize;
     let max_files = state.attachment_service.max_files_per_request();
+    let mut tx = state.db.begin().await?;
+    let mut storage_used_bytes = sqlx::query_scalar::<_, i64>(
+        "SELECT storage_used_bytes FROM users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(claims.sub)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+    if storage_used_bytes < 0 {
+        storage_used_bytes = 0;
+    }
 
     while let Some(field) = multipart
         .next_field()
@@ -108,6 +121,13 @@ async fn upload_attachments(
             .bytes()
             .await
             .map_err(|e| AppError::Validation(format!("Failed to read uploaded file: {e}")))?;
+        let incoming_size_bytes = i64::try_from(bytes.len())
+            .map_err(|_| AppError::Validation("Uploaded file is too large".into()))?;
+        if storage_used_bytes.saturating_add(incoming_size_bytes) > FREE_TIER_STORAGE_QUOTA_BYTES {
+            return Err(AppError::Validation(
+                "Storage quota exceeded (1 GB). Delete old files or upgrade your plan.".into(),
+            ));
+        }
 
         let stored = state
             .attachment_service
@@ -138,8 +158,9 @@ async fn upload_attachments(
         .bind(&stored.content_type)
         .bind(stored.size_bytes)
         .bind(&stored.sha256)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+        storage_used_bytes = storage_used_bytes.saturating_add(stored.size_bytes);
 
         uploaded.push(AttachmentResponseItem {
             id: attachment_id,
@@ -158,6 +179,13 @@ async fn upload_attachments(
             "No files received. Use multipart field name 'files'.".into(),
         ));
     }
+
+    sqlx::query("UPDATE users SET storage_used_bytes = $2 WHERE id = $1")
+        .bind(claims.sub)
+        .bind(storage_used_bytes)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
 
     Ok(Json(uploaded))
 }
