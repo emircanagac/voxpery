@@ -271,6 +271,14 @@ async fn search_messages(
     Query(query): Query<MessageSearchQuery>,
 ) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("messages:search:{}:{}", claims.sub, channel_id),
+        15,
+        Duration::from_secs(60),
+        "Search rate limit exceeded. Please slow down.",
+    )
+    .await?;
 
     let term = query.q.as_deref().unwrap_or("").trim();
     if term.is_empty() {
@@ -334,23 +342,13 @@ async fn list_channel_pins(
                         AND sr.color IS NOT NULL 
                       ORDER BY sr.position ASC 
                       LIMIT 1
-                  ) as role_color,
-                  (
-                      SELECT sr.color 
-                      FROM server_roles sr 
-                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id 
-                      INNER JOIN channels c ON c.server_id = sr.server_id
-                      WHERE smr.user_id = m.user_id 
-                        AND c.id = m.channel_id
-                        AND sr.color IS NOT NULL 
-                      ORDER BY sr.position ASC 
-                      LIMIT 1
                   ) as role_color
            FROM channel_pins p
            INNER JOIN messages m ON p.message_id = m.id
            INNER JOIN users u ON m.user_id = u.id
            WHERE p.channel_id = $1
-           ORDER BY p.pinned_at DESC"#,
+           ORDER BY p.pinned_at DESC
+           LIMIT 50"#,
     )
     .bind(channel_id)
     .fetch_all(&state.db)
@@ -387,6 +385,32 @@ async fn pin_channel_message(
     let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
     if msg_channel != channel_id {
         return Err(AppError::Forbidden("Message is not in this channel".into()));
+    }
+
+    let already_pinned = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM channel_pins
+               WHERE channel_id = $1 AND message_id = $2
+           )"#,
+    )
+    .bind(channel_id)
+    .bind(body.message_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !already_pinned {
+        let pin_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM channel_pins WHERE channel_id = $1",
+        )
+        .bind(channel_id)
+        .fetch_one(&state.db)
+        .await?;
+        if pin_count >= 50 {
+            return Err(AppError::Validation(
+                "This channel already has the maximum of 50 pinned messages".into(),
+            ));
+        }
     }
 
     sqlx::query(
@@ -783,6 +807,32 @@ async fn add_message_reaction(
         Permissions::SEND_MESSAGES,
     )
     .await?;
+
+    let emoji_already_present = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM message_reactions
+               WHERE message_id = $1 AND emoji = $2
+           )"#,
+    )
+    .bind(message_id)
+    .bind(&emoji)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !emoji_already_present {
+        let distinct_emoji_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = $1",
+        )
+        .bind(message_id)
+        .fetch_one(&state.db)
+        .await?;
+        if distinct_emoji_count >= 20 {
+            return Err(AppError::Validation(
+                "This message already has the maximum of 20 different reactions".into(),
+            ));
+        }
+    }
 
     sqlx::query(
         r#"INSERT INTO message_reactions (message_id, user_id, emoji)

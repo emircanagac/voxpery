@@ -70,6 +70,18 @@ async fn create_channel(
     )
     .await?;
 
+    let channel_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM channels WHERE server_id = $1",
+    )
+    .bind(body.server_id)
+    .fetch_one(&state.db)
+    .await?;
+    if channel_count >= 500 {
+        return Err(AppError::Validation(
+            "This server already has the maximum of 500 channels".into(),
+        ));
+    }
+
     let trimmed_name = body.name.trim();
     validate_channel_name(trimmed_name)?;
     let description = normalize_channel_description(body.description.as_deref())?;

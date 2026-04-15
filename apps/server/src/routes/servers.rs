@@ -4,6 +4,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
+use std::net::IpAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -282,18 +283,60 @@ fn validate_server_icon_url(icon_url: Option<&str>) -> Result<Option<String>, Ap
             "Server icon image is too large".into(),
         ));
     }
-    let valid_scheme = trimmed.starts_with("data:image/")
-        || trimmed.starts_with("http://")
-        || trimmed.starts_with("https://");
-    if !valid_scheme {
-        return Err(AppError::Validation(
-            "Server icon must be an image URL or data URL".into(),
-        ));
-    }
     if trimmed.to_lowercase().starts_with("data:image/svg+xml") {
         return Err(AppError::Validation(
             "SVG images are not allowed for server icons (security)".into(),
         ));
+    }
+    if trimmed.starts_with("data:image/") {
+        return Ok(Some(trimmed.to_string()));
+    }
+
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| AppError::Validation("Server icon must be a valid HTTPS image URL".into()))?;
+    if parsed.scheme() != "https" {
+        return Err(AppError::Validation(
+            "Server icon image URLs must use https://".into(),
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AppError::Validation("Server icon URL must include a host".into()))?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let is_private_or_local = match ip {
+            IpAddr::V4(v4) => {
+                v4.is_private()
+                    || v4.is_loopback()
+                    || v4.is_link_local()
+                    || v4.is_multicast()
+                    || v4.is_unspecified()
+            }
+            IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.is_unique_local()
+                    || v6.is_unicast_link_local()
+                    || v6.is_multicast()
+            }
+        };
+        if is_private_or_local {
+            return Err(AppError::Validation(
+                "Server icon URL cannot point to local or private network addresses".into(),
+            ));
+        }
+    } else {
+        let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        if matches!(
+            normalized.as_str(),
+            "localhost" | "localhost.localdomain" | "metadata" | "metadata.google.internal" | "instance-data"
+        ) || normalized.ends_with(".localhost")
+            || normalized.ends_with(".local")
+            || normalized.ends_with(".internal")
+        {
+            return Err(AppError::Validation(
+                "Server icon URL host is not allowed".into(),
+            ));
+        }
     }
     Ok(Some(trimmed.to_string()))
 }

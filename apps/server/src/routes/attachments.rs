@@ -33,6 +33,33 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     protected.merge(content)
 }
 
+fn should_force_attachment_download(content_type: &str) -> bool {
+    let ct = content_type.to_ascii_lowercase();
+    ct.contains("image/svg")
+        || ct.contains("text/html")
+        || ct.contains("application/xhtml")
+        || ct.contains("text/xml")
+        || ct.contains("application/xml")
+        || ct.contains("+xml")
+}
+
+fn sanitize_content_disposition_filename(name: &str) -> String {
+    let mut sanitized = String::with_capacity(name.len().min(64));
+    for ch in name.chars().take(64) {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    let trimmed = sanitized.trim_matches('_').trim();
+    if trimmed.is_empty() {
+        "attachment.bin".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// POST /api/attachments/upload
 /// Accepts multipart form-data with one or more `files` fields and returns safe public URLs.
 async fn upload_attachments(
@@ -181,6 +208,18 @@ async fn get_attachment_content(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; sandbox"),
+    );
+
+    if should_force_attachment_download(&row.content_type) {
+        let safe_name = sanitize_content_disposition_filename(&row.original_name);
+        let disposition = format!("attachment; filename=\"{}\"", safe_name);
+        let value = HeaderValue::from_str(&disposition)
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+        headers.insert(header::CONTENT_DISPOSITION, value);
+    }
 
     Ok((headers, bytes))
 }
