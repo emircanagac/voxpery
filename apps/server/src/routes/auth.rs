@@ -225,9 +225,7 @@ async fn consume_desktop_oauth_code(
 
 #[cfg(test)]
 mod oauth_pkce_tests {
-    use super::{
-        is_valid_pkce_component, normalize_oauth_username_seed, pkce_s256_challenge,
-    };
+    use super::{is_valid_pkce_component, normalize_oauth_username_seed, pkce_s256_challenge};
 
     #[test]
     fn validates_pkce_component_charset_and_length() {
@@ -248,13 +246,19 @@ mod oauth_pkce_tests {
 
     #[test]
     fn transliterates_turkish_oauth_names_for_usernames() {
-        assert_eq!(normalize_oauth_username_seed("Çağdaş Şükrü"), "cagdas_sukru");
+        assert_eq!(
+            normalize_oauth_username_seed("Çağdaş Şükrü"),
+            "cagdas_sukru"
+        );
         assert_eq!(normalize_oauth_username_seed("İrem Öztürk"), "irem_ozturk");
     }
 
     #[test]
     fn normalizes_general_latin_names_for_usernames() {
-        assert_eq!(normalize_oauth_username_seed("Jürgen Müller"), "jurgen_muller");
+        assert_eq!(
+            normalize_oauth_username_seed("Jürgen Müller"),
+            "jurgen_muller"
+        );
         assert_eq!(
             normalize_oauth_username_seed("François d'Ævreux"),
             "francois_d_aevreux"
@@ -294,7 +298,11 @@ fn extract_client_ip(
         return None;
     };
     if is_trusted_proxy_ip(&peer_ip) {
-        Some(parse_forwarded_client_ip(headers).unwrap_or(peer_ip).to_string())
+        Some(
+            parse_forwarded_client_ip(headers)
+                .unwrap_or(peer_ip)
+                .to_string(),
+        )
     } else {
         Some(peer_ip.to_string())
     }
@@ -352,7 +360,10 @@ fn validate_avatar_url(raw: &str) -> Result<String, AppError> {
     if trimmed.len() > 3_000_000 {
         return Err(AppError::Validation("Avatar image is too large".into()));
     }
-    if trimmed.to_ascii_lowercase().starts_with("data:image/svg+xml") {
+    if trimmed
+        .to_ascii_lowercase()
+        .starts_with("data:image/svg+xml")
+    {
         return Err(AppError::Validation(
             "SVG images are not allowed for avatars (security)".into(),
         ));
@@ -681,10 +692,7 @@ async fn register(
     .await?;
 
     // 2) IP-based rate limit (Flood protection)
-    let client_ip = extract_client_ip(
-        &headers,
-        connect_info.as_ref().map(|Extension(info)| info),
-    );
+    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
 
     // Allow max 5 accounts per IP per hour as basic flood protection
     if let Some(ip) = client_ip.as_deref() {
@@ -976,7 +984,7 @@ pub async fn ensure_seed_admin(
     .bind(&password_hash)
     .execute(db)
     .await?;
-    tracing::info!("Seed admin user created: {} ({})", username, email);
+    tracing::info!("Seed admin user created: {}", username);
     Ok(Some(id))
 }
 
@@ -1115,10 +1123,7 @@ async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let identifier = body.identifier.trim().to_lowercase();
-    let client_ip = extract_client_ip(
-        &headers,
-        connect_info.as_ref().map(|Extension(info)| info),
-    );
+    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
 
     enforce_rate_limit(
         &state.redis,
@@ -1558,9 +1563,8 @@ async fn google_oauth_callback(
 
     if !is_csrf_valid {
         tracing::warn!(
-            "OAuth CSRF check failed. Expected Nonce: '{}', Found Cookie: '{:?}'",
-            nonce,
-            found_oauth_state
+            "OAuth CSRF check failed (state mismatch or missing cookie). has_cookie_state={}",
+            found_oauth_state.is_some()
         );
         let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
         let clear_cookie = clear_oauth_state_cookie_header(&state);
@@ -1591,8 +1595,12 @@ async fn google_oauth_callback(
     };
     if !token_res.status().is_success() {
         let status = token_res.status();
-        let _body = token_res.text().await;
-        tracing::warn!("Google token response error: {} body={:?}", status, _body);
+        let body_len = token_res.text().await.map(|b| b.len()).unwrap_or(0);
+        tracing::warn!(
+            "Google token response error: {} (redacted body, {} bytes)",
+            status,
+            body_len
+        );
         let redirect_error = format!("{}?error=oauth_failed", redirect_path);
         return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
     }
@@ -1658,10 +1666,10 @@ async fn google_oauth_callback(
                          token_version = token_version + 1
                      WHERE id = $2",
                 )
-                    .bind(&google_id)
-                    .bind(u.id)
-                    .execute(&state.db)
-                    .await;
+                .bind(&google_id)
+                .bind(u.id)
+                .execute(&state.db)
+                .await;
                 u.google_id = Some(google_id.clone());
                 u.password_hash = "oauth".to_string();
                 u.token_version += 1;

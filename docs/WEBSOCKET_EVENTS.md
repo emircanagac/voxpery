@@ -11,6 +11,8 @@ Real-time transport for presence, channel updates, typing, and voice state.
 - Origin check:
   - Cookie-auth websocket upgrades require allowed origin.
 - Connection rate limit: `3 / 10s` per user (Redis-backed)
+- Incoming WS frame rate limit: `120 / 10s` per user (Redis-backed)
+- Max incoming text frame size: `256 KB`
 
 ## Protocol Shape
 
@@ -161,10 +163,11 @@ Legacy custom signaling event.
 ## Security Notes
 
 - `Subscribe` uses permission-aware channel access checks.
+- Broadcast delivery performs current-access re-checks before sending channel events.
 - `JoinVoice` uses permission-aware voice checks.
+- Voice state/control events are filtered by current server membership.
 - `Signal` forwarding is constrained to same voice channel participants.
-- Max incoming WS text payload is 256 KB.
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-04-15.

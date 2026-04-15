@@ -172,7 +172,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/{server_id}/reports", get(list_reports))
                 .route("/{server_id}/reports/user", post(report_user))
                 .route("/{server_id}/reports/message", post(report_message))
-                .route("/{server_id}/reports/{report_id}/resolve", post(resolve_report))
+                .route(
+                    "/{server_id}/reports/{report_id}/resolve",
+                    post(resolve_report),
+                )
                 .route("/{server_id}/audit-log", get(get_audit_log))
                 .route("/join", post(join_server))
                 .route("/{server_id}/leave", post(leave_server))
@@ -328,7 +331,11 @@ fn validate_server_icon_url(icon_url: Option<&str>) -> Result<Option<String>, Ap
         let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
         if matches!(
             normalized.as_str(),
-            "localhost" | "localhost.localdomain" | "metadata" | "metadata.google.internal" | "instance-data"
+            "localhost"
+                | "localhost.localdomain"
+                | "metadata"
+                | "metadata.google.internal"
+                | "instance-data"
         ) || normalized.ends_with(".localhost")
             || normalized.ends_with(".local")
             || normalized.ends_with(".internal")
@@ -1780,7 +1787,9 @@ async fn report_message(
 
     let (reported_user_id, channel_id, message_excerpt) = row;
     if reported_user_id == claims.sub {
-        return Err(AppError::Validation("Cannot report your own message".into()));
+        return Err(AppError::Validation(
+            "Cannot report your own message".into(),
+        ));
     }
 
     sqlx::query(
@@ -1825,7 +1834,9 @@ async fn list_reports(
         .await
         .is_err()
     {
-        return Err(AppError::Forbidden("Missing permission to view reports".into()));
+        return Err(AppError::Forbidden(
+            "Missing permission to view reports".into(),
+        ));
     }
 
     let rows = sqlx::query_as::<_, ServerReportEntry>(
@@ -1885,7 +1896,9 @@ async fn resolve_report(
         .await
         .is_err()
     {
-        return Err(AppError::Forbidden("Missing permission to resolve reports".into()));
+        return Err(AppError::Forbidden(
+            "Missing permission to resolve reports".into(),
+        ));
     }
 
     let reported_user_id = sqlx::query_scalar::<_, Uuid>(

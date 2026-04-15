@@ -107,4 +107,4 @@ Runs on schedule, manual dispatch, and PR:
 
 ---
 
-Last verified against code on 2026-04-04.
+Last verified against code on 2026-04-15.

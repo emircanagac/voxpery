@@ -757,9 +757,9 @@ fn is_safe_storage_key(storage_key: &str) -> bool {
                 if segment.is_empty()
                     || segment == "."
                     || segment == ".."
-                    || !segment.chars().all(|ch| {
-                        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
-                    })
+                    || !segment
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
                 {
                     return false;
                 }
@@ -818,6 +818,7 @@ fn hex_nibble(b: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::fs;
 
     #[test]
     fn allows_https_urls() {
@@ -858,5 +859,29 @@ mod tests {
     fn sanitizes_filename() {
         assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
         assert_eq!(sanitize_file_name(""), "file.bin");
+    }
+
+    #[tokio::test]
+    async fn store_file_uses_uuid_storage_key_not_original_filename() {
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+
+        let stored = service
+            .store_file("../../very-unsafe-name.png", "image/png", b"hello")
+            .await
+            .expect("store_file");
+
+        assert!(stored.storage_key.starts_with("attachments/"));
+        assert!(!stored.storage_key.contains("unsafe-name"));
+        let object_id = stored
+            .storage_key
+            .split('/')
+            .next_back()
+            .expect("last storage key segment");
+        assert!(Uuid::parse_str(object_id).is_ok());
+
+        fs::remove_dir_all(test_root).await.expect("cleanup");
     }
 }

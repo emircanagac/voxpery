@@ -1,6 +1,6 @@
 # API Reference
 
-REST API for auth, servers, channels/categories, messages/reactions, friends, DMs, and voice tokening.
+REST API for auth, servers, channels/categories, messages/reactions, friends, DMs, and voice token minting.
 
 ## Base URL
 
@@ -135,7 +135,7 @@ Notes:
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
   - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
-  - Public endpoint guarded by signature + expiry.
+  - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Intended for rendering attachment media in chat without exposing permanent public file URLs.
 
 ## Message Endpoints (Server Channels)
@@ -209,7 +209,7 @@ Current key limits (Redis-backed):
 - Login brute-force lock: temporary lockout per identifier and per IP after repeated failed attempts
 - Profile update: 12/min per user
 - Change password: 5/hour per user
-- Friend request: 10/min per user
+- Friend request: 5/min per user
 - DM channel create: 5/min per user
 - Message send: `MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`
 - WS connect: 3/10s per user
@@ -233,4 +233,4 @@ Common statuses:
 
 ---
 
-Last verified against code on 2026-03-16.
+Last verified against code on 2026-04-15.

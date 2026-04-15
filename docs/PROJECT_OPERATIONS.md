@@ -58,7 +58,7 @@ Voxpery follows Semantic Versioning:
 4. Validate critical paths: auth, messaging+websocket, voice join/leave.
 5. Update docs for behavior changes.
 6. Update changelog entry.
-7. Create Git tag (for example `v0.1.3`).
+7. Create Git tag (for example `v0.1.5`).
 8. Publish GitHub Release notes.
 
 ### Changelog Sections

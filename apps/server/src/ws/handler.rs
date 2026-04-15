@@ -16,8 +16,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
-use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::middleware::auth::token_from_request;
+use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::permissions::{get_user_server_permissions, Permissions};
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
@@ -147,6 +147,32 @@ async fn user_in_server(db: &sqlx::PgPool, user_id: Uuid, server_id: Uuid) -> bo
     .unwrap_or(false)
 }
 
+async fn can_receive_subscribed_channel_event(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    subscribed_channels: &tokio::sync::RwLock<HashSet<Uuid>>,
+    channel_id: Uuid,
+) -> bool {
+    let is_subscribed = { subscribed_channels.read().await.contains(&channel_id) };
+    if !is_subscribed {
+        return false;
+    }
+
+    match can_subscribe_to_channel(db, user_id, channel_id).await {
+        Ok(true) => true,
+        Ok(false) => false,
+        Err(e) => {
+            tracing::warn!(
+                "WS event authorization re-check failed for user {} channel {}: {}",
+                user_id,
+                channel_id,
+                e
+            );
+            false
+        }
+    }
+}
+
 fn is_allowed_ws_origin(req: &Request, state: &AppState) -> bool {
     let origin = req
         .headers()
@@ -269,11 +295,7 @@ async fn validate_ws_token(
     Some(claims)
 }
 
-async fn is_ws_session_still_valid(
-    state: &AppState,
-    token: &str,
-    claims: &Claims,
-) -> bool {
+async fn is_ws_session_still_valid(state: &AppState, token: &str, claims: &Claims) -> bool {
     let now = chrono::Utc::now().timestamp();
     if now >= claims.exp as i64 {
         return false;
@@ -283,7 +305,10 @@ async fn is_ws_session_still_valid(
         Ok(true) => return false,
         Ok(false) => {}
         Err(e) => {
-            tracing::warn!("Redis JWT blacklist check failed during WS session validation: {}", e);
+            tracing::warn!(
+                "Redis JWT blacklist check failed during WS session validation: {}",
+                e
+            );
             return false;
         }
     }
@@ -294,12 +319,7 @@ async fn is_ws_session_still_valid(
     )
 }
 
-async fn handle_socket(
-    socket: WebSocket,
-    state: Arc<AppState>,
-    claims: Claims,
-    token: String,
-) {
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, token: String) {
     let user_id = claims.sub;
     let username = claims.username.clone();
     let (mut ws_sender, mut ws_receiver) = socket.split();
@@ -389,11 +409,21 @@ async fn handle_socket(
                         Err(_) => break,
                     };
                     let should_send = match &event {
-                        WsEvent::NewMessage { channel_id, channel_type: _, .. } |
-                        WsEvent::Typing { channel_id, .. } |
-                        WsEvent::MessageDeleted { channel_id, .. } |
-                        WsEvent::MessageUpdated { channel_id, .. } => {
-                            sub_channels.read().await.contains(channel_id)
+                        WsEvent::NewMessage {
+                            channel_id,
+                            channel_type: _,
+                            ..
+                        }
+                        | WsEvent::Typing { channel_id, .. }
+                        | WsEvent::MessageDeleted { channel_id, .. }
+                        | WsEvent::MessageUpdated { channel_id, .. } => {
+                            can_receive_subscribed_channel_event(
+                                &send_state.db,
+                                user_id,
+                                &sub_channels,
+                                *channel_id,
+                            )
+                            .await
                         }
                         WsEvent::FriendUpdate { user_id: target_user_id } => {
                             *target_user_id == user_id
@@ -421,6 +451,11 @@ async fn handle_socket(
                         | WsEvent::VoiceControlUpdate { server_id, .. } => {
                             match server_id {
                                 Some(sid) => {
+                                    // Re-check current membership so users that were removed from
+                                    // the server stop receiving voice-related events immediately.
+                                    if !user_in_server(&send_state.db, user_id, *sid).await {
+                                        false
+                                    } else {
                                     let subscribed_to_server = sub_server_counts
                                         .read()
                                         .await
@@ -443,6 +478,7 @@ async fn handle_socket(
                                         } else {
                                             false
                                         }
+                                    }
                                     }
                                 }
                                 None => false,
@@ -499,7 +535,11 @@ async fn handle_socket(
             match msg {
                 Message::Text(text) => {
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
-                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        tracing::warn!(
+                            "Closing WS for rate limit breach (user {}): {}",
+                            user_id,
+                            e
+                        );
                         break;
                     }
                     if text.len() > MAX_WS_MESSAGE_BYTES {
@@ -803,14 +843,10 @@ async fn handle_socket(
                                         || perms.contains(Permissions::MANAGE_SERVER);
                                     let can_deafen = perms.contains(Permissions::DEAFEN_MEMBERS)
                                         || perms.contains(Permissions::MANAGE_SERVER);
-                                    if muted != current.2
-                                        && !can_mute
-                                    {
+                                    if muted != current.2 && !can_mute {
                                         continue;
                                     }
-                                    if deafened != current.3
-                                        && !can_deafen
-                                    {
+                                    if deafened != current.3 && !can_deafen {
                                         continue;
                                     }
 
@@ -887,7 +923,11 @@ async fn handle_socket(
                 }
                 Message::Binary(bin) => {
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
-                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        tracing::warn!(
+                            "Closing WS for rate limit breach (user {}): {}",
+                            user_id,
+                            e
+                        );
                         break;
                     }
                     tracing::warn!(
@@ -899,7 +939,11 @@ async fn handle_socket(
                 }
                 Message::Ping(_) | Message::Pong(_) => {
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
-                        tracing::warn!("Closing WS for rate limit breach (user {}): {}", user_id, e);
+                        tracing::warn!(
+                            "Closing WS for rate limit breach (user {}): {}",
+                            user_id,
+                            e
+                        );
                         break;
                     }
                 }

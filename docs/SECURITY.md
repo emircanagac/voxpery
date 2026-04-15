@@ -58,7 +58,9 @@ pub async fn ensure_channel_permission(
 
 - **Connection**: JWT validated on upgrade
 - **Subscribe**: Authorization check per channel
+- **Broadcast delivery**: event delivery re-checks current channel/server visibility (not just initial subscribe state)
 - **Voice join**: Authorization check for voice channel
+- **Voice events**: require current server membership (removed members stop receiving server-scoped voice updates)
 - **Signal**: Only allowed between users in same voice channel
 
 ## CORS (Cross-Origin Resource Sharing)
@@ -105,8 +107,11 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 ### Endpoints
 
 - **Auth** (`/api/auth/login`, `/api/auth/register`): 10 requests per minute per user
+- **Friend request** (`/api/friends/requests`): 5 requests per minute per user
+- **DM create** (`/api/dm/channels/:peer_id`): 5 requests per minute per user
 - **Messages** (`/api/messages/:id`): 30 messages per 10 seconds per user
 - **WebSocket connect**: 3 attempts per 10 seconds per user
+- **WebSocket frames**: 120 frames per 10 seconds per user
 
 ### Implementation
 
@@ -237,6 +242,12 @@ add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss:/
 - Inject secrets at runtime (environment variables or mounted files)
 - Never log secrets
 
+## Log Hygiene
+
+- Sensitive fields are not exposed in serialized user output (`password_hash` is skipped).
+- `User` debug output is redacted for sensitive fields (`password_hash`, email, OAuth linkage detail).
+- OAuth failure paths avoid logging raw state/cookie nonce values and third-party token bodies.
+
 ## Vulnerability Disclosure
 
 **If you find a security vulnerability**:
@@ -306,4 +317,4 @@ For privacy policy, see main README or project website.
 
 ---
 
-Last verified against code on 2026-03-16.
+Last verified against code on 2026-04-15.

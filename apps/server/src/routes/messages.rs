@@ -400,12 +400,11 @@ async fn pin_channel_message(
     .await?;
 
     if !already_pinned {
-        let pin_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM channel_pins WHERE channel_id = $1",
-        )
-        .bind(channel_id)
-        .fetch_one(&state.db)
-        .await?;
+        let pin_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM channel_pins WHERE channel_id = $1")
+                .bind(channel_id)
+                .fetch_one(&state.db)
+                .await?;
         if pin_count >= 50 {
             return Err(AppError::Validation(
                 "This channel already has the maximum of 50 pinned messages".into(),

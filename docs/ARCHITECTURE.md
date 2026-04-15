@@ -56,6 +56,7 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - Cookie security guardrails enforced at startup.
 - Redis-backed rate limits for auth, messaging, and WS connect.
 - Permission checks applied on REST and WS access paths.
+- WS event fan-out is authorization-aware at delivery time (current visibility/membership re-check).
 
 ## Deployment Topology
 
@@ -65,4 +66,4 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-04-15.

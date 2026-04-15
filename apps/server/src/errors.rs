@@ -47,7 +47,7 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
             AppError::Database(e) => {
-                tracing::error!("Database error: {:?}", e);
+                tracing::error!("Database error: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".into(),

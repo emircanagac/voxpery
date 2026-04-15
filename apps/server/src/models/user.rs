@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
@@ -18,6 +19,33 @@ pub struct User {
     pub created_at: DateTime<Utc>,
     pub google_id: Option<String>,
     pub username_changed_at: Option<DateTime<Utc>>,
+}
+
+impl fmt::Debug for User {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redacted_email = redact_email_for_debug(&self.email);
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("username", &self.username)
+            .field("email", &redacted_email)
+            .field("password_hash", &"<redacted>")
+            .field("token_version", &self.token_version)
+            .field("avatar_url", &self.avatar_url)
+            .field("status", &self.status)
+            .field("dm_privacy", &self.dm_privacy)
+            .field("created_at", &self.created_at)
+            .field("google_id", &self.google_id.as_ref().map(|_| "<linked>"))
+            .field("username_changed_at", &self.username_changed_at)
+            .finish()
+    }
+}
+
+fn redact_email_for_debug(email: &str) -> String {
+    let Some((local, domain)) = email.split_once('@') else {
+        return "<redacted>".to_string();
+    };
+    let local_prefix = local.chars().next().unwrap_or('*');
+    format!("{local_prefix}***@{domain}")
 }
 
 /// Public user info (no password hash, no email).

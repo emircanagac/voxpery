@@ -14,11 +14,13 @@ users
  │                      ├─< server_roles ─< server_member_roles
  │                      ├─< server_channel_categories ─< channel_category_role_overrides
  │                      ├─< server_bans
+ │                      ├─< server_reports
  │                      └─< audit_log
  │
  ├─< friend_requests
  ├─< friendships
  ├─< password_reset_tokens
+ ├─< uploaded_attachments
  │
  └─< dm_channel_members >─ dm_channels ─< dm_messages ─< dm_message_reactions
                             ├─< dm_channel_reads
@@ -32,6 +34,7 @@ users
 Key columns:
 
 - `id`, `username` (unique), `email` (unique), `password_hash`
+- `token_version` (session invalidation counter)
 - `avatar_url`
 - `status` (string; runtime uses `online`/`dnd`/`offline`)
 - `dm_privacy` (`everyone` or `friends` in current backend behavior)
@@ -62,6 +65,7 @@ Key columns:
 
 - `id`, `server_id`, `name`, `channel_type` (`text` / `voice`)
 - `category` (nullable string)
+- `description` (nullable text)
 - `position`, `created_at`
 
 Uniqueness (case-insensitive):
@@ -140,9 +144,23 @@ Uniqueness (case-insensitive):
 
 - `server_id`, `user_id`, `banned_by`, `reason`, `created_at`
 
+### `server_reports`
+
+- `id`, `server_id`, `reporter_user_id`, `reported_user_id`
+- optional linkage: `channel_id`, `message_id`
+- moderation fields: `reason`, `details`, `status`, `resolved_at`, `resolved_by`
+- timeline: `created_at`
+
 ### `password_reset_tokens`
 
 - `id`, `user_id` (unique), `token_hash`, `expires_at`, `created_at`
+
+### `uploaded_attachments`
+
+- `id`, `user_id`, `storage_backend`, `storage_key` (unique)
+- `original_name`, `content_type`, `size_bytes`, `sha256`
+- malware fields: `scan_status`, `malware_signature`
+- `created_at`
 
 ## Removed/Deprecated
 
@@ -179,6 +197,11 @@ All migrations currently present:
 - `024_grant_ban_to_moderator_roles.sql`
 - `025_remove_webhooks_feature.sql`
 - `026_message_reactions.sql`
+- `027_user_token_version.sql`
+- `028_status_offline_to_invisible.sql`
+- `029_uploaded_attachments.sql`
+- `030_server_reports.sql`
+- `031_channel_descriptions.sql`
 
 ## Notes
 
@@ -187,4 +210,4 @@ All migrations currently present:
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-04-15.

@@ -87,4 +87,4 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 
 ---
 
-Last verified against code on 2026-04-11.
+Last verified against code on 2026-04-15.

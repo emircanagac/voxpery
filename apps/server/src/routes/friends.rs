@@ -150,7 +150,7 @@ async fn send_friend_request(
     enforce_rate_limit(
         &state.redis,
         format!("friend_request:{}", claims.sub),
-        10,
+        5,
         std::time::Duration::from_secs(60),
         "Too many friend requests sent recently. Please slow down.",
     )
@@ -310,15 +310,13 @@ async fn reject_friend_request(
     notify_friend_update(&state, requester_id);
     notify_friend_update(&state, receiver_id);
 
-    Ok(Json(
-        serde_json::json!({
-            "message": if requester_id == claims.sub {
-                "Friend request canceled"
-            } else {
-                "Friend request rejected"
-            }
-        }),
-    ))
+    Ok(Json(serde_json::json!({
+        "message": if requester_id == claims.sub {
+            "Friend request canceled"
+        } else {
+            "Friend request rejected"
+        }
+    })))
 }
 
 async fn remove_friend(
