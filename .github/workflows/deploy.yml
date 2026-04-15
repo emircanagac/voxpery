@@ -26,12 +26,14 @@ jobs:
           script: |
             cd ~/voxpery
             REF="${{ github.ref_name }}"
-            git fetch --tags origin
-            if git show-ref --verify --quiet "refs/remotes/origin/${REF}"; then
+            REF_TYPE="${{ github.ref_type }}"
+            if [ "${REF_TYPE}" = "branch" ]; then
+              git fetch --prune origin "refs/heads/${REF}:refs/remotes/origin/${REF}"
               git checkout --detach "refs/remotes/origin/${REF}"
               IMAGE_TAG="latest"
             else
-              git checkout --detach "${REF}"
+              git fetch --force origin "refs/tags/${REF}:refs/tags/${REF}"
+              git checkout --detach "refs/tags/${REF}"
               IMAGE_TAG="${REF}"
             fi
             export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${IMAGE_TAG}"
