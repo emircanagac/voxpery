@@ -2483,9 +2483,12 @@ async fn delete_my_account(
 /// POST /api/auth/forgot-password
 async fn forgot_password(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<ForgotPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let email = body.email.trim().to_lowercase();
+    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
     let generic_ok = || {
         Json(
             serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." }),
@@ -2500,6 +2503,18 @@ async fn forgot_password(
         "Too many password reset requests. Please check your email or try again later.",
     )
     .await?;
+
+    // 2) IP-based rate limit to reduce brute-force / flood attempts.
+    if let Some(ip) = client_ip.as_deref() {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:forgot_password_ip:{ip}"),
+            10,
+            Duration::from_secs(60), // max 10 attempts per minute per IP
+            "Too many password reset requests. Please check your email or try again later.",
+        )
+        .await?;
+    }
 
     #[derive(sqlx::FromRow)]
     struct ResetCandidate {
