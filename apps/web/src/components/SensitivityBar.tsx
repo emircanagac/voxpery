@@ -32,8 +32,30 @@ function buildMicTestConstraints(): MediaTrackConstraints {
     return {
         ...buildPreferredMicrophoneConstraints(),
         channelCount: 1,
+        // Mic test replays your own voice locally; browser AEC/AGC can
+        // over-suppress syllables in this self-monitor loop.
         echoCancellation: false,
         autoGainControl: false,
+    }
+}
+
+function buildMicTestProcessingConstraints(noiseSuppressionEnabled: boolean): MediaTrackConstraints {
+    return {
+        noiseSuppression: noiseSuppressionEnabled,
+        echoCancellation: false,
+        autoGainControl: false,
+    }
+}
+
+async function applyMicTestProcessingConstraints(
+    audioTrack: MediaStreamTrack | null,
+    noiseSuppressionEnabled: boolean,
+): Promise<void> {
+    if (!audioTrack || typeof audioTrack.applyConstraints !== 'function') return
+    try {
+        await audioTrack.applyConstraints(buildMicTestProcessingConstraints(noiseSuppressionEnabled))
+    } catch {
+        // ignore unsupported constraints
     }
 }
 
@@ -243,6 +265,7 @@ export default function SensitivityBar({
                 const onSettingsChanged = () => {
                     const nowEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
                     updateMicProcessingSettings(nowEnabled)
+                    void applyMicTestProcessingConstraints(rawMicTrackRef.current, nowEnabled)
                     if (monitorAudioRef.current) {
                         void applyPreferredAudioOutputDevice(monitorAudioRef.current)
                     }
@@ -315,10 +338,11 @@ export default function SensitivityBar({
                                 Math.min(0, Math.round(Number.isFinite(smoothLevelRef.current) ? smoothLevelRef.current : -100)),
                             )
                             const thresholdDbNow = Math.round(Math.min(0, Math.max(-100, thresholdRef.current - 100)))
-                            const previewShouldPass = decision.speaking && smoothedDb >= thresholdDbNow
-                            const shouldGlow = !suppressGlow && previewShouldPass
+                            const gateIsOpen = decision.speaking
+                            const previewShouldPass = gateIsOpen && !suppressInteractionPreview
+                            const shouldGlow = !suppressGlow && gateIsOpen
                             setGatePassing((prev) => (prev === shouldGlow ? prev : shouldGlow))
-                            const displayedDb = previewShouldPass
+                            const displayedDb = gateIsOpen
                                 ? Math.max(smoothedDb, Math.min(0, thresholdDbNow + MIC_TEST_GATE_DISPLAY_MARGIN_DB))
                                 : smoothedDb
                             setLiveDb(displayedDb)

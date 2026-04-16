@@ -1,5 +1,9 @@
 import { useCallback, useRef } from 'react'
-import { buildPreferredMicrophoneConstraints, getStoredVoiceInputDeviceId } from '../../voiceDevices'
+import {
+    applyMicTrackProcessingConstraints,
+    buildPreferredMicrophoneConstraints,
+    getStoredVoiceInputDeviceId,
+} from '../../voiceDevices'
 
 const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
@@ -65,21 +69,8 @@ export function useLocalMedia() {
     // Keep browser noise suppression in sync with user setting as a safe fallback
     // in case RNNoise cannot initialize on a specific client/runtime.
     const applyLocalMicSettings = useCallback(async (audioTrack: MediaStreamTrack | null) => {
-        if (!audioTrack || typeof audioTrack.applyConstraints !== 'function') return
         const noiseSuppressionEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
-        const constraintsBase: MediaTrackConstraints = {
-            noiseSuppression: noiseSuppressionEnabled,
-            echoCancellation: true,
-            // AGC can pump keyboard and desk noise during pauses. When suppression
-            // is enabled, prefer a steadier signal and let our audio pipeline
-            // handle cleanup instead of aggressively boosting the mic.
-            autoGainControl: !noiseSuppressionEnabled,
-        }
-        try {
-            await audioTrack.applyConstraints(constraintsBase)
-        } catch {
-            // ignore unsupported constraints
-        }
+        await applyMicTrackProcessingConstraints(audioTrack, noiseSuppressionEnabled)
     }, [])
 
     const getMicrophoneStream = useCallback(async (forceRefresh = false): Promise<MediaStream> => {

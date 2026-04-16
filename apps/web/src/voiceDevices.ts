@@ -28,11 +28,21 @@ function readStoredDeviceId(key: string): string {
   }
 }
 
-function isNoiseSuppressionEnabled(): boolean {
+export function isStoredNoiseSuppressionEnabled(): boolean {
   try {
     return localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
   } catch {
     return true
+  }
+}
+
+export function buildMicProcessingConstraints(
+  noiseSuppressionEnabled: boolean,
+): MediaTrackConstraints {
+  return {
+    noiseSuppression: noiseSuppressionEnabled,
+    echoCancellation: true,
+    autoGainControl: !noiseSuppressionEnabled,
   }
 }
 
@@ -46,12 +56,22 @@ export function getStoredVoiceOutputDeviceId(): string {
 
 export function buildPreferredMicrophoneConstraints(): MediaTrackConstraints {
   const deviceId = getStoredVoiceInputDeviceId()
-  const noiseSuppressionEnabled = isNoiseSuppressionEnabled()
+  const noiseSuppressionEnabled = isStoredNoiseSuppressionEnabled()
   return {
     deviceId: deviceId ? { exact: deviceId } : undefined,
-    noiseSuppression: noiseSuppressionEnabled,
-    echoCancellation: true,
-    autoGainControl: !noiseSuppressionEnabled,
+    ...buildMicProcessingConstraints(noiseSuppressionEnabled),
+  }
+}
+
+export async function applyMicTrackProcessingConstraints(
+  audioTrack: MediaStreamTrack | null,
+  noiseSuppressionEnabled: boolean,
+): Promise<void> {
+  if (!audioTrack || typeof audioTrack.applyConstraints !== 'function') return
+  try {
+    await audioTrack.applyConstraints(buildMicProcessingConstraints(noiseSuppressionEnabled))
+  } catch {
+    // ignore unsupported constraints
   }
 }
 
@@ -130,12 +150,10 @@ export async function getMicrophonePermissionState(): Promise<MicrophonePermissi
 export async function requestVoiceDeviceAccess(): Promise<boolean> {
   if (!navigator.mediaDevices?.getUserMedia) return false
   try {
-    const noiseSuppressionEnabled = isNoiseSuppressionEnabled()
+    const noiseSuppressionEnabled = isStoredNoiseSuppressionEnabled()
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        noiseSuppression: noiseSuppressionEnabled,
-        echoCancellation: true,
-        autoGainControl: !noiseSuppressionEnabled,
+        ...buildMicProcessingConstraints(noiseSuppressionEnabled),
       },
       video: false,
     })

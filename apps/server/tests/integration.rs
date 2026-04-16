@@ -2128,3 +2128,220 @@ async fn websocket_rejects_query_token_but_accepts_protocol_token() {
 
     server_handle.abort();
 }
+
+#[tokio::test]
+async fn forgot_password_rate_limit_blocks_after_three_attempts() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let email = format!("forgot-rate-limit-{}@example.com", Uuid::new_v4());
+    for attempt in 0..3 {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/forgot-password")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "email": email })).unwrap(),
+            ))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, req).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "forgot-password attempt {} failed unexpectedly: {}",
+            attempt + 1,
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/forgot-password")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "email": email })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "forgot-password should be rate-limited on the 4th request: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn attachment_upload_fails_when_user_storage_quota_is_exceeded() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("quota-{}@example.com", uid);
+    let username = format!("quota_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+    let (token, user_id) = register_user(&mut app, &email, &username, password).await;
+    let auth = format!("Bearer {}", token);
+
+    sqlx::query("UPDATE users SET storage_used_bytes = $1 WHERE id = $2")
+        .bind(1_073_741_824_i64)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let boundary = format!("----voxperyquota{}", Uuid::new_v4());
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"small.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--{boundary}--\r\n"
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body.into_bytes()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "upload should fail when quota is full: {}",
+        String::from_utf8_lossy(&body)
+    );
+    assert!(
+        String::from_utf8_lossy(&body).contains("Storage quota exceeded"),
+        "quota error message should be explicit: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn channel_create_race_is_serialized_at_500_channel_limit() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, state) = setup_app().await;
+    let mut app = app;
+
+    let uid = Uuid::new_v4();
+    let email = format!("chan-race-{}@example.com", uid);
+    let username = format!("chanrace_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+    let (token, _) = register_user(&mut app, &email, &username, password).await;
+    let auth_header = format!("Bearer {}", token);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": format!("Race Lock {}", uid) })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+
+    sqlx::query("DELETE FROM channels WHERE server_id = $1")
+        .bind(server_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    for idx in 0..499 {
+        sqlx::query(
+            r#"INSERT INTO channels (id, server_id, name, description, channel_type, category, position, created_at)
+               VALUES ($1, $2, $3, NULL, 'text', 'General', $4, NOW())"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(server_id)
+        .bind(format!("seed-{idx}"))
+        .bind(idx)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    let req_a = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "race-a",
+                "channel_type": "text"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let req_b = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "race-b",
+                "channel_type": "text"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let (resp_a, resp_b) = tokio::join!(app.clone().oneshot(req_a), app.clone().oneshot(req_b));
+    let resp_a = resp_a.expect("channel create request A should resolve");
+    let resp_b = resp_b.expect("channel create request B should resolve");
+    let status_a = resp_a.status();
+    let body_a = resp_a.into_body().collect().await.unwrap().to_bytes();
+    let status_b = resp_b.status();
+    let body_b = resp_b.into_body().collect().await.unwrap().to_bytes();
+
+    let success_count = [status_a, status_b]
+        .iter()
+        .filter(|s| **s == StatusCode::OK)
+        .count();
+    let rejected_count = [status_a, status_b]
+        .iter()
+        .filter(|s| **s == StatusCode::BAD_REQUEST)
+        .count();
+
+    assert_eq!(
+        success_count, 1,
+        "exactly one concurrent create should succeed, got ({status_a}, {status_b}) with bodies: A={}, B={}",
+        String::from_utf8_lossy(&body_a),
+        String::from_utf8_lossy(&body_b)
+    );
+    assert_eq!(
+        rejected_count, 1,
+        "exactly one concurrent create should be rejected at 500-limit, got ({status_a}, {status_b}) with bodies: A={}, B={}",
+        String::from_utf8_lossy(&body_a),
+        String::from_utf8_lossy(&body_b)
+    );
+
+    let total_channels: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        total_channels, 500,
+        "row lock must keep channel count capped at 500"
+    );
+}
