@@ -70,17 +70,6 @@ async fn create_channel(
     )
     .await?;
 
-    let channel_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM channels WHERE server_id = $1")
-            .bind(body.server_id)
-            .fetch_one(&state.db)
-            .await?;
-    if channel_count >= 500 {
-        return Err(AppError::Validation(
-            "This server already has the maximum of 500 channels".into(),
-        ));
-    }
-
     let trimmed_name = body.name.trim();
     validate_channel_name(trimmed_name)?;
     let description = normalize_channel_description(body.description.as_deref())?;
@@ -109,13 +98,34 @@ async fn create_channel(
     )
     .await?;
 
-    // Get next position
+    let mut tx = state.db.begin().await?;
+    let locked_server_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(body.server_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if locked_server_id.is_none() {
+        return Err(AppError::NotFound("Server not found".into()));
+    }
+
+    let channel_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM channels WHERE server_id = $1")
+            .bind(body.server_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if channel_count >= 500 {
+        return Err(AppError::Validation(
+            "This server already has the maximum of 500 channels".into(),
+        ));
+    }
+
+    // Get next position under the same server row lock.
     let max_pos = sqlx::query_scalar::<_, Option<i32>>(
         "SELECT MAX(position) FROM channels WHERE server_id = $1 AND category = $2",
     )
     .bind(body.server_id)
     .bind(&category)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(-1);
 
@@ -131,10 +141,11 @@ async fn create_channel(
     .bind(&channel_type)
     .bind(&category)
     .bind(max_pos + 1)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
 
-    crate::services::audit::log(
+    if let Err(e) = crate::services::audit::log(
         &state.db,
         claims.sub,
         Some(body.server_id),
@@ -143,7 +154,10 @@ async fn create_channel(
         Some(channel.id),
         Some(serde_json::json!({ "name": channel.name, "description": channel.description, "type": channel.channel_type, "category": channel.category })),
     )
-    .await?;
+    .await
+    {
+        tracing::warn!("channel_create audit log failed: {}", e);
+    }
 
     let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
         server_id: body.server_id,

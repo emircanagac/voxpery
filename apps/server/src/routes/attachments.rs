@@ -82,16 +82,6 @@ async fn upload_attachments(
     let mut file_count = 0usize;
     let max_files = state.attachment_service.max_files_per_request();
     let mut tx = state.db.begin().await?;
-    let mut storage_used_bytes = sqlx::query_scalar::<_, i64>(
-        "SELECT storage_used_bytes FROM users WHERE id = $1 FOR UPDATE",
-    )
-    .bind(claims.sub)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
-    if storage_used_bytes < 0 {
-        storage_used_bytes = 0;
-    }
 
     while let Some(field) = multipart
         .next_field()
@@ -121,9 +111,25 @@ async fn upload_attachments(
             .bytes()
             .await
             .map_err(|e| AppError::Validation(format!("Failed to read uploaded file: {e}")))?;
-        let incoming_size_bytes = i64::try_from(bytes.len())
-            .map_err(|_| AppError::Validation("Uploaded file is too large".into()))?;
-        if storage_used_bytes.saturating_add(incoming_size_bytes) > FREE_TIER_STORAGE_QUOTA_BYTES {
+        let prepared = state
+            .attachment_service
+            .prepare_file_for_storage(&file_name, &content_type, &bytes)
+            .await?;
+
+        let reserve_result = sqlx::query_scalar::<_, Uuid>(
+            r#"UPDATE users
+               SET storage_used_bytes = storage_used_bytes + $1
+               WHERE id = $2
+                 AND storage_used_bytes + $1 <= $3
+               RETURNING id"#,
+        )
+        .bind(prepared.size_bytes)
+        .bind(claims.sub)
+        .bind(FREE_TIER_STORAGE_QUOTA_BYTES)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if reserve_result.is_none() {
             return Err(AppError::Validation(
                 "Storage quota exceeded (1 GB). Delete old files or upgrade your plan.".into(),
             ));
@@ -131,11 +137,11 @@ async fn upload_attachments(
 
         let stored = state
             .attachment_service
-            .store_file(&file_name, &content_type, &bytes)
+            .store_prepared_file(prepared)
             .await?;
 
         let attachment_id = Uuid::new_v4();
-        sqlx::query(
+        let insert_result = sqlx::query(
             r#"INSERT INTO uploaded_attachments (
                    id,
                    user_id,
@@ -159,8 +165,14 @@ async fn upload_attachments(
         .bind(stored.size_bytes)
         .bind(&stored.sha256)
         .execute(&mut *tx)
-        .await?;
-        storage_used_bytes = storage_used_bytes.saturating_add(stored.size_bytes);
+        .await;
+        if let Err(e) = insert_result {
+            let _ = state
+                .attachment_service
+                .delete_local_file_by_storage_key(&stored.storage_key)
+                .await;
+            return Err(e.into());
+        }
 
         uploaded.push(AttachmentResponseItem {
             id: attachment_id,
@@ -179,12 +191,6 @@ async fn upload_attachments(
             "No files received. Use multipart field name 'files'.".into(),
         ));
     }
-
-    sqlx::query("UPDATE users SET storage_used_bytes = $2 WHERE id = $1")
-        .bind(claims.sub)
-        .bind(storage_used_bytes)
-        .execute(&mut *tx)
-        .await?;
     tx.commit().await?;
 
     Ok(Json(uploaded))

@@ -35,6 +35,7 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
 const WS_MESSAGE_RATE_LIMIT_MAX: usize = 120;
 const WS_MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
+const WS_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(75);
 
 async fn enforce_ws_frame_rate_limit(
     state: &AppState,
@@ -528,7 +529,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     let recv_claims = claims.clone();
     let recv_token = token.clone();
     let recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = ws_receiver.next().await {
+        loop {
+            let msg = match tokio::time::timeout(WS_CLIENT_IDLE_TIMEOUT, ws_receiver.next()).await {
+                Ok(Some(Ok(msg))) => msg,
+                Ok(Some(Err(e))) => {
+                    tracing::warn!("WebSocket receive error for {}: {}", user_id, e);
+                    break;
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    tracing::warn!(
+                        "WebSocket idle timeout (zombie session) for user {}; closing connection",
+                        user_id
+                    );
+                    break;
+                }
+            };
             if !is_ws_session_still_valid(&recv_state, &recv_token, &recv_claims).await {
                 break;
             }

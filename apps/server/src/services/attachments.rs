@@ -58,6 +58,15 @@ pub struct StoredAttachment {
     pub sha256: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PreparedAttachment {
+    pub original_name: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    bytes: Vec<u8>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AttachmentResponseItem {
     pub id: Uuid,
@@ -514,12 +523,45 @@ impl AttachmentService {
         content_type: &str,
         bytes: &[u8],
     ) -> Result<StoredAttachment, AppError> {
+        let prepared = self
+            .prepare_file_for_storage(original_name, content_type, bytes)
+            .await?;
+        self.store_prepared_file(prepared).await
+    }
+
+    pub async fn prepare_file_for_storage(
+        &self,
+        original_name: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<PreparedAttachment, AppError> {
         self.validate_upload_file_meta(content_type, bytes.len())?;
         let prepared_bytes = self
             .strip_image_metadata_if_needed(content_type, bytes)
             .await?;
         self.validate_upload_file_meta(content_type, prepared_bytes.len())?;
         self.scan_file_bytes(&prepared_bytes).await?;
+
+        Ok(PreparedAttachment {
+            original_name: original_name.to_string(),
+            content_type: content_type.to_string(),
+            size_bytes: prepared_bytes.len() as i64,
+            sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
+            bytes: prepared_bytes,
+        })
+    }
+
+    pub async fn store_prepared_file(
+        &self,
+        prepared: PreparedAttachment,
+    ) -> Result<StoredAttachment, AppError> {
+        let PreparedAttachment {
+            original_name,
+            content_type,
+            size_bytes,
+            sha256,
+            bytes,
+        } = prepared;
 
         let now = chrono::Utc::now();
         let object_id = Uuid::new_v4();
@@ -537,17 +579,31 @@ impl AttachmentService {
                 AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
             })?;
         }
-        fs::write(&path, &prepared_bytes)
+        fs::write(&path, &bytes)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to write uploaded attachment: {e}")))?;
         Ok(StoredAttachment {
             storage_backend: "local",
             storage_key: key,
-            original_name: original_name.to_string(),
-            content_type: content_type.to_string(),
-            size_bytes: prepared_bytes.len() as i64,
-            sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
+            original_name,
+            content_type,
+            size_bytes,
+            sha256,
         })
+    }
+
+    pub async fn delete_local_file_by_storage_key(
+        &self,
+        storage_key: &str,
+    ) -> Result<(), AppError> {
+        let path = self.resolve_local_path(storage_key)?;
+        match fs::remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(AppError::Internal(format!(
+                "Failed to delete local attachment file: {e}"
+            ))),
+        }
     }
 
     fn resolve_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
