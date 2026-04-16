@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+  # GHSA-cq8v-f236-94qc / RUSTSEC-2026-0097
+  # Current transitive dependency chain (sqlx/jsonwebtoken) still resolves rand 0.8.x.
+  # Keep ignored temporarily and remove as soon as upstream moves to a patched rand line.
+  "RUSTSEC-2026-0097",
+]
+

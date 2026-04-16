@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+  # GHSA-cq8v-f236-94qc / RUSTSEC-2026-0097
+  # Comes from transitive Tauri build-time dependency chain (kuchikiki/phf/tauri-utils).
+  # Keep ignored temporarily until upstream updates dependency graph.
+  "RUSTSEC-2026-0097",
+]
+
