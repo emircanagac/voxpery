@@ -5,6 +5,8 @@ import { useAppStore } from '../stores/app'
 import type { ServerSettingsTab } from '../stores/app'
 import ServerSidebar from './ServerSidebar'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
+import { ROUTES } from '../routes'
+import { getPersistedSocialView } from '../socialView'
 
 interface UnifiedSidebarProps {
   onCreateServer: () => void
@@ -23,19 +25,24 @@ export default function UnifiedSidebar({
 }: UnifiedSidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { activeServerId, setActiveServer } = useAppStore(
-    useShallow((s) => ({ activeServerId: s.activeServerId, setActiveServer: s.setActiveServer }))
+  const { activeServerId, activeDmChannelId, setActiveServer } = useAppStore(
+    useShallow((s) => ({
+      activeServerId: s.activeServerId,
+      activeDmChannelId: s.activeDmChannelId,
+      setActiveServer: s.setActiveServer,
+    }))
   )
-  const isServerRoute = location.pathname === '/servers'
+  const isServerRoute = location.pathname.startsWith(ROUTES.servers)
   const displayActiveServerId = isServerRoute ? activeServerId : null
-  const isSocialRoute = location.pathname === '/'
+  const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
   const totalSocialUnread = totalDmUnread + incomingRequestCount
   const hasMessagesNotify = totalSocialUnread > 0
-  const socialHref = '/'
+  const savedSocialView = getPersistedSocialView()
+  const socialHref = savedSocialView === 'dm' && activeDmChannelId ? ROUTES.dm : ROUTES.home
 
   const handleSelectServer = (serverId: string) => {
     setActiveServer(serverId)
-    navigate('/servers')
+    navigate(ROUTES.servers)
   }
 
   return (

@@ -21,10 +21,11 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
+const AboutPage = lazy(() => import('./pages/AboutPage'))
 
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
-  return <Navigate to={ROUTES.home} state={userId ? { openDmUserId: userId } : undefined} replace />
+  return <Navigate to={ROUTES.dm} state={userId ? { openDmUserId: userId } : undefined} replace />
 }
 
 function safeRedirectPath(redirect: string | null): string | undefined {
@@ -56,6 +57,14 @@ function AuthRedirect() {
   return <Navigate to={`${ROUTES.login}?redirect=${encodeURIComponent(currentPath)}`} replace />
 }
 
+function ConnectedAppShell() {
+  return (
+    <ConnectionGate>
+      <AppShell />
+    </ConnectionGate>
+  )
+}
+
 function App() {
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
@@ -65,6 +74,7 @@ function App() {
   const [restoring, setRestoring] = useState(true)
   const validatedSessionRef = useRef(false)
   const authFailureHandledRef = useRef(false)
+  const isDesktopApp = isTauri()
 
   useEffect(() => {
     const clearExpiredSession = () => {
@@ -206,47 +216,47 @@ function App() {
 
   if (!user) {
     return (
-      <ConnectionGate>
-        <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
-          <Routes>
-            <Route path={ROUTES.login} element={<LoginPage />} />
-            <Route path={ROUTES.register} element={<RegisterPage />} />
-            <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
-            <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
-            <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
-            <Route path="*" element={<AuthRedirect />} />
-          </Routes>
-        </Suspense>
+      <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
+        <Routes>
+          <Route path={ROUTES.landing} element={isDesktopApp ? <Navigate to={ROUTES.login} replace /> : <AboutPage />} />
+          <Route path={ROUTES.about} element={<AboutPage />} />
+          <Route path={ROUTES.login} element={<LoginPage />} />
+          <Route path={ROUTES.register} element={<RegisterPage />} />
+          <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
+          <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
+          <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
+          <Route path="*" element={<AuthRedirect />} />
+        </Routes>
         <ToastViewport />
-      </ConnectionGate>
+      </Suspense>
     )
   }
 
   return (
-    <ConnectionGate>
-      <ErrorBoundary>
-        <RnnoisePreloadOnInteraction />
-        <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
-          <Routes>
-            <Route element={<AppShell />}>
-              {/* UnifiedLayout wraps both / and /servers so it doesn't unmount on switch */}
-              <Route element={<UnifiedLayout />}>
-                <Route path={ROUTES.home} element={null} />
-                <Route path={ROUTES.servers} element={null} />
-                <Route path={`${ROUTES.servers}/*`} element={<Navigate to={ROUTES.servers} replace />} />
-              </Route>
-              <Route path={ROUTES.dm} element={<RedirectDmToSocial />} />
-              <Route path={`${ROUTES.dm}/:userId`} element={<RedirectDmToSocial />} />
+    <ErrorBoundary>
+      <RnnoisePreloadOnInteraction />
+      <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
+        <Routes>
+          <Route path={ROUTES.landing} element={<Navigate to={ROUTES.home} replace />} />
+          <Route path={ROUTES.about} element={<AboutPage />} />
+          <Route element={<ConnectedAppShell />}>
+            {/* UnifiedLayout wraps /social, /social/dm and /servers so it doesn't unmount on switch */}
+            <Route element={<UnifiedLayout />}>
+              <Route path={ROUTES.home} element={null} />
+              <Route path={ROUTES.dm} element={null} />
+              <Route path={ROUTES.servers} element={null} />
+              <Route path={`${ROUTES.servers}/*`} element={<Navigate to={ROUTES.servers} replace />} />
             </Route>
-            <Route path={ROUTES.login} element={<RedirectAuthenticatedAuthPage />} />
-            <Route path={ROUTES.register} element={<RedirectAuthenticatedAuthPage />} />
-            <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
-            <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
-          </Routes>
-        </Suspense>
-      </ErrorBoundary>
+            <Route path={`${ROUTES.dm}/:userId`} element={<RedirectDmToSocial />} />
+          </Route>
+          <Route path={ROUTES.login} element={<RedirectAuthenticatedAuthPage />} />
+          <Route path={ROUTES.register} element={<RedirectAuthenticatedAuthPage />} />
+          <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
+          <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
+        </Routes>
+      </Suspense>
       <ToastViewport />
-    </ConnectionGate>
+    </ErrorBoundary>
   )
 }
 

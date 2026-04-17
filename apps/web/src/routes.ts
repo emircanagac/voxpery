@@ -1,9 +1,11 @@
 export const APP_BASE_PATH = '/'
 
 export const ROUTES = {
-  home: APP_BASE_PATH,
+  landing: APP_BASE_PATH,
+  about: '/about' as const,
+  home: '/social' as const,
   servers: '/servers' as const,
-  dm: '/dm' as const,
+  dm: '/social/dm' as const,
   login: '/login' as const,
   register: '/register' as const,
   forgotPassword: '/forgot-password' as const,

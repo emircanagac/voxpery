@@ -58,8 +58,8 @@ export default function UnifiedLayout() {
     }))
   )
 
-  const isFriendsOrDm = location.pathname === ROUTES.home
-  const isServerView = location.pathname === ROUTES.servers
+  const isFriendsOrDm = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
+  const isServerView = location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
 
   // When on /servers with no active server, set first server (or restore from sessionStorage)
   useEffect(() => {

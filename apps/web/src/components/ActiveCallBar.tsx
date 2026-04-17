@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
 import { applyPreferredAudioOutputDevice, buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
+import { ROUTES } from '../routes'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -91,7 +92,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!id || !serverId) return
     setActiveServer(serverId)
     setActiveChannel(id)
-    navigate('/servers')
+    navigate(ROUTES.servers)
   }
   const pushToast = useToastStore((s) => s.pushToast)
   const isLinuxDesktop = useMemo(

@@ -83,7 +83,6 @@ export default function AppShell() {
   const channelsByServerId = useAppStore((s) => s.channelsByServerId)
   const servers = useAppStore((s) => s.servers)
   const activeChannelId = useAppStore((s) => s.activeChannelId)
-  const activeServerId = useAppStore((s) => s.activeServerId)
   const joinedVoiceChannelId = useAppStore((s) => s.joinedVoiceChannelId)
   const previousUnreadCountRef = useRef(0)
   const desktopUnreadInitializedRef = useRef(false)
@@ -441,8 +440,9 @@ export default function AppShell() {
     joinedVoiceChannelId ??
     null
   const isFriendsOrDm =
-    location.pathname === '/'
-  const isServerView = !!activeServerId && location.pathname.startsWith('/servers')
+    location.pathname === ROUTES.home || location.pathname === ROUTES.dm
+  const isServerView =
+    location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
   const showVoiceStage = isServerView ? !!activeChannelId : false
   const mobileSidebarTarget = isFriendsOrDm ? 'social' : isServerView ? 'channels' : 'none'
 
@@ -488,7 +488,7 @@ export default function AppShell() {
       setPersistedSocialView('dm')
       setActiveDmChannelId(dmChannelId)
       clearDmUnread(dmChannelId)
-      navigate(ROUTES.home)
+      navigate(ROUTES.dm)
       return
     }
 
@@ -556,7 +556,7 @@ export default function AppShell() {
               <Menu size={18} />
             </button>
           )}
-          <button type="button" className="shell-brand" onClick={() => navigate('/')}>
+          <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
             <span className="shell-brand-beta" title="Preview build">Beta</span>

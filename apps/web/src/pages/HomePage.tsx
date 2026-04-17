@@ -34,6 +34,7 @@ import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump, setPendingSavedMediaJump } from '../savedMediaJump'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
+import { ROUTES } from '../routes'
 
 type FriendsFilter = 'all' | 'online' | 'requests'
 
@@ -193,9 +194,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [dmUnread, hiddenDmPeerIds, storeDmChannels]
   )
 
-  // Single path /: restore the tab that was open when user left (Friends vs DM).
+  // Social paths (/social and /social/dm): restore last social tab and optional deep-linked DM.
   useEffect(() => {
-    if (location.pathname !== '/') return
+    const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
+    if (!isSocialRoute) return
     const openDmUserId = (location.state as { openDmUserId?: string } | null)?.openDmUserId
     if (openDmUserId && dmChannels.length > 0) {
       const channel = isUuid(openDmUserId)
@@ -207,14 +209,22 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         setView('dm')
         setPersistedSocialView('dm')
         clearDmUnread(channel.id)
-        navigate('/', { replace: true, state: {} })
+        navigate(ROUTES.dm, { replace: true, state: {} })
       }
       return
     }
     const saved = getPersistedSocialView()
-    if (saved === 'friends') setView('friends')
-    else if (saved === 'saved') setView('saved')
-    else if (saved === 'dm' && activeDmChannelId) setView('dm')
+    if (saved === 'dm' && activeDmChannelId) {
+      setView('dm')
+      if (location.pathname !== ROUTES.dm) {
+        navigate(ROUTES.dm, { replace: true })
+      }
+      return
+    }
+    if (location.pathname === ROUTES.dm) {
+      navigate(ROUTES.home, { replace: true })
+    }
+    if (saved === 'saved') setView('saved')
     else setView('friends')
   }, [location.pathname, location.state, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
 
@@ -287,7 +297,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const openOfficialCommunity = useCallback(async () => {
     if (voxperyServer) {
       setActiveServer(voxperyServer.id)
-      navigate('/servers')
+      navigate(ROUTES.servers)
       return
     }
     try {
@@ -295,7 +305,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const list = await serverApi.list(token)
       setServers(list)
       setActiveServer(joined.id)
-      navigate('/servers')
+      navigate(ROUTES.servers)
     } catch (err) {
       pushToast({
         level: 'error',
@@ -320,7 +330,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setView('dm')
       setPersistedSocialView('dm')
       setMobileSidebarPanel('none')
-      navigate('/', { replace: true })
+      navigate(ROUTES.dm, { replace: true })
       return
     }
     if (!item.server_id) return
@@ -332,7 +342,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setActiveServer(item.server_id)
     setActiveChannel(item.channel_id)
     setMobileSidebarPanel('none')
-    navigate('/servers')
+    navigate(ROUTES.servers)
   }, [clearDmUnread, navigate, setActiveChannel, setActiveDmChannelId, setActiveServer, setMobileSidebarPanel])
 
   const onlineFriends = friends.filter((f) => f.status !== 'offline')
@@ -624,7 +634,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!prev.some((c) => c.id === channel.id)) {
       setStoreDmChannels([channel, ...prev])
     }
-    navigate('/')
+    navigate(ROUTES.dm)
   }
 
   const sendFriendRequest = async () => {
@@ -953,7 +963,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           onClick={() => {
             setView('friends')
             setPersistedSocialView('friends')
-            if (location.pathname !== '/') navigate('/')
+            if (location.pathname !== ROUTES.home) navigate(ROUTES.home)
             setMobileSidebarPanel('none')
           }}
         >
@@ -967,7 +977,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           onClick={() => {
             setView('saved')
             setPersistedSocialView('saved')
-            if (location.pathname !== '/') navigate('/')
+            if (location.pathname !== ROUTES.home) navigate(ROUTES.home)
             setMobileSidebarPanel('none')
           }}
         >
@@ -1006,7 +1016,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 setActiveDmChannelId(channel.id)
                 setPersistedSocialView('dm')
                 clearDmUnread(channel.id)
-                if (location.pathname !== '/') navigate('/')
+                if (location.pathname !== ROUTES.dm) navigate(ROUTES.dm)
                 setMobileSidebarPanel('none')
               }}
             >
@@ -1038,7 +1048,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       setView('friends')
                       setActiveDmChannelId(null)
                       setPersistedSocialView('friends')
-                      navigate('/')
+                      navigate(ROUTES.home)
                     }
                   }}
                   onKeyDown={(e) => {
@@ -1053,7 +1063,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         setView('friends')
                         setActiveDmChannelId(null)
                         setPersistedSocialView('friends')
-                        navigate('/')
+                        navigate(ROUTES.home)
                       }
                     }
                   }}

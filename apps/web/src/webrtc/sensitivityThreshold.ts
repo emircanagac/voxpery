@@ -11,7 +11,7 @@ export type SpeakingPreset = 'normal' | 'noisy' | 'custom'
 export const DEFAULT_SPEAKING_PRESET: Exclude<SpeakingPreset, 'custom'> = 'normal'
 
 /** Default slider value when not set (matches "Balanced" preset). */
-export const DEFAULT_SENSITIVITY_SLIDER = 50
+export const DEFAULT_SENSITIVITY_SLIDER = 42
 
 /** Sensitivity threshold (0–100) per preset. Lower = more sensitive (quieter sounds pass / sent). */
 export function thresholdByPreset(preset: Exclude<SpeakingPreset, 'custom'>): number {

@@ -1,3 +1,5 @@
+import { ROUTES } from './routes'
+
 export type SocialView = 'friends' | 'dm' | 'saved'
 
 const SOCIAL_VIEW_KEY = 'voxpery-social-view'
@@ -21,5 +23,5 @@ export function setPersistedSocialView(view: SocialView): void {
 }
 
 export function isSocialDmViewVisible(pathname: string): boolean {
-  return pathname === '/' && getPersistedSocialView() === 'dm'
+  return pathname === ROUTES.dm && getPersistedSocialView() === 'dm'
 }
