@@ -1,3 +1,4 @@
+import { useEffect, useState, type MouseEvent } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { MessageCircle } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -16,6 +17,8 @@ interface UnifiedSidebarProps {
   incomingRequestCount?: number
 }
 
+type MobilePanelTarget = 'social' | 'channels'
+
 export default function UnifiedSidebar({
   onCreateServer,
   onJoinServer,
@@ -23,15 +26,23 @@ export default function UnifiedSidebar({
   totalDmUnread = 0,
   incomingRequestCount = 0,
 }: UnifiedSidebarProps) {
+  const MOBILE_PANEL_TRANSITION_MS = 250
   const navigate = useNavigate()
   const location = useLocation()
-  const { activeServerId, activeDmChannelId, setActiveServer } = useAppStore(
+  const { activeServerId, activeDmChannelId, mobileSidebarPanel, setActiveServer, setMobileSidebarPanel } = useAppStore(
     useShallow((s) => ({
       activeServerId: s.activeServerId,
       activeDmChannelId: s.activeDmChannelId,
+      mobileSidebarPanel: s.mobileSidebarPanel,
       setActiveServer: s.setActiveServer,
+      setMobileSidebarPanel: s.setMobileSidebarPanel,
     }))
   )
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+  )
+  const [pendingMobilePanel, setPendingMobilePanel] = useState<MobilePanelTarget | null>(null)
+  const [pendingNavigationTimeout, setPendingNavigationTimeout] = useState<number | null>(null)
   const isServerRoute = location.pathname.startsWith(ROUTES.servers)
   const displayActiveServerId = isServerRoute ? activeServerId : null
   const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
@@ -40,9 +51,143 @@ export default function UnifiedSidebar({
   const savedSocialView = getPersistedSocialView()
   const socialHref = savedSocialView === 'dm' && activeDmChannelId ? ROUTES.dm : ROUTES.home
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const media = window.matchMedia('(max-width: 900px)')
+    const updateViewport = () => setIsMobileViewport(media.matches)
+
+    updateViewport()
+    media.addEventListener('change', updateViewport)
+    return () => media.removeEventListener('change', updateViewport)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (pendingNavigationTimeout != null) {
+        window.clearTimeout(pendingNavigationTimeout)
+      }
+    }
+  }, [pendingNavigationTimeout])
+
+  useEffect(() => {
+    if (!isMobileViewport || !pendingMobilePanel) return undefined
+
+    const routeMatchesPendingPanel =
+      (pendingMobilePanel === 'social' && isSocialRoute) ||
+      (pendingMobilePanel === 'channels' && isServerRoute)
+
+    if (!routeMatchesPendingPanel) return undefined
+
+    let frameA = 0
+    let frameB = 0
+
+    frameA = window.requestAnimationFrame(() => {
+      frameB = window.requestAnimationFrame(() => {
+        setMobileSidebarPanel(pendingMobilePanel)
+        setPendingMobilePanel(null)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameA)
+      window.cancelAnimationFrame(frameB)
+    }
+  }, [isMobileViewport, isServerRoute, isSocialRoute, pendingMobilePanel, setMobileSidebarPanel])
+
   const handleSelectServer = (serverId: string) => {
+    if (isMobileViewport) {
+      const isSameServerPanelOpen =
+        isServerRoute && activeServerId === serverId && mobileSidebarPanel === 'channels'
+      const isSwitchingServersWithOpenPanel =
+        isServerRoute && activeServerId !== null && activeServerId !== serverId && mobileSidebarPanel === 'channels'
+
+      if (isSameServerPanelOpen) {
+        setMobileSidebarPanel('none')
+        setPendingMobilePanel(null)
+        return
+      }
+
+      if (isSwitchingServersWithOpenPanel) {
+        if (pendingNavigationTimeout != null) {
+          window.clearTimeout(pendingNavigationTimeout)
+        }
+
+        setMobileSidebarPanel('none')
+        setPendingMobilePanel(null)
+
+        const timeoutId = window.setTimeout(() => {
+          setActiveServer(serverId)
+          setPendingMobilePanel('channels')
+          setPendingNavigationTimeout(null)
+        }, MOBILE_PANEL_TRANSITION_MS)
+
+        setPendingNavigationTimeout(timeoutId)
+        return
+      }
+
+      if (!isServerRoute) {
+        if (pendingNavigationTimeout != null) {
+          window.clearTimeout(pendingNavigationTimeout)
+        }
+
+        setMobileSidebarPanel('none')
+        setPendingMobilePanel('channels')
+        setActiveServer(serverId)
+
+        const timeoutId = window.setTimeout(() => {
+          navigate(ROUTES.servers)
+          setPendingNavigationTimeout(null)
+        }, mobileSidebarPanel !== 'none' ? MOBILE_PANEL_TRANSITION_MS : 0)
+
+        setPendingNavigationTimeout(timeoutId)
+        return
+      }
+
+      setPendingMobilePanel(null)
+      setMobileSidebarPanel('channels')
+    }
+
     setActiveServer(serverId)
-    navigate(ROUTES.servers)
+
+    if (!isServerRoute) {
+      navigate(ROUTES.servers)
+    }
+  }
+
+  const handleSelectSocial = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (isMobileViewport) {
+      const isSameSocialPanelOpen = isSocialRoute && mobileSidebarPanel === 'social'
+
+      if (isSameSocialPanelOpen) {
+        event.preventDefault()
+        setMobileSidebarPanel('none')
+        setPendingMobilePanel(null)
+        return
+      }
+
+      if (!isSocialRoute) {
+        event.preventDefault()
+
+        if (pendingNavigationTimeout != null) {
+          window.clearTimeout(pendingNavigationTimeout)
+        }
+
+        setMobileSidebarPanel('none')
+        setPendingMobilePanel('social')
+
+        const timeoutId = window.setTimeout(() => {
+          navigate(socialHref)
+          setPendingNavigationTimeout(null)
+        }, mobileSidebarPanel !== 'none' ? MOBILE_PANEL_TRANSITION_MS : 0)
+
+        setPendingNavigationTimeout(timeoutId)
+        return
+      }
+
+      setPendingMobilePanel(null)
+      setMobileSidebarPanel('social')
+    }
   }
 
   return (
@@ -50,6 +195,7 @@ export default function UnifiedSidebar({
       <div className="unified-sidebar-dm-section">
         <NavLink
           to={socialHref}
+          onClick={handleSelectSocial}
           className={() =>
             `unified-dm-entry ${isSocialRoute ? 'active' : ''} ${hasMessagesNotify ? 'has-notify' : ''}`
           }

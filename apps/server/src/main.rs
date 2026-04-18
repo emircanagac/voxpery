@@ -70,6 +70,11 @@ async fn main() {
                 return;
             }
         };
+    let release_http_client = reqwest::Client::builder()
+        .user_agent("voxpery-server/releases")
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("Failed to build release metadata HTTP client");
 
     let state = Arc::new(AppState {
         db,
@@ -104,6 +109,8 @@ async fn main() {
         smtp_user: config.smtp_user.clone(),
         smtp_password: config.smtp_password.clone(),
         attachment_service,
+        release_http_client,
+        latest_release_cache: tokio::sync::RwLock::new(None),
     });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (

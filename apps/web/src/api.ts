@@ -356,6 +356,19 @@ export interface DeleteAccountPayload {
     password?: string
 }
 
+export interface LatestReleaseDownloads {
+    windows?: string
+    macos?: string
+    linux?: string
+}
+
+export interface LatestReleaseResponse {
+    tag?: string | null
+    html_url: string
+    published_at?: string | null
+    downloads: LatestReleaseDownloads
+}
+
 
 
 export const authApi = {
@@ -1029,6 +1042,11 @@ export const webrtcApi = {
     /** GET /api/webrtc/livekit-token?channel_id=... (auth via cookie or Bearer). */
     getLivekitToken: (channelId: string, token: string | null) =>
         apiFetch<LivekitTokenResponse>(`/api/webrtc/livekit-token?channel_id=${encodeURIComponent(channelId)}`, { token: token ?? undefined }),
+}
+
+export const releaseApi = {
+    getLatest: () =>
+        apiFetch<LatestReleaseResponse>('/api/releases/latest'),
 }
 
 // ─── WebSocket ──────────────────────────

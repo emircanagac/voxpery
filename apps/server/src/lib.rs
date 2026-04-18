@@ -1,6 +1,7 @@
 //! Voxpery server library. Exposes app state and router for integration tests and binary.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{
     body::{to_bytes, Body},
@@ -63,6 +64,14 @@ pub struct AppState {
     pub smtp_user: Option<String>,
     pub smtp_password: Option<String>,
     pub attachment_service: Arc<services::attachments::AttachmentService>,
+    pub release_http_client: reqwest::Client,
+    pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LatestReleaseCacheEntry {
+    pub response: routes::releases::LatestReleaseResponse,
+    pub fetched_at: Instant,
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.
@@ -232,6 +241,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             routes::attachments::router(state.clone()),
         )
         .nest("/api/messages", routes::messages::router(state.clone()))
+        .nest("/api/releases", routes::releases::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))

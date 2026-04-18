@@ -252,14 +252,21 @@ export default function ChatArea({
         if (!el || el.clientHeight <= 0) return false
         shouldAutoScrollRef.current = true
         setShowJumpToLatest(false)
+        const lastIndex = virtualCount - 1
         el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+        if (lastIndex >= 0) {
+            rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
+        }
         requestAnimationFrame(() => {
             const latest = messagesScrollRef.current
             if (!latest || latest.clientHeight <= 0) return
             latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
+            if (lastIndex >= 0) {
+                rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
+            }
         })
         return true
-    }, [])
+    }, [rowVirtualizer, virtualCount])
 
     const syncAutoScrollState = useCallback(() => {
         const el = messagesScrollRef.current
@@ -271,10 +278,26 @@ export default function ChatArea({
         setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
     }, [messages.length])
 
-    /* When switching channel/DM, reset auto-scroll and scroll to bottom so user sees latest messages */
-    useEffect(() => {
+    /* When switching channel/DM, aggressively re-anchor to the latest visible
+       content so returning to a previously read chat does not keep an older
+       scroll position. */
+    useLayoutEffect(() => {
         shouldAutoScrollRef.current = true
-    }, [activeChannel?.id])
+        if (messages.length === 0) return
+        snapToBottom()
+        requestAnimationFrame(() => {
+            snapToBottom()
+            requestAnimationFrame(() => {
+                snapToBottom()
+            })
+        })
+        const timeoutId = window.setTimeout(() => {
+            snapToBottom()
+        }, 48)
+        return () => {
+            window.clearTimeout(timeoutId)
+        }
+    }, [activeChannel?.id, messages.length, snapToBottom])
 
     /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
        from Messages view). useLayoutEffect keeps the first painted frame already

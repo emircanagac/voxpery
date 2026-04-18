@@ -73,6 +73,10 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         .expect("Failed to init test attachment service");
 
     let (tx, _rx) = broadcast::channel(256);
+    let release_http_client = reqwest::Client::builder()
+        .user_agent("voxpery-server-tests/releases")
+        .build()
+        .expect("Failed to build release metadata HTTP client");
     let state = Arc::new(AppState {
         db,
         redis: redis_client(),
@@ -106,6 +110,8 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         smtp_password: None,
         smtp_user: None,
         attachment_service: Arc::new(attachment_service),
+        release_http_client,
+        latest_release_cache: tokio::sync::RwLock::new(None),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);

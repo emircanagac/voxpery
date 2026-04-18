@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownToLine, Menu, Search } from 'lucide-react'
+import { ArrowDownToLine, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
@@ -50,7 +50,6 @@ export default function AppShell() {
     clearDmUnread,
     setActiveDmChannelId,
     mobileSidebarPanel,
-    setMobileSidebarPanel,
     closeMobileSidebar,
   } = useAppStore(
     useShallow((s) => ({
@@ -69,7 +68,6 @@ export default function AppShell() {
       clearDmUnread: s.clearDmUnread,
       setActiveDmChannelId: s.setActiveDmChannelId,
       mobileSidebarPanel: s.mobileSidebarPanel,
-      setMobileSidebarPanel: s.setMobileSidebarPanel,
       closeMobileSidebar: s.closeMobileSidebar,
     }))
   )
@@ -79,6 +77,7 @@ export default function AppShell() {
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
   const lastDesktopUpdateToastVersionRef = useRef<string | null>(null)
+  const previousPathnameRef = useRef(location.pathname)
   const channels = useAppStore((s) => s.channels)
   const channelsByServerId = useAppStore((s) => s.channelsByServerId)
   const servers = useAppStore((s) => s.servers)
@@ -444,8 +443,6 @@ export default function AppShell() {
   const isServerView =
     location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
   const showVoiceStage = isServerView ? !!activeChannelId : false
-  const mobileSidebarTarget = isFriendsOrDm ? 'social' : isServerView ? 'channels' : 'none'
-
   const quickSwitcherItems = useMemo<QuickSwitcherItem[]>(() => {
     const serverItems: QuickSwitcherItem[] = servers.map((server) => ({
       id: `server:${server.id}`,
@@ -513,8 +510,22 @@ export default function AppShell() {
   }
 
   useEffect(() => {
+    if (previousPathnameRef.current === location.pathname) {
+      return
+    }
+
+    previousPathnameRef.current = location.pathname
+
+    const isMatchingMobilePanel =
+      (isFriendsOrDm && mobileSidebarPanel === 'social') ||
+      (isServerView && mobileSidebarPanel === 'channels')
+
+    if (isMatchingMobilePanel) {
+      return
+    }
+
     closeMobileSidebar()
-  }, [closeMobileSidebar, location.pathname])
+  }, [closeMobileSidebar, isFriendsOrDm, isServerView, location.pathname, mobileSidebarPanel])
 
   const installDesktopUpdateNow = async () => {
     setInstallingDesktopUpdate(true)
@@ -542,20 +553,6 @@ export default function AppShell() {
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <header className="shell-topbar">
         <div className="shell-left">
-          {mobileSidebarTarget !== 'none' && (
-            <button
-              type="button"
-              className={`shell-topbar-toggle ${mobileSidebarPanel === mobileSidebarTarget ? 'is-active' : ''}`}
-              onClick={() =>
-                setMobileSidebarPanel(
-                  mobileSidebarPanel === mobileSidebarTarget ? 'none' : mobileSidebarTarget,
-                )}
-              aria-label={mobileSidebarTarget === 'social' ? 'Toggle social sidebar' : 'Toggle channel sidebar'}
-              title={mobileSidebarTarget === 'social' ? 'Toggle social sidebar' : 'Toggle channel sidebar'}
-            >
-              <Menu size={18} />
-            </button>
-          )}
           <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
