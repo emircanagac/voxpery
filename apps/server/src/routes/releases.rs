@@ -185,9 +185,9 @@ mod tests {
     #[test]
     fn picks_expected_platform_installers() {
         let assets = vec![
-            asset("Voxpery_0.1.5_x64-setup.exe", "https://example.com/app.exe"),
-            asset("Voxpery_0.1.5_x64.dmg", "https://example.com/app.dmg"),
-            asset("Voxpery_0.1.5_amd64.deb", "https://example.com/app.deb"),
+            asset("Voxpery_0.1.6_x64-setup.exe", "https://example.com/app.exe"),
+            asset("Voxpery_0.1.6_x64.dmg", "https://example.com/app.dmg"),
+            asset("Voxpery_0.1.6_amd64.deb", "https://example.com/app.deb"),
         ];
 
         assert_eq!(
@@ -208,8 +208,8 @@ mod tests {
     fn ignores_signature_and_metadata_assets() {
         let assets = vec![
             asset("latest.json", "https://example.com/latest.json"),
-            asset("Voxpery_0.1.5_x64-setup.exe.sig", "https://example.com/app.exe.sig"),
-            asset("Voxpery_0.1.5_x64-setup.exe", "https://example.com/app.exe"),
+            asset("Voxpery_0.1.6_x64-setup.exe.sig", "https://example.com/app.exe.sig"),
+            asset("Voxpery_0.1.6_x64-setup.exe", "https://example.com/app.exe"),
         ];
 
         assert_eq!(
