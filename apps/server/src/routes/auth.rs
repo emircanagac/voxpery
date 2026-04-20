@@ -247,20 +247,25 @@ mod oauth_pkce_tests {
     #[test]
     fn transliterates_turkish_oauth_names_for_usernames() {
         assert_eq!(
-            normalize_oauth_username_seed("Çağdaş Şükrü"),
+            normalize_oauth_username_seed(
+                "\u{00C7}a\u{011F}da\u{015F} \u{015E}\u{00FC}kr\u{00FC}",
+            ),
             "cagdas_sukru"
         );
-        assert_eq!(normalize_oauth_username_seed("İrem Öztürk"), "irem_ozturk");
+        assert_eq!(
+            normalize_oauth_username_seed("\u{0130}rem \u{00D6}zt\u{00FC}rk"),
+            "irem_ozturk"
+        );
     }
 
     #[test]
     fn normalizes_general_latin_names_for_usernames() {
         assert_eq!(
-            normalize_oauth_username_seed("Jürgen Müller"),
+            normalize_oauth_username_seed("J\u{00FC}rgen M\u{00FC}ller"),
             "jurgen_muller"
         );
         assert_eq!(
-            normalize_oauth_username_seed("François d'Ævreux"),
+            normalize_oauth_username_seed("Fran\u{00E7}ois d'\u{00C6}vreux"),
             "francois_d_aevreux"
         );
     }
@@ -311,6 +316,26 @@ fn extract_client_ip(
 fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
     let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str())?;
     Ok(())
+}
+
+fn is_valid_email(email: &str) -> bool {
+    email.len() <= 255
+        && email.contains('@')
+        && email.find('@').map(|i| i > 0 && i < email.len() - 1) == Some(true)
+}
+
+fn frontend_base_url(state: &AppState) -> String {
+    state
+        .cors_origins
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "http://localhost:5173".to_string())
+}
+
+fn token_hash_base64(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    BASE64.encode(hasher.finalize())
 }
 
 fn is_private_or_local_ip(ip: &IpAddr) -> bool {
@@ -400,14 +425,14 @@ fn validate_avatar_url(raw: &str) -> Result<String, AppError> {
 
 fn transliterate_special_latin_char(c: char) -> &'static str {
     match c {
-        'ß' => "ss",
-        'æ' => "ae",
-        'œ' => "oe",
-        'ø' => "o",
-        'ł' => "l",
-        'đ' | 'ð' => "d",
-        'þ' => "th",
-        'ı' => "i",
+        '\u{00DF}' => "ss",
+        '\u{00E6}' => "ae",
+        '\u{0153}' => "oe",
+        '\u{00F8}' => "o",
+        '\u{0142}' => "l",
+        '\u{0111}' | '\u{00F0}' => "d",
+        '\u{00FE}' => "th",
+        '\u{0131}' => "i",
         _ => "",
     }
 }
@@ -586,6 +611,21 @@ struct SetPasswordRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct RequestEmailVerificationRequest {
+    email: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ConfirmEmailVerificationRequest {
+    token: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ConfirmEmailVerificationResponse {
+    message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct DeleteAccountRequest {
     confirm: String,
     password: Option<String>,
@@ -653,6 +693,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/check-username", get(check_username))
         .route("/set-password", post(set_password))
         .route("/change-password", post(change_password))
+        .route("/email/request-verification", post(request_email_verification))
         .route("/data-export", get(export_my_data))
         .route("/account", delete(delete_my_account))
         .route_layer(middleware::from_fn_with_state(state, require_auth));
@@ -669,6 +710,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             post(google_oauth_desktop_exchange),
         )
         .route("/google/callback", get(google_oauth_callback))
+        .route("/email/confirm", post(confirm_email_verification))
         .merge(protected)
 }
 
@@ -812,7 +854,7 @@ async fn register(
             "Email must be at most 255 characters".into(),
         ));
     }
-    if !email.contains('@') || email.find('@').map(|i| i > 0 && i < email.len() - 1) != Some(true) {
+    if !is_valid_email(&email) {
         return Err(AppError::Validation(
             "Email must be a valid format (e.g. user@domain)".into(),
         ));
@@ -841,8 +883,8 @@ async fn register(
 
     // Insert user (use validated trimmed values)
     let user = sqlx::query_as::<_, User>(
-        r#"INSERT INTO users (id, username, email, password_hash, status, created_at)
-           VALUES ($1, $2, $3, $4, 'online', NOW())
+        r#"INSERT INTO users (id, username, email, password_hash, status, email_verified, created_at)
+           VALUES ($1, $2, $3, $4, 'online', FALSE, NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
@@ -1662,8 +1704,9 @@ async fn google_oauth_callback(
                 let _ = sqlx::query(
                     "UPDATE users
                      SET google_id = $1,
-                         password_hash = 'oauth',
-                         token_version = token_version + 1
+                          password_hash = 'oauth',
+                          email_verified = TRUE,
+                          token_version = token_version + 1
                      WHERE id = $2",
                 )
                 .bind(&google_id)
@@ -1672,6 +1715,7 @@ async fn google_oauth_callback(
                 .await;
                 u.google_id = Some(google_id.clone());
                 u.password_hash = "oauth".to_string();
+                u.email_verified = true;
                 u.token_version += 1;
             }
             u
@@ -1705,8 +1749,8 @@ async fn google_oauth_callback(
             let password_hash = "oauth"; // not a valid Argon2 hash; OAuth-only users cannot password-login
             let id = Uuid::new_v4();
             if let Err(e) = sqlx::query(
-                r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, created_at)
-               VALUES ($1, $2, $3, $4, 'online', 'friends', $5, NOW())"#,
+                r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, email_verified, created_at)
+               VALUES ($1, $2, $3, $4, 'online', 'friends', $5, TRUE, NOW())"#,
             )
             .bind(id)
             .bind(&username)
@@ -2087,6 +2131,181 @@ async fn update_profile(
     Ok(Json(public_user))
 }
 
+/// POST /api/auth/email/request-verification
+async fn request_email_verification(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<RequestEmailVerificationRequest>,
+) -> Result<Json<UserPublic>, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:email_verification_request:{}", claims.sub),
+        5,
+        Duration::from_secs(60 * 60),
+        "Too many email verification requests. Please try again later.",
+    )
+    .await?;
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.sub)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("User not found".into()))?;
+
+    let requested_email = body.email.unwrap_or_else(|| user.email.clone());
+    let next_email = requested_email.trim().to_lowercase();
+    if !is_valid_email(&next_email) {
+        return Err(AppError::Validation(
+            "Email must be a valid format (e.g. user@domain)".into(),
+        ));
+    }
+
+    let email_changed = next_email != user.email;
+    if email_changed {
+        let taken = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) AND id <> $2",
+        )
+        .bind(&next_email)
+        .bind(claims.sub)
+        .fetch_one(&state.db)
+        .await?;
+        if taken > 0 {
+            return Err(AppError::Validation(
+                "That email address is already in use".into(),
+            ));
+        }
+    }
+
+    let token_plain = Uuid::new_v4().to_string();
+    let token_hash = token_hash_base64(&token_plain);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&state.db)
+        .await?;
+
+    sqlx::query(
+        "INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(claims.sub)
+    .bind(&next_email)
+    .bind(&token_hash)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await?;
+
+    let updated = if email_changed {
+        sqlx::query_as::<_, User>(
+            r#"UPDATE users
+               SET email = $1, email_verified = FALSE
+               WHERE id = $2
+               RETURNING *"#,
+        )
+        .bind(&next_email)
+        .bind(claims.sub)
+        .fetch_one(&state.db)
+        .await?
+    } else if !user.email_verified {
+        user
+    } else {
+        return Ok(Json(UserPublic::from(user)));
+    };
+
+    if let (Some(host), Some(smtp_user), Some(smtp_pass)) =
+        (&state.smtp_host, &state.smtp_user, &state.smtp_password)
+    {
+        let verify_link = format!(
+            "{}/verify-email?token={}",
+            frontend_base_url(&state).trim_end_matches('/'),
+            token_plain
+        );
+        if let Err(e) = crate::services::email::send_email_verification_email(
+            &updated.email,
+            &verify_link,
+            host,
+            smtp_user,
+            smtp_pass,
+        )
+        .await
+        {
+            tracing::error!("Failed to send email verification email: {}", e);
+        }
+    } else {
+        tracing::warn!("SMTP is not configured! Email verification email not sent.");
+    }
+
+    Ok(Json(UserPublic::from(updated)))
+}
+
+/// POST /api/auth/email/confirm
+async fn confirm_email_verification(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ConfirmEmailVerificationRequest>,
+) -> Result<Json<ConfirmEmailVerificationResponse>, AppError> {
+    let token = body.token.trim();
+    if token.is_empty() {
+        return Err(AppError::Validation("Verification token is required".into()));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct EmailVerificationTokenRow {
+        user_id: Uuid,
+        email: String,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    let token_hash = token_hash_base64(token);
+    let token_row = sqlx::query_as::<_, EmailVerificationTokenRow>(
+        "SELECT user_id, email, expires_at FROM email_verification_tokens WHERE token_hash = $1",
+    )
+    .bind(&token_hash)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(row) = token_row else {
+        return Err(AppError::Validation("Invalid email verification token".into()));
+    };
+
+    if chrono::Utc::now() > row.expires_at {
+        sqlx::query("DELETE FROM email_verification_tokens WHERE token_hash = $1")
+            .bind(&token_hash)
+            .execute(&state.db)
+            .await?;
+        return Err(AppError::Validation(
+            "Email verification token has expired".into(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let updated = sqlx::query_as::<_, User>(
+        r#"UPDATE users
+           SET email = $1, email_verified = TRUE
+           WHERE id = $2
+           RETURNING *"#,
+    )
+    .bind(&row.email)
+    .bind(row.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+        .bind(row.user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    let public_user = UserPublic::from(updated);
+    let _ = state.tx.send(WsEvent::UserUpdated {
+        user: UserBroadcastProfile::from(&public_user),
+    });
+
+    Ok(Json(ConfirmEmailVerificationResponse {
+        message: "Your email address has been verified.".to_string(),
+    }))
+}
+
 /// POST /api/auth/change-password
 async fn change_password(
     State(state): State<Arc<AppState>>,
@@ -2175,8 +2394,8 @@ async fn ensure_deleted_placeholder_user(
     let password_hash = hash_password(&Uuid::new_v4().to_string())?;
     sqlx::query(
         r#"INSERT INTO users
-           (id, username, email, password_hash, avatar_url, status, dm_privacy, created_at, google_id, username_changed_at, token_version)
-           VALUES ($1, $2, $3, $4, NULL, 'invisible', 'friends', NOW(), NULL, NULL, 0)"#,
+           (id, username, email, password_hash, avatar_url, status, dm_privacy, email_verified, created_at, google_id, username_changed_at, token_version)
+           VALUES ($1, $2, $3, $4, NULL, 'invisible', 'friends', TRUE, NOW(), NULL, NULL, 0)"#,
     )
     .bind(id)
     .bind(username)
@@ -2450,6 +2669,10 @@ async fn delete_my_account(
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
@@ -2542,9 +2765,7 @@ async fn forgot_password(
 
     // Generate token
     let token_plain = Uuid::new_v4().to_string();
-    let mut hasher = Sha256::new();
-    hasher.update(token_plain.as_bytes());
-    let token_hash = BASE64.encode(hasher.finalize());
+    let token_hash = token_hash_base64(&token_plain);
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
 
     // Delete any existing token for this user to respect UNIQUE(user_id) constraint
@@ -2571,7 +2792,7 @@ async fn forgot_password(
             .cors_origins
             .first()
             .cloned()
-            .unwrap_or_else(|| "http://localhost:5173".to_string());
+            .unwrap_or_else(|| frontend_base_url(&state));
         let frontend_url = frontend_url.trim_end_matches('/');
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
 

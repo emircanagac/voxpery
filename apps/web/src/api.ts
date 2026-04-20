@@ -23,6 +23,31 @@ export type UserPublic = User
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 const DESKTOP_OAUTH_VERIFIER_KEY = 'voxpery.desktop.oauth.code_verifier'
 
+function isLoopbackHostname(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
+function isLoopbackApiBase(): boolean {
+    try {
+        const apiUrl = new URL(effectiveApiBase())
+        return isLoopbackHostname(apiUrl.hostname)
+    } catch {
+        return false
+    }
+}
+
+function isTauriHttpDevSession(): boolean {
+    if (!isTauri() || typeof window === 'undefined') return false
+    if (isLoopbackApiBase()) return true
+    const isBrowserProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:'
+    const isLoopbackHost = isLoopbackHostname(window.location.hostname) || window.location.hostname === 'tauri.localhost'
+    return isBrowserProtocol && isLoopbackHost
+}
+
+function shouldUseTauriHttpPlugin(): boolean {
+    return isTauri() && !isTauriHttpDevSession()
+}
+
 /** In browser, if page is on localhost but API_BASE uses 127.0.0.1, return API base with localhost so the auth cookie is sent. */
 function effectiveApiBase(): string {
     if (typeof window === 'undefined') return API_BASE
@@ -105,7 +130,7 @@ export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAut
 export async function checkHealth(): Promise<boolean> {
     try {
         const url = `${effectiveApiBase()}/health`
-        if (isTauri()) {
+        if (shouldUseTauriHttpPlugin()) {
             const mod = await import('@tauri-apps/plugin-http')
             const res = await mod.fetch(url, { method: 'GET', timeout: 5 } as RequestInit & { timeout?: number })
             return res.ok
@@ -235,7 +260,7 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
 
     let res: Response
     try {
-        if (isTauri()) {
+        if (shouldUseTauriHttpPlugin()) {
             let tauriFetch: typeof fetch
             try {
                 const mod = await import('@tauri-apps/plugin-http')
@@ -296,12 +321,23 @@ async function apiMultipartFetch<T>(path: string, formData: FormData, token?: st
     const url = `${effectiveApiBase()}${path}`
     let res: Response
     try {
-        res = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: formData,
-            credentials: isTauri() ? 'omit' : 'include',
-        })
+        if (shouldUseTauriHttpPlugin()) {
+            const mod = await import('@tauri-apps/plugin-http')
+            res = await mod.fetch(url, {
+                method: 'POST',
+                headers,
+                body: formData,
+                credentials: 'omit',
+                timeout: 60,
+            } as RequestInit & { timeout?: number })
+        } else {
+            res = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: formData,
+                credentials: 'include',
+            })
+        }
     } catch (err) {
         const detail = err instanceof Error ? err.message : String(err)
         if (isNetworkError(err) || isTauri()) {
@@ -330,6 +366,25 @@ async function apiMultipartFetch<T>(path: string, formData: FormData, token?: st
     }
 
     return res.json()
+}
+
+export async function resolveAttachmentUrl(url: string, token: string | null): Promise<string> {
+    // Desktop attachments are protected by Bearer auth, so <img src="..."> cannot
+    // load them directly. Resolve them through the same Tauri HTTP path in both
+    // dev and packaged builds, then render the returned blob in-app.
+    if (!isTauri() || !token) return url
+    const res = await (await import('@tauri-apps/plugin-http')).fetch(url, {
+        method: 'GET',
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+        timeout: 60,
+    } as RequestInit & { timeout?: number })
+    if (!res.ok) {
+        throw new Error(`Attachment request failed with HTTP ${res.status}`)
+    }
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
 }
 
 export interface DataExportPayload {
@@ -367,6 +422,10 @@ export interface LatestReleaseResponse {
     html_url: string
     published_at?: string | null
     downloads: LatestReleaseDownloads
+}
+
+export interface EmailVerificationConfirmResponse {
+    message: string
 }
 
 
@@ -444,6 +503,20 @@ export const authApi = {
         apiFetch<{ message: string }>('/api/auth/forgot-password', {
             method: 'POST',
             body: { email },
+        }),
+
+    requestEmailVerification: (token: string | null, email?: string) =>
+        apiFetch<UserPublic>('/api/auth/email/request-verification', {
+            method: 'POST',
+            body: email ? { email } : {},
+            token: token ?? undefined,
+        }),
+
+    confirmEmailVerification: (token: string | null, tokenValue: string) =>
+        apiFetch<EmailVerificationConfirmResponse>('/api/auth/email/confirm', {
+            method: 'POST',
+            body: { token: tokenValue },
+            token: token ?? undefined,
         }),
 
     resetPassword: (token: string, newPassword: string) =>

@@ -20,6 +20,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AboutPage = lazy(() => import('./pages/AboutPage'))
 
@@ -190,6 +191,10 @@ function App() {
     if (restoring) return
     if (!user || !token) {
       if (!isTauri()) return
+      if (user && !token) {
+        authFailureHandledRef.current = false
+        logout()
+      }
       validatedSessionRef.current = false
       return
     }
@@ -224,6 +229,7 @@ function App() {
           <Route path={ROUTES.register} element={<RegisterPage />} />
           <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
           <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
+          <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
           <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
           <Route path="*" element={<AuthRedirect />} />
         </Routes>
@@ -251,6 +257,7 @@ function App() {
           </Route>
           <Route path={ROUTES.login} element={<RedirectAuthenticatedAuthPage />} />
           <Route path={ROUTES.register} element={<RedirectAuthenticatedAuthPage />} />
+          <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
           <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
           <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
         </Routes>

@@ -10,6 +10,7 @@ export const ROUTES = {
   register: '/register' as const,
   forgotPassword: '/forgot-password' as const,
   resetPassword: '/reset-password' as const,
+  verifyEmail: '/verify-email' as const,
   invite: (code: string = ':code') => `/invite/${code}`,
 } as const
 

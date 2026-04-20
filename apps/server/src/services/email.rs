@@ -3,9 +3,10 @@ use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
-pub async fn send_password_reset_email(
+async fn send_html_email(
     to_email: &str,
-    reset_link: &str,
+    subject: &str,
+    html_body: String,
     smtp_host: &str,
     smtp_user: &str,
     smtp_pass: &str,
@@ -21,22 +22,9 @@ pub async fn send_password_reset_email(
     let email = Message::builder()
         .from(from_addr)
         .to(to_addr)
-        .subject("Reset your Voxpery password")
+        .subject(subject)
         .header(ContentType::TEXT_HTML)
-        .body(format!(
-            r#"
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Password Reset Request</h2>
-                <p>Hello,</p>
-                <p>We received a request to reset your password for your Voxpery account.</p>
-                <p>Click the button below to set a new password. This link will expire in 1 hour.</p>
-                <a href="{}" style="display: inline-block; padding: 12px 24px; background-color: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 16px 0;">Reset Password</a>
-                <p style="font-size: 0.9em; color: #666;">If you did not request a password reset, you can safely ignore this email.</p>
-                <p>Thanks,<br/>The Voxpery Team</p>
-            </div>
-            "#,
-            reset_link
-        ))
+        .body(html_body)
         .map_err(|e| AppError::Internal(format!("Failed to build email: {}", e)))?;
 
     let creds = Credentials::new(smtp_user.to_string(), smtp_pass.to_string());
@@ -53,4 +41,66 @@ pub async fn send_password_reset_email(
         .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
 
     Ok(())
+}
+
+pub async fn send_password_reset_email(
+    to_email: &str,
+    reset_link: &str,
+    smtp_host: &str,
+    smtp_user: &str,
+    smtp_pass: &str,
+) -> Result<(), AppError> {
+    send_html_email(
+        to_email,
+        "Reset your Voxpery password",
+        format!(
+            r#"
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Password Reset Request</h2>
+                <p>Hello,</p>
+                <p>We received a request to reset your password for your Voxpery account.</p>
+                <p>Click the button below to set a new password. This link will expire in 1 hour.</p>
+                <a href="{}" style="display: inline-block; padding: 12px 24px; background-color: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 16px 0;">Reset Password</a>
+                <p style="font-size: 0.9em; color: #666;">If you did not request a password reset, you can safely ignore this email.</p>
+                <p>Thanks,<br/>The Voxpery Team</p>
+            </div>
+            "#,
+            reset_link
+        ),
+        smtp_host,
+        smtp_user,
+        smtp_pass,
+    )
+    .await
+}
+
+pub async fn send_email_verification_email(
+    to_email: &str,
+    verify_link: &str,
+    smtp_host: &str,
+    smtp_user: &str,
+    smtp_pass: &str,
+) -> Result<(), AppError> {
+    send_html_email(
+        to_email,
+        "Verify your Voxpery email address",
+        format!(
+            r#"
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Verify Your Email Address</h2>
+                <p>Hello,</p>
+                <p>Please confirm your email address for your Voxpery account.</p>
+                <p>Click the button below to verify this address. This link will expire in 1 hour.</p>
+                <a href="{}" style="display: inline-block; padding: 12px 24px; background-color: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 16px 0;">Verify Email</a>
+                <p style="font-size: 0.9em; color: #666;">If you did not request this change, you can safely ignore this email.</p>
+                <p>Thanks,<br/>The Voxpery Team</p>
+            </div>
+            "#,
+            verify_link
+        ),
+        smtp_host,
+        smtp_user,
+        smtp_pass,
+    )
+    .await
 }

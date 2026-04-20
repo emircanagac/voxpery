@@ -1,6 +1,8 @@
 export interface User {
     id: string;
     username: string;
+    email: string;
+    email_verified: boolean;
     avatar_url?: string;
     status: 'online' | 'dnd' | 'offline' | 'invisible';
     dm_privacy?: 'everyone' | 'friends';

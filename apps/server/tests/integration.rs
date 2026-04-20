@@ -160,6 +160,12 @@ async fn register_user(
     (token, user_id)
 }
 
+fn token_hash_base64(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    BASE64.encode(hasher.finalize())
+}
+
 #[tokio::test]
 async fn health_returns_200_when_db_connected() {
     let Some(_) = test_db_url() else {
@@ -2229,6 +2235,76 @@ async fn attachment_upload_fails_when_user_storage_quota_is_exceeded() {
         "quota error message should be explicit: {}",
         String::from_utf8_lossy(&body)
     );
+}
+
+#[tokio::test]
+async fn email_verification_confirm_works_without_existing_session() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("verify-{}@example.com", uid);
+    let username = format!("verify_{}", uid.as_u128() % 1_000_000);
+    let password = "password123";
+    let (_token, user_id) = register_user(&mut app, &email, &username, password).await;
+
+    sqlx::query("UPDATE users SET email_verified = FALSE WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let verification_token = Uuid::new_v4().to_string();
+    let token_hash = token_hash_base64(&verification_token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    sqlx::query(
+        "INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(&token_hash)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/email/confirm")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "token": verification_token })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "email verification confirm should succeed without auth: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["message"], "Your email address has been verified.");
+
+    let verified: bool = sqlx::query_scalar("SELECT email_verified FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert!(verified, "user should be marked verified after confirm");
+
+    let remaining_tokens: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM email_verification_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining_tokens, 0, "verification token should be deleted");
 }
 
 #[tokio::test]
