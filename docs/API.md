@@ -49,6 +49,8 @@ Important behavior:
 - `POST /api/auth/change-password`
 - `POST /api/auth/forgot-password`
 - `POST /api/auth/reset-password`
+- `POST /api/auth/email/request-verification` (auth required)
+- `POST /api/auth/email/confirm`
 - `GET /api/auth/google`
 - `GET /api/auth/google/callback`
 - `GET /api/auth/data-export`
@@ -62,6 +64,8 @@ Notes:
 
 - `forgot-password` always returns a generic success message to prevent account enumeration.
 - For unknown email (or Google-only account), no reset email is sent.
+- `email/request-verification` can optionally change the current account email and issues a fresh verification token.
+- `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
 
 ## Server Endpoints
 

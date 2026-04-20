@@ -209,6 +209,13 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
   - Files are not exposed under a permanent public `/uploads` route.
   - API returns short-lived signed URLs (`/api/attachments/content/:id?exp=...&sig=...`).
 
+### Email Verification Security
+
+- Verification emails use short-lived, single-use tokens stored only as hashes in `email_verification_tokens`.
+- The verification link can be redeemed without an existing session because possession of the mailbox is the proof step.
+- After successful redemption, the token row is deleted immediately.
+- Expired tokens are rejected and removed on use.
+
 ## TLS/SSL
 
 - **Development**: HTTP (localhost only)

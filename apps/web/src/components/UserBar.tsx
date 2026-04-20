@@ -147,6 +147,12 @@ function isValidUsername(value: string) {
   return !hasUsernameConsecutiveSeparator(value)
 }
 
+function isValidEmailAddress(value: string) {
+  const trimmed = value.trim()
+  const atIndex = trimmed.indexOf('@')
+  return trimmed.length <= 255 && atIndex > 0 && atIndex < trimmed.length - 1
+}
+
 export default function UserBar() {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
   const mobileSidebarPanel = useAppStore((s) => s.mobileSidebarPanel)
@@ -226,6 +232,10 @@ export default function UserBar() {
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null)
   const [usernameChecking, setUsernameChecking] = useState(false)
   const [usernameCheckFailed, setUsernameCheckFailed] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailEdit, setEmailEdit] = useState('')
+  const [emailSaving, setEmailSaving] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
   const statusMenuRef = useRef<HTMLDivElement>(null)
   const deviceMenuRef = useRef<HTMLDivElement>(null)
   const usernameCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -245,10 +255,10 @@ export default function UserBar() {
     localStorage.setItem(VOICE_INPUT_PROFILE_KEY, 'custom')
   }, [voiceInputProfile])
 
-  const closeStatusMenu = () => {
+  const closeStatusMenu = useCallback(() => {
     setShowStatusMenu(false)
     setStatusError(null)
-  }
+  }, [])
 
   const closeDeviceMenu = useCallback(() => {
     setOpenDeviceMenu(null)
@@ -444,31 +454,45 @@ export default function UserBar() {
     return () => window.clearTimeout(timer)
   }, [mobileSidebarPanel, pendingStatusMenuOpen])
 
-  const closeSettingsPanel = () => {
+  const closeSettingsPanel = useCallback(() => {
     setShowSettingsPanel(false)
-  }
+  }, [])
 
-  const openSettingsPanel = () => {
+  const openSettingsPanel = useCallback(() => {
     closeStatusMenu()
     setActiveSettingsSection(DEFAULT_SETTINGS_SECTION)
     setShowSettingsPanel(true)
-  }
+  }, [closeStatusMenu])
 
-  const closeDeleteModal = () => {
+  const reopenProfileSettings = useCallback(() => {
+    setActiveSettingsSection('profile')
+    setShowSettingsPanel(true)
+  }, [])
+
+  const closeDeleteModal = useCallback(() => {
     setShowDeleteModal(false)
-  }
+  }, [])
 
-  const closeUsernameModal = () => {
+  const closeUsernameModal = useCallback((restoreSettings = true) => {
     if (usernameCheckTimeoutRef.current) {
       clearTimeout(usernameCheckTimeoutRef.current)
       usernameCheckTimeoutRef.current = null
     }
     setShowUsernameModal(false)
-  }
+    if (restoreSettings) reopenProfileSettings()
+  }, [reopenProfileSettings])
 
-  const closePasswordModal = () => {
+  const closeEmailModal = useCallback((restoreSettings = true) => {
+    setEmailSaving(false)
+    setEmailError(null)
+    setShowEmailModal(false)
+    if (restoreSettings) reopenProfileSettings()
+  }, [reopenProfileSettings])
+
+  const closePasswordModal = useCallback((restoreSettings = true) => {
     setShowPwModal(false)
-  }
+    if (restoreSettings) reopenProfileSettings()
+  }, [reopenProfileSettings])
 
   useEffect(() => {
     const sound = localStorage.getItem(SOUND_KEY)
@@ -638,7 +662,7 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
   useEffect(() => {
-    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showPwModal && !openDeviceMenu) return
+    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showEmailModal && !showPwModal && !openDeviceMenu) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
@@ -652,6 +676,10 @@ export default function UserBar() {
       }
       if (showUsernameModal) {
         closeUsernameModal()
+        return
+      }
+      if (showEmailModal) {
+        closeEmailModal()
         return
       }
       if (showPwModal) {
@@ -670,7 +698,22 @@ export default function UserBar() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [closeDeviceMenu, openDeviceMenu, showDeleteModal, showPwModal, showSettingsPanel, showStatusMenu, showUsernameModal])
+  }, [
+    closeDeleteModal,
+    closeDeviceMenu,
+    closeEmailModal,
+    closePasswordModal,
+    closeSettingsPanel,
+    closeStatusMenu,
+    closeUsernameModal,
+    openDeviceMenu,
+    showDeleteModal,
+    showEmailModal,
+    showPwModal,
+    showSettingsPanel,
+    showStatusMenu,
+    showUsernameModal,
+  ])
 
   useEffect(() => {
     if (!showSettingsPanel) return
@@ -1057,6 +1100,38 @@ export default function UserBar() {
       // Modal can still open with current in-memory user state.
     }
     setShowPwModal(true)
+  }
+
+  const requestEmailVerification = async (nextEmail?: string) => {
+    if (isTauri() && !token) return
+    const updated = await authApi.requestEmailVerification(token ?? null, nextEmail)
+    if (token) setAuth(token, updated)
+    else setUser(updated)
+    return updated
+  }
+
+  const submitEmailChange = async () => {
+    const trimmed = emailEdit.trim().toLowerCase()
+    if (!isValidEmailAddress(trimmed)) {
+      setEmailError('Enter a valid email address.')
+      return
+    }
+    setEmailSaving(true)
+    setEmailError(null)
+    try {
+      const updated = await requestEmailVerification(trimmed)
+      closeEmailModal()
+      pushToast({
+        level: 'info',
+        title: updated?.email_verified ? 'Email already verified' : 'Verification email sent',
+        message: updated?.email_verified
+          ? 'Your email address is already verified.'
+          : `We sent a verification link to ${trimmed}.`,
+      })
+    } catch (err: unknown) {
+      setEmailError(getAuthErrorMessage(err).message || 'Could not update your email address.')
+      setEmailSaving(false)
+    }
   }
 
   const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
@@ -1736,6 +1811,56 @@ export default function UserBar() {
                 </div>
                 <div className="user-setting-row">
                   <div>
+                    <div className="user-setting-title">Email address</div>
+                    <div className="user-setting-desc">
+                      <strong>{user?.email ?? 'Unknown email'}</strong>
+                      {' · '}
+                      {user?.email_verified ? 'Verified' : 'Not verified'}
+                    </div>
+                  </div>
+                  <div className="user-setting-actions">
+                    {!user?.email_verified && (
+                      <button
+                        type="button"
+                        className="user-toggle account-action-btn"
+                        onClick={async () => {
+                          try {
+                            const updated = await requestEmailVerification()
+                            pushToast({
+                              level: 'info',
+                              title: updated?.email_verified ? 'Email already verified' : 'Verification email sent',
+                              message: updated?.email_verified
+                                ? 'Your email address is already verified.'
+                                : `We sent a verification link to ${updated?.email ?? user?.email}.`,
+                            })
+                          } catch (err: unknown) {
+                            pushToast({
+                              level: 'error',
+                              title: 'Verification email failed',
+                              message: getAuthErrorMessage(err).message || 'Could not send a verification email.',
+                            })
+                          }
+                        }}
+                      >
+                        Verify
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="user-toggle account-action-btn"
+                      onClick={() => {
+                        setShowSettingsPanel(false)
+                        setEmailEdit(user?.email ?? '')
+                        setEmailError(null)
+                        setShowEmailModal(true)
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
+                </div>
+                <div className="user-setting-row">
+                  <div>
                     <div className="user-setting-title">Password</div>
                     <div className="user-setting-desc">
                       {isGoogleOnlyAccount
@@ -1873,13 +1998,63 @@ export default function UserBar() {
           </div>
         </div>
       )}
+      {showEmailModal && (
+        <div className="modal-overlay" onClick={() => closeEmailModal()}>
+          <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pw-modal-header">
+              <h2>Change email</h2>
+              <p className="pw-modal-subtitle">Update your sign-in email address and verify the new address.</p>
+            </header>
+            <div className="pw-change-form">
+              <div className="pw-field-wrap">
+                <label className="user-setting-title" htmlFor="email-new">Email address</label>
+                <div className="pw-input-wrap">
+                  <input
+                    id="email-new"
+                    type="email"
+                    className="pw-input"
+                    placeholder="name@example.com"
+                    value={emailEdit}
+                    onChange={(e) => {
+                      setEmailEdit(e.target.value)
+                      setEmailError(null)
+                    }}
+                    autoComplete="email"
+                  />
+                </div>
+                {!isValidEmailAddress(emailEdit) && emailEdit.trim().length > 0 && (
+                  <div className="pw-hint pw-hint-warn">Enter a valid email address</div>
+                )}
+                {emailError && <div className="pw-error">{emailError}</div>}
+              </div>
+            </div>
+            <footer className="pw-modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => closeEmailModal()}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={emailSaving || !isValidEmailAddress(emailEdit)}
+                onClick={() => void submitEmailChange()}
+              >
+                {emailSaving ? 'Saving…' : 'Save'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
       {showUsernameModal && (() => {
         const changedAt = user?.username_changed_at ? new Date(user.username_changed_at).getTime() : null
         const nextAllowedMs = changedAt ? changedAt + 30 * 24 * 60 * 60 * 1000 : null
         const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
         const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
         return (
-        <div className="modal-overlay" onClick={closeUsernameModal}>
+        <div className="modal-overlay" onClick={() => closeUsernameModal()}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <h2>Change username</h2>
@@ -1986,7 +2161,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={closeUsernameModal}
+                onClick={() => closeUsernameModal()}
               >
                 Cancel
               </button>
@@ -2027,7 +2202,7 @@ export default function UserBar() {
         </div>
         ); })()}
       {showPwModal && (
-        <div className="modal-overlay" onClick={closePasswordModal}>
+        <div className="modal-overlay" onClick={() => closePasswordModal()}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Lock size={20} className="pw-modal-icon" />
@@ -2112,7 +2287,7 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={closePasswordModal}
+                onClick={() => closePasswordModal()}
               >
                 Cancel
               </button>

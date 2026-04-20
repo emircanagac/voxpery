@@ -9,6 +9,7 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub email: String,
+    pub email_verified: bool,
     #[serde(skip_serializing)]
     pub password_hash: String,
     #[serde(skip_serializing)]
@@ -28,6 +29,7 @@ impl fmt::Debug for User {
             .field("id", &self.id)
             .field("username", &self.username)
             .field("email", &redacted_email)
+            .field("email_verified", &self.email_verified)
             .field("password_hash", &"<redacted>")
             .field("token_version", &self.token_version)
             .field("avatar_url", &self.avatar_url)
@@ -53,6 +55,8 @@ fn redact_email_for_debug(email: &str) -> String {
 pub struct UserPublic {
     pub id: Uuid,
     pub username: String,
+    pub email: String,
+    pub email_verified: bool,
     pub avatar_url: Option<String>,
     pub status: String,
     pub dm_privacy: String,
@@ -78,6 +82,8 @@ impl From<User> for UserPublic {
         Self {
             id: u.id,
             username: u.username,
+            email: u.email,
+            email_verified: u.email_verified,
             avatar_url: u.avatar_url,
             status: u.status,
             dm_privacy: u.dm_privacy,

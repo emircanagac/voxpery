@@ -111,14 +111,12 @@ Note: ClamAV is disabled by default. To enable malware scanning, set `ATTACHMENT
 ### Desktop App
 
 ```bash
-# Terminal 1: run web dev server used by Tauri devUrl
-cd apps/web
-npm ci
-npm run dev
+# Terminal 1 : run backend + web stack
+docker compose up -d --build
 
-# Terminal 2: run desktop shell
+# Terminal 2 : run desktop shell with dev-only localhost access
 cd apps/desktop/src-tauri
-cargo tauri dev
+cargo tauri dev --config tauri.dev.conf.json
 ```
 
 ---

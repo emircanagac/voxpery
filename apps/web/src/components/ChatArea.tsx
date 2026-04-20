@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
-import type { MessageWithAuthor, Channel } from '../api'
+import { resolveAttachmentUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from './EmojiPicker'
 import MessageInlineActions from './MessageInlineActions'
+import { useAuthStore } from '../stores/auth'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -54,6 +55,77 @@ function extractEmbeddedMediaMarkdown(content: string): { text: string; gifUrls:
         })
         .trim()
     return { text, gifUrls, stickerUrls }
+}
+
+function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
+    const token = useAuthStore((s) => s.token)
+    const [resolution, setResolution] = useState(() => ({
+        sourceUrl: attachment.url,
+        resolvedUrl: attachment.url,
+        loadFailed: false,
+    }))
+    const currentResolution = resolution.sourceUrl === attachment.url
+        ? resolution
+        : {
+            sourceUrl: attachment.url,
+            resolvedUrl: attachment.url,
+            loadFailed: false,
+        }
+
+    useEffect(() => {
+        let cancelled = false
+        let objectUrl: string | null = null
+
+        resolveAttachmentUrl(attachment.url, token ?? null)
+            .then((nextUrl) => {
+                if (cancelled) {
+                    if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
+                    return
+                }
+                if (nextUrl.startsWith('blob:')) objectUrl = nextUrl
+                setResolution({
+                    sourceUrl: attachment.url,
+                    resolvedUrl: nextUrl,
+                    loadFailed: false,
+                })
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setResolution({
+                        sourceUrl: attachment.url,
+                        resolvedUrl: attachment.url,
+                        loadFailed: true,
+                    })
+                }
+            })
+
+        return () => {
+            cancelled = true
+            if (objectUrl) URL.revokeObjectURL(objectUrl)
+        }
+    }, [attachment.url, token])
+
+    const isImage = typeof attachment?.type === 'string' && attachment.type.startsWith('image/')
+    if (isImage) {
+        if (currentResolution.loadFailed) {
+            return (
+                <a href={attachment.url} target="_blank" rel="noreferrer" className="dm-attachment-link">
+                    {attachment.name || `Image attachment ${index + 1}`}
+                </a>
+            )
+        }
+        return (
+            <a href={currentResolution.resolvedUrl} target="_blank" rel="noreferrer" className="chat-image-link">
+                <img src={currentResolution.resolvedUrl} alt={attachment.name || `Attachment ${index + 1}`} className="chat-image-attachment" />
+            </a>
+        )
+    }
+
+    return (
+        <a href={currentResolution.resolvedUrl} target="_blank" rel="noreferrer" className="dm-attachment-link">
+            {attachment.name || `Attachment ${index + 1}`}
+        </a>
+    )
 }
 interface ChatAreaProps {
     activeChannel: Channel | undefined
@@ -1333,18 +1405,8 @@ export default function ChatArea({
                                             {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
                                                 <div className="dm-attachments">
                                                     {msg.attachments.map((att: Attachment, i: number) => {
-                                                        const isImage = typeof att?.type === 'string' && att.type.startsWith('image/')
-                                                        if (isImage) {
-                                                            return (
-                                                                <a key={i} href={att.url} target="_blank" rel="noreferrer" className="chat-image-link">
-                                                                    <img src={att.url} alt={att.name || `Attachment ${i + 1}`} className="chat-image-attachment" />
-                                                                </a>
-                                                            )
-                                                        }
                                                         return (
-                                                            <a key={i} href={att.url} target="_blank" rel="noreferrer" className="dm-attachment-link">
-                                                                {att.name || `Attachment ${i + 1}`}
-                                                            </a>
+                                                            <AttachmentLink key={`${att.url}-${i}`} attachment={att} index={i} />
                                                         )
                                                     })}
                                                 </div>

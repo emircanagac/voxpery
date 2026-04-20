@@ -34,6 +34,7 @@ users
 Key columns:
 
 - `id`, `username` (unique), `email` (unique), `password_hash`
+- `email_verified` (`BOOLEAN`)
 - `token_version` (session invalidation counter)
 - `avatar_url`
 - `status` (string; runtime uses `online`/`dnd`/`offline`)
@@ -155,6 +156,11 @@ Uniqueness (case-insensitive):
 
 - `id`, `user_id` (unique), `token_hash`, `expires_at`, `created_at`
 
+### `email_verification_tokens`
+
+- `user_id` (unique), `email`, `token_hash`, `expires_at`, `created_at`
+- Used for new-account verification and verified email changes.
+
 ### `uploaded_attachments`
 
 - `id`, `user_id`, `storage_backend`, `storage_key` (unique)
@@ -202,6 +208,8 @@ All migrations currently present:
 - `029_uploaded_attachments.sql`
 - `030_server_reports.sql`
 - `031_channel_descriptions.sql`
+- `032_user_storage_used_bytes.sql`
+- `033_email_verification.sql`
 
 ## Notes
 
