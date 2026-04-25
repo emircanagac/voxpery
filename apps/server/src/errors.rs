@@ -29,6 +29,9 @@ pub enum AppError {
     #[error("Too many requests: {0}")]
     TooManyRequests(String),
 
+    #[error("Feature disabled: {0}")]
+    FeatureDisabled(String),
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -38,19 +41,25 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
-            AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
-            AppError::UserAlreadyExists => (StatusCode::CONFLICT, self.to_string()),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
-            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
+        let (status, message, code) = match &self {
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string(), None),
+            AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string(), None),
+            AppError::UserAlreadyExists => (StatusCode::CONFLICT, self.to_string(), None),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), None),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone(), None),
+            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone(), None),
+            AppError::FeatureDisabled(msg) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                msg.clone(),
+                Some("FEATURE_DISABLED"),
+            ),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".into(),
+                    None,
                 )
             }
             AppError::Internal(msg) => {
@@ -58,13 +67,21 @@ impl IntoResponse for AppError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".into(),
+                    None,
                 )
             }
         };
 
-        let body = Json(json!({
-            "error": message,
-        }));
+        let body = if let Some(code) = code {
+            Json(json!({
+                "error": message,
+                "code": code,
+            }))
+        } else {
+            Json(json!({
+                "error": message,
+            }))
+        };
 
         (status, body).into_response()
     }
@@ -86,6 +103,10 @@ mod tests {
             (
                 AppError::TooManyRequests("x".into()),
                 StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                AppError::FeatureDisabled("x".into()),
+                StatusCode::SERVICE_UNAVAILABLE,
             ),
         ];
         for (err, expected) in test_cases {

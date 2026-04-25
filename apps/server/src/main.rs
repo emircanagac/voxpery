@@ -7,7 +7,10 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use voxpery_server::{build_app, config, routes, validate_security_config, ws, AppState};
+use voxpery_server::{
+    build_app, config, routes, validate_optional_integration_config, validate_security_config, ws,
+    AppState,
+};
 
 #[tokio::main]
 async fn main() {
@@ -29,6 +32,10 @@ async fn main() {
         config.is_production,
     ) {
         tracing::error!("Invalid security configuration: {}", msg);
+        return;
+    }
+    if let Err(msg) = validate_optional_integration_config(&config) {
+        tracing::error!("Invalid optional integration configuration: {}", msg);
         return;
     }
 
@@ -103,11 +110,16 @@ async fn main() {
         livekit_api_secret: config.livekit_api_secret.clone(),
         google_client_id: config.google_client_id.clone(),
         google_client_secret: config.google_client_secret.clone(),
+        google_oauth_enabled: config.google_oauth_enabled(),
         public_api_url: config.public_api_url.clone(),
         turnstile_secret_key: config.turnstile_secret_key.clone(),
         smtp_host: config.smtp_host.clone(),
         smtp_user: config.smtp_user.clone(),
         smtp_password: config.smtp_password.clone(),
+        email_delivery_enabled: config.email_delivery_enabled(),
+        email_verification_enabled: config.email_verification_enabled(),
+        email_verification_required: config.email_verification_required,
+        password_reset_enabled: config.password_reset_enabled(),
         attachment_service,
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
+import { useFeatureStore } from '../stores/features'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
@@ -49,9 +50,17 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
     const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
+    const features = useFeatureStore((s) => s.features)
     const navigate = useNavigate()
+    const googleOAuthEnabled = features?.google_oauth_enabled === true
+    const passwordResetEnabled = features?.password_reset_enabled === true
 
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
+        if (!googleOAuthEnabled) {
+            e.preventDefault()
+            setError('Google sign-in is disabled on this server.')
+            return
+        }
         if (isTauri()) {
             e.preventDefault()
             const url = await getDesktopGoogleAuthUrl(redirectTo)
@@ -108,12 +117,14 @@ export default function LoginPage() {
                 <div className="form-group">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <label>Password</label>
-                        <a 
-                            onClick={() => navigate(ROUTES.forgotPassword)} 
-                            style={{ fontSize: '0.8em', cursor: 'pointer', color: '#89b4fa' }}
-                        >
-                            Forgot password?
-                        </a>
+                        {passwordResetEnabled && (
+                            <a
+                                onClick={() => navigate(ROUTES.forgotPassword)}
+                                style={{ fontSize: '0.8em', cursor: 'pointer', color: '#89b4fa' }}
+                            >
+                                Forgot password?
+                            </a>
+                        )}
                     </div>
                     <input
                         type="password"
@@ -128,18 +139,22 @@ export default function LoginPage() {
                     {loading ? 'Signing in...' : 'Sign In'}
                 </button>
 
-                <div className="auth-divider">
-                    <span>or</span>
-                </div>
+                {googleOAuthEnabled && (
+                    <>
+                        <div className="auth-divider">
+                            <span>or</span>
+                        </div>
 
-                <a
-                    href={getGoogleAuthUrl(redirectTo)}
-                    className="auth-btn-google"
-                    onClick={handleGoogleLogin}
-                >
-                    <GoogleLogoIcon />
-                    <span>Continue with Google</span>
-                </a>
+                        <a
+                            href={getGoogleAuthUrl(redirectTo)}
+                            className="auth-btn-google"
+                            onClick={handleGoogleLogin}
+                        >
+                            <GoogleLogoIcon />
+                            <span>Continue with Google</span>
+                        </a>
+                    </>
+                )}
 
                 <div className="auth-footer">
                     Don't have an account?{' '}

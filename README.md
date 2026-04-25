@@ -106,6 +106,8 @@ Note: ClamAV is disabled by default. To enable malware scanning, set `ATTACHMENT
 - Reverse proxy/TLS options
 - Backup and operations checklist
 
+Optional integrations are disabled unless fully configured. If Google OAuth or SMTP email delivery is not configured, Voxpery hides the related sign-in, password reset, and email verification flows and the API returns `FEATURE_DISABLED` for direct calls.
+
 **For developers:** See [Contributing Guide](docs/CONTRIBUTING.md)
 
 ### Desktop App

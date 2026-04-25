@@ -70,6 +70,10 @@ fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
     headers
 }
 
+fn feature_disabled(message: &str) -> AppError {
+    AppError::FeatureDisabled(message.to_string())
+}
+
 fn is_desktop_oauth_origin(origin: &str) -> bool {
     origin.trim_end_matches('/') == DESKTOP_OAUTH_ORIGIN
 }
@@ -693,7 +697,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/check-username", get(check_username))
         .route("/set-password", post(set_password))
         .route("/change-password", post(change_password))
-        .route("/email/request-verification", post(request_email_verification))
+        .route(
+            "/email/request-verification",
+            post(request_email_verification),
+        )
         .route("/data-export", get(export_my_data))
         .route("/account", delete(delete_my_account))
         .route_layer(middleware::from_fn_with_state(state, require_auth));
@@ -1350,6 +1357,10 @@ async fn google_oauth_start(
     State(state): State<Arc<AppState>>,
     Query(q): Query<GoogleOAuthStartQuery>,
 ) -> impl IntoResponse {
+    if !state.google_oauth_enabled {
+        return feature_disabled("Google sign-in is disabled on this server").into_response();
+    }
+
     let (client_id, _secret) = match (
         state.google_client_id.as_ref(),
         state.google_client_secret.as_ref(),
@@ -1440,6 +1451,12 @@ async fn google_oauth_desktop_exchange(
     State(state): State<Arc<AppState>>,
     Json(body): Json<GoogleOAuthDesktopExchangeRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    if !state.google_oauth_enabled {
+        return Err(feature_disabled(
+            "Google sign-in is disabled on this server",
+        ));
+    }
+
     let code = body.code.trim();
     if code.len() != 32 || !code.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::Validation("Invalid desktop OAuth code".into()));
@@ -1522,6 +1539,10 @@ async fn google_oauth_callback(
     Query(q): Query<GoogleOAuthCallbackQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if !state.google_oauth_enabled {
+        return feature_disabled("Google sign-in is disabled on this server").into_response();
+    }
+
     let (client_id, client_secret) = match (
         state.google_client_id.as_ref(),
         state.google_client_secret.as_ref(),
@@ -2137,6 +2158,12 @@ async fn request_email_verification(
     Extension(claims): Extension<Claims>,
     Json(body): Json<RequestEmailVerificationRequest>,
 ) -> Result<Json<UserPublic>, AppError> {
+    if !state.email_verification_enabled {
+        return Err(feature_disabled(
+            "Email verification is disabled because email delivery is not configured",
+        ));
+    }
+
     enforce_rate_limit(
         &state.redis,
         format!("auth:email_verification_request:{}", claims.sub),
@@ -2243,9 +2270,17 @@ async fn confirm_email_verification(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ConfirmEmailVerificationRequest>,
 ) -> Result<Json<ConfirmEmailVerificationResponse>, AppError> {
+    if !state.email_verification_enabled {
+        return Err(feature_disabled(
+            "Email verification is disabled because email delivery is not configured",
+        ));
+    }
+
     let token = body.token.trim();
     if token.is_empty() {
-        return Err(AppError::Validation("Verification token is required".into()));
+        return Err(AppError::Validation(
+            "Verification token is required".into(),
+        ));
     }
 
     #[derive(sqlx::FromRow)]
@@ -2264,7 +2299,9 @@ async fn confirm_email_verification(
     .await?;
 
     let Some(row) = token_row else {
-        return Err(AppError::Validation("Invalid email verification token".into()));
+        return Err(AppError::Validation(
+            "Invalid email verification token".into(),
+        ));
     };
 
     if chrono::Utc::now() > row.expires_at {
@@ -2710,6 +2747,12 @@ async fn forgot_password(
     headers: HeaderMap,
     Json(body): Json<ForgotPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.password_reset_enabled {
+        return Err(feature_disabled(
+            "Password reset is disabled because email delivery is not configured",
+        ));
+    }
+
     let email = body.email.trim().to_lowercase();
     let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
     let generic_ok = || {
@@ -2819,6 +2862,12 @@ async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ResetPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.password_reset_enabled {
+        return Err(feature_disabled(
+            "Password reset is disabled because email delivery is not configured",
+        ));
+    }
+
     enforce_rate_limit(
         &state.redis,
         format!("auth:reset_password_attempt:{}", body.token), // limit attempts per token to prevent brute force

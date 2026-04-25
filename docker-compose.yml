@@ -87,6 +87,7 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-voxpery}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-voxpery}
       ATTACHMENTS_LOCAL_DIR: /home/voxpery/attachments
     depends_on:
       postgres:

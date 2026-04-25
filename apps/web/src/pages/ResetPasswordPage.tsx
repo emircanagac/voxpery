@@ -1,7 +1,8 @@
 import { useState, type FormEvent, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { authApi } from '../api'
+import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
+import { useFeatureStore } from '../stores/features'
 
 export default function ResetPasswordPage() {
     const [searchParams] = useSearchParams()
@@ -12,6 +13,8 @@ export default function ResetPasswordPage() {
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const navigate = useNavigate()
+    const features = useFeatureStore((s) => s.features)
+    const passwordResetEnabled = features?.password_reset_enabled === true
 
     useEffect(() => {
         if (!token) {
@@ -46,11 +49,29 @@ export default function ResetPasswordPage() {
             setMessage(res.message)
             setTimeout(() => navigate(ROUTES.login), 3000)
         } catch (err: unknown) {
-            const detail = err instanceof Error ? err.message : String(err)
-            setError(detail || 'Failed to reset password')
+            const { message, code } = getAuthErrorMessage(err)
+            setError(code ? `${message} (Error code: ${code})` : message || 'Failed to reset password')
         } finally {
             setLoading(false)
         }
+    }
+
+    if (!passwordResetEnabled) {
+        return (
+            <div className="auth-page">
+                <div className="auth-card">
+                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                    <h1>Set New Password</h1>
+                    <p>Password reset is not available because this server has not configured email delivery.</p>
+
+                    <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
+                        <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: '#89b4fa' }}>
+                            Back to Login
+                        </a>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     return (

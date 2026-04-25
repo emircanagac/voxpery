@@ -4,6 +4,7 @@ import { Turnstile } from '@marsidev/react-turnstile'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
+import { useFeatureStore } from '../stores/features'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
@@ -40,11 +41,18 @@ export default function RegisterPage() {
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
     const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
+    const features = useFeatureStore((s) => s.features)
     const navigate = useNavigate()
+    const googleOAuthEnabled = features?.google_oauth_enabled === true
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
+        if (!googleOAuthEnabled) {
+            e.preventDefault()
+            setError('Google sign-in is disabled on this server.')
+            return
+        }
         if (isTauri()) {
             e.preventDefault()
             const url = await getDesktopGoogleAuthUrl(redirectTo)
@@ -180,18 +188,22 @@ export default function RegisterPage() {
                     {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
 
-                <div className="auth-divider">
-                    <span>or</span>
-                </div>
+                {googleOAuthEnabled && (
+                    <>
+                        <div className="auth-divider">
+                            <span>or</span>
+                        </div>
 
-                <a
-                    href={getGoogleAuthUrl(redirectTo)}
-                    className="auth-btn-google"
-                    onClick={handleGoogleLogin}
-                >
-                    <GoogleLogoIcon />
-                    <span>Continue with Google</span>
-                </a>
+                        <a
+                            href={getGoogleAuthUrl(redirectTo)}
+                            className="auth-btn-google"
+                            onClick={handleGoogleLogin}
+                        >
+                            <GoogleLogoIcon />
+                            <span>Continue with Google</span>
+                        </a>
+                    </>
+                )}
 
                 <div className="auth-footer">
                     Already have an account?{' '}
