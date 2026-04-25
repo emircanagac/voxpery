@@ -47,6 +47,15 @@ Attachments note:
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
 
+Optional integrations note:
+
+- Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
+- Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
+- Password reset and email verification depend on email delivery.
+- The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
+- Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
+- `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.
+
 ## 2) Start Full Stack
 
 ```bash

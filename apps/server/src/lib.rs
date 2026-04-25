@@ -58,11 +58,16 @@ pub struct AppState {
     pub livekit_api_secret: Option<String>,
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
+    pub google_oauth_enabled: bool,
     pub public_api_url: Option<String>,
     pub turnstile_secret_key: Option<String>,
     pub smtp_host: Option<String>,
     pub smtp_user: Option<String>,
     pub smtp_password: Option<String>,
+    pub email_delivery_enabled: bool,
+    pub email_verification_enabled: bool,
+    pub email_verification_required: bool,
+    pub password_reset_enabled: bool,
     pub attachment_service: Arc<services::attachments::AttachmentService>,
     pub release_http_client: reqwest::Client,
     pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
@@ -201,6 +206,38 @@ pub fn validate_security_config(
     Ok(())
 }
 
+/// Validates optional integrations that can be disabled for self-hosted deployments.
+pub fn validate_optional_integration_config(config: &config::Config) -> Result<(), String> {
+    if config.google_client_id.is_some() != config.google_client_secret.is_some() {
+        return Err(
+            "Invalid Google OAuth configuration: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together"
+                .into(),
+        );
+    }
+
+    let smtp_values = [
+        config.smtp_host.as_ref(),
+        config.smtp_user.as_ref(),
+        config.smtp_password.as_ref(),
+    ];
+    let configured_smtp_values = smtp_values.iter().filter(|value| value.is_some()).count();
+    if configured_smtp_values > 0 && configured_smtp_values < smtp_values.len() {
+        return Err(
+            "Invalid SMTP configuration: SMTP_HOST, SMTP_USER, and SMTP_PASSWORD must be set together"
+                .into(),
+        );
+    }
+
+    if config.email_verification_required && !config.email_verification_enabled() {
+        return Err(
+            "Invalid email verification configuration: EMAIL_VERIFICATION_REQUIRED requires SMTP email delivery"
+                .into(),
+        );
+    }
+
+    Ok(())
+}
+
 /// Run database migrations. Used by the binary and by integration tests.
 pub async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(pool).await
@@ -231,6 +268,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
     let app = Router::new()
         .route("/health", get(health_handler))
+        .nest("/api/system", routes::system::router(state.clone()))
         .nest("/api/auth", routes::auth::router(state.clone()))
         .nest("/api/friends", routes::friends::router(state.clone()))
         .nest("/api/dm", routes::dm::router(state.clone()))
@@ -254,7 +292,10 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_sanitize_client_error, validate_security_config};
+    use super::{
+        config::Config, should_sanitize_client_error, validate_optional_integration_config,
+        validate_security_config,
+    };
 
     #[test]
     fn rejects_wildcard_cors() {
@@ -317,5 +358,90 @@ mod tests {
             "failed to deserialize JSON body"
         ));
         assert!(!should_sanitize_client_error("Invalid credentials"));
+    }
+
+    fn base_config_for_optional_integration_tests() -> Config {
+        Config {
+            database_url: "postgres://test".into(),
+            db_max_connections: 5,
+            db_acquire_timeout_secs: 10,
+            db_idle_timeout_secs: 600,
+            db_max_lifetime_secs: 1800,
+            redis_url: "redis://localhost:6379".into(),
+            jwt_secret: "test-secret".into(),
+            jwt_expiration: 3600,
+            server_host: "127.0.0.1".into(),
+            server_port: 3001,
+            is_production: false,
+            cors_origins: vec!["http://localhost:5173".into()],
+            auth_rate_limit_max: 10,
+            auth_rate_limit_window_secs: 60,
+            login_failure_max_attempts: 8,
+            login_failure_ip_max_attempts: 20,
+            login_failure_window_secs: 900,
+            message_rate_limit_max: 30,
+            message_rate_limit_window_secs: 10,
+            admin_email: None,
+            admin_username: None,
+            admin_password: None,
+            cookie_secure: false,
+            cookie_name: "voxpery_token".into(),
+            turn_urls: None,
+            turn_shared_secret: None,
+            turn_credential_ttl_secs: 3600,
+            livekit_ws_url: None,
+            livekit_api_key: None,
+            livekit_api_secret: None,
+            google_client_id: None,
+            google_client_secret: None,
+            public_api_url: None,
+            turnstile_secret_key: None,
+            smtp_host: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_verification_required: false,
+            attachments_public_base_url: None,
+            attachments_local_dir: "./storage/attachments".into(),
+            attachments_key_prefix: "attachments".into(),
+            attachments_max_file_bytes: 5_242_880,
+            attachments_max_files_per_request: 4,
+            attachments_allowed_mime_prefixes: vec!["image/".into()],
+            attachments_url_ttl_secs: 900,
+            attachments_clamav_enabled: false,
+            attachments_clamav_host: "clamav".into(),
+            attachments_clamav_port: 3310,
+            attachments_clamav_timeout_ms: 5000,
+            attachments_clamav_fail_closed: true,
+        }
+    }
+
+    #[test]
+    fn rejects_partial_google_oauth_config() {
+        let mut config = base_config_for_optional_integration_tests();
+        config.google_client_id = Some("client".into());
+
+        let result = validate_optional_integration_config(&config);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_partial_smtp_config() {
+        let mut config = base_config_for_optional_integration_tests();
+        config.smtp_host = Some("smtp.example.com".into());
+
+        let result = validate_optional_integration_config(&config);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_required_email_verification_without_smtp() {
+        let mut config = base_config_for_optional_integration_tests();
+        config.email_verification_required = true;
+
+        let result = validate_optional_integration_config(&config);
+
+        assert!(result.is_err());
     }
 }

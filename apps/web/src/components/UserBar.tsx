@@ -5,6 +5,7 @@ import { createPortal, flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
+import { useFeatureStore } from '../stores/features'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
 import { authApi, getAuthErrorMessage } from '../api'
@@ -155,6 +156,8 @@ function isValidEmailAddress(value: string) {
 
 export default function UserBar() {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
+  const features = useFeatureStore((s) => s.features)
+  const emailVerificationEnabled = features?.email_verification_enabled === true
   const mobileSidebarPanel = useAppStore((s) => s.mobileSidebarPanel)
   const closeMobileSidebar = useAppStore((s) => s.closeMobileSidebar)
   const { disconnect } = useSocketStore()
@@ -1104,6 +1107,9 @@ export default function UserBar() {
 
   const requestEmailVerification = async (nextEmail?: string) => {
     if (isTauri() && !token) return
+    if (!emailVerificationEnabled) {
+      throw new Error('FEATURE_DISABLED:Email verification is disabled on this server.')
+    }
     const updated = await authApi.requestEmailVerification(token ?? null, nextEmail)
     if (token) setAuth(token, updated)
     else setUser(updated)
@@ -1817,9 +1823,14 @@ export default function UserBar() {
                       {' · '}
                       {user?.email_verified ? 'Verified' : 'Not verified'}
                     </div>
+                    {!user?.email_verified && !emailVerificationEnabled && (
+                      <div className="user-setting-desc">
+                        Email verification is not available because this server has not configured email delivery.
+                      </div>
+                    )}
                   </div>
                   <div className="user-setting-actions">
-                    {!user?.email_verified && (
+                    {!user?.email_verified && emailVerificationEnabled && (
                       <button
                         type="button"
                         className="user-toggle account-action-btn"
@@ -1845,18 +1856,20 @@ export default function UserBar() {
                         Verify
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="user-toggle account-action-btn"
-                      onClick={() => {
-                        setShowSettingsPanel(false)
-                        setEmailEdit(user?.email ?? '')
-                        setEmailError(null)
-                        setShowEmailModal(true)
-                      }}
-                    >
-                      Change
-                    </button>
+                    {emailVerificationEnabled && (
+                      <button
+                        type="button"
+                        className="user-toggle account-action-btn"
+                        onClick={() => {
+                          setShowSettingsPanel(false)
+                          setEmailEdit(user?.email ?? '')
+                          setEmailError(null)
+                          setShowEmailModal(true)
+                        }}
+                      >
+                        Change
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="user-setting-row">

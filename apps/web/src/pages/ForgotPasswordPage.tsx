@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authApi } from '../api'
+import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
+import { useFeatureStore } from '../stores/features'
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState('')
@@ -9,6 +10,8 @@ export default function ForgotPasswordPage() {
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const navigate = useNavigate()
+    const features = useFeatureStore((s) => s.features)
+    const passwordResetEnabled = features?.password_reset_enabled === true
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault()
@@ -20,11 +23,29 @@ export default function ForgotPasswordPage() {
             const res = await authApi.forgotPassword(email)
             setMessage(res.message)
         } catch (err: unknown) {
-            const detail = err instanceof Error ? err.message : String(err)
-            setError(detail || 'Failed to request password reset')
+            const { message, code } = getAuthErrorMessage(err)
+            setError(code ? `${message} (Error code: ${code})` : message || 'Failed to request password reset')
         } finally {
             setLoading(false)
         }
+    }
+
+    if (!passwordResetEnabled) {
+        return (
+            <div className="auth-page">
+                <div className="auth-card">
+                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                    <h1>Reset Password</h1>
+                    <p>Password reset is not available because this server has not configured email delivery.</p>
+
+                    <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
+                        <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: '#89b4fa' }}>
+                            Back to Login
+                        </a>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     return (

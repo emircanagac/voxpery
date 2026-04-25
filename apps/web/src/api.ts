@@ -294,13 +294,7 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
             authFailureHandler?.()
         }
         const text = await res.text()
-        let message: string
-        try {
-            const json = JSON.parse(text) as { error?: string }
-            message = json.error || text || `HTTP ${res.status}`
-        } catch {
-            message = text || `HTTP ${res.status}`
-        }
+        const message = apiErrorMessageFromText(text, res.status)
         throw new Error(message)
     }
 
@@ -355,13 +349,7 @@ async function apiMultipartFetch<T>(path: string, formData: FormData, token?: st
             authFailureHandler?.()
         }
         const text = await res.text()
-        let message: string
-        try {
-            const json = JSON.parse(text) as { error?: string }
-            message = json.error || text || `HTTP ${res.status}`
-        } catch {
-            message = text || `HTTP ${res.status}`
-        }
+        const message = apiErrorMessageFromText(text, res.status)
         throw new Error(message)
     }
 
@@ -428,7 +416,34 @@ export interface EmailVerificationConfirmResponse {
     message: string
 }
 
+export interface SystemFeatures {
+    google_oauth_enabled: boolean
+    email_delivery_enabled: boolean
+    email_verification_enabled: boolean
+    email_verification_required: boolean
+    password_reset_enabled: boolean
+}
 
+interface ApiErrorPayload {
+    error?: string
+    code?: string
+}
+
+function apiErrorMessageFromText(text: string, status: number): string {
+    try {
+        const json = JSON.parse(text) as ApiErrorPayload
+        const message = json.error || text || `HTTP ${status}`
+        return json.code ? `${json.code}:${message}` : message
+    } catch {
+        return text || `HTTP ${status}`
+    }
+}
+
+
+
+export const systemApi = {
+    getFeatures: () => apiFetch<SystemFeatures>('/api/system/features'),
+}
 
 export const authApi = {
     register: (username: string, email: string, password: string, captcha_token?: string) =>

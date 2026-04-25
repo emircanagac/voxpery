@@ -6,4 +6,5 @@ pub mod friends;
 pub mod messages;
 pub mod releases;
 pub mod servers;
+pub mod system;
 pub mod webrtc;

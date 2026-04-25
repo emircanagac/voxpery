@@ -15,6 +15,7 @@ import UnifiedLayout from './pages/UnifiedLayout'
 import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
+import { useFeatureStore } from './stores/features'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -72,10 +73,15 @@ function App() {
   const loggingOut = useAuthStore((s) => s.loggingOut)
   const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
+  const loadFeatures = useFeatureStore((s) => s.loadFeatures)
   const [restoring, setRestoring] = useState(true)
   const validatedSessionRef = useRef(false)
   const authFailureHandledRef = useRef(false)
   const isDesktopApp = isTauri()
+
+  useEffect(() => {
+    void loadFeatures()
+  }, [loadFeatures])
 
   useEffect(() => {
     const clearExpiredSession = () => {
