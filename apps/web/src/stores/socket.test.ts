@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { useSocketStore } from './socket'
+import { useSocketStore, websocketReconnectDelayMs } from './socket'
 import { act } from '@testing-library/react'
 
 // WebSocket ready state constants
@@ -9,6 +9,8 @@ const WS_CLOSED = 3
 
 // Mock WebSocket
 class MockWebSocket {
+  static instances: MockWebSocket[] = []
+
   url: string
   readyState = WS_CONNECTING
   onopen: ((event: Event) => void) | null = null
@@ -18,6 +20,7 @@ class MockWebSocket {
 
   constructor(url: string) {
     this.url = url
+    MockWebSocket.instances.push(this)
     // Simulate async connection
     setTimeout(() => {
       this.readyState = WS_OPEN
@@ -32,9 +35,9 @@ class MockWebSocket {
     }
   }
 
-  close() {
+  close(code = 1000) {
     this.readyState = WS_CLOSED
-    this.onclose?.(new CloseEvent('close'))
+    this.onclose?.(new CloseEvent('close', { code }))
   }
 }
 
@@ -62,7 +65,12 @@ describe('WebSocket Store', () => {
       shouldReconnect: false,
       listeners: new Set(),
       reconnectListeners: new Set(),
+      reconnectAttempt: 0,
+      reconnectTimer: null,
+      connectionId: 0,
+      wasConnectedBefore: false,
     })
+    MockWebSocket.instances = []
     vi.clearAllTimers()
     vi.useFakeTimers()
   })
@@ -183,9 +191,19 @@ describe('WebSocket Store', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('calculates exponential reconnect delays with jitter', () => {
+    expect(websocketReconnectDelayMs(1, () => 0.5)).toBe(1000)
+    expect(websocketReconnectDelayMs(2, () => 0.5)).toBe(2000)
+    expect(websocketReconnectDelayMs(3, () => 0.5)).toBe(4000)
+    expect(websocketReconnectDelayMs(20, () => 0.5)).toBe(30000)
+    expect(websocketReconnectDelayMs(1, () => 0)).toBe(750)
+    expect(websocketReconnectDelayMs(1, () => 1)).toBe(1250)
+  })
+
   it('should handle reconnection', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect('test-token')
@@ -201,8 +219,8 @@ describe('WebSocket Store', () => {
       state.socket?.close()
     })
 
-    // Wait for auto-reconnect (3s delay)
-    await vi.advanceTimersByTimeAsync(3100)
+    // Wait for auto-reconnect (1s base delay)
+    await vi.advanceTimersByTimeAsync(1100)
 
     expect(reconnectListener).toHaveBeenCalled()
     unsubscribe()
@@ -211,6 +229,7 @@ describe('WebSocket Store', () => {
   it('should reconnect web cookie-auth sessions even when token is null', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect(null)
@@ -224,13 +243,115 @@ describe('WebSocket Store', () => {
       state.socket?.close()
     })
 
-    await vi.advanceTimersByTimeAsync(3100)
+    await vi.advanceTimersByTimeAsync(1100)
 
     const next = useSocketStore.getState()
     expect(next.socket).toBeTruthy()
     expect(next.isConnected).toBe(true)
     expect(reconnectListener).toHaveBeenCalled()
     unsubscribe()
+  })
+
+  it('should not call removed reconnect listeners', async () => {
+    const { connect } = useSocketStore.getState()
+    const reconnectListener = vi.fn()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+
+    const unsubscribe = useSocketStore.getState().onReconnect(reconnectListener)
+    unsubscribe()
+
+    act(() => {
+      useSocketStore.getState().socket?.close()
+    })
+
+    await vi.advanceTimersByTimeAsync(1100)
+
+    expect(reconnectListener).not.toHaveBeenCalled()
+  })
+
+  it('should not reconnect after auth-expired close code', async () => {
+    const { connect } = useSocketStore.getState()
+    const reconnectListener = vi.fn()
+
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+
+    const unsubscribe = useSocketStore.getState().onReconnect(reconnectListener)
+
+    act(() => {
+      useSocketStore.getState().socket?.close(4001)
+    })
+
+    await vi.advanceTimersByTimeAsync(30000)
+
+    const state = useSocketStore.getState()
+    expect(state.socket).toBe(null)
+    expect(state.isConnected).toBe(false)
+    expect(state.shouldReconnect).toBe(false)
+    expect(reconnectListener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('should stop reconnecting after the reconnect cap', async () => {
+    const { connect } = useSocketStore.getState()
+
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+
+    act(() => {
+      useSocketStore.setState({ reconnectAttempt: 8 })
+      useSocketStore.getState().socket?.close()
+    })
+
+    await vi.advanceTimersByTimeAsync(30000)
+
+    const state = useSocketStore.getState()
+    expect(state.socket).toBe(null)
+    expect(state.shouldReconnect).toBe(false)
+    expect(state.reconnectAttempt).toBe(0)
+  })
+
+  it('should not create duplicate sockets while connecting', () => {
+    const { connect } = useSocketStore.getState()
+
+    act(() => {
+      connect('test-token')
+      connect('test-token')
+    })
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('should clear pending reconnect timers on disconnect', async () => {
+    const { connect, disconnect } = useSocketStore.getState()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+
+    act(() => {
+      useSocketStore.getState().socket?.close()
+      disconnect()
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+
+    const state = useSocketStore.getState()
+    expect(state.socket).toBe(null)
+    expect(state.isConnected).toBe(false)
+    expect(state.shouldReconnect).toBe(false)
+    expect(MockWebSocket.instances).toHaveLength(1)
   })
 
   it('should handle multiple subscribers', async () => {
