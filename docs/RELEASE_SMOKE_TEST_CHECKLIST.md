@@ -32,9 +32,14 @@ Use this checklist for every production release candidate before tag/publish.
 
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
 - [ ] App opens and reaches login screen.
+- [ ] Production desktop build connects only to the official API and does not allow localhost API scopes.
 - [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.
 - [ ] Session is restored after OAuth callback (user ends in authenticated app state).
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
+- [ ] Updater check shows a clear no-update state when no newer version is available.
+- [ ] Updater check shows the available version when a newer signed release is available.
+- [ ] Updater install path prepares the desktop runtime before install/relaunch.
+- [ ] Failed updater check/install shows recoverable UI and does not leave settings stuck.
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
 - [ ] Voice join succeeds after permission grant.
@@ -45,6 +50,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Changelog updated (`docs/CHANGELOG.md`).
 - [ ] Deployment notes updated if needed (`docs/DEPLOYMENT.md`).
 - [ ] Release notes draft prepared.
+- [ ] Previous stable desktop installer artifacts remain available for manual rollback.
 - [ ] Approved to tag and publish.
 
 ## Sign-off
