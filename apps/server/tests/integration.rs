@@ -214,6 +214,7 @@ async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() 
         return;
     };
     let (mut app, _) = setup_app().await;
+    let disabled_reset_password = format!("disabled-reset-{}", Uuid::new_v4());
 
     let disabled_requests = [
         Request::builder()
@@ -253,7 +254,7 @@ async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() 
             .body(Body::from(
                 serde_json::to_vec(&json!({
                     "token": "disabled-token",
-                    "new_password": "password123"
+                    "new_password": disabled_reset_password
                 }))
                 .unwrap(),
             ))
@@ -284,7 +285,8 @@ async fn email_verification_request_returns_feature_disabled_when_email_delivery
     let uid = Uuid::new_v4();
     let email = format!("verify-disabled-{uid}@example.com");
     let username = format!("verify_disabled_{}", uid.as_u128() % 1_000_000);
-    let (token, _) = register_user(&mut app, &email, &username, "password123").await;
+    let password = format!("verify-disabled-{}", uid.as_simple());
+    let (token, _) = register_user(&mut app, &email, &username, &password).await;
 
     let req = Request::builder()
         .method("POST")
