@@ -90,8 +90,14 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 
-# Copy and edit environment
+# Copy the environment template.
 cp .env.example .env
+
+# Edit `.env` and replace every CHANGE_ME value before starting.
+# Optional integrations can stay commented out.
+
+# Validate the Compose configuration generated from `.env`.
+docker compose config >/dev/null
 
 # Start full stack (postgres + redis + livekit + backend + web)
 docker compose up -d --build
@@ -101,12 +107,23 @@ docker compose up -d --build
 
 Note: ClamAV is disabled by default. To enable malware scanning, set `ATTACHMENTS_CLAMAV_ENABLED=1` and start Compose with `--profile security`.
 
+Self-host smoke check:
+
+```bash
+docker compose ps
+curl -f http://localhost:3001/health
+curl -I http://localhost:5173
+curl -s http://localhost:3001/api/system/features
+```
+
+With the default `.env.example` flow, Google OAuth, SMTP email delivery, password reset, and email verification are disabled and hidden until configured.
+
 **Need production setup?** → See [**Deployment Guide**](docs/DEPLOYMENT.md)
 - Full Docker Compose deployment
 - Reverse proxy/TLS options
 - Backup and operations checklist
 
-Optional integrations are disabled unless fully configured. If Google OAuth or SMTP email delivery is not configured, Voxpery hides the related sign-in, password reset, and email verification flows and the API returns `FEATURE_DISABLED` for direct calls.
+Optional integrations are disabled unless fully configured. If Google OAuth or SMTP email delivery is not configured, Voxpery hides the related sign-in, password reset, and email verification flows and the API returns `FEATURE_DISABLED` for direct calls. Keep optional environment variables commented out when disabled; do not uncomment them with empty values.
 
 **For developers:** See [Contributing Guide](docs/CONTRIBUTING.md)
 
