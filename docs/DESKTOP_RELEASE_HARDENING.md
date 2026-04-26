@@ -35,8 +35,8 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 
 Current strategy:
 
-- Regular installer releases are allowed without updater artifacts.
-- If updater artifacts are enabled (`bundle.createUpdaterArtifacts=true`), signing becomes mandatory.
+- Desktop updater artifacts are enabled (`bundle.createUpdaterArtifacts=true`).
+- Updater signing is mandatory for every desktop release build.
 
 Mandatory conditions when updater artifacts are enabled:
 
@@ -44,6 +44,7 @@ Mandatory conditions when updater artifacts are enabled:
 - CI must inject the real updater public key before validation/build.
 - Repository secret `TAURI_SIGNING_PRIVATE_KEY` must be configured.
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is required if the key is password-protected.
+- `plugins.updater.endpoints` must point to the official GitHub `latest.json` release metadata URL.
 
 This policy is enforced in release preflight validation.
 
@@ -54,8 +55,22 @@ Before publishing a desktop release:
 1. Complete `docs/RELEASE_SMOKE_TEST_CHECKLIST.md`.
 2. Confirm OAuth deep-link roundtrip works from browser back to desktop app.
 3. Confirm installer uses Voxpery icon/name (not default NSIS icon).
+4. Confirm update check UX:
+   - no-update state is understandable
+   - available-update state shows version metadata
+   - failed update check/install does not crash or leave the settings panel stuck
+5. Confirm installer/update preparation closes tray/minimize state cleanly before install.
 
-## 5) Recommended Repository Secrets
+## 5) Rollback Expectations
+
+Voxpery desktop rollback is manual and release-artifact based:
+
+- Keep the previous stable installer artifacts available in GitHub Releases.
+- If a desktop release is bad, mark the bad release as draft or remove the updater metadata asset so clients stop discovering it.
+- Publish or re-promote the previous stable release metadata if updater clients must move back to a known-good version.
+- Document the rollback decision and affected version in release notes or the incident record.
+
+## 6) Recommended Repository Secrets
 
 - `VITE_API_URL` (required for desktop release build)
 - `TAURI_UPDATER_PUBLIC_KEY` (required when updater artifacts enabled)

@@ -15,6 +15,20 @@ export type DesktopUpdateStatusDetail = {
   result: UpdateResult
 }
 
+type DesktopUpdate = {
+  version: string
+  body?: string | null
+  date?: string | null
+  downloadAndInstall: () => Promise<void>
+}
+
+type DesktopUpdaterRuntime = {
+  isDesktop: () => boolean
+  check: () => Promise<DesktopUpdate | null>
+  prepareForInstall: () => Promise<void>
+  relaunch: () => Promise<void>
+}
+
 function logUpdaterError(scope: string, error: unknown) {
   if (!import.meta.env.DEV) return
   console.error(`[desktop-updater] ${scope}`, error)
@@ -28,13 +42,23 @@ function emitDesktopUpdateStatus(result: UpdateResult) {
   )
 }
 
-export async function checkForUpdates(): Promise<UpdateResult> {
-  if (!isTauri()) {
+async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {
+  const { check } = await import('@tauri-apps/plugin-updater')
+  const { relaunch } = await import('@tauri-apps/plugin-process')
+  return {
+    isDesktop: isTauri,
+    check,
+    prepareForInstall: prepareDesktopForUpdateInstall,
+    relaunch,
+  }
+}
+
+export async function checkForUpdatesWithRuntime(runtime: DesktopUpdaterRuntime): Promise<UpdateResult> {
+  if (!runtime.isDesktop()) {
     return { available: false }
   }
   try {
-    const { check } = await import('@tauri-apps/plugin-updater')
-    const update = await check()
+    const update = await runtime.check()
     if (!update) {
       const result: UpdateResult = { available: false }
       emitDesktopUpdateStatus(result)
@@ -56,23 +80,35 @@ export async function checkForUpdates(): Promise<UpdateResult> {
   }
 }
 
-export async function downloadAndInstallUpdate(): Promise<boolean> {
-  if (!isTauri()) {
+export async function downloadAndInstallUpdateWithRuntime(runtime: DesktopUpdaterRuntime): Promise<boolean> {
+  if (!runtime.isDesktop()) {
     return false
   }
   try {
-    const { check } = await import('@tauri-apps/plugin-updater')
-    const { relaunch } = await import('@tauri-apps/plugin-process')
-    const update = await check()
+    const update = await runtime.check()
     if (!update) return false
-    await prepareDesktopForUpdateInstall()
+    await runtime.prepareForInstall()
     await update.downloadAndInstall()
-    await relaunch()
+    await runtime.relaunch()
     return true
   } catch (error) {
     logUpdaterError('install failed', error)
     return false
   }
+}
+
+export async function checkForUpdates(): Promise<UpdateResult> {
+  if (!isTauri()) {
+    return { available: false }
+  }
+  return checkForUpdatesWithRuntime(await defaultRuntime())
+}
+
+export async function downloadAndInstallUpdate(): Promise<boolean> {
+  if (!isTauri()) {
+    return false
+  }
+  return downloadAndInstallUpdateWithRuntime(await defaultRuntime())
 }
 
 export async function getDesktopAppVersion(): Promise<string | null> {

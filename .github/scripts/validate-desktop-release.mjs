@@ -35,6 +35,32 @@ function requireFile(relativePath, minBytes = 1) {
   }
 }
 
+function collectStrings(value, out = []) {
+  if (typeof value === 'string') {
+    out.push(value)
+    return out
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out)
+    return out
+  }
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) collectStrings(item, out)
+  }
+  return out
+}
+
+function includesLocalBackendTarget(value) {
+  return /(^|[^a-z0-9.-])(localhost|127\.0\.0\.1)(?::|\/|\*|$)/i.test(value)
+}
+
+function requireNoLocalTargets(label, value) {
+  const offenders = collectStrings(value).filter(includesLocalBackendTarget)
+  for (const offender of offenders) {
+    fail(`${label} must not include local backend target in release config: ${offender}`)
+  }
+}
+
 const tauri = loadJson('apps/desktop/src-tauri/tauri.conf.json')
 const cargoToml = existsSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'))
   ? readFileSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'), 'utf8')
@@ -81,6 +107,17 @@ if (tauri) {
     fail('Updater artifacts are enabled but updater pubkey is missing or placeholder')
   }
 
+  const updaterEndpoints = tauri.plugins?.updater?.endpoints
+  const expectedUpdaterEndpoint =
+    'https://github.com/emircanagac/voxpery/releases/latest/download/latest.json'
+  if (!Array.isArray(updaterEndpoints) || updaterEndpoints.length !== 1) {
+    fail('tauri.conf.json plugins.updater.endpoints must contain exactly one release metadata endpoint')
+  } else if (updaterEndpoints[0] !== expectedUpdaterEndpoint) {
+    fail(`Unexpected desktop updater endpoint: ${String(updaterEndpoints[0])}`)
+  }
+
+  requireNoLocalTargets('tauri.conf.json app.security.csp', tauri.app?.security?.csp)
+
   const installerIcon = tauri.bundle?.windows?.nsis?.installerIcon
   if (installerIcon !== 'icons/icon.ico') {
     fail(
@@ -100,12 +137,28 @@ requireFile('apps/desktop/src-tauri/icons/icon.png', 8_000)
 
 const capability = loadJson('apps/desktop/src-tauri/capabilities/default.json')
 if (capability) {
-  const permissions = Array.isArray(capability.permissions) ? capability.permissions : []
+  const capabilityEntries = Array.isArray(capability.capabilities)
+    ? capability.capabilities
+    : [capability]
+  const releaseCapability = capabilityEntries.find((entry) => entry?.identifier === 'default')
+  const permissions = Array.isArray(releaseCapability?.permissions)
+    ? releaseCapability.permissions
+    : []
   const httpPermission = permissions.find(
     (entry) => typeof entry === 'object' && entry?.identifier === 'http:default'
   )
   if (!httpPermission) {
-    fail('Desktop capability must include http:default permission block')
+    fail('Release desktop capability must include http:default permission block')
+  } else {
+    const allowedUrls = Array.isArray(httpPermission.allow)
+      ? httpPermission.allow.map((entry) => entry?.url).filter(Boolean)
+      : []
+    if (allowedUrls.length !== 1 || allowedUrls[0] !== 'https://api.voxpery.com/**') {
+      fail(
+        `Release desktop capability http scope must be limited to https://api.voxpery.com/** (found: ${allowedUrls.join(', ')})`
+      )
+    }
+    requireNoLocalTargets('release desktop capability http scope', allowedUrls)
   }
 }
 
