@@ -55,8 +55,44 @@ Optional integrations note:
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
 - Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
 - `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.
+- Keep disabled optional integrations commented out in `.env`; do not set optional variables to empty values.
 
-## 2) Start Full Stack
+## 2) Self-Host Smoke Test
+
+Before production changes, validate the default self-host flow from a clean environment file:
+
+```bash
+cp .env.example .env
+# Edit `.env` and replace every CHANGE_ME value.
+docker compose config >/dev/null
+docker compose up -d --build
+docker compose ps
+```
+
+Basic service checks:
+
+```bash
+curl -f http://localhost:3001/health
+curl -I http://localhost:${WEB_PORT:-5173}
+curl -s http://localhost:3001/api/system/features
+```
+
+Expected default integration state:
+
+- `google_oauth_enabled` is `false`.
+- `email_delivery_enabled` is `false`.
+- `email_verification_enabled` is `false`.
+- `password_reset_enabled` is `false`.
+- The web and desktop UI should hide Google sign-in, password reset, and email verification prompts until those integrations are configured.
+
+Manual product checks:
+
+- Register/login works with the seeded admin account or a new local account.
+- Server, channel, and category navigation work.
+- Voice join reaches LiveKit.
+- Attachment upload and signed attachment viewing work.
+
+## 3) Start Full Stack
 
 ```bash
 docker compose up -d --build
@@ -102,7 +138,7 @@ Important:
 - These limits reduce single-host blast radius (LiveKit cannot consume all CPU/RAM/PIDs).
 - They do **not** protect against upstream bandwidth saturation from large volumetric UDP floods.
 
-## 3) Validation Checklist
+## 4) Validation Checklist
 
 ```bash
 curl -f http://localhost:3001/health
@@ -116,14 +152,14 @@ Manual checks:
 - Voice join works
 - Moderation actions (kick/ban) work
 
-## 4) Updating
+## 5) Updating
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-## 5) Prebuilt Images (Optional, Recommended for Production)
+## 6) Prebuilt Images (Optional, Recommended for Production)
 
 You can prebuild and push images, then let Compose pull them during deploy instead of rebuilding on the server.
 
@@ -155,7 +191,7 @@ docker compose pull server web
 docker compose up -d --no-build --remove-orphans
 ```
 
-## 6) Backups
+## 7) Backups
 
 ```bash
 ./scripts/ops/db_backup.sh
