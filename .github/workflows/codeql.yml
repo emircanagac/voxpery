@@ -52,7 +52,6 @@ jobs:
               - 'apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}'
               - 'apps/web/package.json'
               - 'apps/web/package-lock.json'
-              - 'apps/web/pnpm-lock.yaml'
             actions:
               - '.github/workflows/**'
               - '.github/actions/**'
