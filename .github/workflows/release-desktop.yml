@@ -1,6 +1,6 @@
 # Build desktop app (Tauri 2) and attach artifacts to a GitHub Release.
 # Trigger: push a tag v* (all platforms) or run manually (workflow_dispatch).
-# Manual run: choose "Single platform" to build only one OS (~8–10 min instead of ~20).
+# Manual run: choose "Single platform" to build only one OS (~8-10 min instead of ~20).
 # Set repo secret VITE_API_URL so the desktop app points to your API.
 
 name: Release desktop
@@ -75,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Manual run with single platform = faster (~8–10 min). Tag push = all platforms.
+        # Manual run with single platform = faster (~8-10 min). Tag push = all platforms.
         include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target x86_64-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-22.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target x86_64-apple-darwin"},{"platform":"ubuntu-22.04","args":""}]') }}
     runs-on: ${{ matrix.platform }}
 

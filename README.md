@@ -12,7 +12,7 @@
 
 *Your data is yours. Voice, text, and real-time presence.*
 
-**[→ Use at voxpery.com](https://voxpery.com)** · **[Self-host guide](#production-deployment)** · **[Join community](#community)**
+**[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[Join community](#community)**
 
 ![Voxpery Main UI](docs/images/voxpery01.png)
 
@@ -27,38 +27,38 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 
 | Feature | Voxpery | Discord | Slack | Mattermost |
 |---------|---------|---------|-------|-----------|
-| **Open-source model** | ✅ AGPL-3.0 | ❌ Proprietary | ❌ Proprietary | ⚠️ Open-core |
-| **Self-hostable** | ✅ Full stack | ❌ No | ❌ No | ✅ Yes |
-| **Data control / privacy** | ✅ Self-host + no telemetry by default | ⚠️ SaaS data collection policies | ⚠️ SaaS data collection policies | ✅ Strong self-host control |
-| **Voice calling** | ✅ LiveKit SFU | ✅ Native voice | ⚠️ Huddles (free plan limits) | ✅ Calls plugin |
-| **Desktop app stack** | ✅ Tauri | ⚠️ Proprietary desktop client | ⚠️ Electron desktop client | ⚠️ Electron desktop client |
-| **Pricing model** | ✅ OSS / self-host free | ⚠️ Freemium (Nitro) | ⚠️ Freemium + paid tiers | ⚠️ OSS + paid enterprise tiers |
-| **Source code visibility** | ✅ Public repo | ❌ Core closed | ❌ Core closed | ✅ Public repo (open-core) |
+| **Open-source model** | Yes: AGPL-3.0 | No: proprietary | No: proprietary | Partial: open-core |
+| **Self-hostable** | Yes: full stack | No | No | Yes |
+| **Data control / privacy** | Yes: self-host + no telemetry by default | SaaS data collection policies | SaaS data collection policies | Strong self-host control |
+| **Voice calling** | LiveKit SFU | Native voice | Huddles (free plan limits) | Calls plugin |
+| **Desktop app stack** | Tauri | Proprietary desktop client | Electron desktop client | Electron desktop client |
+| **Pricing model** | OSS / self-host free | Freemium (Nitro) | Freemium + paid tiers | OSS + paid enterprise tiers |
+| **Source code visibility** | Public repo | Core closed | Core closed | Public repo (open-core) |
 
 ---
 
 ## Features
 
 ### Communication
-- 🎙️ **Crystal-clear voice** — LiveKit SFU, auto quality adaptation, screen sharing
-- 💬 **Text & DMs** — Servers, channels, direct messages with real-time typing
-- 👥 **Friends & social** — Add friends, see status, mutual presence
-- 🔎 **Fast navigation** — Quick switcher for server, channel, and DM jumps
-- 😊 **Reactions & attachments** — Emoji reactions, uploads, signed attachment access
+- **Crystal-clear voice** - LiveKit SFU, auto quality adaptation, screen sharing
+- **Text & DMs** - Servers, channels, direct messages with real-time typing
+- **Friends & social** - Add friends, see status, mutual presence
+- **Fast navigation** - Quick switcher for server, channel, and DM jumps
+- **Reactions & attachments** - Emoji reactions, uploads, signed attachment access
 
 ### Security & Privacy
-- 🔒 **Secure auth defaults** — JWT + Argon2id, httpOnly cookies, Google OAuth support
-- 🛡️ **No tracking** — Zero analytics, zero telemetry, zero ads
-- 🏠 **Self-hosted** — Full control of your data, run on your server
-- 📎 **Scoped attachment access** — Signed URLs + server/DM viewer authorization
-- 🔐 **Open source** — Audit-ready code, AGPL license
-- 🚨 **Trust & safety basics** — User/message reporting, bans, audit log, moderation surfaces
+- **Secure auth defaults** - JWT + Argon2id, httpOnly cookies, Google OAuth support
+- **No tracking** - Zero analytics, zero telemetry, zero ads
+- **Self-hosted** - Full control of your data, run on your server
+- **Scoped attachment access** - Signed URLs + server/DM viewer authorization
+- **Open source** - Audit-ready code, AGPL license
+- **Trust & safety basics** - User/message reporting, bans, audit log, moderation surfaces
 
 ### Performance
-- ⚡ **Lightweight desktop client** — Tauri-based app with low runtime overhead
-- 🚀 **Fast deployment** — Docker Compose, one command
-- 📦 **Scalable** — PostgreSQL + Redis, horizontal scaling ready
-- 🔔 **Desktop feedback** — Tray unread dot and taskbar attention on desktop
+- **Lightweight desktop client** - Tauri-based app with low runtime overhead
+- **Fast deployment** - Docker Compose, one command
+- **Scalable** - PostgreSQL + Redis, horizontal scaling ready
+- **Desktop feedback** - Tray unread dot and taskbar attention on desktop
 
 
 
@@ -78,7 +78,7 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 ### For Users: No Setup Required
 
 **Use the hosted app:** [voxpery.com](https://voxpery.com)
-- Sign up → Create/join servers → Start voice
+- Sign up -> Create/join servers -> Start voice
 - No credit card, no data collection
 - Same open-source code as self-hosted version
 
@@ -118,7 +118,7 @@ curl -s http://localhost:3001/api/system/features
 
 With the default `.env.example` flow, Google OAuth, SMTP email delivery, password reset, and email verification are disabled and hidden until configured.
 
-**Need production setup?** → See [**Deployment Guide**](docs/DEPLOYMENT.md)
+**Need production setup?** See [**Deployment Guide**](docs/DEPLOYMENT.md)
 - Full Docker Compose deployment
 - Reverse proxy/TLS options
 - Backup and operations checklist
@@ -144,10 +144,10 @@ cargo tauri dev --config tauri.dev.conf.json
 
 See [**docs/DEPLOYMENT.md**](docs/DEPLOYMENT.md) for complete setup guide covering:
 
-- **Docker Compose** — Full stack (Postgres, Redis, LiveKit, backend, web)
-- **Prebuilt images** — Optional Docker Hub publish workflow for faster production deploys
-- **Nginx + TLS** — Reverse proxy and certificate setup (optional, for domain deployment)
-- **Troubleshooting** — Health checks, backups, monitoring, performance tuning
+- **Docker Compose** - Full stack (Postgres, Redis, LiveKit, backend, web)
+- **Prebuilt images** - Optional Docker Hub publish workflow for faster production deploys
+- **Nginx + TLS** - Reverse proxy and certificate setup (optional, for domain deployment)
+- **Troubleshooting** - Health checks, backups, monitoring, performance tuning
 
 **TL;DR local setup:**
 ```bash
@@ -159,25 +159,25 @@ docker compose up -d --build  # Full stack
 
 ## Documentation
 
-- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** — Development setup, workflow, contribution areas
-- **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** — Community standards, enforcement
-- **[SECURITY.md](SECURITY.md)** — Private vulnerability reporting policy and supported versions
-- **[ROADMAP.md](docs/ROADMAP.md)** — Feature priorities & roadmap through Q4 2026
-- **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** — Support, governance, and release workflow
-- **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** — Mandatory release sign-off checklist (web + desktop)
-- **[DESKTOP_RELEASE_HARDENING.md](docs/DESKTOP_RELEASE_HARDENING.md)** — Desktop metadata/deep-link/signing hardening policy
-- **[OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md)** — Backup/restore automation, health checks, and production alerting
-- **[CHANGELOG.md](docs/CHANGELOG.md)** — Notable changes by release
-- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Production deployment guide
-- **[docs/](docs/)** — Architecture, voice system, API, database, security, development
+- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Development setup, workflow, contribution areas
+- **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** - Community standards, enforcement
+- **[SECURITY.md](SECURITY.md)** - Private vulnerability reporting policy and supported versions
+- **[ROADMAP.md](docs/ROADMAP.md)** - Feature priorities & roadmap through Q4 2026
+- **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** - Support, governance, and release workflow
+- **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** - Mandatory release sign-off checklist (web + desktop)
+- **[DESKTOP_RELEASE_HARDENING.md](docs/DESKTOP_RELEASE_HARDENING.md)** - Desktop metadata/deep-link/signing hardening policy
+- **[OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md)** - Backup/restore automation, health checks, and production alerting
+- **[CHANGELOG.md](docs/CHANGELOG.md)** - Notable changes by release
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
+- **[docs/](docs/)** - Architecture, voice system, API, database, security, development
 
 ---
 
 ## Community
 
-- **[→ Join Voxpery Discussions](https://github.com/emircanagac/voxpery/discussions)** — Ask questions, get help, discuss features
-- **[→ Report bugs / suggest features](https://github.com/emircanagac/voxpery/issues)**
-- **[→ Read docs](docs/)**
+- **[Join Voxpery Discussions](https://github.com/emircanagac/voxpery/discussions)** - Ask questions, get help, discuss features
+- **[Report bugs / suggest features](https://github.com/emircanagac/voxpery/issues)**
+- **[Read docs](docs/)**
 
 ---
 
@@ -189,4 +189,4 @@ docker compose up -d --build  # Full stack
 
 ## License
 
-[AGPL-3.0](LICENSE) — Free, open-source, forever. Your data is yours.
+[AGPL-3.0](LICENSE) - Free, open-source, forever. Your data is yours.

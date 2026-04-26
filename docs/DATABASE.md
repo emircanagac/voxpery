@@ -6,25 +6,25 @@ Voxpery uses PostgreSQL 16+ and SQLx migrations in `apps/server/migrations`.
 
 ```
 users
- ├─< server_members >─ servers ─< channels ─< messages
- │                      │           │          ├─< channel_pins
- │                      │           │          └─< message_reactions
- │                      │           └─< channel_role_overrides
- │                      │
- │                      ├─< server_roles ─< server_member_roles
- │                      ├─< server_channel_categories ─< channel_category_role_overrides
- │                      ├─< server_bans
- │                      ├─< server_reports
- │                      └─< audit_log
- │
- ├─< friend_requests
- ├─< friendships
- ├─< password_reset_tokens
- ├─< uploaded_attachments
- │
- └─< dm_channel_members >─ dm_channels ─< dm_messages ─< dm_message_reactions
-                            ├─< dm_channel_reads
-                            └─< dm_channel_pins
+ +--< server_members >-- servers --< channels --< messages
+ |                       |           |          +--< channel_pins
+ |                       |           |          +--< message_reactions
+ |                       |           +--< channel_role_overrides
+ |                       |
+ |                       +--< server_roles --< server_member_roles
+ |                       +--< server_channel_categories --< channel_category_role_overrides
+ |                       +--< server_bans
+ |                       +--< server_reports
+ |                       +--< audit_log
+ |
+ +--< friend_requests
+ +--< friendships
+ +--< password_reset_tokens
+ +--< uploaded_attachments
+ |
+ +--< dm_channel_members >-- dm_channels --< dm_messages --< dm_message_reactions
+                             +--< dm_channel_reads
+                             +--< dm_channel_pins
 ```
 
 ## Core Tables (Current)

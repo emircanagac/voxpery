@@ -1,4 +1,4 @@
-# Voxpery — Full stack Docker Compose
+# Voxpery - Full stack Docker Compose
 # Starts: Postgres + Redis + LiveKit + Rust backend + React web app
 # Usage: docker compose up -d --build
 

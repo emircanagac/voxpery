@@ -53,4 +53,4 @@ This code of conduct is adapted from the [Contributor Covenant](https://www.cont
 
 ---
 
-**Be kind. Be respectful. Be inclusive.** 💚
+**Be kind. Be respectful. Be inclusive.**
