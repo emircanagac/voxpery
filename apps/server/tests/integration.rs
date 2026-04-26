@@ -191,6 +191,115 @@ async fn health_returns_200_when_db_connected() {
     assert!(json.get("checks").is_none());
 }
 
+fn assert_feature_disabled(status: StatusCode, body: &[u8]) {
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "expected FEATURE_DISABLED response, got {}: {}",
+        status,
+        String::from_utf8_lossy(body)
+    );
+    let json: serde_json::Value = serde_json::from_slice(body).unwrap();
+    assert_eq!(json["code"], "FEATURE_DISABLED");
+    assert!(
+        json["error"].as_str().is_some_and(|message| !message.is_empty()),
+        "FEATURE_DISABLED response should include a safe user-facing error message"
+    );
+}
+
+#[tokio::test]
+async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+    let disabled_reset_password = format!("disabled-reset-{}", Uuid::new_v4());
+
+    let disabled_requests = [
+        Request::builder()
+            .method("GET")
+            .uri("/api/auth/google")
+            .body(Body::empty())
+            .unwrap(),
+        Request::builder()
+            .method("GET")
+            .uri("/api/auth/google/callback?code=test-code")
+            .body(Body::empty())
+            .unwrap(),
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/google/desktop-exchange")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "code": "00000000000000000000000000000000",
+                    "code_verifier": "test-verifier"
+                }))
+                .unwrap(),
+            ))
+            .unwrap(),
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/forgot-password")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "email": "disabled@example.com" })).unwrap(),
+            ))
+            .unwrap(),
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/reset-password")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "token": "disabled-token",
+                    "new_password": disabled_reset_password
+                }))
+                .unwrap(),
+            ))
+            .unwrap(),
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/email/confirm")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "token": "disabled-token" })).unwrap(),
+            ))
+            .unwrap(),
+    ];
+
+    for req in disabled_requests {
+        let (status, body) = oneshot(&mut app, req).await;
+        assert_feature_disabled(status, &body);
+    }
+}
+
+#[tokio::test]
+async fn email_verification_request_returns_feature_disabled_when_email_delivery_is_disabled() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let email = format!("verify-disabled-{uid}@example.com");
+    let username = format!("verify_disabled_{}", uid.as_u128() % 1_000_000);
+    let password = format!("verify-disabled-{}", uid.as_simple());
+    let (token, _) = register_user(&mut app, &email, &username, &password).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/email/request-verification")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&json!({})).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+
+    assert_feature_disabled(status, &body);
+}
+
 #[tokio::test]
 async fn register_login_me_flow() {
     let Some(_) = test_db_url() else {
