@@ -145,6 +145,8 @@ curl -f http://localhost:3001/health
 curl -I http://localhost:${WEB_PORT:-5173}
 ```
 
+The public API health response intentionally stays minimal and should only report `status=ok`. Use `scripts/ops/stack_healthcheck.sh` for server-side dependency checks.
+
 Manual checks:
 
 - Register/login works

@@ -22,6 +22,21 @@ if ! grep -q '"status":"ok"' <<<"$api_body"; then
   exit 1
 fi
 
+if ! docker exec voxpery-db sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null; then
+  echo "PostgreSQL readiness check failed"
+  exit 1
+fi
+
+if ! docker exec voxpery-redis redis-cli ping | grep -qx "PONG"; then
+  echo "Redis readiness check failed"
+  exit 1
+fi
+
+if ! docker exec voxpery-server sh -lc 'test -d "${ATTACHMENTS_LOCAL_DIR:-/home/voxpery/attachments}" && test -w "${ATTACHMENTS_LOCAL_DIR:-/home/voxpery/attachments}"'; then
+  echo "Attachment storage directory is missing or not writable"
+  exit 1
+fi
+
 curl -fsSI "$WEB_URL" >/dev/null
 
 echo "Stack healthcheck passed"

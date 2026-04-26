@@ -52,8 +52,27 @@ Healthcheck script:
 This script verifies:
 
 - Compose services are running (`postgres`, `redis`, `livekit`, `server`, `web`)
-- API health endpoint returns `status=ok` (DB + Redis)
+- Public API health endpoint returns `status=ok`
+- PostgreSQL responds through `pg_isready` inside the database container
+- Redis responds through `redis-cli ping` inside the Redis container
+- Attachment storage exists and is writable inside the server container
 - Web endpoint responds
+
+Manual health check:
+
+```bash
+curl -fsS http://127.0.0.1:3001/health
+```
+
+Expected shape:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+The public health endpoint intentionally does not expose dependency names, paths, hostnames, URLs, latency, or configuration state. Use the local ops scripts and server-side Docker commands below for detailed diagnostics.
 
 Recommended alert cron (every 5 minutes):
 
@@ -95,3 +114,75 @@ Focus on:
 - websocket disconnect surges
 - DB/Redis connectivity failures
 - LiveKit token/join errors
+
+## 6) Production Triage Commands
+
+Use these commands when the app is unreachable, the backend is restarting, or users report login, voice, or attachment failures.
+
+Container state:
+
+```bash
+docker compose ps
+docker inspect voxpery-server --format 'ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} RestartCount={{.RestartCount}} StartedAt={{.State.StartedAt}} FinishedAt={{.State.FinishedAt}}'
+```
+
+Backend restart loop:
+
+```bash
+docker compose logs --tail 200 server
+docker compose logs --since 15m server | grep -Ei 'panic|panicked|Failed to run migrations|VersionMismatch|ParseIntError|must be a number|Failed to connect'
+```
+
+Database and Redis connectivity:
+
+```bash
+docker exec voxpery-db pg_isready -U "${POSTGRES_USER:-voxpery}" -d "${POSTGRES_DB:-voxpery}"
+docker exec voxpery-redis redis-cli ping
+curl -fsS http://127.0.0.1:3001/health
+```
+
+Migration failures:
+
+```bash
+docker compose logs --since 30m server | grep -Ei 'Failed to run migrations|VersionMismatch'
+docker exec voxpery-db psql -U "${POSTGRES_USER:-voxpery}" -d "${POSTGRES_DB:-voxpery}" -c 'select version, description, installed_on from _sqlx_migrations order by version desc limit 10;'
+```
+
+Environment parse failures:
+
+```bash
+docker compose logs --since 30m server | grep -Ei 'ParseIntError|must be a number|Invalid .* configuration'
+docker compose config >/dev/null
+```
+
+LiveKit voice diagnostics:
+
+```bash
+docker compose logs --since 15m livekit
+docker compose logs --since 15m server | grep -Ei 'LiveKit|Failed to sign LiveKit token|JoinVoice'
+```
+
+Attachment diagnostics:
+
+```bash
+docker compose logs --since 15m server | grep -Ei 'Attachment|upload|Failed to read attachment|Failed to write attachment|malware|clam'
+docker volume inspect voxpery_attachments_data
+```
+
+WebSocket disconnect surge:
+
+```bash
+docker compose logs --since 15m server | grep -Ei 'WebSocket connected|WebSocket disconnected|Broadcast receiver lagged|WebSocket receive error'
+```
+
+## 7) Alert Recommendations
+
+Alert when any of these conditions persist for more than one check window:
+
+- `stack_healthcheck.sh` exits non-zero.
+- `critical_log_scan.sh` exits non-zero.
+- `voxpery-server` restart count increases repeatedly.
+- `/health` returns non-200 or any core dependency (`database`, `redis`, `attachments`) is not `ok`.
+- Server logs contain `Failed to run migrations`, `VersionMismatch`, `ParseIntError`, or `must be a number`.
+- Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` lines.
+- Attachment logs show repeated read/write, malware scanner, or upload failures.

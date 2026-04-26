@@ -188,6 +188,7 @@ async fn health_returns_200_when_db_connected() {
     assert_eq!(status, StatusCode::OK);
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
+    assert!(json.get("checks").is_none());
 }
 
 #[tokio::test]
