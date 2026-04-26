@@ -27,25 +27,21 @@ function isLoopbackHostname(hostname: string): boolean {
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
-function isLoopbackApiBase(): boolean {
+function isLoopbackApiBase(apiBase: string = effectiveApiBase()): boolean {
     try {
-        const apiUrl = new URL(effectiveApiBase())
+        const apiUrl = new URL(apiBase)
         return isLoopbackHostname(apiUrl.hostname)
     } catch {
         return false
     }
 }
 
-function isTauriHttpDevSession(): boolean {
-    if (!isTauri() || typeof window === 'undefined') return false
-    if (isLoopbackApiBase()) return true
-    const isBrowserProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:'
-    const isLoopbackHost = isLoopbackHostname(window.location.hostname) || window.location.hostname === 'tauri.localhost'
-    return isBrowserProtocol && isLoopbackHost
+export function shouldUseTauriHttpPluginForApiBase(isDesktop: boolean, apiBase: string): boolean {
+    return isDesktop && !isLoopbackApiBase(apiBase)
 }
 
 function shouldUseTauriHttpPlugin(): boolean {
-    return isTauri() && !isTauriHttpDevSession()
+    return shouldUseTauriHttpPluginForApiBase(isTauri(), effectiveApiBase())
 }
 
 /** In browser, if page is on localhost but API_BASE uses 127.0.0.1, return API base with localhost so the auth cookie is sent. */

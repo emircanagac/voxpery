@@ -1,5 +1,10 @@
 import { beforeEach, describe, it, expect, afterEach } from 'vitest'
-import { createWebSocket, getAuthErrorMessage, isAuthError } from './api'
+import {
+  createWebSocket,
+  getAuthErrorMessage,
+  isAuthError,
+  shouldUseTauriHttpPluginForApiBase,
+} from './api'
 
 class MockWebSocket {
   url: string
@@ -81,6 +86,21 @@ describe('API Error Handling', () => {
       expect(ws.url).toMatch(/\/ws$/)
       expect(ws.url).not.toContain('token=')
       expect(ws.protocols).toBeUndefined()
+    })
+  })
+
+  describe('shouldUseTauriHttpPluginForApiBase', () => {
+    it('uses the Tauri HTTP plugin for production desktop API calls', () => {
+      expect(shouldUseTauriHttpPluginForApiBase(true, 'https://api.voxpery.com')).toBe(true)
+    })
+
+    it('keeps local desktop development on browser fetch for loopback APIs', () => {
+      expect(shouldUseTauriHttpPluginForApiBase(true, 'http://localhost:3001')).toBe(false)
+      expect(shouldUseTauriHttpPluginForApiBase(true, 'http://127.0.0.1:3001')).toBe(false)
+    })
+
+    it('does not use the Tauri HTTP plugin outside desktop', () => {
+      expect(shouldUseTauriHttpPluginForApiBase(false, 'https://api.voxpery.com')).toBe(false)
     })
   })
 })
