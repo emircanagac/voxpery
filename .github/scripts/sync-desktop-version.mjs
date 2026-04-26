@@ -14,12 +14,43 @@ if (!packageSectionMatch) {
   process.exit(1)
 }
 
-const version = packageSectionMatch[1]
+function normalizeVersion(rawVersion) {
+  const version = rawVersion?.trim().replace(/^refs\/tags\//, '').replace(/^v/, '')
+  if (!version) return null
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+    console.error(`Invalid desktop release version: ${rawVersion}`)
+    process.exit(1)
+  }
+  return version
+}
+
+function releaseVersionFromGitHubRef() {
+  if (process.env.GITHUB_REF_TYPE === 'tag') {
+    return normalizeVersion(process.env.GITHUB_REF_NAME ?? process.env.GITHUB_REF)
+  }
+  return null
+}
+
+const version =
+  normalizeVersion(process.env.DESKTOP_RELEASE_VERSION) ??
+  releaseVersionFromGitHubRef() ??
+  packageSectionMatch[1]
+
+const previousCargoVersion = packageSectionMatch[1]
+const updatedCargoToml = cargoToml.replace(
+  /(\[package\][\s\S]*?^version\s*=\s*")([^"]+)(")/m,
+  `$1${version}$3`
+)
+if (updatedCargoToml !== cargoToml) {
+  writeFileSync(cargoTomlPath, updatedCargoToml, 'utf8')
+}
 
 const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8'))
 const previousTauriVersion = tauriConfig.version
-tauriConfig.version = version
-writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`, 'utf8')
+if (previousTauriVersion !== version) {
+  tauriConfig.version = version
+  writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`, 'utf8')
+}
 
 const cargoLock = readFileSync(cargoLockPath, 'utf8')
 const packageAnchor = '[[package]]'
@@ -53,5 +84,5 @@ if (updatedPackageBlock === packageBlock) {
 }
 
 console.log(
-  `Synced desktop version to ${version} (tauri.conf: ${previousTauriVersion ?? 'unset'} -> ${version})`
+  `Synced desktop version to ${version} (Cargo.toml: ${previousCargoVersion} -> ${version}, tauri.conf: ${previousTauriVersion ?? 'unset'} -> ${version})`
 )
