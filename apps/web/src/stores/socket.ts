@@ -4,6 +4,19 @@ import { createWebSocket } from '../api'
 type WsListener = (data: unknown) => void
 type ReconnectListener = () => void
 
+const AUTH_EXPIRED_CLOSE_CODE = 4001
+const RECONNECT_BASE_DELAY_MS = 1000
+const RECONNECT_MAX_DELAY_MS = 30000
+const RECONNECT_MAX_ATTEMPTS = 8
+const RECONNECT_JITTER_RATIO = 0.25
+
+export function websocketReconnectDelayMs(attempt: number, random: () => number = Math.random): number {
+    const exponent = Math.max(0, attempt - 1)
+    const rawDelay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** exponent)
+    const jitter = 1 + (random() * 2 - 1) * RECONNECT_JITTER_RATIO
+    return Math.round(rawDelay * jitter)
+}
+
 interface SocketState {
     socket: WebSocket | null
     isConnected: boolean
@@ -11,6 +24,10 @@ interface SocketState {
     shouldReconnect: boolean
     listeners: Set<WsListener>
     reconnectListeners: Set<ReconnectListener>
+    reconnectAttempt: number
+    reconnectTimer: ReturnType<typeof setTimeout> | null
+    connectionId: number
+    wasConnectedBefore: boolean
 
     // Actions
     connect: (token: string | null) => void
@@ -28,22 +45,40 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     shouldReconnect: false,
     listeners: new Set(),
     reconnectListeners: new Set(),
-    _wasConnectedBefore: false,
+    reconnectAttempt: 0,
+    reconnectTimer: null,
+    connectionId: 0,
+    wasConnectedBefore: false,
 
     connect: (token) => {
         const state = get()
-        // If we already have a valid socket, just update token if needed
+        if (state.reconnectTimer) {
+            clearTimeout(state.reconnectTimer)
+            set({ reconnectTimer: null })
+        }
+
+        // If we already have a valid socket, just update token if needed.
         if (state.socket && (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)) {
             if (state.token !== token || !state.shouldReconnect) set({ token, shouldReconnect: true })
             return
         }
 
-        set({ token, shouldReconnect: true })
+        const connectionId = state.connectionId + 1
+        set({ token, shouldReconnect: true, connectionId })
         const ws = createWebSocket(token)
 
         ws.onopen = () => {
-            const wasConnected = (get() as SocketState & { _wasConnectedBefore?: boolean })._wasConnectedBefore
-            set({ isConnected: true, socket: ws, _wasConnectedBefore: true } as Partial<SocketState>)
+            if (get().connectionId !== connectionId) return
+
+            const wasConnected = get().wasConnectedBefore
+            set({
+                isConnected: true,
+                socket: ws,
+                reconnectAttempt: 0,
+                reconnectTimer: null,
+                wasConnectedBefore: true,
+            })
+
             // Fire reconnect listeners if this was a re-establishment (not first connect)
             if (wasConnected) {
                 get().reconnectListeners.forEach((cb) => {
@@ -52,27 +87,51 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             }
         }
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+            if (get().connectionId !== connectionId) return
+
+            if (event.code === AUTH_EXPIRED_CLOSE_CODE) {
+                set({
+                    isConnected: false,
+                    socket: null,
+                    shouldReconnect: false,
+                    reconnectAttempt: 0,
+                    reconnectTimer: null,
+                })
+                return
+            }
+
             set({ isConnected: false, socket: null })
 
             // Auto-reconnect for active sessions.
             // Web cookie-auth sessions use token=null, so reconnect intent must
             // be tracked separately from the bearer token itself.
-            const { shouldReconnect } = get()
-            if (shouldReconnect) {
-                setTimeout(() => {
-                    const { token: latestToken, shouldReconnect: latestShouldReconnect } = get()
+            const { shouldReconnect, reconnectAttempt } = get()
+            if (shouldReconnect && reconnectAttempt < RECONNECT_MAX_ATTEMPTS) {
+                const nextAttempt = reconnectAttempt + 1
+                const delayMs = websocketReconnectDelayMs(nextAttempt)
+                const reconnectTimer = setTimeout(() => {
+                    const { token: latestToken, shouldReconnect: latestShouldReconnect, connectionId: latestConnectionId } = get()
                     const currentSocket = get().socket
-                    // Only try to reconnect if the session still wants a socket
-                    // and we aren't already connected/connecting.
-                    if (latestShouldReconnect && (!currentSocket || currentSocket.readyState === WebSocket.CLOSED)) {
+                    const hasActiveSocket = currentSocket && (
+                        currentSocket.readyState === WebSocket.OPEN ||
+                        currentSocket.readyState === WebSocket.CONNECTING
+                    )
+
+                    if (latestShouldReconnect && latestConnectionId === connectionId && !hasActiveSocket) {
                         get().connect(latestToken)
                     }
-                }, 3000)
+                }, delayMs)
+
+                set({ reconnectAttempt: nextAttempt, reconnectTimer })
+            } else if (shouldReconnect) {
+                set({ shouldReconnect: false, reconnectAttempt: 0, reconnectTimer: null })
             }
         }
 
         ws.onmessage = (event) => {
+            if (get().connectionId !== connectionId) return
+
             try {
                 const data = JSON.parse(event.data)
                 get().listeners.forEach((listener) => listener(data))
@@ -85,8 +144,17 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     },
 
     disconnect: () => {
-        // Clear token first to prevent auto-reconnect
-        set({ token: null, shouldReconnect: false })
+        const { reconnectTimer } = get()
+        if (reconnectTimer) clearTimeout(reconnectTimer)
+
+        // Clear token first to prevent auto-reconnect.
+        set({
+            token: null,
+            shouldReconnect: false,
+            reconnectAttempt: 0,
+            reconnectTimer: null,
+            connectionId: get().connectionId + 1,
+        })
         get().socket?.close()
         set({ socket: null, isConnected: false })
     },

@@ -24,6 +24,37 @@ import {
 
 type PeerId = string
 
+type VoiceControlState = {
+  muted?: boolean
+  deafened?: boolean
+  screenSharing?: boolean
+  cameraOn?: boolean
+} | null | undefined
+
+interface VoiceReconnectResyncOptions {
+  channelId: string | null
+  roomState: string | null
+  control: VoiceControlState
+  send: (type: string, data: unknown) => void
+}
+
+export function resyncVoiceStateAfterReconnect({
+  channelId,
+  roomState,
+  control,
+  send,
+}: VoiceReconnectResyncOptions): void {
+  if (!channelId || !roomState || roomState === 'disconnected') return
+
+  send('JoinVoice', { channel_id: channelId })
+  send('SetVoiceControl', {
+    muted: !!control?.muted,
+    deafened: !!control?.deafened,
+    screen_sharing: !!control?.screenSharing,
+    camera_on: !!control?.cameraOn,
+  })
+}
+
 export interface UseLiveKitVoiceState {
   joinedChannelId: string | null
   isJoining: boolean
@@ -831,17 +862,13 @@ export function useLiveKitVoice() {
     const unsub = onReconnect(() => {
       const channelId = joinedChannelIdRef.current
       const room = roomRef.current
-      if (!channelId || !room || room.state === 'disconnected') return
 
-      send('JoinVoice', { channel_id: channelId })
-
-      // Re-send current control state
       const control = userId ? useAppStore.getState().voiceControls[userId] : null
-      send('SetVoiceControl', {
-        muted: !!control?.muted,
-        deafened: !!control?.deafened,
-        screen_sharing: !!control?.screenSharing,
-        camera_on: !!control?.cameraOn,
+      resyncVoiceStateAfterReconnect({
+        channelId,
+        roomState: room ? String(room.state) : null,
+        control,
+        send,
       })
     })
     return unsub
