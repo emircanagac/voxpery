@@ -358,11 +358,11 @@ export function useAudioEngine() {
         rnnoise.node.connect(lowPassFilter)
         lowPassFilter.connect(deClickFilter)
         deClickFilter.connect(refinementAnalyser)
-        deClickFilter.connect(vadDestination)   // branch for VAD analyser
         deClickFilter.connect(speechPresenceFilter)
         speechPresenceFilter.connect(speechIsolationGainNode)
         speechIsolationGainNode.connect(transientCompressor)
         transientCompressor.connect(noiseFloorGainNode)
+        noiseFloorGainNode.connect(vadDestination) // branch for VAD after final floor suppression
         noiseFloorGainNode.connect(volumeGainNode)
         volumeGainNode.connect(destination)
 
@@ -427,7 +427,7 @@ export function useAudioEngine() {
                 // ignore
             }
             try {
-                deClickFilter.disconnect(vadDestination)
+                noiseFloorGainNode.disconnect(vadDestination)
             } catch {
                 // ignore
             }

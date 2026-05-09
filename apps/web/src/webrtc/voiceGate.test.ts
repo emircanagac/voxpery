@@ -28,10 +28,11 @@ function buildFrequencyFrame({
 }
 
 describe('evaluateVoiceGateFrame', () => {
-  it('opens immediately for non-aggressive isolation when speech is above threshold', () => {
-    const result = evaluateVoiceGateFrame({
+  it('opens after two speech frames for non-aggressive suppression', () => {
+    const frame = buildFrequencyFrame({ speechDb: -28, highNoiseDb: -70, lowNoiseDb: -84 })
+    const first = evaluateVoiceGateFrame({
       rms: 0.024,
-      frequencyData: buildFrequencyFrame({ speechDb: -28, highNoiseDb: -70, lowNoiseDb: -84 }),
+      frequencyData: frame,
       sampleRate: SAMPLE_RATE,
       fftSize: FFT_SIZE,
       onThr: 0.01,
@@ -44,11 +45,29 @@ describe('evaluateVoiceGateFrame', () => {
       smoothedRms: 0,
     })
 
-    expect(result.openFramesRequired).toBe(1)
-    expect(result.speaking).toBe(true)
+    expect(first.openFramesRequired).toBe(2)
+    expect(first.speaking).toBe(false)
+    expect(first.openFrames).toBe(1)
+
+    const second = evaluateVoiceGateFrame({
+      rms: 0.024,
+      frequencyData: frame,
+      sampleRate: SAMPLE_RATE,
+      fftSize: FFT_SIZE,
+      onThr: 0.01,
+      offThr: 0.0014,
+      noiseSuppressionEnabled: true,
+      aggressiveIsolation: false,
+      speaking: first.speaking,
+      openFrames: first.openFrames,
+      belowFrames: first.belowFrames,
+      smoothedRms: first.smoothedRms,
+    })
+
+    expect(second.speaking).toBe(true)
   })
 
-  it('requires two consecutive frames for aggressive isolation before opening', () => {
+  it('requires three consecutive frames for aggressive isolation before opening', () => {
     const frame = buildFrequencyFrame({ speechDb: -30, highNoiseDb: -68, lowNoiseDb: -82 })
     const first = evaluateVoiceGateFrame({
       rms: 0.021,
@@ -64,7 +83,7 @@ describe('evaluateVoiceGateFrame', () => {
       belowFrames: 0,
       smoothedRms: 0,
     })
-    expect(first.openFramesRequired).toBe(2)
+    expect(first.openFramesRequired).toBe(3)
     expect(first.speaking).toBe(false)
     expect(first.openFrames).toBe(1)
 
@@ -82,7 +101,24 @@ describe('evaluateVoiceGateFrame', () => {
       belowFrames: first.belowFrames,
       smoothedRms: first.smoothedRms,
     })
-    expect(second.speaking).toBe(true)
+    expect(second.speaking).toBe(false)
+    expect(second.openFrames).toBe(2)
+
+    const third = evaluateVoiceGateFrame({
+      rms: 0.021,
+      frequencyData: frame,
+      sampleRate: SAMPLE_RATE,
+      fftSize: FFT_SIZE,
+      onThr: 0.01,
+      offThr: 0.0014,
+      noiseSuppressionEnabled: true,
+      aggressiveIsolation: true,
+      speaking: second.speaking,
+      openFrames: second.openFrames,
+      belowFrames: second.belowFrames,
+      smoothedRms: second.smoothedRms,
+    })
+    expect(third.speaking).toBe(true)
   })
 
   it('closes after hold frames are exhausted when signal remains below off threshold', () => {
@@ -97,11 +133,11 @@ describe('evaluateVoiceGateFrame', () => {
       aggressiveIsolation: false,
       speaking: true,
       openFrames: 0,
-      belowFrames: 8,
+      belowFrames: 6,
       smoothedRms: 0.000001,
     })
 
-    expect(result.holdFrames).toBe(9)
+    expect(result.holdFrames).toBe(7)
     expect(result.speaking).toBe(false)
   })
 
@@ -122,5 +158,26 @@ describe('evaluateVoiceGateFrame', () => {
     })
 
     expect(result.speaking).toBe(false)
+  })
+
+  it('keeps aggressive gate closed on broadband breath or room noise above threshold', () => {
+    const result = evaluateVoiceGateFrame({
+      rms: 0.014,
+      frequencyData: buildFrequencyFrame({ speechDb: -42, highNoiseDb: -37, lowNoiseDb: -76 }),
+      sampleRate: SAMPLE_RATE,
+      fftSize: FFT_SIZE,
+      onThr: 0.01,
+      offThr: 0.0014,
+      noiseSuppressionEnabled: true,
+      aggressiveIsolation: true,
+      speaking: false,
+      openFrames: 0,
+      belowFrames: 0,
+      smoothedRms: 0,
+    })
+
+    expect(result.speechFrame.noiseDominant).toBe(true)
+    expect(result.speaking).toBe(false)
+    expect(result.openFrames).toBe(0)
   })
 })

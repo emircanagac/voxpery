@@ -43,6 +43,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
 - [ ] Voice join succeeds after permission grant.
+- [ ] Voice settings mic test with noise suppression on and `Noisy room` selected does not pass normal keyboard, mouse, fan, or breath noise as speech.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 
 ## 4) Final Sign-off
