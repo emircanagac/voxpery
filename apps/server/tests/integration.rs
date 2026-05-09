@@ -78,6 +78,7 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         .build()
         .expect("Failed to build release metadata HTTP client");
     let state = Arc::new(AppState {
+        instance_id: Uuid::new_v4(),
         db,
         redis: redis_client(),
         jwt_secret: jwt_secret(),
@@ -202,7 +203,9 @@ fn assert_feature_disabled(status: StatusCode, body: &[u8]) {
     let json: serde_json::Value = serde_json::from_slice(body).unwrap();
     assert_eq!(json["code"], "FEATURE_DISABLED");
     assert!(
-        json["error"].as_str().is_some_and(|message| !message.is_empty()),
+        json["error"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
         "FEATURE_DISABLED response should include a safe user-facing error message"
     );
 }

@@ -251,9 +251,7 @@ mod oauth_pkce_tests {
     #[test]
     fn transliterates_turkish_oauth_names_for_usernames() {
         assert_eq!(
-            normalize_oauth_username_seed(
-                "\u{00C7}a\u{011F}da\u{015F} \u{015E}\u{00FC}kr\u{00FC}",
-            ),
+            normalize_oauth_username_seed("\u{00C7}a\u{011F}da\u{015F} \u{015E}\u{00FC}kr\u{00FC}",),
             "cagdas_sukru"
         );
         assert_eq!(
@@ -2020,10 +2018,14 @@ async fn update_status(
     .await?;
 
     let visible_presence = visible_presence_from_preference(status).to_string();
-    let _ = state.tx.send(WsEvent::PresenceUpdate {
-        user_id: claims.sub,
-        status: visible_presence,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::PresenceUpdate {
+            user_id: claims.sub,
+            status: visible_presence,
+        },
+    )
+    .await;
 
     Ok(Json(UserPublic::from(user)))
 }
@@ -2145,9 +2147,13 @@ async fn update_profile(
     .await?;
 
     let public_user = UserPublic::from(updated);
-    let _ = state.tx.send(WsEvent::UserUpdated {
-        user: UserBroadcastProfile::from(&public_user),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::UserUpdated {
+            user: UserBroadcastProfile::from(&public_user),
+        },
+    )
+    .await;
 
     Ok(Json(public_user))
 }
@@ -2334,9 +2340,13 @@ async fn confirm_email_verification(
     tx.commit().await?;
 
     let public_user = UserPublic::from(updated);
-    let _ = state.tx.send(WsEvent::UserUpdated {
-        user: UserBroadcastProfile::from(&public_user),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::UserUpdated {
+            user: UserBroadcastProfile::from(&public_user),
+        },
+    )
+    .await;
 
     Ok(Json(ConfirmEmailVerificationResponse {
         message: "Your email address has been verified.".to_string(),
@@ -2726,10 +2736,14 @@ async fn delete_my_account(
     state.sessions.remove(&claims.sub);
     state.voice_sessions.remove(&claims.sub);
     state.voice_controls.remove(&claims.sub);
-    let _ = state.tx.send(WsEvent::PresenceUpdate {
-        user_id: claims.sub,
-        status: "offline".to_string(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::PresenceUpdate {
+            user_id: claims.sub,
+            status: "offline".to_string(),
+        },
+    )
+    .await;
 
     let out_headers = clear_auth_cookie_header(&state);
     Ok((

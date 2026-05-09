@@ -703,11 +703,15 @@ async fn send_message(
         .await?;
 
     // Broadcast to WebSocket subscribers
-    let _ = state.tx.send(WsEvent::NewMessage {
-        channel_id,
-        channel_type: "text".to_string(), // Text channel messages
-        message: msg_with_author.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::NewMessage {
+            channel_id,
+            channel_type: "text".to_string(), // Text channel messages
+            message: msg_with_author.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(msg_with_author))
 }
@@ -744,10 +748,14 @@ async fn delete_message(
         .execute(&state.db)
         .await?;
 
-    let _ = state.tx.send(WsEvent::MessageDeleted {
-        channel_id,
-        message_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MessageDeleted {
+            channel_id,
+            message_id,
+        },
+    )
+    .await;
 
     Ok(Json(
         serde_json::json!({ "message": "Deleted", "id": message_id }),
@@ -864,10 +872,14 @@ async fn edit_message(
         )
         .await?;
 
-    let _ = state.tx.send(WsEvent::MessageUpdated {
-        channel_id,
-        message: msg_with_author.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MessageUpdated {
+            channel_id,
+            message: msg_with_author.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(msg_with_author))
 }
@@ -978,10 +990,14 @@ async fn add_message_reaction(
         )
         .await?;
 
-    let _ = state.tx.send(WsEvent::MessageUpdated {
-        channel_id,
-        message: msg_with_author.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MessageUpdated {
+            channel_id,
+            message: msg_with_author.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(msg_with_author))
 }
@@ -1035,10 +1051,14 @@ async fn remove_message_reaction(
         )
         .await?;
 
-    let _ = state.tx.send(WsEvent::MessageUpdated {
-        channel_id,
-        message: msg_with_author.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MessageUpdated {
+            channel_id,
+            message: msg_with_author.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(msg_with_author))
 }

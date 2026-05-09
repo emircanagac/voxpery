@@ -561,7 +561,7 @@ async fn send_dm_message(
 }
 
 async fn push_dm_event_to_members(
-    state: &AppState,
+    state: &Arc<AppState>,
     channel_id: Uuid,
     sender_id: Uuid,
     event: &WsEvent,
@@ -578,11 +578,7 @@ async fn push_dm_event_to_members(
         if user_id == sender_id {
             continue;
         }
-        if let Some(session_senders) = state.sessions.get(&user_id) {
-            for sender in session_senders.iter() {
-                let _ = sender.send(event.clone());
-            }
-        }
+        crate::ws::publish_user_event(state, user_id, event.clone()).await;
     }
 
     Ok(())

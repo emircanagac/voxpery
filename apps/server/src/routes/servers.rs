@@ -1041,11 +1041,15 @@ async fn join_server(
     .await?;
 
     // Broadcast MemberJoined event
-    let _ = state.tx.send(WsEvent::MemberJoined {
-        server_id: server.id,
-        user_id: claims.sub,
-        username: claims.username.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberJoined {
+            server_id: server.id,
+            user_id: claims.sub,
+            username: claims.username.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(server))
 }
@@ -1076,10 +1080,14 @@ async fn leave_server(
         .await?;
 
     // Broadcast MemberLeft event
-    let _ = state.tx.send(WsEvent::MemberLeft {
-        server_id,
-        user_id: claims.sub,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberLeft {
+            server_id,
+            user_id: claims.sub,
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Left server" })))
 }
@@ -1559,11 +1567,15 @@ async fn update_member_roles(
     .await?;
 
     // Notify clients via WebSocket so member list / badges update without full reload.
-    let _ = state.tx.send(WsEvent::MemberRoleUpdated {
-        server_id,
-        user_id,
-        role: new_legacy_role.to_string(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberRoleUpdated {
+            server_id,
+            user_id,
+            role: new_legacy_role.to_string(),
+        },
+    )
+    .await;
 
     Ok(Json(
         serde_json::json!({ "message": "Member roles updated" }),
@@ -1637,11 +1649,15 @@ async fn update_member_role(
     )
     .await?;
 
-    let _ = state.tx.send(WsEvent::MemberRoleUpdated {
-        server_id,
-        user_id,
-        role: body.role.clone(),
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberRoleUpdated {
+            server_id,
+            user_id,
+            role: body.role.clone(),
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Role updated" })))
 }
@@ -1758,7 +1774,7 @@ async fn ban_member(
     .await?;
 
     if removed_member {
-        let _ = state.tx.send(WsEvent::MemberLeft { server_id, user_id });
+        crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
     }
 
     Ok(Json(serde_json::json!({
@@ -2129,7 +2145,7 @@ async fn kick_member(
     )
     .await?;
 
-    let _ = state.tx.send(WsEvent::MemberLeft { server_id, user_id });
+    crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Member kicked" })))
 }

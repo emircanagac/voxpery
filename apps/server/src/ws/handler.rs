@@ -363,10 +363,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                 "online".to_string()
             }
         };
-    let _ = state.tx.send(WsEvent::PresenceUpdate {
-        user_id,
-        status: visible_presence_from_preference(&current_status).to_string(),
-    });
+    super::publish_event(
+        &state,
+        WsEvent::PresenceUpdate {
+            user_id,
+            status: visible_presence_from_preference(&current_status).to_string(),
+        },
+    )
+    .await;
 
     tracing::info!("WebSocket connected: {} ({})", username, user_id);
 
@@ -664,12 +668,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     can_subscribe_to_channel(&recv_state.db, user_id, channel_id)
                                         .await
                                 {
-                                    let _ = recv_state.tx.send(WsEvent::Typing {
-                                        channel_id,
-                                        user_id,
-                                        username: username.clone(),
-                                        is_typing,
-                                    });
+                                    super::publish_event(
+                                        &recv_state,
+                                        WsEvent::Typing {
+                                            channel_id,
+                                            user_id,
+                                            username: username.clone(),
+                                            is_typing,
+                                        },
+                                    )
+                                    .await;
                                 }
                             }
                             WsClientMessage::JoinVoice { channel_id } => {
@@ -698,16 +706,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         // 2. Broadcast join to everyone
                                         let server_id =
                                             server_id_for_channel(&recv_state.db, channel_id).await;
-                                        let _ = recv_state.tx.send(WsEvent::VoiceStateUpdate {
-                                            channel_id: Some(channel_id),
-                                            user_id,
-                                            server_id,
-                                        });
-                                        let _ = recv_state.tx.send(voice_control_event_from_state(
-                                            user_id,
-                                            server_id,
-                                            (false, false, false, false, false, false),
-                                        ));
+                                        super::publish_event(
+                                            &recv_state,
+                                            WsEvent::VoiceStateUpdate {
+                                                channel_id: Some(channel_id),
+                                                user_id,
+                                                server_id,
+                                            },
+                                        )
+                                        .await;
+                                        super::publish_event(
+                                            &recv_state,
+                                            voice_control_event_from_state(
+                                                user_id,
+                                                server_id,
+                                                (false, false, false, false, false, false),
+                                            ),
+                                        )
+                                        .await;
 
                                         // 3. Send existing users in this channel to the joining user
                                         for entry in recv_state.voice_sessions.iter() {
@@ -744,16 +760,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
                                     let _ = recv_state.voice_controls.remove(&user_id);
-                                    let _ = recv_state.tx.send(WsEvent::VoiceStateUpdate {
-                                        channel_id: None,
-                                        user_id,
-                                        server_id: previous_server_id,
-                                    });
-                                    let _ = recv_state.tx.send(voice_control_event_from_state(
-                                        user_id,
-                                        previous_server_id,
-                                        (false, false, false, false, false, false),
-                                    ));
+                                    super::publish_event(
+                                        &recv_state,
+                                        WsEvent::VoiceStateUpdate {
+                                            channel_id: None,
+                                            user_id,
+                                            server_id: previous_server_id,
+                                        },
+                                    )
+                                    .await;
+                                    super::publish_event(
+                                        &recv_state,
+                                        voice_control_event_from_state(
+                                            user_id,
+                                            previous_server_id,
+                                            (false, false, false, false, false, false),
+                                        ),
+                                    )
+                                    .await;
                                 }
                             }
                             WsClientMessage::DisconnectVoiceMember { target_user_id } => {
@@ -799,16 +823,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
                                     let _ = recv_state.voice_controls.remove(&target_user_id);
-                                    let _ = recv_state.tx.send(WsEvent::VoiceStateUpdate {
-                                        channel_id: None,
-                                        user_id: target_user_id,
-                                        server_id: previous_server_id,
-                                    });
-                                    let _ = recv_state.tx.send(voice_control_event_from_state(
-                                        target_user_id,
-                                        previous_server_id,
-                                        (false, false, false, false, false, false),
-                                    ));
+                                    super::publish_event(
+                                        &recv_state,
+                                        WsEvent::VoiceStateUpdate {
+                                            channel_id: None,
+                                            user_id: target_user_id,
+                                            server_id: previous_server_id,
+                                        },
+                                    )
+                                    .await;
+                                    super::publish_event(
+                                        &recv_state,
+                                        voice_control_event_from_state(
+                                            target_user_id,
+                                            previous_server_id,
+                                            (false, false, false, false, false, false),
+                                        ),
+                                    )
+                                    .await;
                                 }
                             }
                             WsClientMessage::SetVoiceControl {
@@ -871,11 +903,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         current.0, current.1, muted, deafened, current.4, current.5,
                                     );
                                     let _ = recv_state.voice_controls.insert(target_id, next_state);
-                                    let _ = recv_state.tx.send(voice_control_event_from_state(
-                                        target_id,
-                                        Some(target_server_id),
-                                        next_state,
-                                    ));
+                                    super::publish_event(
+                                        &recv_state,
+                                        voice_control_event_from_state(
+                                            target_id,
+                                            Some(target_server_id),
+                                            next_state,
+                                        ),
+                                    )
+                                    .await;
                                     continue;
                                 }
 
@@ -901,11 +937,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     camera_on,
                                 );
                                 let _ = recv_state.voice_controls.insert(user_id, next_state);
-                                let _ = recv_state.tx.send(voice_control_event_from_state(
-                                    user_id,
-                                    actor_server_id,
-                                    next_state,
-                                ));
+                                super::publish_event(
+                                    &recv_state,
+                                    voice_control_event_from_state(
+                                        user_id,
+                                        actor_server_id,
+                                        next_state,
+                                    ),
+                                )
+                                .await;
                             }
                             WsClientMessage::Signal {
                                 target_user_id,
@@ -1001,10 +1041,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     if last_session_gone {
         // Runtime presence becomes offline when the last active websocket session is gone.
         // Do not mutate users.status here; that column stores user preference.
-        let _ = state.tx.send(WsEvent::PresenceUpdate {
-            user_id,
-            status: "offline".to_string(),
-        });
+        super::publish_event(
+            &state,
+            WsEvent::PresenceUpdate {
+                user_id,
+                status: "offline".to_string(),
+            },
+        )
+        .await;
     }
 
     if last_session_gone {
@@ -1012,16 +1056,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
         if let Some((_, previous_channel_id)) = removed_voice {
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
             let _ = state.voice_controls.remove(&user_id);
-            let _ = state.tx.send(WsEvent::VoiceStateUpdate {
-                channel_id: None,
-                user_id,
-                server_id: previous_server_id,
-            });
-            let _ = state.tx.send(voice_control_event_from_state(
-                user_id,
-                previous_server_id,
-                (false, false, false, false, false, false),
-            ));
+            super::publish_event(
+                &state,
+                WsEvent::VoiceStateUpdate {
+                    channel_id: None,
+                    user_id,
+                    server_id: previous_server_id,
+                },
+            )
+            .await;
+            super::publish_event(
+                &state,
+                voice_control_event_from_state(
+                    user_id,
+                    previous_server_id,
+                    (false, false, false, false, false, false),
+                ),
+            )
+            .await;
         }
     }
 

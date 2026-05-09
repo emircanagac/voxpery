@@ -69,6 +69,7 @@ async fn main() {
     tracing::info!("Database connected and migrations applied");
 
     let (tx, _rx) = broadcast::channel::<ws::WsEvent>(4096);
+    let instance_id = uuid::Uuid::new_v4();
     let attachment_service =
         match voxpery_server::services::attachments::AttachmentService::from_config(&config).await {
             Ok(service) => Arc::new(service),
@@ -84,6 +85,7 @@ async fn main() {
         .expect("Failed to build release metadata HTTP client");
 
     let state = Arc::new(AppState {
+        instance_id,
         db,
         redis,
         jwt_secret: config.jwt_secret.clone(),
@@ -124,6 +126,7 @@ async fn main() {
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
     });
+    ws::bus::spawn_redis_event_bridge(state.clone());
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (
         &config.admin_email,

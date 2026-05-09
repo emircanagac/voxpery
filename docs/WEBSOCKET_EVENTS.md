@@ -14,6 +14,15 @@ Real-time transport for presence, channel updates, typing, and voice state.
 - Incoming WS frame rate limit: `120 / 10s` per user (Redis-backed)
 - Max incoming text frame size: `256 KB`
 
+## Multi-Instance Delivery
+
+- Backend instances publish broadcast and targeted user events to Redis Pub/Sub channel `voxpery:ws-events:v1`.
+- Every instance also keeps a local `tokio::broadcast` stream for sockets connected to that process.
+- Published events carry an instance origin ID so the publishing process does not deliver the Redis echo twice.
+- Targeted user events, such as DM and friend updates, are delivered to local sockets and also published so other instances can deliver them to sockets they own.
+- REST list endpoints that calculate online/offline from active socket maps are still instance-local until presence state is externalized.
+- Voice session/control state remains process-local today. Use sticky `/ws` routing when running multiple backend instances with voice enabled until that state is moved to Redis or another shared coordinator.
+
 ## Protocol Shape
 
 All messages are JSON with `type` + `data`:
@@ -155,7 +164,7 @@ Legacy custom signaling event.
 ## Voice + LiveKit Flow
 
 1. Client sends `JoinVoice` over WS.
-2. Backend validates effective permission and updates `voice_sessions`.
+2. Backend validates effective permission and updates process-local `voice_sessions`.
 3. Backend broadcasts voice state/control events.
 4. Client requests `GET /api/webrtc/livekit-token`.
 5. Client connects to LiveKit room.
@@ -170,4 +179,4 @@ Legacy custom signaling event.
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-05-09.

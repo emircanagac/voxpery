@@ -8,7 +8,7 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 |---|---|
 | Backend | Rust, Axum, SQLx |
 | Database | PostgreSQL 16+ |
-| Cache/Coordination | Redis (JWT blacklist + distributed rate limiting) |
+| Cache/Coordination | Redis (JWT blacklist, distributed rate limiting, WS event bus) |
 | Frontend | React 19, TypeScript, Vite, Zustand |
 | Voice | LiveKit |
 | Realtime signaling | WebSocket |
@@ -31,6 +31,7 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - `ws/` websocket protocol and handlers
 - `services/permissions.rs` role bitmask + effective channel/category calculations
 - `services/rate_limit.rs` Redis sliding-window limiter
+- `ws/bus.rs` Redis Pub/Sub bridge for cross-instance WS event fan-out
 - `middleware/auth.rs` token extraction and auth guards
 
 ## Permission Model
@@ -44,9 +45,10 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 
 ## Realtime Model
 
-- `tokio::broadcast` is used for fan-out event stream.
-- Per-user active WS sessions stored in-memory (`DashMap`).
-- Voice session/control state is tracked server-side for UI sync.
+- `tokio::broadcast` is used for each process-local fan-out stream.
+- Redis Pub/Sub bridges broadcast and targeted user WS events between backend instances.
+- Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket; REST list endpoints that derive online/offline from this map are instance-local until presence is externalized.
+- Voice session/control state is still tracked in-memory for low-latency UI sync; run sticky WebSocket routing for multi-instance voice until this state is moved to Redis or another shared coordinator.
 
 ## Security Model (Implemented)
 
@@ -63,7 +65,9 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - Backend is a Rust binary.
 - Frontend is static assets.
 - Postgres + Redis + LiveKit are external services (docker-compose in dev/self-host).
+- Multiple backend instances can share REST traffic and receive cross-instance WS event fan-out through Redis.
+- For multi-instance voice/signaling, use sticky routing on `/ws` until voice session/control state is externalized.
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-05-09.
