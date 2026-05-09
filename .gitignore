@@ -1,0 +1,38 @@
+# Rust
+target/
+**/target/
+**/*.rs.bk
+.cargo-home/
+# Cargo.lock is committed for server/desktop for reproducible builds
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+**/.vite/
+.npm-cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE / Editor
+.rules/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.sql.bak

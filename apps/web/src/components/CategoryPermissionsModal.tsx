@@ -1,0 +1,428 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Shield, X } from 'lucide-react'
+import { channelApi, serverApi, type ChannelOverride, type ServerRole } from '../api'
+import { useAuthStore } from '../stores/auth'
+
+interface CategoryPermissionsModalProps {
+    serverId: string
+    category: string
+    serverRoles: ServerRole[]
+    onClose: () => void
+}
+
+const PERM_OPTIONS = [
+    { label: 'View Channel', bit: 1 << 0 },
+    { label: 'Send Messages', bit: 1 << 7 },
+    { label: 'Connect to Voice', bit: 1 << 10 },
+]
+
+function isEveryoneRole(role: ServerRole): boolean {
+    return role.name.trim().toLowerCase() === 'everyone'
+}
+
+export default function CategoryPermissionsModal({
+    serverId,
+    category,
+    serverRoles,
+    onClose,
+}: CategoryPermissionsModalProps) {
+    const { token } = useAuthStore()
+    const [fallbackRoles, setFallbackRoles] = useState<ServerRole[]>([])
+    const [overrides, setOverrides] = useState<ChannelOverride[]>([])
+    const [draftOverrides, setDraftOverrides] = useState<Record<string, { allow: number; deny: number }>>({})
+    const [changedRoleIds, setChangedRoleIds] = useState<Set<string>>(new Set())
+    const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
+    const [addedRoleIds, setAddedRoleIds] = useState<Set<string>>(new Set())
+    const [removedRoleIds, setRemovedRoleIds] = useState<Set<string>>(new Set())
+    const [roleToAddId, setRoleToAddId] = useState<string>('')
+    const [loading, setLoading] = useState(false)
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const effectiveRoles = fallbackRoles.length > 0 ? fallbackRoles : serverRoles
+    const everyoneRoleId = effectiveRoles.find(isEveryoneRole)?.id ?? null
+    const overriddenRoleIds = useMemo(() => new Set(overrides.map((o) => o.role_id)), [overrides])
+    const configuredRoleIds = useMemo(() => {
+        const ids = new Set(overriddenRoleIds)
+        for (const roleId of addedRoleIds) ids.add(roleId)
+        for (const roleId of removedRoleIds) ids.delete(roleId)
+        return ids
+    }, [overriddenRoleIds, addedRoleIds, removedRoleIds])
+    const visibleRoles = useMemo(
+        () =>
+            effectiveRoles.filter(
+                (role) => isEveryoneRole(role) || configuredRoleIds.has(role.id),
+            ),
+        [effectiveRoles, configuredRoleIds],
+    )
+    const addableRoles = useMemo(
+        () =>
+            effectiveRoles.filter(
+                (role) => !isEveryoneRole(role) && !configuredRoleIds.has(role.id),
+            ),
+        [effectiveRoles, configuredRoleIds],
+    )
+    const activeSelectedRoleId =
+        selectedRoleId && visibleRoles.some((r) => r.id === selectedRoleId) ? selectedRoleId : null
+    const isDirty = changedRoleIds.size > 0 || addedRoleIds.size > 0 || removedRoleIds.size > 0
+
+    useEffect(() => {
+        let active = true
+        queueMicrotask(() => {
+            if (!active) return
+            setLoading(true)
+            setError(null)
+        })
+        Promise.all([
+            channelApi.getCategoryOverrides(serverId, category, token),
+            serverApi.listRoles(serverId, token, { includeSystem: true }),
+        ])
+            .then(([ovs, roles]) => {
+                if (!active) return
+                setOverrides(ovs)
+                setFallbackRoles(roles)
+                setDraftOverrides(
+                    Object.fromEntries(ovs.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+                )
+                setChangedRoleIds(new Set())
+                setAddedRoleIds(new Set())
+                setRemovedRoleIds(new Set())
+                const defaultRoleId = roles.find((r) => r.name.trim().toLowerCase() === 'everyone')?.id ?? null
+                setSelectedRoleId(defaultRoleId)
+            })
+            .catch((err) => {
+                if (!active) return
+                setError(err instanceof Error ? err.message : 'Failed to load category permissions.')
+            })
+            .finally(() => {
+                if (!active) return
+                setLoading(false)
+            })
+        return () => {
+            active = false
+        }
+    }, [serverId, category, token, serverRoles])
+
+    const currentOverride = useMemo(() => {
+        if (!activeSelectedRoleId) return null
+        const draft = draftOverrides[activeSelectedRoleId]
+        if (draft) return { role_id: activeSelectedRoleId, allow: draft.allow, deny: draft.deny }
+        return overrides.find((o) => o.role_id === activeSelectedRoleId) ?? { role_id: activeSelectedRoleId, allow: 0, deny: 0 }
+    }, [activeSelectedRoleId, draftOverrides, overrides])
+
+    const getBaselineOverride = (roleId: string) => {
+        const existing = overrides.find((o) => o.role_id === roleId)
+        return existing ? { allow: existing.allow, deny: existing.deny } : { allow: 0, deny: 0 }
+    }
+
+    const updateOverrideBit = (bit: number, type: 'allow' | 'deny' | 'inherit') => {
+        if (!activeSelectedRoleId || !currentOverride) return
+        let newAllow = currentOverride.allow
+        let newDeny = currentOverride.deny
+        if (type === 'allow') {
+            newAllow |= bit
+            newDeny &= ~bit
+        } else if (type === 'deny') {
+            newDeny |= bit
+            newAllow &= ~bit
+        } else {
+            newAllow &= ~bit
+            newDeny &= ~bit
+        }
+        setDraftOverrides((prev) => ({
+            ...prev,
+            [activeSelectedRoleId]: { allow: newAllow, deny: newDeny },
+        }))
+        setChangedRoleIds((prev) => {
+            const baseline = getBaselineOverride(activeSelectedRoleId)
+            const changed = baseline.allow !== newAllow || baseline.deny !== newDeny
+            const next = new Set(prev)
+            if (changed) next.add(activeSelectedRoleId)
+            else next.delete(activeSelectedRoleId)
+            return next
+        })
+    }
+
+    const handleCancel = () => {
+        setDraftOverrides(
+            Object.fromEntries(overrides.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+        )
+        setChangedRoleIds(new Set())
+        setAddedRoleIds(new Set())
+        setRemovedRoleIds(new Set())
+        setRoleToAddId('')
+        setSelectedRoleId(everyoneRoleId)
+        setError(null)
+    }
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            onClose()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [onClose])
+
+    const handleSave = async () => {
+        if (!isDirty || saving) return
+        setSaving(true)
+        setError(null)
+        try {
+            const deletions = Array.from(removedRoleIds).filter((roleId) => roleId !== everyoneRoleId)
+            for (const roleId of deletions) {
+                await channelApi.deleteCategoryOverride(serverId, category, roleId, token)
+            }
+            const updates = Array.from(changedRoleIds).filter((roleId) => !removedRoleIds.has(roleId))
+            for (const roleId of updates) {
+                const draft = draftOverrides[roleId] ?? { allow: 0, deny: 0 }
+                await channelApi.updateCategoryOverride(
+                    serverId,
+                    category,
+                    roleId,
+                    draft.allow,
+                    draft.deny,
+                    token,
+                )
+            }
+            const refreshed = await channelApi.getCategoryOverrides(serverId, category, token)
+            setOverrides(refreshed)
+            setDraftOverrides(
+                Object.fromEntries(refreshed.map((o) => [o.role_id, { allow: o.allow, deny: o.deny }])),
+            )
+            setChangedRoleIds(new Set())
+            setAddedRoleIds(new Set())
+            setRemovedRoleIds(new Set())
+            setRoleToAddId('')
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to save category permissions.')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleAddRole = () => {
+        if (!roleToAddId) return
+        const roleId = roleToAddId
+        if (!overriddenRoleIds.has(roleId)) {
+            setAddedRoleIds((prev) => {
+                const next = new Set(prev)
+                next.add(roleId)
+                return next
+            })
+        } else {
+            setAddedRoleIds((prev) => {
+                const next = new Set(prev)
+                next.delete(roleId)
+                return next
+            })
+        }
+        setRemovedRoleIds((prev) => {
+            const next = new Set(prev)
+            next.delete(roleId)
+            return next
+        })
+        setDraftOverrides((prev) => {
+            if (prev[roleId]) return prev
+            const baseline = getBaselineOverride(roleId)
+            return { ...prev, [roleId]: { allow: baseline.allow, deny: baseline.deny } }
+        })
+        if (!overriddenRoleIds.has(roleId)) {
+            setChangedRoleIds((prev) => {
+                const next = new Set(prev)
+                next.add(roleId)
+                return next
+            })
+        }
+        setSelectedRoleId(roleId)
+        setRoleToAddId('')
+    }
+
+    const handleRemoveRole = (roleId: string) => {
+        if (roleId === everyoneRoleId) return
+        const wasNewUnsavedRole = addedRoleIds.has(roleId) && !overriddenRoleIds.has(roleId)
+        setAddedRoleIds((prev) => {
+            const next = new Set(prev)
+            next.delete(roleId)
+            return next
+        })
+        setRemovedRoleIds((prev) => {
+            const next = new Set(prev)
+            if (wasNewUnsavedRole) next.delete(roleId)
+            else next.add(roleId)
+            return next
+        })
+        setChangedRoleIds((prev) => {
+            const next = new Set(prev)
+            next.delete(roleId)
+            return next
+        })
+        if (selectedRoleId === roleId) setSelectedRoleId(everyoneRoleId)
+    }
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal modal-server-settings channel-settings-modal category-permissions-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="server-settings-layout">
+                    <div className="server-settings-nav channel-settings-nav">
+                        <div className="channel-settings-nav-title">{category}</div>
+                        <div className="channel-settings-nav-subtitle">Category settings</div>
+                        <button className="server-settings-nav__item server-settings-nav__item--active">
+                            <Shield size={16} />
+                            Permissions
+                        </button>
+                    </div>
+                    <div className="server-settings-content">
+                        <div className="server-settings-card channel-settings-card">
+                            <div className="server-settings-header channel-settings-header">
+                                <div className="server-settings-header__text">
+                                    <h2>Category Permissions</h2>
+                                    <p className="server-settings-header__hint">
+                                        Applies to all channels under this category.
+                                    </p>
+                                </div>
+                                <button className="server-settings-close-btn" onClick={onClose} aria-label="Close">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="server-settings-body server-settings-body--with-tabs">
+                                {error && <div className="modal-error server-settings-error">{error}</div>}
+                                <div className="server-settings-section channel-settings-permissions">
+                                    <div className="channel-settings-roles-col">
+                                        <div className="channel-settings-roles-header">
+                                            <label className="channel-settings-label">Roles</label>
+                                            <div className="channel-settings-role-add">
+                                                <select
+                                                    className="channel-role-add-select"
+                                                    value={roleToAddId}
+                                                    onChange={(e) => setRoleToAddId(e.target.value)}
+                                                >
+                                                    <option value="">Add role…</option>
+                                                    {addableRoles.map((role) => (
+                                                        <option key={role.id} value={role.id}>
+                                                            {role.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary btn-sm"
+                                                    onClick={handleAddRole}
+                                                    disabled={!roleToAddId}
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="channel-settings-roles-list">
+                                            {visibleRoles.map((role) => (
+                                                <button
+                                                    key={role.id}
+                                                    type="button"
+                                                    className={`server-role-list-item ${activeSelectedRoleId === role.id ? 'server-role-list-item--active' : ''}`}
+                                                    onClick={() => setSelectedRoleId(role.id)}
+                                                >
+                                                    <span className="channel-settings-role-main">
+                                                        <span className="channel-settings-role-dot" style={{ backgroundColor: role.color || 'var(--text-normal)' }} />
+                                                        {role.name}
+                                                    </span>
+                                                    {!isEveryoneRole(role) && (
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            className="channel-settings-role-remove"
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                handleRemoveRole(role.id)
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                handleRemoveRole(role.id)
+                                                            }}
+                                                            aria-label={`Remove ${role.name}`}
+                                                            title="Remove role from category permissions"
+                                                        >
+                                                            ×
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="channel-settings-perm-col">
+                                        {!activeSelectedRoleId ? (
+                                            <div className="role-edit-empty channel-settings-empty">
+                                                Select a role to configure category permissions
+                                            </div>
+                                        ) : loading ? (
+                                            <div className="role-edit-empty channel-settings-empty">Loading...</div>
+                                        ) : (
+                                            <>
+                                                <label className="channel-settings-label channel-settings-label--spaced">
+                                                    Advanced Permissions
+                                                </label>
+                                                {PERM_OPTIONS.map((opt) => {
+                                                    const isAllowed = (currentOverride!.allow & opt.bit) === opt.bit
+                                                    const isDenied = (currentOverride!.deny & opt.bit) === opt.bit
+                                                    return (
+                                                        <div key={opt.bit} className="channel-perm-row">
+                                                            <span>{opt.label}</span>
+                                                            <div className="channel-perm-switches">
+                                                                <button
+                                                                    type="button"
+                                                                    className={`channel-perm-btn ${isDenied ? 'is-denied' : ''}`}
+                                                                    onClick={() => updateOverrideBit(opt.bit, 'deny')}
+                                                                >
+                                                                    <X size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className={`channel-perm-btn ${!isAllowed && !isDenied ? 'is-inherit' : ''}`}
+                                                                    onClick={() => updateOverrideBit(opt.bit, 'inherit')}
+                                                                >
+                                                                    /
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className={`channel-perm-btn ${isAllowed ? 'is-allowed' : ''}`}
+                                                                    onClick={() => updateOverrideBit(opt.bit, 'allow')}
+                                                                >
+                                                                    ✓
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                                <div className="channel-settings-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm server-role-btn-cancel"
+                                                        onClick={handleCancel}
+                                                        disabled={saving}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm server-role-btn-save"
+                                                        onClick={() => void handleSave()}
+                                                        disabled={!isDirty || saving}
+                                                    >
+                                                        {saving ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}

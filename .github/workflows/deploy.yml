@@ -1,0 +1,45 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-manual-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 25m
+          script: |
+            cd ~/voxpery
+            REF="${{ github.ref_name }}"
+            REF_TYPE="${{ github.ref_type }}"
+            if [ "${REF_TYPE}" = "branch" ]; then
+              git fetch --prune origin "refs/heads/${REF}:refs/remotes/origin/${REF}"
+              git checkout --detach "refs/remotes/origin/${REF}"
+              IMAGE_TAG="latest"
+            else
+              git fetch --force origin "refs/tags/${REF}:refs/tags/${REF}"
+              git checkout --detach "refs/tags/${REF}"
+              IMAGE_TAG="${REF}"
+            fi
+            export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${IMAGE_TAG}"
+            export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${IMAGE_TAG}"
+            docker compose --profile security pull server web clamav
+            docker compose --profile security up -d --no-build --remove-orphans
+            docker image prune -f
+            curl -fsS http://127.0.0.1:3001/health >/dev/null
+            echo "Deploy complete: ref=${REF} image_tag=${IMAGE_TAG}"

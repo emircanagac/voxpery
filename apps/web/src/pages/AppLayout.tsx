@@ -1,0 +1,4061 @@
+import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useAuthStore } from '../stores/auth'
+import { useShallow } from 'zustand/react/shallow'
+import { useAppStore } from '../stores/app'
+import { useSocketStore } from '../stores/socket'
+import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry } from '../api'
+import ServerSidebar from '../components/ServerSidebar'
+import ChannelSidebar from '../components/ChannelSidebar'
+import ChannelSettingsModal from '../components/ChannelSettingsModal'
+import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
+import ChatArea from '../components/ChatArea'
+import MemberSidebar from '../components/MemberSidebar'
+import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
+import ServerRolesSidebar from '../components/ServerRolesSidebar'
+import ServerRoleEditor from '../components/ServerRoleEditor'
+import { useToastStore } from '../stores/toast'
+import { AlertTriangle, Ban, Flag, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
+import { isTauri } from '../secureStorage'
+import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
+import {
+    applyUploadedDraftAttachments,
+    createUploadingDraftAttachments,
+    getUploadedDraftAttachments,
+    hasPendingDraftAttachments,
+    markDraftAttachmentsFailed,
+    setDraftAttachmentUploading,
+    type DraftAttachmentItem,
+} from '../draftAttachments'
+import { mergeRemoteWithRetryableLocals } from '../messageResilience'
+import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
+import { createSavedMediaItem } from '../savedMedia'
+import { clearPendingSavedMediaJump, getPendingSavedMediaJump } from '../savedMediaJump'
+
+type UiMessage = MessageWithAuthor & {
+    clientId?: string
+    clientStatus?: 'sending' | 'failed'
+    clientError?: string
+}
+
+export interface AppLayoutProps {
+    /** When true, do not render ServerSidebar (used inside UnifiedLayout which has its own sidebar). */
+    skipServerSidebar?: boolean
+    /** When true, the server chat view is visible (e.g. user switched from DM to Servers); used to scroll to bottom on re-enter. */
+    isViewActive?: boolean
+}
+
+const SERVER_SETTINGS_SECTION_META = {
+    overview: {
+        eyebrow: 'Workspace',
+        title: 'Overview',
+        hint: 'Update your server identity, invite flow, and core presentation.',
+    },
+    roles: {
+        eyebrow: 'Access Control',
+        title: 'Roles',
+        hint: 'Shape permissions, moderation powers, and the hierarchy your members see.',
+    },
+    audit: {
+        eyebrow: 'Moderation',
+        title: 'Audit Log',
+        hint: 'Review important changes and actions taken across the server.',
+    },
+    reports: {
+        eyebrow: 'Trust & Safety',
+        title: 'Reports',
+        hint: 'Review community reports, investigate context, and resolve issues quickly.',
+    },
+    bans: {
+        eyebrow: 'Safety',
+        title: 'Banned Users',
+        hint: 'Review blocked members and restore access when needed.',
+    },
+    danger: {
+        eyebrow: 'Ownership',
+        title: 'Danger Zone',
+        hint: 'Destructive actions live here. Review carefully before continuing.',
+    },
+} as const
+
+/** Page size for message list (pagination). Must match backend max (100) or less. */
+const MESSAGE_PAGE_SIZE = 50
+const CHANNEL_NAME_MAX = 32
+const CATEGORY_NAME_MAX = 32
+const CHANNEL_DESCRIPTION_MAX = 120
+const REPORT_REASONS = [
+    { value: 'spam', label: 'Spam' },
+    { value: 'harassment', label: 'Harassment' },
+    { value: 'inappropriate_content', label: 'Inappropriate content' },
+    { value: 'impersonation', label: 'Impersonation' },
+    { value: 'other', label: 'Other' },
+] as const
+
+// Permission bit masks (must stay in sync with backend Permissions flags).
+const PERM_VIEW_SERVER = 1 << 0
+const PERM_MANAGE_SERVER = 1 << 1
+const PERM_MANAGE_ROLES = 1 << 2
+const PERM_MANAGE_CHANNELS = 1 << 3
+const PERM_KICK_MEMBERS = 1 << 4
+const PERM_BAN_MEMBERS = 1 << 5
+const PERM_VIEW_AUDIT_LOG = 1 << 6
+const PERM_SEND_MESSAGES = 1 << 7
+const PERM_MANAGE_MESSAGES = 1 << 8
+const PERM_MANAGE_PINS = 1 << 9
+const PERM_CONNECT_VOICE = 1 << 10
+const PERM_MUTE_MEMBERS = 1 << 11
+const PERM_DEAFEN_MEMBERS = 1 << 12
+
+const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
+
+function validateChannelNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Channel name is required.'
+    if (Array.from(value).length > CHANNEL_NAME_MAX) {
+        return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Channel name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Channel name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function validateCategoryNameInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return 'Category name is required.'
+    if (Array.from(value).length > CATEGORY_NAME_MAX) {
+        return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
+        return "Category name can only include letters, numbers, spaces, '-' and '_'."
+    }
+    if (value.includes('  ')) {
+        return 'Category name cannot contain consecutive spaces.'
+    }
+    return null
+}
+
+function validateChannelDescriptionInput(raw: string): string | null {
+    const value = raw.trim()
+    if (!value) return null
+    if (Array.from(value).length > CHANNEL_DESCRIPTION_MAX) {
+        return `Channel description must be ${CHANNEL_DESCRIPTION_MAX} characters or fewer.`
+    }
+    return null
+}
+
+function parseInviteInput(raw: string): string {
+    const value = raw.trim()
+    if (!value) return ''
+
+    const directMatch = value.match(/(?:^|\/)invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
+    if (directMatch?.[1]) return directMatch[1]
+
+    try {
+        const url = new URL(value)
+        const pathMatch = url.pathname.match(/\/invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
+        if (pathMatch?.[1]) return pathMatch[1]
+    } catch {
+        // Not a full URL; treat as a raw invite code.
+    }
+
+    return value
+}
+
+function channelTypeOrder(type: Channel['channel_type']): number {
+    return type === 'text' ? 0 : 1
+}
+
+function compareChannelsForSidebar(a: Channel, b: Channel): number {
+    const aCat = a.category ?? 'Channels'
+    const bCat = b.category ?? 'Channels'
+    if (aCat !== bCat) return aCat.localeCompare(bCat)
+    const typeDiff = channelTypeOrder(a.channel_type) - channelTypeOrder(b.channel_type)
+    if (typeDiff !== 0) return typeDiff
+    return a.position - b.position
+}
+
+function getStoredChannelId(serverId: string): string | null {
+    try {
+        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
+        if (!raw) return null
+        const map = JSON.parse(raw) as Record<string, string>
+        return map[serverId] || null
+    } catch {
+        return null
+    }
+}
+
+function setStoredChannelId(serverId: string, channelId: string | null) {
+    try {
+        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
+        const map = raw ? (JSON.parse(raw) as Record<string, string>) : {}
+        if (channelId) map[serverId] = channelId
+        else delete map[serverId]
+        sessionStorage.setItem(LAST_CHANNELS_STORAGE_KEY, JSON.stringify(map))
+    } catch {
+        // ignore
+    }
+}
+
+function deriveInviteBaseFromApiEnv(): string | null {
+    const apiRaw = (import.meta.env.VITE_API_URL ?? '').trim()
+    if (!apiRaw) return null
+
+    try {
+        const api = new URL(apiRaw)
+        const host = api.hostname.toLowerCase()
+        if (host === 'localhost' || host === '127.0.0.1') {
+            return 'http://localhost:5173'
+        }
+        if (host.startsWith('api.')) {
+            return `${api.protocol}//${host.slice(4)}`
+        }
+        return `${api.protocol}//${api.host}`
+    } catch {
+        return null
+    }
+}
+
+function resolveInviteBaseUrl(): string {
+    // Browser builds should keep current origin.
+    if (typeof window !== 'undefined' && !isTauri()) {
+        return window.location.origin
+    }
+    // Desktop builds should always return a shareable public URL, never tauri.localhost.
+    return deriveInviteBaseFromApiEnv() ?? 'https://voxpery.com'
+}
+
+function escapeMentionPattern(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function messageMentionsUser(content: string | undefined, username: string | undefined): boolean {
+    if (!content) return false
+    const normalized = content.toLowerCase()
+    if (normalized.includes('@all') || normalized.includes('@everyone')) return true
+    if (!username) return false
+    const pattern = new RegExp(`(^|\\s)@${escapeMentionPattern(username)}(?=\\s|$)`, 'i')
+    return pattern.test(content)
+}
+
+export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
+    const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+    const { token, user } = useAuthStore()
+    const {
+        servers, serversLoading, activeServerId, activeChannelId, channels, members,
+        setServers, setServersLoading, setActiveServer, setActiveChannel, setChannels, setMembers,
+        setChannelsForServer, setMembersForServer,
+        channelsByServerId,
+        setFriends,
+        voiceControls,
+        serverUnreadByChannel,
+        serverMentionsByChannel,
+        incrementServerUnread,
+        incrementServerMention,
+        clearServerUnread,
+        clearServerMention,
+        mutedServerIds,
+        setShowCreateServer, setShowJoinServer,
+        showCreateServer, showJoinServer,
+        openServerSettingsForServerId,
+        setOpenServerSettingsForServerId,
+        openServerSettingsForServerTab,
+        setOpenServerSettingsForServerTab,
+        mobileSidebarPanel,
+        setMobileSidebarPanel,
+        savedMediaByUserId,
+        toggleSavedMedia,
+    } = useAppStore(
+        useShallow((s) => ({
+            servers: s.servers,
+            serversLoading: s.serversLoading,
+            activeServerId: s.activeServerId,
+            activeChannelId: s.activeChannelId,
+            channels: s.channels,
+            members: s.members,
+            setServers: s.setServers,
+            setServersLoading: s.setServersLoading,
+            setActiveServer: s.setActiveServer,
+            setActiveChannel: s.setActiveChannel,
+            setChannels: s.setChannels,
+            setMembers: s.setMembers,
+            setChannelsForServer: s.setChannelsForServer,
+            setMembersForServer: s.setMembersForServer,
+            channelsByServerId: s.channelsByServerId,
+            friends: s.friends,
+            setFriends: s.setFriends,
+            dmChannels: s.dmChannels,
+            setDmChannels: s.setDmChannels,
+            setActiveDmChannelId: s.setActiveDmChannelId,
+            setDmChannelIds: s.setDmChannelIds,
+            voiceControls: s.voiceControls,
+            serverUnreadByChannel: s.serverUnreadByChannel,
+            serverMentionsByChannel: s.serverMentionsByChannel,
+            incrementServerUnread: s.incrementServerUnread,
+            incrementServerMention: s.incrementServerMention,
+            clearServerUnread: s.clearServerUnread,
+            clearServerMention: s.clearServerMention,
+            mutedServerIds: s.mutedServerIds,
+            setShowCreateServer: s.setShowCreateServer,
+            setShowJoinServer: s.setShowJoinServer,
+            showCreateServer: s.showCreateServer,
+            showJoinServer: s.showJoinServer,
+            openServerSettingsForServerId: s.openServerSettingsForServerId,
+            setOpenServerSettingsForServerId: s.setOpenServerSettingsForServerId,
+            openServerSettingsForServerTab: s.openServerSettingsForServerTab,
+            setOpenServerSettingsForServerTab: s.setOpenServerSettingsForServerTab,
+            mobileSidebarPanel: s.mobileSidebarPanel,
+            setMobileSidebarPanel: s.setMobileSidebarPanel,
+            savedMediaByUserId: s.savedMediaByUserId,
+            toggleSavedMedia: s.toggleSavedMedia,
+        }))
+    )
+
+    const [messages, setMessages] = useState<UiMessage[]>([])
+    const [pendingSavedJumpMessageId, setPendingSavedJumpMessageId] = useState<string | null>(null)
+    const [messageInput, setMessageInput] = useState('')
+    const [replyingTo, setReplyingTo] = useState<{ id: string; username: string; contentSnippet: string } | null>(null)
+    const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+    const [editingContent, setEditingContent] = useState('')
+    const [editingReplyQuotePart, setEditingReplyQuotePart] = useState<string | null>(null)
+    const [draftAttachments, setDraftAttachments] = useState<DraftAttachmentItem[]>([])
+    const [emptyInviteCopied, setEmptyInviteCopied] = useState(false)
+    const [newServerName, setNewServerName] = useState('')
+    const [inviteCode, setInviteCode] = useState('')
+    const [createServerError, setCreateServerError] = useState<string | null>(null)
+    const [isCreatingServer, setIsCreatingServer] = useState(false)
+    const [joinServerError, setJoinServerError] = useState<string | null>(null)
+    const [showServerSettings, setShowServerSettings] = useState(false)
+    const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger'>('overview')
+    const [isMobileViewport, setIsMobileViewport] = useState(() =>
+        typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
+    )
+    const [serverSettingsName, setServerSettingsName] = useState('')
+    const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
+    const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
+    const [showDeleteServerConfirm, setShowDeleteServerConfirm] = useState(false)
+    const [deleteServerInput, setDeleteServerInput] = useState('')
+    const [deleteServerError, setDeleteServerError] = useState<string | null>(null)
+    const [showCreateChannel, setShowCreateChannel] = useState(false)
+    const [showCreateCategory, setShowCreateCategory] = useState(false)
+    const [createChannelName, setCreateChannelName] = useState('')
+    const [createChannelType, setCreateChannelType] = useState<'text' | 'voice'>('text')
+    const [createChannelCategory, setCreateChannelCategory] = useState('')
+    const [createChannelDescription, setCreateChannelDescription] = useState('')
+    const [createChannelError, setCreateChannelError] = useState<string | null>(null)
+    const [createCategoryName, setCreateCategoryName] = useState('')
+    const [createCategoryError, setCreateCategoryError] = useState<string | null>(null)
+    const [channelCategories, setChannelCategories] = useState<string[]>([])
+    const [categoryPermissionsTarget, setCategoryPermissionsTarget] = useState<string | null>(null)
+    const [deleteCategoryConfirm, setDeleteCategoryConfirm] = useState<string | null>(null)
+    const [deleteCategoryError, setDeleteCategoryError] = useState<string | null>(null)
+    const [showRenameCategory, setShowRenameCategory] = useState(false)
+    const [renameCategoryFrom, setRenameCategoryFrom] = useState<string | null>(null)
+    const [renameCategoryName, setRenameCategoryName] = useState('')
+    const [renameCategoryError, setRenameCategoryError] = useState<string | null>(null)
+    const [showRenameChannel, setShowRenameChannel] = useState(false)
+    const [renameChannelId, setRenameChannelId] = useState<string | null>(null)
+    const [renameChannelName, setRenameChannelName] = useState('')
+    const [renameChannelDescription, setRenameChannelDescription] = useState('')
+    const [renameChannelError, setRenameChannelError] = useState<string | null>(null)
+    const [channelServerMap, setChannelServerMap] = useState<Record<string, string>>({})
+    const [deleteMessageConfirmId, setDeleteMessageConfirmId] = useState<string | null>(null)
+    const [deleteChannelConfirm, setDeleteChannelConfirm] = useState<Channel | null>(null)
+    const [channelSettingsTarget, setChannelSettingsTarget] = useState<Channel | null>(null)
+    const [copiedInvite, setCopiedInvite] = useState<'link' | 'code' | null>(null)
+    const [hasMoreOlder, setHasMoreOlder] = useState(true)
+    const [loadingOlder, setLoadingOlder] = useState(false)
+    const [olderMessagesReady, setOlderMessagesReady] = useState(false)
+    const [channelUnreadDividerCount, setChannelUnreadDividerCount] = useState(0)
+    const [channelSearch, setChannelSearch] = useState('')
+    const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
+    const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
+    const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
+    const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
+    const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+    const currentServerMember = useMemo(
+        () => (user?.id ? members.find((member) => member.user_id === user.id) ?? null : null),
+        [members, user?.id],
+    )
+    const pushToast = useToastStore((s) => s.pushToast)
+    const { connect, send, subscribe, isConnected, onReconnect } = useSocketStore()
+    const [showUnsavedServerSettingsConfirm, setShowUnsavedServerSettingsConfirm] = useState(false)
+    const [serverRoles, setServerRoles] = useState<ServerRole[]>([])
+    const [visibleRoleCount, setVisibleRoleCount] = useState(40)
+    const [rolesLoading, setRolesLoading] = useState(false)
+    const [rolesError, setRolesError] = useState<string | null>(null)
+    const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
+    const [draggingRoleId, setDraggingRoleId] = useState<string | null>(null)
+    const [roleEditName, setRoleEditName] = useState('')
+    const [roleEditPermissions, setRoleEditPermissions] = useState(0)
+    const [roleEditPreAdminPermissions, setRoleEditPreAdminPermissions] = useState<number | null>(null)
+    const [roleEditColor, setRoleEditColor] = useState<string | null>(null)
+    const [deleteRoleConfirmId, setDeleteRoleConfirmId] = useState<string | null>(null)
+    const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
+    const [auditLogLoading, setAuditLogLoading] = useState(false)
+    const [auditLogError, setAuditLogError] = useState<string | null>(null)
+    const [reportEntries, setReportEntries] = useState<ServerReportEntry[] | null>(null)
+    const [reportEntriesLoading, setReportEntriesLoading] = useState(false)
+    const [reportEntriesError, setReportEntriesError] = useState<string | null>(null)
+    const [resolveReportInFlightId, setResolveReportInFlightId] = useState<string | null>(null)
+    const [banEntries, setBanEntries] = useState<ServerBanEntry[] | null>(null)
+    const [banEntriesLoading, setBanEntriesLoading] = useState(false)
+    const [banEntriesError, setBanEntriesError] = useState<string | null>(null)
+    const [unbanInFlightUserId, setUnbanInFlightUserId] = useState<string | null>(null)
+    const [reportTarget, setReportTarget] = useState<{
+        kind: 'user' | 'message'
+        userId: string
+        username: string
+        messageId?: string
+        messageContent?: string
+    } | null>(null)
+    const [reportReason, setReportReason] = useState<(typeof REPORT_REASONS)[number]['value']>('spam')
+    const [reportDetails, setReportDetails] = useState('')
+    const [reportSubmitting, setReportSubmitting] = useState(false)
+    const memberUsernameById = useMemo(() => {
+        const byId = new Map<string, string>()
+        for (const member of members) byId.set(member.user_id, member.username)
+        return byId
+    }, [members])
+    const allKnownChannelIds = useMemo(() => {
+        const seen = new Set<string>()
+        for (const channel of channels) seen.add(channel.id)
+        Object.values(channelsByServerId).forEach((serverChannels) => {
+            serverChannels.forEach((channel) => seen.add(channel.id))
+        })
+        return Array.from(seen)
+    }, [channels, channelsByServerId])
+    const visibleServerRoles = useMemo(
+        () => serverRoles.slice(0, Math.min(visibleRoleCount, serverRoles.length)),
+        [serverRoles, visibleRoleCount]
+    )
+    const hasMoreServerRoles = visibleServerRoles.length < serverRoles.length
+
+    // Refs to avoid stale closures in WebSocket handlers
+    const activeChannelIdRef = useRef(activeChannelId)
+    const activeServerIdRef = useRef(activeServerId)
+    const channelServerMapRef = useRef<Record<string, string>>({})
+    const tokenRef = useRef(token)
+    const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
+    const createServerInFlightRef = useRef(false)
+    const serverIconInputRef = useRef<HTMLInputElement | null>(null)
+    const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
+    const serverBootstrapRequestRef = useRef(0)
+    const channelMessagesRequestRef = useRef(0)
+
+    useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
+    useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
+    useEffect(() => { channelServerMapRef.current = channelServerMap }, [channelServerMap])
+    useEffect(() => { tokenRef.current = token }, [token])
+    useEffect(() => { selectedRoleIdRef.current = selectedRoleId }, [selectedRoleId])
+
+    useEffect(() => {
+        setEditingMessageId(null)
+        setEditingContent('')
+        setEditingReplyQuotePart(null)
+        setReplyingTo(null)
+    }, [activeChannelId])
+
+    // ─── Data Fetching ─────────────────────────
+    // Use user (not token) so web works: on web token is null and auth is via httpOnly cookie.
+    const isLoggedIn = !!user
+    const inviteBaseUrl = resolveInviteBaseUrl()
+
+    useEffect(() => {
+        if (!isLoggedIn) return
+        setServersLoading(true)
+        serverApi.list(token)
+            .then(setServers)
+            .catch(console.error)
+            .finally(() => setServersLoading(false))
+    }, [isLoggedIn, token, setServers, setServersLoading])
+
+    useEffect(() => {
+        if (!isLoggedIn || servers.length === 0) return
+        const missingServerIds = servers
+            .map((server) => server.id)
+            .filter((serverId) => !(serverId in channelsByServerId))
+        if (missingServerIds.length === 0) return
+        let cancelled = false
+        void Promise.all(
+            missingServerIds.map(async (serverId) => {
+                try {
+                    const chs = await serverApi.channels(serverId, token)
+                    if (!cancelled) {
+                        setChannelsForServer(serverId, chs)
+                        setChannelServerMap((prev) => {
+                            const next = { ...prev }
+                            for (const ch of chs) next[ch.id] = ch.server_id
+                            return next
+                        })
+                    }
+                } catch {
+                    // ignore prefetch failures; active server fetch still handles visible route
+                }
+            }),
+        )
+        return () => {
+            cancelled = true
+        }
+    }, [channelsByServerId, isLoggedIn, servers, setChannelsForServer, token])
+
+    useEffect(() => {
+        if (!isLoggedIn) return
+        friendApi.list(token).then(setFriends).catch(() => { })
+    }, [isLoggedIn, token, setFriends])
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const media = window.matchMedia('(max-width: 900px)')
+        const sync = () => setIsMobileViewport(media.matches)
+        sync()
+        media.addEventListener('change', sync)
+        return () => media.removeEventListener('change', sync)
+    }, [])
+
+    useEffect(() => {
+        if (!isMobileViewport) setShowMobileMemberSheet(false)
+    }, [isMobileViewport])
+
+    useEffect(() => {
+        if (typeof document === 'undefined') return
+        const root = document.documentElement
+        if (isMobileViewport && showMobileMemberSheet) {
+            root.classList.add('mobile-member-sheet-open')
+            return () => {
+                root.classList.remove('mobile-member-sheet-open')
+            }
+        }
+        root.classList.remove('mobile-member-sheet-open')
+        return () => {
+            root.classList.remove('mobile-member-sheet-open')
+        }
+    }, [isMobileViewport, showMobileMemberSheet])
+
+    useEffect(() => {
+        setShowMobileMemberSheet(false)
+    }, [activeServerId, activeChannelId])
+
+    // Auto-select a default server (prefer the Voxpery default server) when logging in.
+    useEffect(() => {
+        if (!isLoggedIn) return
+        if (activeServerId || servers.length === 0) return
+        const preferred = servers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') || servers[0]
+        if (preferred) {
+            setActiveServer(preferred.id)
+        }
+    }, [activeServerId, servers, setActiveServer, isLoggedIn])
+
+    // When unified sidebar requested server settings for this server, open the modal.
+    useEffect(() => {
+        if (!openServerSettingsForServerId || openServerSettingsForServerId !== activeServerId) return
+        if (isMobileViewport) {
+            pushToast({
+                level: 'info',
+                title: 'Desktop-only for now',
+                message: 'Server Settings are currently available on desktop screens only.',
+            })
+            setOpenServerSettingsForServerId(null)
+            setOpenServerSettingsForServerTab(null)
+            return
+        }
+        setServerSettingsTab(openServerSettingsForServerTab ?? 'overview')
+        setServerSettingsServerId(activeServerId)
+        setShowServerSettings(true)
+        setOpenServerSettingsForServerId(null)
+        setOpenServerSettingsForServerTab(null)
+    }, [
+        activeServerId,
+        isMobileViewport,
+        openServerSettingsForServerId,
+        openServerSettingsForServerTab,
+        pushToast,
+        setOpenServerSettingsForServerId,
+        setOpenServerSettingsForServerTab,
+    ])
+
+    useEffect(() => {
+        if (!isMobileViewport || !showServerSettings) return
+        setShowServerSettings(false)
+        setServerSettingsServerId(null)
+    }, [isMobileViewport, showServerSettings])
+
+    useEffect(() => {
+        if (!activeServerId || !isLoggedIn) return
+        const serverId = activeServerId
+        const requestId = ++serverBootstrapRequestRef.current
+        let cancelled = false
+        const hasCachedChannels = (useAppStore.getState().channelsByServerId[serverId] ?? []).length > 0
+        setServerBootstrapLoading(!hasCachedChannels)
+        Promise.all([
+            serverApi.channels(serverId, token),
+            channelApi.listCategories(serverId, token).catch(() => []),
+        ]).then(([chs, categories]) => {
+            setChannelsForServer(serverId, chs)
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            if (cancelled || requestId !== serverBootstrapRequestRef.current || activeServerIdRef.current !== serverId) {
+                return
+            }
+            setChannels(chs)
+            setChannelCategories(categories.map((c) => c.name))
+            const currentActive = activeChannelIdRef.current
+            const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
+            if (!stillValid) {
+                const stored = getStoredChannelId(serverId)
+                const storedValid = !!stored && chs.some((c) => c.id === stored && c.channel_type === 'text')
+                const target = storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null)
+                setActiveChannel(target)
+            }
+        }).catch(console.error).finally(() => {
+            if (!cancelled && requestId === serverBootstrapRequestRef.current && activeServerIdRef.current === serverId) {
+                setServerBootstrapLoading(false)
+            }
+        })
+
+        serverApi.get(serverId, token).then((detail) => {
+            setMembersForServer(serverId, detail.members)
+            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+            if (!cancelled && requestId === serverBootstrapRequestRef.current && activeServerIdRef.current === serverId) {
+                setMembers(detail.members)
+            }
+        }).catch(console.error)
+        return () => {
+            cancelled = true
+        }
+    }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
+
+    const refreshActiveServerView = useCallback(async (serverId: string) => {
+        if (!isLoggedIn) return
+        try {
+            const [chs, categories, detail] = await Promise.all([
+                serverApi.channels(serverId, token),
+                channelApi.listCategories(serverId, token).catch(() => []),
+                serverApi.get(serverId, token),
+            ])
+            setChannelsForServer(serverId, chs)
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setMembersForServer(serverId, detail.members)
+            setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+            if (activeServerIdRef.current === serverId) {
+                setChannels(chs)
+                setChannelCategories(categories.map((c) => c.name))
+                setMembers(detail.members)
+            }
+        } catch (err) {
+            console.error(err)
+        }
+    }, [isLoggedIn, token, setChannels, setChannelsForServer, setMembers, setMembersForServer])
+
+    useEffect(() => {
+        if (activeServerId && activeChannelId) {
+            const currentChannel = channels.find((c) => c.id === activeChannelId)
+            if (currentChannel && currentChannel.server_id === activeServerId && currentChannel.channel_type === 'text') {
+                setStoredChannelId(activeServerId, activeChannelId)
+            }
+        }
+    }, [activeServerId, activeChannelId, channels])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        const requestId = ++channelMessagesRequestRef.current
+        let cancelled = false
+        setChannelSearch('')
+        setChannelSearchResults(null)
+        setHasMoreOlder(true)
+        setOlderMessagesReady(false)
+        const cached = messagesByChannelRef.current[channelId]
+        setMessages(cached ?? [])
+        messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
+            messagesByChannelRef.current[channelId] = merged
+            if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
+                return
+            }
+            setMessages(merged)
+            setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+            setOlderMessagesReady(true)
+        }).catch((err) => {
+            console.error(err)
+            if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
+                return
+            }
+            setHasMoreOlder(false)
+            setOlderMessagesReady(true)
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [activeChannelId, isLoggedIn, token])
+
+    const refreshActiveChannelMessages = useCallback(async (channelId: string) => {
+        if (!isLoggedIn) return
+        try {
+            const cached = messagesByChannelRef.current[channelId] ?? []
+            const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const merged = mergeRemoteWithRetryableLocals(ui, cached)
+            messagesByChannelRef.current[channelId] = merged
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(merged)
+                setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+                setOlderMessagesReady(true)
+            }
+        } catch (err) {
+            console.error(err)
+            if (activeChannelIdRef.current === channelId) {
+                setHasMoreOlder(false)
+                setOlderMessagesReady(true)
+            }
+        }
+    }, [isLoggedIn, token])
+
+    const ensureChannelMessageLoaded = useCallback(async (channelId: string, messageId: string) => {
+        if (!isLoggedIn) return false
+        let current = messagesByChannelRef.current[channelId] ?? []
+        if (current.length === 0) {
+            const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            current = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+        }
+        if (current.some((message) => message.id === messageId)) {
+            messagesByChannelRef.current[channelId] = current
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(current)
+            }
+            return true
+        }
+        let before = current[0]?.id
+        while (before) {
+            const rows = await messageApi.list(channelId, token, before, MESSAGE_PAGE_SIZE)
+            if (rows.length === 0) break
+            const older = rows
+                .map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+                .filter((message) => !current.some((existing) => existing.id === message.id))
+            if (older.length === 0) break
+            current = [...older, ...current]
+            messagesByChannelRef.current[channelId] = current
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(current)
+            }
+            if (current.some((message) => message.id === messageId)) {
+                return true
+            }
+            if (rows.length < MESSAGE_PAGE_SIZE) break
+            const nextBefore = current[0]?.id
+            if (!nextBefore || nextBefore === before) break
+            before = nextBefore
+        }
+        return current.some((message) => message.id === messageId)
+    }, [isLoggedIn, token])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        let cancelled = false
+        const q = channelSearch.trim()
+        if (!q) {
+            setChannelSearchResults(null)
+            return
+        }
+        const id = window.setTimeout(() => {
+            messageApi.search(channelId, q, token)
+                .then((rows) => {
+                    if (!cancelled && activeChannelIdRef.current === channelId) setChannelSearchResults(rows)
+                })
+                .catch(() => {
+                    if (!cancelled && activeChannelIdRef.current === channelId) setChannelSearchResults([])
+                })
+        }, 220)
+        return () => {
+            cancelled = true
+            window.clearTimeout(id)
+        }
+    }, [activeChannelId, channelSearch, token, isLoggedIn])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn || !olderMessagesReady) return
+        const pendingJump = getPendingSavedMediaJump()
+        if (!pendingJump || pendingJump.source !== 'server' || pendingJump.channelId !== activeChannelId) return
+        let cancelled = false
+        void (async () => {
+            const found = await ensureChannelMessageLoaded(activeChannelId, pendingJump.messageId)
+            if (cancelled) return
+            if (found) {
+                setPendingSavedJumpMessageId(pendingJump.messageId)
+            }
+            clearPendingSavedMediaJump()
+        })().catch(() => {
+            clearPendingSavedMediaJump()
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [activeChannelId, ensureChannelMessageLoaded, isLoggedIn, olderMessagesReady])
+
+    useEffect(() => {
+        if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        let cancelled = false
+        messageApi.listPins(channelId, token)
+            .then((pins) => {
+                if (!cancelled && activeChannelIdRef.current === channelId) setChannelPins(pins)
+            })
+            .catch(() => {
+                if (!cancelled && activeChannelIdRef.current === channelId) setChannelPins([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [activeChannelId, token, isLoggedIn])
+
+    const refreshChannelPins = useCallback(() => {
+        if (!activeChannelId) return
+        const channelId = activeChannelId
+        messageApi.listPins(channelId, token)
+            .then((pins) => {
+                if (activeChannelIdRef.current === channelId) setChannelPins(pins)
+            })
+            .catch(() => {
+                if (activeChannelIdRef.current === channelId) setChannelPins([])
+            })
+    }, [activeChannelId, token])
+
+    useEffect(() => {
+        if (!isLoggedIn) return
+        const unsubscribe = onReconnect(() => {
+            setServersLoading(true)
+            serverApi.list(token)
+                .then(setServers)
+                .catch(() => {})
+                .finally(() => setServersLoading(false))
+
+            friendApi.list(token).then(setFriends).catch(() => {})
+
+            const currentServerId = activeServerIdRef.current
+            if (currentServerId) {
+                void refreshActiveServerView(currentServerId)
+            }
+
+            const currentChannelId = activeChannelIdRef.current
+            if (currentChannelId) {
+                void refreshActiveChannelMessages(currentChannelId)
+                messageApi.listPins(currentChannelId, token)
+                    .then((pins) => {
+                        if (activeChannelIdRef.current === currentChannelId) setChannelPins(pins)
+                    })
+                    .catch(() => {
+                        if (activeChannelIdRef.current === currentChannelId) setChannelPins([])
+                    })
+            }
+        })
+        return () => unsubscribe()
+    }, [isLoggedIn, onReconnect, refreshActiveChannelMessages, refreshActiveServerView, setFriends, setServers, setServersLoading, token])
+
+    const handlePinChannelMessage = useCallback(async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn) return
+        try {
+            await messageApi.pinMessage(activeChannelId, messageId, token)
+            refreshChannelPins()
+        } catch (e) {
+            pushToast({ level: 'error', title: 'Pin failed', message: e instanceof Error ? e.message : 'Failed to pin' })
+        }
+    }, [activeChannelId, token, isLoggedIn, refreshChannelPins, pushToast])
+
+    const handleUnpinChannelMessage = useCallback(async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn) return
+        try {
+            await messageApi.unpinMessage(activeChannelId, messageId, token)
+            refreshChannelPins()
+        } catch (e) {
+            pushToast({ level: 'error', title: 'Unpin failed', message: e instanceof Error ? e.message : 'Failed to unpin' })
+        }
+    }, [activeChannelId, token, isLoggedIn, refreshChannelPins, pushToast])
+
+    const loadOlderMessages = useCallback(async () => {
+        if (!activeChannelId || !isLoggedIn || loadingOlder || !hasMoreOlder) return
+        const channelId = activeChannelId
+        const current = messagesByChannelRef.current[channelId] ?? []
+        const oldestId = current[0]?.id
+        if (!oldestId) return
+        setLoadingOlder(true)
+        try {
+            const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const merged = [...ui, ...current]
+            messagesByChannelRef.current[channelId] = merged
+            if (activeChannelIdRef.current !== channelId) return
+            setMessages(merged)
+            if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
+            const scrollEl = messagesScrollRef.current
+            if (scrollEl && rows.length > 0) {
+                const estimateRowHeight = 64
+                requestAnimationFrame(() => {
+                    scrollEl.scrollTop += rows.length * estimateRowHeight
+                })
+            }
+        } catch (e) {
+            console.error('Load older messages failed', e)
+        } finally {
+            setLoadingOlder(false)
+        }
+    }, [activeChannelId, isLoggedIn, token, loadingOlder, hasMoreOlder])
+
+    useEffect(() => {
+        if (!activeChannelId || !isViewActive) {
+            setChannelUnreadDividerCount(0)
+            return
+        }
+
+        const unreadCount = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
+        setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
+        clearServerUnread(activeChannelId)
+        clearServerMention(activeChannelId)
+    }, [activeChannelId, clearServerMention, clearServerUnread, isViewActive])
+
+    useEffect(() => {
+        if (!activeChannelId) return
+        const draft = sessionStorage.getItem('voxpery-draft-mention')
+        if (!draft) return
+        setMessageInput((prev) => (prev.trim() ? prev : draft))
+        sessionStorage.removeItem('voxpery-draft-mention')
+    }, [activeChannelId])
+
+    // ─── WebSocket ─────────────────────────────
+
+    // Handle incoming messages
+    const handleWsEvent = useCallback((data: unknown) => {
+        try {
+            const ev = data as { type?: string; data?: Record<string, unknown> }
+            if (!ev || typeof ev.type !== 'string') return
+            const d = ev.data ?? {}
+            const refreshServerSnapshot = (sid: string, t: string | null, refreshChannels: boolean) => {
+                const detailPromise = serverApi.get(sid, t)
+                const channelsPromise = refreshChannels
+                    ? serverApi.channels(sid, t).catch(() => [] as Channel[])
+                    : Promise.resolve([] as Channel[])
+                const categoriesPromise = refreshChannels
+                    ? channelApi.listCategories(sid, t).catch(() => [])
+                    : Promise.resolve([] as Array<{ name: string }>)
+                Promise.all([detailPromise, channelsPromise, categoriesPromise])
+                    .then(([detail, chs, categories]) => {
+                        const store = useAppStore.getState()
+                        store.setMembersForServer(sid, detail.members ?? [])
+                        if (activeServerIdRef.current === sid) {
+                            store.setMembers(detail.members ?? [])
+                        }
+                        setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+
+                        if (!refreshChannels) return
+                        store.setChannelsForServer(sid, chs)
+                        setChannelServerMap((prev) => {
+                            const next = { ...prev }
+                            for (const ch of chs) next[ch.id] = ch.server_id
+                            return next
+                        })
+                        if (activeServerIdRef.current !== sid) return
+                        setChannels(chs)
+                        setChannelCategories(categories.map((c) => c.name))
+                        const currentActive = activeChannelIdRef.current
+                        const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
+                        if (!stillValid) {
+                            const target = chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null
+                            store.setActiveChannel(target)
+                        }
+                    })
+                    .catch(() => { })
+            }
+            switch (ev.type) {
+                case 'NewMessage': {
+                    const incomingChannelId = d.channel_id as string | undefined
+                    const rawMsg = d.message
+                    if (!incomingChannelId || !rawMsg) break
+                    const incoming = rawMsg as MessageWithAuthor
+                    const isCurrentVisibleChannel =
+                        incomingChannelId === activeChannelIdRef.current
+                        && isViewActive
+                    if (isCurrentVisibleChannel) {
+                        setMessages((prev) => {
+                            if (prev.some((m) => m.id === incoming.id)) return prev
+                            const withoutMatchingOptimistic = prev.filter((m) => !(
+                                m.clientStatus === 'sending' &&
+                                m.author?.user_id === incoming.author?.user_id &&
+                                m.content === incoming.content
+                            ))
+                            const next = [...withoutMatchingOptimistic, incoming]
+                            messagesByChannelRef.current[incomingChannelId] = next
+                            return next
+                        })
+                    } else {
+                        const cached = messagesByChannelRef.current[incomingChannelId]
+                        if (cached?.length && !cached.some((m) => m.id === incoming.id)) {
+                            messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
+                        }
+                        if (incoming.author?.user_id !== user?.id) {
+                            const incomingServerId = channelServerMapRef.current[incomingChannelId]
+                            if (!incomingServerId || !mutedServerIds.includes(incomingServerId)) {
+                                incrementServerUnread(incomingChannelId)
+                                const isMention = messageMentionsUser(incoming.content, user?.username)
+                                if (isMention) {
+                                    incrementServerMention(incomingChannelId)
+                                }
+                                if (
+                                    incomingServerId &&
+                                    isMention &&
+                                    shouldPlayNotificationSound(user?.status)
+                                ) {
+                                    playMessageNotificationSound()
+                                }
+                            }
+                        }
+                    }
+                    break
+                }
+                case 'MessageDeleted': {
+                    const channelId = d.channel_id as string | undefined
+                    const messageId = d.message_id as string | undefined
+                    if (!channelId || !messageId) break
+                    if (channelId === activeChannelIdRef.current) {
+                        setMessages((prev) => prev.filter((m) => m.id !== messageId))
+                    }
+                    const cached = messagesByChannelRef.current[channelId]
+                    if (cached) {
+                        messagesByChannelRef.current[channelId] = cached.filter((m) => m.id !== messageId)
+                    }
+                    break
+                }
+                case 'MessageUpdated': {
+                    const channelId = d.channel_id as string | undefined
+                    const message = d.message as MessageWithAuthor | undefined
+                    if (!channelId || !message?.id) break
+                    if (channelId === activeChannelIdRef.current) {
+                        setMessages((prev) => prev.map((m) => (m.id === message.id ? message : m)))
+                    }
+                    const cached = messagesByChannelRef.current[channelId]
+                    if (cached) {
+                        messagesByChannelRef.current[channelId] = cached.map((m) => (m.id === message.id ? message : m))
+                    }
+                    break
+                }
+                case 'PresenceUpdate': {
+                    const user_id = d.user_id as string | undefined
+                    const status = d.status as string | undefined
+                    if (!user_id || !status) break
+                    const store = useAppStore.getState()
+
+                    const members = store.members ?? []
+                    if (members.some((m) => m.user_id === user_id)) {
+                        store.setMembers(members.map((m) => m.user_id === user_id ? { ...m, status } : m))
+                    }
+
+                    Object.entries(store.membersByServerId ?? {}).forEach(([sid, cache]) => {
+                        if (cache.some((m) => m.user_id === user_id)) {
+                            store.setMembersForServer(sid, cache.map((m) => m.user_id === user_id ? { ...m, status } : m))
+                        }
+                    })
+                    break
+                }
+                case 'UserUpdated': {
+                    const updated = d.user as { id?: string; username?: string; avatar_url?: string | null; status?: string } | undefined
+                    const user_id = updated?.id
+                    if (!user_id) break
+                    const store = useAppStore.getState()
+
+                    const members = store.members ?? []
+                    if (members.some((m) => m.user_id === user_id)) {
+                        store.setMembers(
+                            members.map((m) =>
+                                m.user_id === user_id
+                                    ? {
+                                        ...m,
+                                        username: updated.username ?? m.username,
+                                        avatar_url: updated.avatar_url ?? null,
+                                        status: updated.status ?? m.status,
+                                    }
+                                    : m,
+                            ),
+                        )
+                    }
+
+                    Object.entries(store.membersByServerId ?? {}).forEach(([sid, cache]) => {
+                        if (!cache.some((m) => m.user_id === user_id)) return
+                        store.setMembersForServer(
+                            sid,
+                            cache.map((m) =>
+                                m.user_id === user_id
+                                    ? {
+                                        ...m,
+                                        username: updated.username ?? m.username,
+                                        avatar_url: updated.avatar_url ?? null,
+                                        status: updated.status ?? m.status,
+                                    }
+                                    : m,
+                            ),
+                        )
+                    })
+                    break
+                }
+                case 'MemberJoined': {
+                    const eventSid = d.server_id as string | undefined
+                    if (!eventSid) break
+                    const t = tokenRef.current ?? null
+                    refreshServerSnapshot(eventSid, t, false)
+                    break
+                }
+                case 'MemberRoleUpdated': {
+                    const sid = d.server_id as string | undefined
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    refreshServerSnapshot(sid, t, true)
+                    break
+                }
+                case 'ServerRolesUpdated': {
+                    const sid = d.server_id as string | undefined
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    refreshServerSnapshot(sid, t, true)
+                    break
+                }
+                case 'ServerChannelsUpdated': {
+                    const sid = d.server_id as string | undefined
+                    if (!sid) break
+                    const t = tokenRef.current ?? null
+                    refreshServerSnapshot(sid, t, true)
+                    break
+                }
+                case 'MemberLeft': {
+                    const leftUserId = d.user_id as string | undefined
+                    const sid = d.server_id as string | undefined
+                    if (!leftUserId || !sid) break
+                    const store = useAppStore.getState()
+                    const filterList = (list: typeof store.members) => list.filter((m) => m.user_id !== leftUserId)
+
+                    if (activeServerIdRef.current === sid) {
+                        store.setMembers(filterList(store.members ?? []))
+                    }
+                    const cached = store.membersByServerId[sid] ?? []
+                    if (cached.length > 0) {
+                        store.setMembersForServer(sid, filterList(cached))
+                    }
+                    break
+                }
+                case 'VoiceStateUpdate': {
+                    const channel_id = d.channel_id as string | null | undefined
+                    const user_id = d.user_id as string | undefined
+                    const server_id = d.server_id as string | null | undefined
+                    if (!user_id) break
+                    const store = useAppStore.getState()
+                    store.setVoiceState(user_id, channel_id ?? null)
+                    store.setVoiceStateServerId(user_id, server_id ?? null)
+                    if (server_id && channel_id) {
+                        const activeMembers = activeServerIdRef.current === server_id ? (store.members ?? []) : []
+                        const cachedMembers = store.membersByServerId[server_id] ?? []
+                        const knowsMember =
+                            activeMembers.some((m) => m.user_id === user_id)
+                            || cachedMembers.some((m) => m.user_id === user_id)
+                        if (!knowsMember) {
+                            const t = tokenRef.current ?? null
+                            refreshServerSnapshot(server_id, t, false)
+                        }
+                    }
+                    break
+                }
+                case 'VoiceControlUpdate': {
+                    const user_id = d.user_id as string | undefined
+                    const muted = d.muted
+                    const deafened = d.deafened
+                    const server_muted = d.server_muted
+                    const server_deafened = d.server_deafened
+                    const screen_sharing = d.screen_sharing
+                    const camera_on = d.camera_on
+                    if (!user_id) break
+                    const store = useAppStore.getState()
+                    store.setVoiceControl(
+                        user_id,
+                        !!muted,
+                        !!deafened,
+                        !!screen_sharing,
+                        !!server_muted,
+                        !!server_deafened,
+                    )
+                    store.setVoiceCamera(user_id, !!camera_on)
+                    break
+                }
+            }
+        } catch (err) {
+            console.error('AppLayout WS handler error:', err)
+        }
+    }, [incrementServerMention, incrementServerUnread, isViewActive, mutedServerIds, setChannels, user?.id, user?.status, user?.username])
+
+    // Subscribe to WebSocket events (connection is managed globally by AppShell)
+    useEffect(() => {
+        if (!isLoggedIn) return
+
+        const unsubscribe = subscribe(handleWsEvent)
+
+        return () => {
+            unsubscribe()
+        }
+    }, [isLoggedIn, token, connect, subscribe, handleWsEvent])
+
+    // Subscribe to all known server channels so unread state works across servers.
+    useEffect(() => {
+        if (!isConnected || allKnownChannelIds.length === 0) return
+        send('Subscribe', { channel_ids: allKnownChannelIds })
+        return () => {
+            send('Unsubscribe', { channel_ids: allKnownChannelIds })
+        }
+    }, [allKnownChannelIds, isConnected, send])
+
+    // ─── Handlers ──────────────────────────────
+
+    const handleSendMessage = async (e?: FormEvent, forceContent?: string) => {
+        e?.preventDefault()
+        if (!canSendMessages) return
+        if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        if (hasPendingDraftAttachments(draftAttachments)) {
+            pushToast({
+                level: 'error',
+                title: 'Attachment still pending',
+                message: 'Finish uploading attachments or retry failed ones before sending.',
+            })
+            return
+        }
+        const attachments = getUploadedDraftAttachments(draftAttachments)
+        const inputValue = typeof forceContent === 'string' ? forceContent : messageInput
+        if ((!inputValue.trim() && attachments.length === 0)) return
+        const bodyText = inputValue.trim()
+        const content = replyingTo
+            ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
+            : bodyText
+        setReplyingTo(null)
+        const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const optimisticId = `local-${clientId}`
+        const optimistic: UiMessage = {
+            id: optimisticId,
+            channel_id: channelId,
+            content,
+            attachments,
+            created_at: new Date().toISOString(),
+            edited_at: null,
+            author: {
+                user_id: user?.id ?? 'local',
+                username: user?.username ?? 'You',
+                avatar_url: user?.avatar_url,
+                role_color: currentServerMember?.role_color ?? null,
+            },
+            clientId,
+            clientStatus: 'sending',
+        }
+        setMessageInput('')
+        setDraftAttachments([])
+        setMessages((prev) => {
+            const next = [...prev, optimistic]
+            messagesByChannelRef.current[channelId] = next
+            return next
+        })
+        try {
+            const msg = await messageApi.send(channelId, content, attachments, token)
+            const applySentMessage = (current: UiMessage[]) => {
+                if (current.some((m) => m.id === msg.id)) return current
+                const idx = current.findIndex((m) => m.clientId === clientId)
+                if (idx < 0) {
+                    return [...current, msg]
+                }
+                const next = [...current]
+                next[idx] = msg
+                return next
+            }
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applySentMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applySentMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
+        } catch (err) {
+            console.error('Failed to send:', err)
+            const applyFailedMessage = (current: UiMessage[]) =>
+                current.map((m) =>
+                    m.clientId === clientId
+                        ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
+                        : m
+                ) as UiMessage[]
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyFailedMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyFailedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
+        }
+    }
+
+    const handleRetryMessage = async (clientId: string) => {
+        if (!canSendMessages) return
+        if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        const target = messages.find((m) => m.clientId === clientId)
+        if (!target || target.clientStatus !== 'failed') return
+        setMessages((prev) => {
+            const next = prev.map((m) => (
+                m.clientId === clientId ? { ...m, clientStatus: 'sending' as const, clientError: undefined } : m
+            )) as UiMessage[]
+            messagesByChannelRef.current[channelId] = next
+            return next
+        })
+        try {
+            const msg = await messageApi.send(channelId, target.content, target.attachments ?? [], token)
+            const applyRetriedMessage = (current: UiMessage[]) => {
+                if (current.some((m) => m.id === msg.id)) {
+                    return current.filter((m) => m.clientId !== clientId)
+                }
+                return current.map((m) => (m.clientId === clientId ? msg : m))
+            }
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyRetriedMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyRetriedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
+        } catch (err) {
+            const applyFailedRetry = (current: UiMessage[]) =>
+                current.map((m) =>
+                    m.clientId === clientId
+                        ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Retry failed' }
+                        : m
+                ) as UiMessage[]
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyFailedRetry(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyFailedRetry(messagesByChannelRef.current[channelId] ?? [])
+            }
+        }
+    }
+
+    const handleToggleChannelReaction = async (
+        messageId: string,
+        emoji: string,
+        reacted: boolean,
+    ) => {
+        if (!activeChannelId || !isLoggedIn || !canSendMessages) return
+        try {
+            const updated = reacted
+                ? await messageApi.removeReaction(messageId, emoji, token)
+                : await messageApi.addReaction(messageId, emoji, token)
+            setMessages((prev) => {
+                const next = prev.map((m) => (m.id === updated.id ? { ...updated } : m))
+                messagesByChannelRef.current[activeChannelId] = next
+                return next
+            })
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Reaction failed',
+                message: err instanceof Error ? err.message : 'Could not update reaction.',
+            })
+        }
+    }
+
+    const handleDeleteMessage = async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn) return
+        const isLocalOptimistic = messageId.startsWith('local-')
+        if (isLocalOptimistic) {
+            setMessages((prev) => {
+                const next = prev.filter((m) => m.id !== messageId)
+                messagesByChannelRef.current[activeChannelId] = next
+                return next
+            })
+            setDeleteMessageConfirmId(null)
+            return
+        }
+        try {
+            await messageApi.delete(messageId, token)
+            setMessages((prev) => {
+                const next = prev.filter((m) => m.id !== messageId)
+                messagesByChannelRef.current[activeChannelId] = next
+                return next
+            })
+            setDeleteMessageConfirmId(null)
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Delete failed',
+                message: err instanceof Error ? err.message : 'Could not delete message',
+            })
+            setDeleteMessageConfirmId(null)
+        }
+    }
+
+    const handleReplyToMessage = useCallback((msg: { id: string; author?: { username?: string }; content: string }) => {
+        const username = msg.author?.username ?? 'User'
+        const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
+        setReplyingTo({ id: msg.id, username, contentSnippet: snippet })
+    }, [])
+
+    const handleSaveEdit = useCallback(async () => {
+        if (!editingMessageId || !isLoggedIn) return
+        const body = editingContent.trim()
+        if (!body && !editingReplyQuotePart) return
+        const contentToSend = editingReplyQuotePart ? `${editingReplyQuotePart}\n\n${body}` : body
+        try {
+            const updated = await messageApi.edit(editingMessageId, contentToSend, token)
+            setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+            if (activeChannelId) messagesByChannelRef.current[activeChannelId] = (messagesByChannelRef.current[activeChannelId] ?? []).map((m) => (m.id === updated.id ? updated : m))
+            setEditingMessageId(null)
+            setEditingContent('')
+            setEditingReplyQuotePart(null)
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Edit failed',
+                message: err instanceof Error ? err.message : 'Could not edit message',
+            })
+        }
+    }, [editingMessageId, editingContent, editingReplyQuotePart, token, activeChannelId, pushToast, isLoggedIn])
+
+    const handleCancelEdit = useCallback(() => {
+        setEditingMessageId(null)
+        setEditingContent('')
+        setEditingReplyQuotePart(null)
+    }, [])
+
+    const handleAttachmentPick = async (files: FileList | null) => {
+        if (!files) return
+        const incoming = Array.from(files)
+        const remainingSlots = Math.max(0, 4 - draftAttachments.length)
+        if (remainingSlots === 0) {
+            pushToast({
+                level: 'error',
+                title: 'Upload blocked',
+                message: 'Maximum 4 attachments per message.',
+            })
+            return
+        }
+        const list = incoming.slice(0, remainingSlots)
+        if (incoming.length > remainingSlots) {
+            pushToast({
+                level: 'error',
+                title: 'Upload blocked',
+                message: 'Maximum 4 attachments per message.',
+            })
+        }
+        const allowed: File[] = []
+        const oversized: string[] = []
+        for (const f of list) {
+            if (f.size > MAX_CHAT_ATTACHMENT_BYTES) {
+                oversized.push(f.name)
+                continue
+            }
+            allowed.push(f)
+        }
+        if (oversized.length > 0) {
+            const maxMb = getMaxChatAttachmentMb()
+            pushToast({
+                level: 'error',
+                title: 'Upload blocked',
+                message: `Maximum ${maxMb} MB per file. Too large: ${oversized.join(', ')}`,
+            })
+        }
+        if (allowed.length === 0) return
+
+        const pending = createUploadingDraftAttachments(allowed)
+        const pendingIds = pending.map((attachment) => attachment.localId)
+        setDraftAttachments((prev) => [...prev, ...pending].slice(0, 4))
+
+        try {
+            const uploaded = await attachmentApi.uploadFiles(allowed, token)
+            setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
+            pushToast({
+                level: 'error',
+                title: 'Upload failed',
+                message: errorMessage,
+            })
+        }
+    }
+
+    const handleCreateServer = async (e: FormEvent) => {
+        e.preventDefault()
+        if (createServerInFlightRef.current) return
+        setCreateServerError(null)
+        if (!newServerName.trim() || !isLoggedIn) return
+        createServerInFlightRef.current = true
+        setIsCreatingServer(true)
+        try {
+            const server = await serverApi.create(newServerName, token)
+            const allServers = await serverApi.list(token)
+            setServers(allServers)
+            setActiveServer(server.id)
+            setNewServerName('')
+            setShowCreateServer(false)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to create server.'
+            setCreateServerError(message)
+        } finally {
+            createServerInFlightRef.current = false
+            setIsCreatingServer(false)
+        }
+    }
+
+    const handleJoinServer = async (e: FormEvent) => {
+        e.preventDefault()
+        setJoinServerError(null)
+        const parsedInviteCode = parseInviteInput(inviteCode)
+        if (!parsedInviteCode || !isLoggedIn) return
+        try {
+            const server = await serverApi.join(parsedInviteCode, token)
+            const allServers = await serverApi.list(token)
+            setServers(allServers)
+            setActiveServer(server.id)
+            setInviteCode('')
+            setShowJoinServer(false)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to join server.'
+            setJoinServerError(message)
+        }
+    }
+
+    const openCreateModal = () => {
+        createServerInFlightRef.current = false
+        setIsCreatingServer(false)
+        setCreateServerError(null)
+        setShowCreateServer(true)
+    }
+    const openJoinModal = () => {
+        setJoinServerError(null)
+        setShowJoinServer(true)
+    }
+    const openServerSettingsModal = (
+        serverId?: string | null,
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+    ) => {
+        if (isMobileViewport) {
+            pushToast({
+                level: 'info',
+                title: 'Desktop-only for now',
+                message: 'Server Settings are currently available on desktop screens only.',
+            })
+            return
+        }
+        setServerSettingsError(null)
+        setDeleteServerError(null)
+        setDeleteServerInput('')
+        setShowDeleteServerConfirm(false)
+        setServerSettingsTab(initialTab)
+        setServerSettingsServerId(serverId ?? activeServerId ?? null)
+        setShowServerSettings(true)
+    }
+    const openServerSettingsForServer = (
+        serverId: string,
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+    ) => {
+        if (activeServerId !== serverId) setActiveServer(serverId)
+        openServerSettingsModal(serverId, initialTab)
+    }
+
+    const activeServer = servers.find((s) => s.id === activeServerId)
+    const savedMedia = useMemo(
+        () => (user?.id ? (savedMediaByUserId[user.id] ?? []) : []),
+        [savedMediaByUserId, user?.id],
+    )
+    const savedMessageIds = useMemo(() => new Set(savedMedia.map((item) => item.message_id)), [savedMedia])
+    const activeServerInviteLink = activeServer ? `${inviteBaseUrl}/invite/${activeServer.invite_code}` : ''
+    const isSoloServer = !!activeServer && members.length <= 1
+    const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
+    const activePerms = activeServerId ? myServerPermissions[activeServerId] ?? 0 : 0
+    const activeChannelForPerms = activeChannelId ? channels.find((c) => c.id === activeChannelId) : null
+    const activeChannelPerms =
+        activeChannelForPerms != null
+            ? (activeChannelForPerms.my_permissions ?? 0)
+            : activePerms
+    // Permissions-based gating (backend enforces same).
+    const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
+    const canSendMessages = (activeChannelPerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
+    const canManageMessages = (activeChannelPerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
+    const canManagePins = (activeChannelPerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
+    const hasManageServer = (activePerms & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
+    const canMuteMembers =
+        hasManageServer || (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
+    const canDeafenMembers =
+        hasManageServer || (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
+    const canDisconnectMembers = hasManageServer || canMuteMembers || canDeafenMembers
+    const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
+    const canManageBans = canBanMembers
+    const canViewAuditLog = (activePerms & PERM_VIEW_AUDIT_LOG) === PERM_VIEW_AUDIT_LOG
+    const settingsServer = servers.find((s) => s.id === serverSettingsServerId) ?? activeServer
+    const settingsServerId = settingsServer?.id ?? null
+    const settingsServerInviteLink = settingsServer ? `${inviteBaseUrl}/invite/${settingsServer.invite_code}` : ''
+    const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
+    const canViewReports = isOwner || canViewAuditLog || canManageBans
+    const trimmedServerSettingsName = serverSettingsName.trim()
+    const hasNameChanges = !!(
+        isOwner &&
+        settingsServer &&
+        trimmedServerSettingsName.length > 0 &&
+        trimmedServerSettingsName !== settingsServer.name
+    )
+    const effectiveServerIcon = serverSettingsIconDraft !== undefined
+        ? serverSettingsIconDraft
+        : (settingsServer?.icon_url ?? null)
+    const hasIconChanges = !!(
+        isOwner &&
+        settingsServer &&
+        serverSettingsIconDraft !== undefined &&
+        serverSettingsIconDraft !== (settingsServer.icon_url ?? null)
+    )
+    const canSaveServerSettings = hasNameChanges || hasIconChanges
+
+    useEffect(() => {
+        setServerSettingsName(settingsServer?.name ?? '')
+        setServerSettingsIconDraft(undefined)
+    }, [settingsServer?.id, settingsServer?.name])
+
+    useEffect(() => {
+        setEmptyInviteCopied(false)
+    }, [activeServerId, activeChannelId])
+
+    const copyActiveServerInvite = useCallback(() => {
+        if (!activeServerInviteLink || typeof navigator === 'undefined' || !navigator.clipboard) {
+            pushToast({
+                level: 'error',
+                title: 'Copy failed',
+                message: 'Could not copy the invite link to your clipboard.',
+            })
+            return
+        }
+        navigator.clipboard.writeText(activeServerInviteLink).then(() => {
+            setEmptyInviteCopied(true)
+            window.setTimeout(() => setEmptyInviteCopied(false), 1400)
+        }).catch(() => {
+            pushToast({
+                level: 'error',
+                title: 'Copy failed',
+                message: 'Could not copy the invite link to your clipboard.',
+            })
+        })
+    }, [activeServerInviteLink, pushToast])
+
+    const openUserReport = useCallback((target: { user_id: string; username: string }) => {
+        setReportTarget({
+            kind: 'user',
+            userId: target.user_id,
+            username: target.username,
+        })
+        setReportReason('spam')
+        setReportDetails('')
+    }, [])
+
+    const openMessageReport = useCallback((target: { id: string; author?: { user_id?: string; username?: string }; content: string }) => {
+        if (!target.author?.user_id) return
+        setReportTarget({
+            kind: 'message',
+            userId: target.author.user_id,
+            username: target.author.username ?? 'Unknown user',
+            messageId: target.id,
+            messageContent: target.content,
+        })
+        setReportReason('spam')
+        setReportDetails('')
+    }, [])
+
+    const closeReportDialog = useCallback(() => {
+        if (reportSubmitting) return
+        setReportTarget(null)
+        setReportReason('spam')
+        setReportDetails('')
+    }, [reportSubmitting])
+
+    const handleSubmitReport = useCallback(async () => {
+        if (!reportTarget || !activeServerId) return
+        setReportSubmitting(true)
+        try {
+            if (reportTarget.kind === 'user') {
+                await serverApi.reportUser(
+                    activeServerId,
+                    reportTarget.userId,
+                    reportReason,
+                    reportDetails.trim() || null,
+                    token,
+                )
+            } else if (reportTarget.messageId) {
+                await serverApi.reportMessage(
+                    activeServerId,
+                    reportTarget.messageId,
+                    reportReason,
+                    reportDetails.trim() || null,
+                    token,
+                )
+            }
+            pushToast({
+                level: 'info',
+                title: 'Report submitted',
+                message: reportTarget.kind === 'message'
+                    ? 'The message was reported to the server moderators.'
+                    : 'The user was reported to the server moderators.',
+            })
+            if (showServerSettings && serverSettingsTab === 'reports' && settingsServerId === activeServerId) {
+                const refreshed = await serverApi.listReports(activeServerId, token)
+                setReportEntries(refreshed)
+            }
+            setReportTarget(null)
+            setReportReason('spam')
+            setReportDetails('')
+        } catch (err) {
+            pushToast({
+                level: 'error',
+                title: 'Report failed',
+                message: err instanceof Error ? err.message : 'Could not submit report.',
+            })
+        } finally {
+            setReportSubmitting(false)
+        }
+    }, [activeServerId, pushToast, reportDetails, reportReason, reportTarget, serverSettingsTab, settingsServerId, showServerSettings, token])
+
+    // Load roles when Roles tab is opened.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'roles') return
+        if (!isLoggedIn || !settingsServerId) return
+        const load = async () => {
+            setRolesLoading(true)
+            setRolesError(null)
+            try {
+                const roles = await serverApi.listRoles(settingsServerId, token)
+                setServerRoles(roles)
+                if (roles.length === 0) {
+                    // No roles yet: keep editor blank until user creates one.
+                    setSelectedRoleId(null)
+                    setRoleEditName('')
+                    setRoleEditPermissions(0)
+                } else if (selectedRoleIdRef.current) {
+                    // If a specific role (or "new") was already selected, try to keep that state.
+                    const existing = roles.find((r) => r.id === selectedRoleIdRef.current)
+                    if (existing) {
+                        setSelectedRoleId(existing.id)
+                        setRoleEditName(existing.name)
+                        setRoleEditPermissions(existing.permissions)
+                    }
+                } else {
+                    // User hasn't selected anything yet: do not auto-select a role.
+                    setRoleEditName('')
+                    setRoleEditPermissions(0)
+                }
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to load roles.'
+                setRolesError(message)
+            } finally {
+                setRolesLoading(false)
+            }
+        }
+        void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    // Load audit log when Audit tab is opened.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'audit') return
+        if (!isLoggedIn || !settingsServerId) return
+        const load = async () => {
+            setAuditLogLoading(true)
+            setAuditLogError(null)
+            try {
+                const entries = await serverApi.auditLog(settingsServerId, token)
+                setAuditLogEntries(entries)
+            } catch (err) {
+                const message =
+                    err instanceof Error ? err.message : 'Failed to load audit log.'
+                setAuditLogError(message)
+            } finally {
+                setAuditLogLoading(false)
+            }
+        }
+        void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'reports') return
+        if (!isLoggedIn || !settingsServerId) return
+
+        let active = true
+        setReportEntriesLoading(true)
+        setReportEntriesError(null)
+        void serverApi
+            .listReports(settingsServerId, token)
+            .then((entries) => {
+                if (!active) return
+                setReportEntries(entries)
+            })
+            .catch((err) => {
+                if (!active) return
+                setReportEntriesError(err instanceof Error ? err.message : 'Failed to load reports.')
+            })
+            .finally(() => {
+                if (!active) return
+                setReportEntriesLoading(false)
+            })
+
+        return () => {
+            active = false
+        }
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    // Load bans when Bans tab is opened.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'bans') return
+        if (!isLoggedIn || !settingsServerId) return
+        const load = async () => {
+            setBanEntriesLoading(true)
+            setBanEntriesError(null)
+            try {
+                const entries = await serverApi.listBans(settingsServerId, token)
+                setBanEntries(entries)
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to load banned members.'
+                setBanEntriesError(message)
+            } finally {
+                setBanEntriesLoading(false)
+            }
+        }
+        void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    // When leaving Roles tab or closing Server Settings, drop any unsaved role edits.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'roles') {
+            setSelectedRoleId(null)
+            setRoleEditName('')
+            setRoleEditPermissions(0)
+            setRoleEditPreAdminPermissions(null)
+            setRolesError(null)
+        }
+    }, [showServerSettings, serverSettingsTab])
+
+    useEffect(() => {
+        setVisibleRoleCount(40)
+    }, [serverSettingsServerId, serverRoles])
+
+    const handleCreateRoleDraft = () => {
+        setRolesError(null)
+        setSelectedRoleId('new')
+        setRoleEditName('')
+        setRoleEditPermissions(0)
+        setRoleEditPreAdminPermissions(null)
+        setRoleEditColor(null)
+    }
+
+    const handleSelectRole = (role: ServerRole) => {
+        if (selectedRoleId === role.id) {
+            // Toggle off: collapse editor for this role.
+            setSelectedRoleId(null)
+            setRoleEditName('')
+            setRoleEditPermissions(0)
+            setRoleEditPreAdminPermissions(null)
+            return
+        }
+        setSelectedRoleId(role.id)
+        setRoleEditName(role.name)
+        setRoleEditPermissions(role.permissions)
+        setRoleEditPreAdminPermissions(null)
+        setRoleEditColor(role.color)
+    }
+
+    const handleDropRole = async (targetRoleId: string) => {
+        if (!draggingRoleId || !settingsServer) return
+        if (draggingRoleId === targetRoleId) return
+        const fromIndex = serverRoles.findIndex((r) => r.id === draggingRoleId)
+        const toIndex = serverRoles.findIndex((r) => r.id === targetRoleId)
+        if (fromIndex === -1 || toIndex === -1) return
+
+        const previous = [...serverRoles]
+        const next = [...serverRoles]
+        const [moved] = next.splice(fromIndex, 1)
+        next.splice(toIndex, 0, moved)
+        setServerRoles(next)
+        setDraggingRoleId(null)
+        try {
+            await serverApi.reorderRoles(
+                settingsServer.id,
+                next.map((r) => r.id),
+                token,
+            )
+        } catch (err) {
+            setServerRoles(previous)
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Failed to reorder roles.'
+            setRolesError(message)
+        }
+    }
+
+    const handleToggleRolePermission = (bit: number, isFullAdmin: boolean, checked: boolean) => {
+        const ADMIN_MASK =
+            PERM_VIEW_SERVER |
+            PERM_MANAGE_SERVER |
+            PERM_MANAGE_ROLES |
+            PERM_MANAGE_CHANNELS |
+            PERM_KICK_MEMBERS |
+            PERM_BAN_MEMBERS |
+            PERM_VIEW_AUDIT_LOG |
+            PERM_SEND_MESSAGES |
+            PERM_MANAGE_MESSAGES |
+            PERM_MANAGE_PINS |
+            PERM_CONNECT_VOICE |
+            PERM_MUTE_MEMBERS |
+            PERM_DEAFEN_MEMBERS
+
+        if (isFullAdmin) {
+            if (checked) {
+                // Snapshot current custom set once, so unchecking Full admin can restore it.
+                if ((roleEditPermissions & PERM_MANAGE_SERVER) !== PERM_MANAGE_SERVER) {
+                    setRoleEditPreAdminPermissions(roleEditPermissions)
+                }
+                setRoleEditPermissions(roleEditPermissions | ADMIN_MASK)
+            } else {
+                const restored =
+                    roleEditPreAdminPermissions != null
+                        ? roleEditPreAdminPermissions
+                        : (roleEditPermissions & ~ADMIN_MASK)
+                setRoleEditPermissions(restored)
+                setRoleEditPreAdminPermissions(null)
+            }
+            return
+        }
+
+        const next = checked ? roleEditPermissions | bit : roleEditPermissions & ~bit
+        setRoleEditPermissions(next)
+    }
+
+    const handleCancelRoleEdit = () => {
+        setSelectedRoleId(null)
+        setRoleEditName('')
+        setRoleEditPermissions(0)
+        setRoleEditPreAdminPermissions(null)
+        setRoleEditColor(null)
+    }
+
+    const handleSaveRole = async () => {
+        if (!settingsServer) return
+        const existing = selectedRoleId
+            ? serverRoles.find((r) => r.id === selectedRoleId)
+            : undefined
+        try {
+            if (!existing) {
+                await serverApi.createRole(
+                    settingsServer.id,
+                    roleEditName.trim(),
+                    roleEditPermissions,
+                    token,
+                    roleEditColor,
+                )
+            } else {
+                await serverApi.updateRole(
+                    settingsServer.id,
+                    existing.id,
+                    {
+                        name: roleEditName.trim(),
+                        permissions: roleEditPermissions,
+                        color: roleEditColor,
+                    },
+                    token,
+                )
+            }
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Failed to save role.'
+            setRolesError(message)
+            return
+        }
+
+        // Prevent duplicate submissions if the follow-up refresh fails.
+        handleCancelRoleEdit()
+
+        try {
+            const roles = await serverApi.listRoles(
+                settingsServer.id,
+                token,
+            )
+            setServerRoles(roles)
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : 'Role was saved, but the latest role list could not be loaded.'
+            setRolesError(message)
+            pushToast({
+                level: 'error',
+                title: 'Role refresh failed',
+                message: 'The role change was saved, but the role list could not be refreshed yet.',
+            })
+        }
+    }
+
+    const handleRetryDraftAttachment = useCallback(async (localId: string) => {
+        const target = draftAttachments.find((attachment) => attachment.localId === localId)
+        if (!target?.file) return
+        setDraftAttachments((prev) => setDraftAttachmentUploading(prev, localId))
+        try {
+            const [uploaded] = await attachmentApi.uploadFiles([target.file], token)
+            if (!uploaded) throw new Error('Could not upload attachment.')
+            setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+            pushToast({
+                level: 'error',
+                title: 'Upload failed',
+                message: errorMessage,
+            })
+        }
+    }, [draftAttachments, pushToast, token])
+
+    const handleServerSettingsProfileRender = useCallback(
+        (
+            id: string,
+            phase: 'mount' | 'update' | 'nested-update',
+            actualDuration: number,
+            baseDuration: number,
+            startTime: number,
+            commitTime: number,
+        ) => {
+            const store = ((window as unknown as { __voxperyProfile?: Array<Record<string, unknown>> }).__voxperyProfile ??= [])
+            store.push({
+                id,
+                phase,
+                actualDuration,
+                baseDuration,
+                startTime,
+                commitTime,
+                at: Date.now(),
+            })
+            if (store.length > 400) {
+                store.splice(0, store.length - 400)
+            }
+        },
+        []
+    )
+
+    const refreshServerList = useCallback(async () => {
+        if (!isLoggedIn) return []
+        const allServers = await serverApi.list(token)
+        setServers(allServers)
+        return allServers
+    }, [setServers, isLoggedIn, token])
+
+    const handleUpdateServerSettings = async () => {
+        if (!isLoggedIn || !settingsServer) return
+        if (!canSaveServerSettings) return
+        setServerSettingsError(null)
+        try {
+            const payload: { name?: string; icon_url?: string; clear_icon?: boolean } = {}
+            if (hasNameChanges) payload.name = trimmedServerSettingsName
+            if (hasIconChanges) {
+                if (serverSettingsIconDraft == null) payload.clear_icon = true
+                else payload.icon_url = serverSettingsIconDraft
+            }
+            await serverApi.update(settingsServer.id, payload, token)
+            await refreshServerList()
+            setServerSettingsIconDraft(undefined)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to update server settings.'
+            setServerSettingsError(message)
+        }
+    }
+
+    const actuallyCloseServerSettings = useCallback(() => {
+        setShowServerSettings(false)
+        setServerSettingsError(null)
+        setServerSettingsServerId(null)
+        setCopiedInvite(null)
+        setServerSettingsName(settingsServer?.name ?? '')
+        setServerSettingsIconDraft(undefined)
+        setShowDeleteServerConfirm(false)
+        setDeleteServerError(null)
+        setDeleteServerInput('')
+    }, [settingsServer?.name])
+
+    const handleCloseServerSettings = useCallback(() => {
+        if (canSaveServerSettings) {
+            setShowUnsavedServerSettingsConfirm(true)
+            return
+        }
+        actuallyCloseServerSettings()
+    }, [canSaveServerSettings, actuallyCloseServerSettings])
+
+    const handleServerIconPick = async (files: FileList | null) => {
+        if (!files || files.length === 0 || !settingsServer) return
+        const file = files[0]
+        if (!file.type.startsWith('image/')) {
+            pushToast({
+                level: 'error',
+                title: 'Invalid file type',
+                message: 'Only image files are supported for server icon uploads.',
+            })
+            return
+        }
+        if (file.size > MAX_IMAGE_BYTES) {
+            const maxMb = Math.round(MAX_IMAGE_BYTES / (1024 * 1024))
+            pushToast({
+                level: 'error',
+                title: 'Image too large',
+                message: `Server icon must be ${maxMb} MB or smaller.`,
+            })
+            return
+        }
+        const iconDataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(file)
+        })
+        setServerSettingsIconDraft(iconDataUrl)
+        setServerSettingsError(null)
+    }
+
+    const handleClearServerIcon = () => {
+        if (!settingsServer) return
+        setServerSettingsIconDraft(null)
+        setServerSettingsError(null)
+    }
+
+    const handleDeleteServer = useCallback(async () => {
+        if (!isLoggedIn || !settingsServer) return
+        setServerSettingsError(null)
+        setDeleteServerError(null)
+        if (deleteServerInput.trim() !== settingsServer.name) {
+            setDeleteServerError('Server name does not match.')
+            return
+        }
+        try {
+            await serverApi.delete(settingsServer.id, token)
+            const allServers = await refreshServerList()
+            const next = allServers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery')?.id ?? allServers[0]?.id ?? null
+            setActiveServer(next)
+            setShowServerSettings(false)
+            setServerSettingsServerId(null)
+            setShowDeleteServerConfirm(false)
+            setDeleteServerInput('')
+            setDeleteServerError(null)
+            setCopiedInvite(null)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to delete server.'
+            setDeleteServerError(message)
+        }
+    }, [deleteServerInput, refreshServerList, setActiveServer, token, settingsServer, isLoggedIn])
+
+    useEffect(() => {
+        if (!showServerSettings) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (
+                    channelSettingsTarget
+                    || categoryPermissionsTarget
+                    || showUnsavedServerSettingsConfirm
+                    || deleteRoleConfirmId
+                    || showDeleteServerConfirm
+                    || showRenameCategory
+                    || deleteCategoryConfirm
+                    || showRenameChannel
+                    || deleteChannelConfirm
+                    || deleteMessageConfirmId
+                ) {
+                    return
+                }
+                e.preventDefault()
+                handleCloseServerSettings()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => {
+            window.removeEventListener('keydown', onKeyDown)
+        }
+    }, [
+        showServerSettings,
+        handleCloseServerSettings,
+        channelSettingsTarget,
+        categoryPermissionsTarget,
+        showUnsavedServerSettingsConfirm,
+        deleteRoleConfirmId,
+        showDeleteServerConfirm,
+        showRenameCategory,
+        deleteCategoryConfirm,
+        showRenameChannel,
+        deleteChannelConfirm,
+        deleteMessageConfirmId,
+    ])
+
+    useEffect(() => {
+        if (
+            !showCreateChannel
+            && !showCreateCategory
+            && !showCreateServer
+            && !showJoinServer
+            && !showRenameChannel
+            && !showRenameCategory
+            && !showDeleteServerConfirm
+            && !showUnsavedServerSettingsConfirm
+            && !deleteRoleConfirmId
+            && !deleteMessageConfirmId
+            && !deleteChannelConfirm
+            && !deleteCategoryConfirm
+            && !channelSettingsTarget
+            && !categoryPermissionsTarget
+        ) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            if (deleteCategoryConfirm) {
+                setDeleteCategoryConfirm(null)
+                setDeleteCategoryError(null)
+                return
+            }
+            if (deleteChannelConfirm) {
+                setDeleteChannelConfirm(null)
+                return
+            }
+            if (deleteMessageConfirmId) {
+                setDeleteMessageConfirmId(null)
+                return
+            }
+            if (deleteRoleConfirmId) {
+                setDeleteRoleConfirmId(null)
+                return
+            }
+            if (showUnsavedServerSettingsConfirm) {
+                setShowUnsavedServerSettingsConfirm(false)
+                return
+            }
+            if (showDeleteServerConfirm) {
+                setShowDeleteServerConfirm(false)
+                setDeleteServerError(null)
+                return
+            }
+            if (showRenameCategory) {
+                setShowRenameCategory(false)
+                setRenameCategoryError(null)
+                setRenameCategoryFrom(null)
+                return
+            }
+            if (showRenameChannel) {
+                setShowRenameChannel(false)
+                setRenameChannelError(null)
+                setRenameChannelId(null)
+                return
+            }
+            if (categoryPermissionsTarget) {
+                setCategoryPermissionsTarget(null)
+                return
+            }
+            if (channelSettingsTarget) {
+                setChannelSettingsTarget(null)
+                return
+            }
+            if (showCreateChannel) {
+                setShowCreateChannel(false)
+                setCreateChannelError(null)
+                setCreateChannelCategory('')
+                return
+            }
+            if (showCreateCategory) {
+                setShowCreateCategory(false)
+                setCreateCategoryError(null)
+                return
+            }
+            if (showJoinServer) {
+                setShowJoinServer(false)
+                setJoinServerError(null)
+                return
+            }
+            if (showCreateServer) {
+                setShowCreateServer(false)
+                setCreateServerError(null)
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => {
+            window.removeEventListener('keydown', onKeyDown)
+        }
+    }, [
+        showCreateChannel,
+        showCreateCategory,
+        showCreateServer,
+        showJoinServer,
+        showRenameChannel,
+        showRenameCategory,
+        showDeleteServerConfirm,
+        showUnsavedServerSettingsConfirm,
+        deleteRoleConfirmId,
+        deleteMessageConfirmId,
+        deleteChannelConfirm,
+        deleteCategoryConfirm,
+        channelSettingsTarget,
+        categoryPermissionsTarget,
+        setShowCreateServer,
+        setShowJoinServer,
+    ])
+
+    const activeChannel = channels.find((c) => c.id === activeChannelId)
+    const handleToggleSaveChannelMessage = useCallback((msg: MessageWithAuthor) => {
+        if (!user?.id || !activeServer || !activeChannel || !Array.isArray(msg.attachments) || msg.attachments.length === 0) return
+        toggleSavedMedia(
+            user.id,
+            createSavedMediaItem(msg, {
+                kind: 'server',
+                serverId: activeServer.id,
+                serverName: activeServer.name,
+                channelId: activeChannel.id,
+                channelName: activeChannel.name,
+            }),
+        )
+    }, [activeChannel, activeServer, toggleSavedMedia, user?.id])
+    const channelCategorySuggestions = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    [...channelCategories, ...channels.map((c) => c.category ?? '')]
+                        .map((c) => c.trim())
+                        .filter((c): c is string => !!c),
+                ),
+            ).sort((a, b) => a.localeCompare(b)),
+        [channels, channelCategories],
+    )
+
+    const handleCreateChannel = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !activeServerId || !createChannelName.trim()) return
+        const validationError = validateChannelNameInput(createChannelName)
+        if (validationError) {
+            setCreateChannelError(validationError)
+            return
+        }
+        const normalizedCategory = createChannelCategory.trim() || 'GENERAL'
+        const categoryValidation = validateCategoryNameInput(normalizedCategory)
+        if (categoryValidation) {
+            setCreateChannelError(categoryValidation)
+            return
+        }
+        const descriptionValidation = validateChannelDescriptionInput(createChannelDescription)
+        if (descriptionValidation) {
+            setCreateChannelError(descriptionValidation)
+            return
+        }
+        setCreateChannelError(null)
+        try {
+            await channelApi.create(
+                activeServerId,
+                createChannelName.trim(),
+                createChannelType,
+                token,
+                normalizedCategory,
+                createChannelDescription.trim() || undefined,
+            )
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setShowCreateChannel(false)
+            setCreateChannelName('')
+            setCreateChannelType('text')
+            setCreateChannelCategory('')
+            setCreateChannelDescription('')
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to create channel.'
+            setCreateChannelError(message)
+        }
+    }
+
+    const openCreateChannelModal = () => {
+        setCreateChannelError(null)
+        setCreateChannelName('')
+        setCreateChannelType('text')
+        setCreateChannelCategory('')
+        setCreateChannelDescription('')
+        setShowCreateChannel(true)
+    }
+
+    const openCreateCategoryModal = () => {
+        setCreateCategoryError(null)
+        setCreateCategoryName('')
+        setShowCreateCategory(true)
+    }
+
+    const handleCreateCategory = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !activeServerId || !createCategoryName.trim()) return
+        const validationError = validateCategoryNameInput(createCategoryName)
+        if (validationError) {
+            setCreateCategoryError(validationError)
+            return
+        }
+        setCreateCategoryError(null)
+        try {
+            await channelApi.createCategory(activeServerId, createCategoryName.trim(), token)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
+            setShowCreateCategory(false)
+            setCreateCategoryName('')
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to create category.'
+            setCreateCategoryError(message)
+        }
+    }
+
+    const openRenameCategoryModal = (category: string) => {
+        setRenameCategoryError(null)
+        setRenameCategoryFrom(category)
+        setRenameCategoryName(category)
+        setShowRenameCategory(true)
+    }
+
+    const handleRenameCategory = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !activeServerId || !renameCategoryFrom || !renameCategoryName.trim()) return
+        const nextName = renameCategoryName.trim()
+        const validationError = validateCategoryNameInput(nextName)
+        if (validationError) {
+            setRenameCategoryError(validationError)
+            return
+        }
+        setRenameCategoryError(null)
+        try {
+            await channelApi.renameCategory(activeServerId, renameCategoryFrom, nextName, token)
+            const [chs, categories] = await Promise.all([
+                serverApi.channels(activeServerId, token),
+                channelApi.listCategories(activeServerId, token),
+            ])
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+            setChannelCategories(categories.map((c) => c.name))
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setShowRenameCategory(false)
+            setRenameCategoryFrom(null)
+            setRenameCategoryName('')
+        } catch (err: unknown) {
+            setRenameCategoryError(err instanceof Error ? err.message : 'Failed to rename category.')
+        }
+    }
+
+    const resolveDeleteCategoryMoveTarget = useCallback(
+        (categoryName: string): string => {
+            const normalized = categoryName.trim().toLowerCase()
+            const preferredGeneral = channelCategories.find(
+                (name) => name.trim().toLowerCase() === 'general',
+            )
+
+            if (preferredGeneral && preferredGeneral.trim().toLowerCase() !== normalized) {
+                return preferredGeneral
+            }
+
+            const firstOther = channelCategories.find(
+                (name) => name.trim().toLowerCase() !== normalized,
+            )
+            if (firstOther) return firstOther
+
+            return 'General'
+        },
+        [channelCategories],
+    )
+
+    const openRenameChannelModal = (channel: Channel) => {
+        setRenameChannelError(null)
+        setRenameChannelId(channel.id)
+        setRenameChannelName(channel.name)
+        setRenameChannelDescription(channel.description ?? '')
+        setShowRenameChannel(true)
+    }
+
+    const handleRenameChannel = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!isLoggedIn || !renameChannelId || !renameChannelName.trim()) return
+        const validationError = validateChannelNameInput(renameChannelName)
+        if (validationError) {
+            setRenameChannelError(validationError)
+            return
+        }
+        const descriptionValidation = validateChannelDescriptionInput(renameChannelDescription)
+        if (descriptionValidation) {
+            setRenameChannelError(descriptionValidation)
+            return
+        }
+        setRenameChannelError(null)
+        try {
+            await channelApi.rename(
+                renameChannelId,
+                renameChannelName.trim(),
+                token,
+                undefined,
+                renameChannelDescription.trim() || undefined,
+            )
+            if (!activeServerId) return
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+            setShowRenameChannel(false)
+            setRenameChannelId(null)
+            setRenameChannelName('')
+            setRenameChannelDescription('')
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to rename channel.'
+            setRenameChannelError(message)
+        }
+    }
+
+    const handleDeleteChannel = async (channel: Channel) => {
+        if (!isLoggedIn || !activeServerId) return
+        const previousChannels = channels
+        const newChs = previousChannels.filter((c) => c.id !== channel.id)
+        setChannels(newChs)
+        setChannelsForServer(activeServerId, newChs)
+        setChannelServerMap((prev) => {
+            const next = { ...prev }
+            delete next[channel.id]
+            return next
+        })
+        if (activeChannelId === channel.id) {
+            const nextText = newChs.find((c) => c.channel_type === 'text')
+            setActiveChannel(nextText?.id ?? newChs[0]?.id ?? null)
+        }
+        try {
+            await channelApi.delete(channel.id, token)
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+            const categories = await channelApi.listCategories(activeServerId, token)
+            setChannelCategories(categories.map((c) => c.name))
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of chs) next[ch.id] = ch.server_id
+                return next
+            })
+        } catch (err) {
+            setChannels(previousChannels)
+            setChannelsForServer(activeServerId, previousChannels)
+            setChannelServerMap((prev) => {
+                const next = { ...prev }
+                for (const ch of previousChannels) next[ch.id] = ch.server_id
+                return next
+            })
+            if (activeChannelId === channel.id) setActiveChannel(channel.id)
+            pushToast({
+                level: 'error',
+                title: 'Failed to delete channel',
+                message: err instanceof Error ? err.message : 'Could not delete channel',
+            })
+        } finally {
+            setDeleteChannelConfirm(null)
+        }
+    }
+
+    const orderedChannelIds = (source: Channel[]) =>
+        [...source]
+            .sort(compareChannelsForSidebar)
+            .map((c) => c.id)
+
+    const handleReorderChannels = async (
+        draggedChannelId: string,
+        targetChannelId: string,
+        position: 'before' | 'after',
+    ) => {
+        if (!isLoggedIn || !activeServerId) return
+        const dragged = channels.find((c) => c.id === draggedChannelId)
+        const target = channels.find((c) => c.id === targetChannelId)
+        if (!dragged || !target) return
+        if (dragged.channel_type !== target.channel_type) return
+
+        const previous = [...channels]
+        const targetCategory = target.category ?? 'Channels'
+        const shouldMoveCategory = (dragged.category ?? 'Channels') !== targetCategory
+
+        const ordered = [...channels].sort(compareChannelsForSidebar)
+        const withoutDragged = ordered.filter((c) => c.id !== draggedChannelId)
+        const targetIndex = withoutDragged.findIndex((c) => c.id === targetChannelId)
+        if (targetIndex < 0) return
+
+        const moved = ordered.find((c) => c.id === draggedChannelId)
+        if (!moved) return
+
+        const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+        withoutDragged.splice(insertIndex, 0, {
+            ...moved,
+            category: shouldMoveCategory ? targetCategory : moved.category,
+        })
+
+        const positionByCategory = new Map<string, number>()
+        const nextChannels = withoutDragged.map((channel) => {
+            const category = channel.category ?? 'Channels'
+            const nextPosition = positionByCategory.get(category) ?? 0
+            positionByCategory.set(category, nextPosition + 1)
+            if (channel.position === nextPosition) return channel
+            return { ...channel, position: nextPosition }
+        })
+
+        setChannels(nextChannels)
+        setChannelsForServer(activeServerId, nextChannels)
+        try {
+            if (shouldMoveCategory) {
+                await channelApi.rename(
+                    dragged.id,
+                    dragged.name,
+                    token,
+                    targetCategory,
+                    dragged.description ?? undefined,
+                )
+            }
+            await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+        } catch (err) {
+            console.error('Failed to reorder channels:', err)
+            setChannels(previous)
+            setChannelsForServer(activeServerId, previous)
+        }
+    }
+
+    const handleMoveChannelToCategory = async (
+        draggedChannelId: string,
+        targetCategory: string,
+        placement: 'start' | 'end' = 'end',
+    ) => {
+        if (!isLoggedIn || !activeServerId) return
+        const dragged = channels.find((c) => c.id === draggedChannelId)
+        if (!dragged) return
+        const currentCategory = dragged.category ?? 'Channels'
+        if (currentCategory === targetCategory) return
+
+        const previous = [...channels]
+        const movedBase = channels.map((ch) =>
+            ch.id === draggedChannelId
+                ? {
+                    ...ch,
+                    category: targetCategory,
+                    position: placement === 'start' ? -1 : Number.MAX_SAFE_INTEGER,
+                }
+                : ch,
+        )
+        const sortedByCategory = [...movedBase].sort(compareChannelsForSidebar)
+        const positionByCategory = new Map<string, number>()
+        const nextChannels = sortedByCategory.map((ch) => {
+            const cat = ch.category ?? 'Channels'
+            const nextPos = positionByCategory.get(cat) ?? 0
+            positionByCategory.set(cat, nextPos + 1)
+            if (ch.position === nextPos) return ch
+            return { ...ch, position: nextPos }
+        })
+
+        setChannels(nextChannels)
+        setChannelsForServer(activeServerId, nextChannels)
+        try {
+            await channelApi.rename(dragged.id, dragged.name, token, targetCategory, dragged.description ?? undefined)
+            await channelApi.reorder(activeServerId, orderedChannelIds(nextChannels), token)
+            const chs = await serverApi.channels(activeServerId, token)
+            setChannels(chs)
+            setChannelsForServer(activeServerId, chs)
+        } catch (err) {
+            console.error('Failed to move channel to category:', err)
+            setChannels(previous)
+            setChannelsForServer(activeServerId, previous)
+        }
+    }
+
+    const handleReorderCategories = async (
+        draggedCategory: string,
+        targetCategory: string,
+        position: 'before' | 'after',
+    ) => {
+        if (!isLoggedIn || !activeServerId) return
+        if (draggedCategory === targetCategory) return
+        const derivedFromChannels = Array.from(
+            new Set(
+                channels
+                    .map((c) => c.category?.trim())
+                    .filter((c): c is string => !!c),
+            ),
+        )
+        const baseCategories = Array.from(new Set([...channelCategories, ...derivedFromChannels]))
+        const next = baseCategories.filter((c) => c !== draggedCategory)
+        const targetIndex = next.findIndex((c) => c === targetCategory)
+        if (targetIndex < 0) return
+        const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+        next.splice(insertIndex, 0, draggedCategory)
+        setChannelCategories(next)
+        try {
+            await channelApi.reorderCategories(activeServerId, next, token)
+        } catch (err) {
+            console.error('Failed to reorder categories:', err)
+            const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+            setChannelCategories(categories.map((c) => c.name))
+        }
+    }
+
+    // ─── Render ────────────────────────────────
+
+    return (
+        <div className={`app-layout ${mobileSidebarPanel === 'channels' ? 'app-layout--mobile-sidebar-open' : ''}`}>
+            {!skipServerSidebar && (
+                <ServerSidebar
+                    onCreateServer={openCreateModal}
+                    onJoinServer={openJoinModal}
+                    onOpenServerSettings={openServerSettingsForServer}
+                />
+            )}
+            <ChannelSidebar
+                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
+                onOpenServerSettings={openServerSettingsModal}
+                onOpenCreateChannel={openCreateChannelModal}
+                onOpenCreateCategory={openCreateCategoryModal}
+                onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}
+                onRenameCategory={openRenameCategoryModal}
+                onDeleteCategory={(category) => {
+                    setDeleteCategoryError(null)
+                    setDeleteCategoryConfirm(category)
+                }}
+                onReorderCategories={handleReorderCategories}
+                onMoveChannelToCategory={handleMoveChannelToCategory}
+                channelCategories={channelCategories}
+                canManageChannels={canManageChannels}
+                canMuteMembers={canMuteMembers}
+                canDeafenMembers={canDeafenMembers}
+                canDisconnectMembers={canDisconnectMembers}
+                unreadByChannel={serverUnreadByChannel}
+                mentionByChannel={serverMentionsByChannel}
+                voiceControls={voiceControls}
+                onRenameChannel={openRenameChannelModal}
+                onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
+                onReorderChannels={handleReorderChannels}
+            />
+            {mobileSidebarPanel === 'channels' && (
+                <button
+                    type="button"
+                    className="mobile-sidebar-backdrop"
+                    aria-label="Close channel sidebar"
+                    onClick={() => setMobileSidebarPanel('none')}
+                />
+            )}
+            <ChatArea
+                activeChannel={activeChannel}
+                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
+                messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
+                unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
+                draftAttachments={draftAttachments}
+                messageInput={messageInput}
+                onPickAttachments={handleAttachmentPick}
+                onRemoveAttachment={(index) => setDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
+                onRetryAttachment={handleRetryDraftAttachment}
+                onMessageInputChange={setMessageInput}
+                onSendMessage={handleSendMessage}
+                onRetryMessage={handleRetryMessage}
+                onDeleteMessage={(messageId) => setDeleteMessageConfirmId(messageId)}
+                onReportMessage={openMessageReport}
+                onReplyToMessage={handleReplyToMessage}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
+                onToggleSaveMessage={handleToggleSaveChannelMessage}
+                savedMessageIds={savedMessageIds}
+                editingMessageId={editingMessageId}
+                editingContent={editingContent}
+                onEditMessage={(msg) => {
+                    setEditingMessageId(msg.id)
+                    setEditingContent(msg.contentToEdit ?? msg.content)
+                    setEditingReplyQuotePart(msg.replyQuotePart ?? null)
+                }}
+                onEditingContentChange={setEditingContent}
+                onSaveEdit={handleSaveEdit}
+                onCancelEdit={handleCancelEdit}
+                currentUserId={user?.id ?? null}
+                canModerate={canManageMessages}
+                mentionUsers={members.map((member) => ({
+                    user_id: member.user_id,
+                    username: member.username,
+                    avatar_url: member.avatar_url,
+                    status: member.status,
+                }))}
+                isViewActive={isViewActive}
+                hasMoreOlder={!channelSearch.trim() && olderMessagesReady && hasMoreOlder}
+                loadingOlder={loadingOlder}
+                onLoadOlder={loadOlderMessages}
+                onScrollRefReady={(ref) => { messagesScrollRef.current = ref }}
+                searchQuery={channelSearch}
+                onSearchChange={setChannelSearch}
+                pinnedMessages={channelPins}
+                onPinMessage={canManagePins ? handlePinChannelMessage : undefined}
+                onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
+                onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
+                canSendMessages={canSendMessages}
+                showMemberSheetButton={isMobileViewport && !!activeServerId}
+                onOpenMemberSheet={() => setShowMobileMemberSheet(true)}
+                emptyStateDescription={activeServer
+                    ? isSoloServer
+                        ? 'You are the first member here. Share the invite link or send the first message to get the server moving.'
+                        : 'This channel is quiet for now. Send the first message to get things moving.'
+                    : undefined}
+                emptyStateActions={activeServer && isSoloServer ? [
+                    {
+                        label: emptyInviteCopied ? 'Copied' : 'Copy invite',
+                        onClick: copyActiveServerInvite,
+                    },
+                ] : undefined}
+                jumpToMessageId={pendingSavedJumpMessageId}
+                onJumpToMessageHandled={() => setPendingSavedJumpMessageId(null)}
+            />
+            <MemberSidebar
+                canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
+                canBanMembers={canBanMembers}
+                canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+                onReportMember={openUserReport}
+            />
+            {showMobileMemberSheet && isMobileViewport && createPortal(
+                <>
+                    <button
+                        type="button"
+                        className="mobile-member-sheet-backdrop"
+                        aria-label="Close members panel"
+                        onClick={() => setShowMobileMemberSheet(false)}
+                    />
+                    <aside
+                        className="mobile-member-sheet"
+                        aria-label="Server members"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <header className="mobile-member-sheet-header">
+                            <div className="mobile-member-sheet-copy">
+                                <h3>Members</h3>
+                                <p>{members.length} {members.length === 1 ? 'member' : 'members'}</p>
+                            </div>
+                            <button
+                                type="button"
+                                className="mobile-member-sheet-close"
+                                onClick={() => setShowMobileMemberSheet(false)}
+                                aria-label="Close members panel"
+                            >
+                                <X size={16} />
+                            </button>
+                        </header>
+                        <MemberSidebar
+                            canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
+                            canBanMembers={canBanMembers}
+                            canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
+                            onReportMember={openUserReport}
+                            variant="sheet"
+                            interactive={false}
+                        />
+                    </aside>
+                </>,
+                document.body,
+            )}
+
+            {createPortal(
+                <>
+                    {/* Create Server Modal */}
+                    {showCreateServer && (
+                        <div
+                            className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
+                            onClick={() => {
+                                if (isCreatingServer) return
+                                setShowCreateServer(false)
+                                setCreateServerError(null)
+                            }}
+                        >
+                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
+                                <h2>Create a Server</h2>
+                                {createServerError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createServerError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Server Name</label>
+                                    <input
+                                        type="text"
+                                        value={newServerName}
+                                        onChange={(e) => setNewServerName(e.target.value)}
+                                        placeholder="My Awesome Server"
+                                        autoFocus
+                                        disabled={isCreatingServer}
+                                        required
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        disabled={isCreatingServer}
+                                        onClick={() => {
+                                            if (isCreatingServer) return
+                                            setShowCreateServer(false)
+                                            setCreateServerError(null)
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button type="submit" className="btn btn-primary" disabled={isCreatingServer}>
+                                        {isCreatingServer ? 'Creating...' : 'Create'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Join Server Modal */}
+                    {showJoinServer && (
+                        <div className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`} onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>
+                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
+                                <h2>Join a Server</h2>
+                                {joinServerError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Invite link or code</label>
+                                    <input
+                                        type="text"
+                                        value={inviteCode}
+                                        onChange={(e) => setInviteCode(e.target.value)}
+                                        placeholder="Paste an invite link or short code"
+                                        autoFocus
+                                        required
+                                    />
+                                    <div className="form-hint">Invite links are preferred. Short codes still work.</div>
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Join</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Create Channel Modal */}
+                    {showCreateChannel && activeServerId && (
+                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>
+                            <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
+                                <h2>Create Channel</h2>
+                                {createChannelError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createChannelError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Channel name</label>
+                                    <input
+                                        type="text"
+                                        value={createChannelName}
+                                        onChange={(e) => setCreateChannelName(e.target.value)}
+                                        placeholder="e.g. general"
+                                        autoFocus
+                                        required
+                                        maxLength={CHANNEL_NAME_MAX}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Channel type</label>
+                                    <div className="channel-type-selector">
+                                        <button
+                                            type="button"
+                                            className={`channel-type-option ${createChannelType === 'text' ? 'channel-type-option--selected' : ''}`}
+                                            onClick={() => setCreateChannelType('text')}
+                                        >
+                                            <MessageSquare size={24} strokeWidth={1.8} />
+                                            <span className="channel-type-option__label">Text</span>
+                                            <span className="channel-type-option__desc">Chat and share files</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`channel-type-option ${createChannelType === 'voice' ? 'channel-type-option--selected' : ''}`}
+                                            onClick={() => setCreateChannelType('voice')}
+                                        >
+                                            <Mic size={24} strokeWidth={1.8} />
+                                            <span className="channel-type-option__label">Voice</span>
+                                            <span className="channel-type-option__desc">Talk with voice</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label>Category (optional, default: GENERAL)</label>
+                                    <input
+                                        type="text"
+                                        value={createChannelCategory}
+                                        onChange={(e) => setCreateChannelCategory(e.target.value)}
+                                        placeholder="GENERAL"
+                                        list="channel-category-suggestions"
+                                        maxLength={CATEGORY_NAME_MAX}
+                                    />
+                                    <datalist id="channel-category-suggestions">
+                                        {channelCategorySuggestions.map((category) => (
+                                            <option key={category} value={category} />
+                                        ))}
+                                        </datalist>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Description (optional)</label>
+                                        <textarea
+                                            value={createChannelDescription}
+                                            onChange={(e) => setCreateChannelDescription(e.target.value)}
+                                            placeholder="What is this channel for?"
+                                            maxLength={CHANNEL_DESCRIPTION_MAX}
+                                            rows={3}
+                                        />
+                                    </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Create Channel</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Create Category Modal */}
+                    {showCreateCategory && activeServerId && (
+                        <div className="modal-overlay" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null) }}>
+                            <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
+                                <h2>Create Category</h2>
+                                {createCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createCategoryError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Category name</label>
+                                    <input
+                                        type="text"
+                                        value={createCategoryName}
+                                        onChange={(e) => setCreateCategoryName(e.target.value)}
+                                        placeholder="e.g. Squad 1"
+                                        autoFocus
+                                        required
+                                        maxLength={CATEGORY_NAME_MAX}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null); }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Create Category</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Rename Channel Modal */}
+                    {showRenameChannel && (
+                        <div className="modal-overlay" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>
+                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
+                                <h2>Edit Channel</h2>
+                                {renameChannelError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{renameChannelError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Channel Name</label>
+                                    <input
+                                        type="text"
+                                        value={renameChannelName}
+                                        onChange={(e) => setRenameChannelName(e.target.value)}
+                                        placeholder="new-channel-name"
+                                        autoFocus
+                                        required
+                                        maxLength={CHANNEL_NAME_MAX}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Description</label>
+                                    <textarea
+                                        value={renameChannelDescription}
+                                        onChange={(e) => setRenameChannelDescription(e.target.value)}
+                                        placeholder="What is this channel for?"
+                                        rows={3}
+                                        maxLength={CHANNEL_DESCRIPTION_MAX}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Server Settings Modal */}
+                    {showServerSettings && settingsServer && (
+                        <div
+                            className="modal-overlay"
+                            onClick={handleCloseServerSettings}
+                        >
+                            <div className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
+                                <div className="server-settings-header">
+                                    <div className="server-settings-header__left">
+                                        {effectiveServerIcon ? (
+                                            <img src={effectiveServerIcon} alt="" className="server-settings-header__icon" />
+                                        ) : (
+                                            <div className="server-settings-header__icon server-settings-header__icon--placeholder">
+                                                {settingsServer.name.charAt(0).toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div className="server-settings-header__text">
+                                            <h2>Server Settings</h2>
+                                            <p className="server-settings-header__server-name">{settingsServer.name}</p>
+                                            <p className="server-settings-header__hint">Manage overview, roles, invites, and security.</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="server-settings-close-btn"
+                                        onClick={handleCloseServerSettings}
+                                        aria-label="Close"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                <div className="server-settings-body server-settings-body--with-tabs">
+                                    {serverSettingsError && (
+                                        <div className="auth-error server-settings-error">{serverSettingsError}</div>
+                                    )}
+
+                                    <div className="server-settings-layout">
+                                        <nav className="server-settings-nav">
+                                            <div className="server-settings-nav__meta">
+                                                <span className="server-settings-nav__eyebrow">Server settings</span>
+                                                <strong className="server-settings-nav__title">{settingsServer.name}</strong>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className={`server-settings-nav__item ${
+                                                    serverSettingsTab === 'overview' ? 'server-settings-nav__item--active' : ''
+                                                }`}
+                                                onClick={() => setServerSettingsTab('overview')}
+                                            >
+                                                <span className="server-settings-nav__icon"><LayoutDashboard size={16} /></span>
+                                                <span className="server-settings-nav__copy">
+                                                    <span className="server-settings-nav__label">Overview</span>
+                                                </span>
+                                            </button>
+                                            {isOwner && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'roles' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('roles')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><ShieldCheck size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Roles</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {canViewAuditLog && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'audit'
+                                                            ? 'server-settings-nav__item--active'
+                                                            : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('audit')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><ScrollText size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Audit Log</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {canViewReports && (
+                                                <button
+                                                    type="button"
+                                                    className={
+                                                        serverSettingsTab === 'reports'
+                                                            ? 'server-settings-nav__item server-settings-nav__item--active'
+                                                            : 'server-settings-nav__item'
+                                                    }
+                                                    onClick={() => setServerSettingsTab('reports')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><Flag size={16} /></span>
+                                                    <span className="server-settings-nav__content">
+                                                        <span className="server-settings-nav__label">Reports</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {(isOwner || canManageBans) && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'bans' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('bans')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><Ban size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Bans</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {isOwner && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'danger' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('danger')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><AlertTriangle size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Danger Zone</span>
+                                                    </span>
+                                                </button>
+                                            )}
+                                        </nav>
+
+                                        <Profiler id="ServerSettings" onRender={handleServerSettingsProfileRender}>
+                                        <div className="server-settings-content">
+                                            <div className="server-settings-section-intro">
+                                                <div className="server-settings-section-intro__icon">
+                                                    {serverSettingsTab === 'overview' && <LayoutDashboard size={18} />}
+                                                    {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
+                                                    {serverSettingsTab === 'audit' && <ScrollText size={18} />}
+                                                    {serverSettingsTab === 'reports' && <Flag size={18} />}
+                                                    {serverSettingsTab === 'bans' && <Ban size={18} />}
+                                                    {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
+                                                </div>
+                                                <div className="server-settings-section-intro__body">
+                                                    <div className="server-settings-section-intro__copy">
+                                                        <span className="server-settings-section-intro__eyebrow">
+                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].eyebrow}
+                                                        </span>
+                                                        <h3 className="server-settings-section-intro__title">
+                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].title}
+                                                        </h3>
+                                                    </div>
+                                                    <p className="server-settings-section-intro__hint">
+                                                        {SERVER_SETTINGS_SECTION_META[serverSettingsTab].hint}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {serverSettingsTab === 'overview' && (
+                                                <section className="server-settings-card server-settings-card--overview">
+                                                    <div className="server-overview-layout">
+                                                        <section className="server-overview-profile">
+                                                            <div className="server-overview-profile__hero">
+                                                                <div className="server-overview-profile__icon">
+                                                                    {effectiveServerIcon ? (
+                                                                        <img
+                                                                            src={effectiveServerIcon}
+                                                                            alt={settingsServer.name}
+                                                                            className="server-settings-icon-preview"
+                                                                        />
+                                                                    ) : (
+                                                                        <div className="server-settings-icon-placeholder">
+                                                                            {settingsServer.name.charAt(0).toUpperCase()}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="server-overview-profile__copy">
+                                                                    <span className="server-overview-profile__eyebrow">Server profile</span>
+                                                                    <strong className="server-overview-profile__title">{settingsServer.name}</strong>
+                                                                    <span className="server-overview-profile__meta">
+                                                                        {serverRoles.length} roles configured
+                                                                    </span>
+                                                                </div>
+                                                                {isOwner && (
+                                                                    <div className="server-overview-profile__actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-secondary btn-sm"
+                                                                            onClick={() => serverIconInputRef.current?.click()}
+                                                                        >
+                                                                            Upload image
+                                                                        </button>
+                                                                        {(effectiveServerIcon ?? null) && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm"
+                                                                                onClick={handleClearServerIcon}
+                                                                            >
+                                                                                Remove
+                                                                            </button>
+                                                                        )}
+                                                                        <input
+                                                                            ref={serverIconInputRef}
+                                                                            type="file"
+                                                                            accept="image/*"
+                                                                            style={{ display: 'none' }}
+                                                                            onChange={(e) => {
+                                                                                void handleServerIconPick(e.target.files)
+                                                                                e.currentTarget.value = ''
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="server-overview-profile__form">
+                                                                <div className="form-group">
+                                                                    <label>Server name</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={serverSettingsName}
+                                                                        onChange={(e) => setServerSettingsName(e.target.value)}
+                                                                        placeholder="Server name"
+                                                                        disabled={!isOwner}
+                                                                    />
+                                                                </div>
+
+                                                                {isOwner && (
+                                                                    <div className="server-settings-server-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-primary btn-sm"
+                                                                            disabled={!canSaveServerSettings}
+                                                                            onClick={() => void handleUpdateServerSettings()}
+                                                                        >
+                                                                            Save changes
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </section>
+
+                                                        <aside className="server-overview-invite">
+                                                            <div className="server-overview-invite__head">
+                                                                <span className="server-overview-invite__eyebrow">Invite</span>
+                                                                <p className="server-overview-invite__hint">
+                                                                    Share the invite link below. Short codes still work if someone needs one.
+                                                                </p>
+                                                            </div>
+                                                            <div className="server-overview-invite__body">
+                                                                <div className="invite-unified-row invite-unified-link">
+                                                                    <code>{settingsServerInviteLink}</code>
+                                                                </div>
+                                                                <div className="invite-unified-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="copy-btn"
+                                                                        onClick={() => {
+                                                                            navigator.clipboard.writeText(settingsServerInviteLink).then(() => {
+                                                                                setCopiedInvite('link')
+                                                                                setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            }).catch(() => {
+                                                                                pushToast({
+                                                                                    level: 'error',
+                                                                                    title: 'Copy failed',
+                                                                                    message: 'Could not copy the invite link to your clipboard.',
+                                                                                })
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        {copiedInvite === 'link' ? 'Copied' : 'Copy link'}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="copy-btn"
+                                                                        onClick={() => {
+                                                                            navigator.clipboard.writeText(settingsServer.invite_code).then(() => {
+                                                                                setCopiedInvite('code')
+                                                                                setTimeout(() => setCopiedInvite(null), 2000)
+                                                                            }).catch(() => {
+                                                                                pushToast({
+                                                                                    level: 'error',
+                                                                                    title: 'Copy failed',
+                                                                                    message: 'Could not copy the invite code to your clipboard.',
+                                                                                })
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        {copiedInvite === 'code' ? 'Copied' : 'Copy short code'}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </aside>
+                                                    </div>
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'danger' && isOwner && (
+                                                <section className="server-settings-card server-settings-card--danger">
+                                                    <h3 className="server-settings-card__title server-settings-card__title--danger">Delete server</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-danger-text">
+                                                            Deleting this server will permanently remove all channels, invites, and messages.
+                                                            This action cannot be undone.
+                                                        </p>
+                                                        <div className="server-settings-danger-actions">
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-danger-outline"
+                                                                onClick={() => {
+                                                                    setDeleteServerError(null)
+                                                                    setDeleteServerInput('')
+                                                                    setShowDeleteServerConfirm(true)
+                                                                }}
+                                                            >
+                                                                Delete server
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'audit' && canViewAuditLog && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                                    <h3 className="server-settings-card__title">Audit Log</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Track major moderation actions, channel changes, and server updates in one timeline.
+                                                        </p>
+                                                    </div>
+                                                    {auditLogError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {auditLogError}
+                                                        </div>
+                                                    )}
+                                                    {auditLogLoading && (
+                                                        <div className="server-settings-empty-state">
+                                                            Loading audit log…
+                                                        </div>
+                                                    )}
+                                                    {!auditLogLoading && auditLogEntries && auditLogEntries.length === 0 && (
+                                                        <div className="server-settings-empty-state">
+                                                            No audit entries yet.
+                                                        </div>
+                                                    )}
+                                                    {!auditLogLoading && auditLogEntries && auditLogEntries.length > 0 && (
+                                                        <ServerSettingsAuditLog
+                                                            key={auditLogEntries[0]?.id ?? 'empty-audit'}
+                                                            entries={auditLogEntries}
+                                                            memberUsernameById={memberUsernameById}
+                                                        />
+                                                    )}
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'reports' && canViewReports && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                                    <h3 className="server-settings-card__title">Reports</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Review user and message reports submitted by the community, then resolve them once handled.
+                                                        </p>
+                                                    </div>
+                                                    {reportEntriesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {reportEntriesError}
+                                                        </div>
+                                                    )}
+                                                    {reportEntriesLoading && (
+                                                        <div className="server-settings-empty-state">
+                                                            Loading reports...
+                                                        </div>
+                                                    )}
+                                                    {!reportEntriesLoading && reportEntries && reportEntries.length === 0 && (
+                                                        <div className="server-settings-empty-state">
+                                                            No reports yet.
+                                                        </div>
+                                                    )}
+                                                    {!reportEntriesLoading && reportEntries && reportEntries.length > 0 && (
+                                                        <div className="server-report-list">
+                                                            {reportEntries.map((entry) => (
+                                                                <div key={entry.id} className="server-report-row">
+                                                                    <div className="server-report-meta">
+                                                                        <div className="server-report-head">
+                                                                            <strong>
+                                                                                {entry.message_id ? `Message report: ${entry.reported_username}` : `User report: ${entry.reported_username}`}
+                                                                            </strong>
+                                                                            <span className={`server-report-status ${entry.status === 'resolved' ? 'is-resolved' : 'is-open'}`}>
+                                                                                {entry.status === 'resolved' ? 'Resolved' : 'Open'}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="server-report-subline">
+                                                                            Reported by {entry.reporter_username} on {new Date(entry.created_at).toLocaleString()}
+                                                                        </div>
+                                                                        <div className="server-report-tags">
+                                                                            <span className="server-report-tag server-report-tag--reason">
+                                                                                {REPORT_REASONS.find((reason) => reason.value === entry.reason)?.label ?? entry.reason}
+                                                                            </span>
+                                                                            {entry.channel_name && (
+                                                                                <span className="server-report-tag">
+                                                                                    #{entry.channel_name}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        {entry.message_excerpt && (
+                                                                            <div className="server-report-excerpt" title={entry.message_excerpt}>
+                                                                                “{entry.message_excerpt}”
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.details && (
+                                                                            <div className="server-report-excerpt server-report-excerpt--details" title={entry.details}>
+                                                                                Note: {entry.details}
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.resolved_at && entry.resolved_by_username && (
+                                                                            <div className="server-report-subline">
+                                                                                Resolved by {entry.resolved_by_username} on {new Date(entry.resolved_at).toLocaleString()}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    {entry.status === 'open' && (
+                                                                        <div className="server-report-actions">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm"
+                                                                                disabled={resolveReportInFlightId === entry.id}
+                                                                                onClick={async () => {
+                                                                                    if (!settingsServerId) return
+                                                                                    setResolveReportInFlightId(entry.id)
+                                                                                    setReportEntriesError(null)
+                                                                                    try {
+                                                                                        await serverApi.resolveReport(settingsServerId, entry.id, token)
+                                                                                        const refreshed = await serverApi.listReports(settingsServerId, token)
+                                                                                        setReportEntries(refreshed)
+                                                                                    } catch (err) {
+                                                                                        setReportEntriesError(err instanceof Error ? err.message : 'Failed to resolve report.')
+                                                                                    } finally {
+                                                                                        setResolveReportInFlightId(null)
+                                                                                    }
+                                                                                }}
+                                                                            >
+                                                                                {resolveReportInFlightId === entry.id ? 'Resolving...' : 'Resolve'}
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                                    <h3 className="server-settings-card__title">Banned Users</h3>
+                                                    <div className="server-settings-panel-copy">
+                                                        <p className="server-settings-note">
+                                                            Review blocked members and restore access when a ban is no longer needed.
+                                                        </p>
+                                                    </div>
+                                                    {banEntriesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {banEntriesError}
+                                                        </div>
+                                                    )}
+                                                    {banEntriesLoading && (
+                                                        <div className="server-settings-empty-state">
+                                                            Loading banned users...
+                                                        </div>
+                                                    )}
+                                                    {!banEntriesLoading && banEntries && banEntries.length === 0 && (
+                                                        <div className="server-settings-empty-state">
+                                                            No banned users.
+                                                        </div>
+                                                    )}
+                                                    {!banEntriesLoading && banEntries && banEntries.length > 0 && (
+                                                        <div className="server-settings-ban-list">
+                                                            {banEntries.map((entry) => (
+                                                                <div key={entry.user_id} className="server-settings-ban-row">
+                                                                    <div className="server-settings-ban-meta">
+                                                                        <strong>{entry.username}</strong>
+                                                                        <span>
+                                                                            Banned by {entry.banned_by_username} on {new Date(entry.created_at).toLocaleString()}
+                                                                        </span>
+                                                                        {entry.reason && (
+                                                                            <span className="server-settings-ban-reason">Reason: {entry.reason}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-secondary btn-sm"
+                                                                        disabled={unbanInFlightUserId === entry.user_id}
+                                                                        onClick={async () => {
+                                                                            if (!settingsServerId) return
+                                                                            setUnbanInFlightUserId(entry.user_id)
+                                                                            setBanEntriesError(null)
+                                                                            try {
+                                                                                await serverApi.unbanMember(settingsServerId, entry.user_id, token)
+                                                                                const refreshed = await serverApi.listBans(settingsServerId, token)
+                                                                                setBanEntries(refreshed)
+                                                                            } catch (err) {
+                                                                                const message =
+                                                                                    err instanceof Error
+                                                                                        ? err.message
+                                                                                        : 'Failed to unban member.'
+                                                                                setBanEntriesError(message)
+                                                                            } finally {
+                                                                                setUnbanInFlightUserId(null)
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        {unbanInFlightUserId === entry.user_id ? 'Unbanning...' : 'Unban'}
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'roles' && isOwner && (
+                                                <section className="server-settings-card server-settings-card--roles">
+                                                    {rolesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {rolesError}
+                                                        </div>
+                                                    )}
+                                                    <div className="server-roles-layout">
+                                                        <aside className="server-roles-sidebar-shell">
+                                                            <div className="server-roles-toolbar">
+                                                                <div className="server-roles-toolbar__copy">
+                                                                    <span className="server-roles-toolbar__eyebrow">Roles</span>
+                                                                    <strong className="server-roles-toolbar__title">{serverRoles.length} roles</strong>
+                                                                    <span className="server-roles-toolbar__hint">
+                                                                        Create, reorder, and fine-tune access without leaving the editor.
+                                                                    </span>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-primary btn-sm"
+                                                                    disabled={rolesLoading}
+                                                                    onClick={handleCreateRoleDraft}
+                                                                >
+                                                                    Create role
+                                                                </button>
+                                                            </div>
+                                                            <ServerRolesSidebar
+                                                                rolesLoading={rolesLoading}
+                                                                selectedRoleId={selectedRoleId}
+                                                                serverRoles={serverRoles}
+                                                                visibleServerRoles={visibleServerRoles}
+                                                                hasMoreServerRoles={hasMoreServerRoles}
+                                                                onRoleDragStart={setDraggingRoleId}
+                                                                onRoleDrop={handleDropRole}
+                                                                onRoleSelect={handleSelectRole}
+                                                                onLoadMoreRoles={() => setVisibleRoleCount((prev) => prev + 40)}
+                                                            />
+                                                        </aside>
+                                                        <div className="server-roles-detail server-roles-detail-shell">
+                                                            <ServerRoleEditor
+                                                                selectedRoleId={selectedRoleId}
+                                                                roleEditName={roleEditName}
+                                                                roleEditColor={roleEditColor}
+                                                                roleEditPermissions={roleEditPermissions}
+                                                                bits={{
+                                                                    manageServer: PERM_MANAGE_SERVER,
+                                                                    manageRoles: PERM_MANAGE_ROLES,
+                                                                    manageChannels: PERM_MANAGE_CHANNELS,
+                                                                    viewAuditLog: PERM_VIEW_AUDIT_LOG,
+                                                                    manageMessages: PERM_MANAGE_MESSAGES,
+                                                                    managePins: PERM_MANAGE_PINS,
+                                                                    muteMembers: PERM_MUTE_MEMBERS,
+                                                                    deafenMembers: PERM_DEAFEN_MEMBERS,
+                                                                    kickMembers: PERM_KICK_MEMBERS,
+                                                                    banMembers: PERM_BAN_MEMBERS,
+                                                                }}
+                                                                onRoleNameChange={setRoleEditName}
+                                                                onRoleColorChange={setRoleEditColor}
+                                                                onTogglePermission={handleToggleRolePermission}
+                                                            />
+                                                            {selectedRoleId && (
+                                                                <div className="server-role-editor-footer">
+                                                                    <div className="server-role-editor-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-danger-outline btn-sm"
+                                                                            style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                            disabled={!selectedRoleId || !serverRoles.find((r) => r.id === selectedRoleId)}
+                                                                            onClick={() => {
+                                                                                if (!selectedRoleId) return
+                                                                                setDeleteRoleConfirmId(selectedRoleId)
+                                                                            }}
+                                                                        >
+                                                                            Delete role
+                                                                        </button>
+                                                                        <div className="server-role-editor-actions-right">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                onClick={handleCancelRoleEdit}
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-primary btn-sm server-role-btn-save"
+                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                disabled={!roleEditName.trim() || rolesLoading || !settingsServer}
+                                                                                onClick={() => void handleSaveRole()}
+                                                                            >
+                                                                                {serverRoles.find((r) => r.id === selectedRoleId) ? 'Save role' : 'Create role'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </section>
+                                            )}
+                                        </div>
+                                        </Profiler>
+                                    </div>
+                                </div>
+
+                                {/* Footer removed; Overview card now owns its own Save button when needed. */}
+                            </div>
+                        </div>
+                    )}
+                    {showUnsavedServerSettingsConfirm && (
+                        <div className="modal-overlay" onClick={() => setShowUnsavedServerSettingsConfirm(false)}>
+                            <div className="modal confirm-modal server-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Discard changes?</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    You have unsaved changes to the server name or icon. If you close now, those changes will be
+                                    lost.
+                                </p>
+                                <div className="modal-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => setShowUnsavedServerSettingsConfirm(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-danger"
+                                        onClick={() => {
+                                            setShowUnsavedServerSettingsConfirm(false)
+                                            actuallyCloseServerSettings()
+                                        }}
+                                    >
+                                        Discard changes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {deleteRoleConfirmId && settingsServer && (
+                        <div className="modal-overlay" onClick={() => setDeleteRoleConfirmId(null)}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete role</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    Are you sure you want to delete this role? This cannot be undone.
+                                </p>
+                                <div className="modal-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => setDeleteRoleConfirmId(null)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-danger"
+                                        onClick={async () => {
+                                            if (!isLoggedIn || !deleteRoleConfirmId) return
+                                            setRolesError(null)
+                                            try {
+                                                await serverApi.deleteRole(settingsServer.id, deleteRoleConfirmId, token)
+                                                const roles = await serverApi.listRoles(settingsServer.id, token)
+                                                setServerRoles(roles)
+                                                const next = roles[0]
+                                                setSelectedRoleId(next?.id ?? null)
+                                                setRoleEditName(next?.name ?? '')
+                                                setRoleEditPermissions(next?.permissions ?? 0)
+                                                setRoleEditPreAdminPermissions(null)
+                                                setDeleteRoleConfirmId(null)
+                                            } catch (err) {
+                                                const message =
+                                                    err instanceof Error
+                                                        ? err.message
+                                                        : 'Failed to delete role.'
+                                                setRolesError(message)
+                                                setDeleteRoleConfirmId(null)
+                                            }
+                                        }}
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {reportTarget && (
+                        <div className="modal-overlay" onClick={closeReportDialog}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>{reportTarget.kind === 'message' ? 'Report message' : 'Report user'}</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    {reportTarget.kind === 'message'
+                                        ? <>Report <strong>{reportTarget.username}</strong>&rsquo;s message to the server moderators.</>
+                                        : <>Report <strong>{reportTarget.username}</strong> to the server moderators.</>}
+                                </p>
+                                {reportTarget.kind === 'message' && reportTarget.messageContent && (
+                                    <div className="server-report-excerpt" style={{ marginBottom: 16 }}>
+                                        “{reportTarget.messageContent.length > 220 ? `${reportTarget.messageContent.slice(0, 220)}...` : reportTarget.messageContent}”
+                                    </div>
+                                )}
+                                <div className="form-group">
+                                    <label>Reason</label>
+                                    <select
+                                        value={reportReason}
+                                        onChange={(e) => setReportReason(e.target.value as (typeof REPORT_REASONS)[number]['value'])}
+                                        disabled={reportSubmitting}
+                                    >
+                                        {REPORT_REASONS.map((reason) => (
+                                            <option key={reason.value} value={reason.value}>
+                                                {reason.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Extra details (optional)</label>
+                                    <textarea
+                                        value={reportDetails}
+                                        onChange={(e) => setReportDetails(e.target.value)}
+                                        rows={4}
+                                        maxLength={500}
+                                        placeholder="Add a short note to help moderators understand the issue."
+                                        disabled={reportSubmitting}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={closeReportDialog} disabled={reportSubmitting}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="btn btn-primary" onClick={() => void handleSubmitReport()} disabled={reportSubmitting}>
+                                        {reportSubmitting ? 'Submitting...' : 'Submit report'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {deleteMessageConfirmId && (
+                        <div className="modal-overlay" onClick={() => setDeleteMessageConfirmId(null)}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete message</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    Are you sure you want to delete this message?
+                                </p>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteMessageConfirmId(null)}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="btn btn-danger" onClick={() => void handleDeleteMessage(deleteMessageConfirmId)}>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {deleteChannelConfirm && (
+                        <div className="modal-overlay" onClick={() => setDeleteChannelConfirm(null)}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete channel</h2>
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                    Are you sure you want to permanently delete <strong>#{deleteChannelConfirm.name}</strong>?
+                                </p>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteChannelConfirm(null)}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="btn btn-danger" onClick={() => void handleDeleteChannel(deleteChannelConfirm)}>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {showDeleteServerConfirm && settingsServer && (
+                        <div className="modal-overlay" onClick={() => { setShowDeleteServerConfirm(false); setDeleteServerError(null) }}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete Server</h2>
+                                <p style={{ marginBottom: 10, color: 'var(--text-secondary)' }}>
+                                    Type <strong>{settingsServer.name}</strong> to confirm permanent deletion.
+                                </p>
+                                {deleteServerError && (
+                                    <div className="auth-error" style={{ marginBottom: 12 }}>{deleteServerError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Server Name</label>
+                                    <input
+                                        type="text"
+                                        value={deleteServerInput}
+                                        onChange={(e) => setDeleteServerInput(e.target.value)}
+                                        placeholder={settingsServer.name}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => { setShowDeleteServerConfirm(false); setDeleteServerError(null) }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-danger"
+                                        onClick={() => void handleDeleteServer()}
+                                    >
+                                        Delete Server
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {channelSettingsTarget && (
+                        <ChannelSettingsModal
+                            channel={channelSettingsTarget}
+                            serverRoles={serverRoles}
+                            onClose={() => setChannelSettingsTarget(null)}
+                            onUpdated={async (updated: Channel) => {
+                                setChannels(channels.map(c => c.id === updated.id ? updated : c))
+                                if (activeServerId) {
+                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+                                    setChannelCategories(categories.map((c) => c.name))
+                                }
+                            }}
+                            onDeleted={async (id: string) => {
+                                setChannels(channels.filter(c => c.id !== id))
+                                if (activeServerId) {
+                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
+                                    setChannelCategories(categories.map((c) => c.name))
+                                }
+                            }}
+                        />
+                    )}
+
+                    {/* Rename Category Modal */}
+                    {showRenameCategory && (
+                        <div className="modal-overlay" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>
+                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
+                                <h2>Rename Category</h2>
+                                {renameCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
+                                )}
+                                <div className="form-group">
+                                    <label>Category Name</label>
+                                    <input
+                                        type="text"
+                                        value={renameCategoryName}
+                                        onChange={(e) => setRenameCategoryName(e.target.value)}
+                                        placeholder="new-category-name"
+                                        autoFocus
+                                        required
+                                        maxLength={CATEGORY_NAME_MAX}
+                                    />
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+                    {categoryPermissionsTarget && activeServerId && (
+                        <CategoryPermissionsModal
+                            serverId={activeServerId}
+                            category={categoryPermissionsTarget}
+                            serverRoles={serverRoles}
+                            onClose={() => setCategoryPermissionsTarget(null)}
+                        />
+                    )}
+                    {deleteCategoryConfirm && activeServerId && (
+                        <div className="modal-overlay" onClick={() => setDeleteCategoryConfirm(null)}>
+                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                                <h2>Delete category</h2>
+                                {(() => {
+                                    const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
+                                    const channelsInCategory = channels.filter(
+                                        (c) => (c.category ?? 'Channels') === deleteCategoryConfirm,
+                                    ).length
+                                    return channelsInCategory > 0 ? (
+                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                            Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>{moveTarget}</strong>.
+                                        </p>
+                                    ) : (
+                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                            <strong>{deleteCategoryConfirm}</strong> is empty.
+                                        </p>
+                                    )
+                                })()}
+                                {deleteCategoryError && (
+                                    <div className="auth-error" style={{ marginBottom: 10 }}>{deleteCategoryError}</div>
+                                )}
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteCategoryConfirm(null)}>
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-danger"
+                                        onClick={async () => {
+                                            try {
+                                                const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
+                                                await channelApi.deleteCategory(
+                                                    activeServerId,
+                                                    deleteCategoryConfirm,
+                                                    token,
+                                                    moveTarget,
+                                                )
+                                                const [chs, categories] = await Promise.all([
+                                                    serverApi.channels(activeServerId, token),
+                                                    channelApi.listCategories(activeServerId, token).catch(() => []),
+                                                ])
+                                                setChannels(chs)
+                                                setChannelsForServer(activeServerId, chs)
+                                                setChannelCategories(categories.map((c) => c.name))
+                                                setDeleteCategoryConfirm(null)
+                                                setDeleteCategoryError(null)
+                                            } catch (err: unknown) {
+                                                setDeleteCategoryError(err instanceof Error ? err.message : 'Failed to delete category.')
+                                            }
+                                        }}
+                                    >
+                                        Delete Category
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>,
+                document.body
+            )}
+        </div>
+    )
+}

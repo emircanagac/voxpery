@@ -1,0 +1,32 @@
+[package]
+name = "voxpery-desktop"
+version = "0.1.7"
+edition = "2021"
+description = "Voxpery Desktop - Tauri-based desktop app"
+license = "AGPL-3.0-only"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-deep-link = "2.4.7"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-http = "2"
+tauri-plugin-secure-storage = "1"
+tauri-plugin-single-instance = "2"
+tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[patch.crates-io]
+# Temporary desktop build-time patch for GHSA-cq8v-f236-94qc / RUSTSEC-2026-0097.
+# Tauri's transitive HTML parsing chain still pulls phf_generator 0.8.0,
+# whose upstream crate depends on rand 0.7.x. Keep this patch until upstream
+# removes the vulnerable rand line from the dependency graph.
+phf_generator = { path = "vendor/phf_generator-0.8.0" }

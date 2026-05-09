@@ -1,0 +1,148 @@
+# Voxpery - Full stack Docker Compose
+# Starts: Postgres + Redis + LiveKit + Rust backend + React web app
+# Usage: docker compose up -d --build
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: voxpery-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voxpery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-voxpery}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    logging: *default-logging
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voxpery} -d ${POSTGRES_DB:-voxpery}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: voxpery-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    logging: *default-logging
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: voxpery-clamav
+    restart: unless-stopped
+    profiles: ["security"]
+    logging: *default-logging
+
+  # LiveKit runs on bridge networking for cross-platform Docker compatibility.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: voxpery-livekit
+    restart: unless-stopped
+    cpus: ${LIVEKIT_CPUS_LIMIT:-2.0}
+    mem_limit: ${LIVEKIT_MEM_LIMIT:-1500m}
+    pids_limit: ${LIVEKIT_PIDS_LIMIT:-512}
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env}
+    ports:
+      # Signal API is reverse-proxied by nginx; keep it localhost-only.
+      - "127.0.0.1:7880:7880"
+      # TCP fallback can stay public for restrictive networks.
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "50000-50200:50000-50200/udp"
+    logging: *default-logging
+    configs:
+      - source: livekit_config
+        target: /etc/livekit.yaml
+    command: ["--config", "/etc/livekit.yaml"]
+
+  server:
+    image: ${VOXPERY_SERVER_IMAGE:-voxpery/voxpery-server:latest}
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: voxpery-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-voxpery}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-voxpery}
+      ATTACHMENTS_LOCAL_DIR: /home/voxpery/attachments
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3001:3001"
+    logging: *default-logging
+    volumes:
+      - attachments_data:/home/voxpery/attachments
+
+  web:
+    image: ${VOXPERY_WEB_IMAGE:-voxpery/voxpery-web:latest}
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+        TURNSTILE_SITE_KEY_PUBLIC: ${VITE_TURNSTILE_SITE_KEY:-}
+    container_name: voxpery-web
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${WEB_PORT:-5173}:80"
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  attachments_data:
+
+configs:
+  livekit_config:
+    content: |
+      port: 7880
+      log_level: info
+
+      rtc:
+        port_range_start: 50000
+        port_range_end: 50200
+        udp_port: 7882
+        tcp_port: 7881
+        # Use deterministic node IP in all environments (no auto external IP discovery).
+        use_external_ip: false
+        # Set this in .env for production (server public IPv4).
+        node_ip: ${LIVEKIT_NODE_IP:-}
+
+      # LiveKit and Redis are on the same Compose network.
+      redis:
+        address: redis:6379
+
+      keys:
+        "${LIVEKIT_API_KEY:-devkey}": "${LIVEKIT_API_SECRET}"
