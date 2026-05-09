@@ -167,9 +167,9 @@ if (!envExample.includes('voxpery://auth')) {
   fail('.env.example CORS_ORIGINS must include voxpery://auth for desktop OAuth callback')
 }
 
-const webApi = readFileSync(resolve(repoRoot, 'apps/web/src/api.ts'), 'utf8')
-if (!webApi.includes("isTauri() ? 'voxpery://auth'")) {
-  fail('apps/web/src/api.ts must send origin=voxpery://auth for desktop Google OAuth')
+const webApiAuth = readFileSync(resolve(repoRoot, 'apps/web/src/api/auth.ts'), 'utf8')
+if (!webApiAuth.includes("isTauri() ? 'voxpery://auth'")) {
+  fail('apps/web/src/api/auth.ts must send origin=voxpery://auth for desktop Google OAuth')
 }
 
 if (failures.length > 0) {
