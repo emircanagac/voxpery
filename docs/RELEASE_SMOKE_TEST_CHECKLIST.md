@@ -10,14 +10,20 @@ Use this checklist for every production release candidate before tag/publish.
 - Date (UTC):
 - Environment:
 
-## 1) Automated Gates (must be green)
+## 1) Required PR Gates (must be green)
 
-- [ ] `CI / Backend`
-- [ ] `CI / Frontend`
-- [ ] `Secret Scan (gitleaks)`
-- [ ] `Dependency Security Audit`
+- [ ] `Checks / Secret Scan`
+- [ ] `Checks / Backend`
+- [ ] `Checks / Frontend` (lint, unit tests, build)
 
-## 2) Web Smoke Tests (mandatory)
+## 2) Security and Release Gates (mandatory)
+
+- [ ] Relevant `CodeQL` analyzers are green or did not run because no matching files changed.
+- [ ] `Dependency Security Audit` is reviewed; unresolved upstream-blocked advisories have an explicit release decision recorded.
+- [ ] Manual `Release Smoke` workflow completed successfully against the release candidate API.
+- [ ] `Release Smoke` ran with strict security headers enabled for production candidates.
+
+## 3) Web Smoke Tests (mandatory)
 
 - [ ] Register works.
 - [ ] Login works.
@@ -28,7 +34,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Moderation flows (kick/ban) work.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 
-## 3) Desktop Smoke Tests (mandatory)
+## 4) Desktop Smoke Tests (mandatory)
 
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
 - [ ] App opens and reaches login screen.
@@ -46,7 +52,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Voice settings mic test with noise suppression on and `Noisy room` selected does not pass normal keyboard, mouse, fan, or breath noise as speech.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 
-## 4) Final Sign-off
+## 5) Final Sign-off
 
 - [ ] Changelog updated (`docs/CHANGELOG.md`).
 - [ ] Deployment notes updated if needed (`docs/DEPLOYMENT.md`).

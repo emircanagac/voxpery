@@ -1,0 +1,117 @@
+name: Release Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: Release candidate API base URL, for example https://api.example.com
+        required: true
+        type: string
+      require_security_headers:
+        description: Fail API smoke when production security headers are missing or invalid
+        required: true
+        type: choice
+        default: 'yes'
+        options:
+          - 'yes'
+          - 'no'
+      web_e2e_mode:
+        description: Optional browser E2E scope for the release candidate
+        required: true
+        type: choice
+        default: disabled
+        options:
+          - disabled
+          - chromium
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  api-smoke:
+    name: Release / API Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run API smoke
+        working-directory: apps/web
+        env:
+          SMOKE_API_URL: ${{ inputs.api_url }}
+          SMOKE_REQUIRE_SECURITY_HEADERS: ${{ inputs.require_security_headers == 'yes' && '1' || '0' }}
+        run: npm run smoke:e2e
+
+  web-e2e:
+    name: Release / Web E2E (${{ inputs.web_e2e_mode }})
+    if: inputs.web_e2e_mode != 'disabled'
+    needs: api-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        shell: bash
+        run: |
+          if [[ "${{ inputs.web_e2e_mode }}" == "chromium" ]]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install --with-deps
+          fi
+
+      - name: Run web E2E
+        working-directory: apps/web
+        shell: bash
+        env:
+          VITE_API_URL: ${{ inputs.api_url }}
+        run: |
+          if [[ "${{ inputs.web_e2e_mode }}" == "chromium" ]]; then
+            npm run test:e2e -- --project=chromium
+          else
+            npm run test:e2e
+          fi
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 14

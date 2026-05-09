@@ -50,16 +50,24 @@ Voxpery follows Semantic Versioning:
 - **MINOR**: backward-compatible features
 - **PATCH**: backward-compatible fixes
 
+### Quality Gate Tiers
+
+- **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, and `Checks / Frontend`. Keep these fast and deterministic so branch protection can require them on every PR.
+- **Security monitoring gates**: CodeQL and dependency security audit workflows run on PRs, schedules, or manually. Review their output before release; an upstream-blocked advisory needs an explicit release decision rather than being silently ignored.
+- **Release smoke gates**: run the manual `Release Smoke` workflow against the release candidate API before tagging or publishing. Use strict security headers for production candidates and enable browser E2E only when the candidate environment is ready for it.
+- **Publish jobs**: Docker publish, tag release, desktop release, and manual smoke jobs must not be configured as required PR checks because they are intentionally skipped or manually triggered on PRs.
+
 ### Release Checklist
 
-1. Ensure CI is green on release branch/tag.
-2. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
-3. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of release.
-4. Validate critical paths: auth, messaging+websocket, voice join/leave.
-5. Update docs for behavior changes.
-6. Update changelog entry.
-7. Create Git tag (for example `v0.1.5`).
-8. Publish GitHub Release notes.
+1. Ensure required PR gates are green on the release branch/tag.
+2. Run the manual `Release Smoke` workflow against the release candidate API.
+3. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
+4. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of release.
+5. Validate critical paths: auth, messaging+websocket, voice join/leave.
+6. Update docs for behavior changes.
+7. Update changelog entry.
+8. Create Git tag (for example `v0.1.5`).
+9. Publish GitHub Release notes.
 
 ### Changelog Sections
 
