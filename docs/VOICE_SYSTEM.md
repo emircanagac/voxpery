@@ -9,7 +9,9 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
                                     |
                            High-pass cleanup
                            RNNoise denoiser
+                           Speech / transient cleanup
                            Low-level noise taming
+                           VAD analyser tap
                            Input gain
                            VAD gate (optional)
                            Sensitivity threshold
@@ -65,9 +67,9 @@ Speech / transient cleanup stage
     |
 Low-level noise tamer (post-RNNoise floor shaping)
     |
-GainNode (input volume)
+VAD analyser tap (post-denoise + post-floor suppression, pre-volume)
     |
-VAD analyser tap (post-RNNoise, pre-volume)
+GainNode (input volume)
     |
 VAD gate (optional, voice_activity mode)
     |
@@ -99,6 +101,9 @@ Room.localParticipant.publishTrack
 - **Low-level noise tamer**
   - A gentle post-RNNoise gain stage reduces very quiet residual noise between phrases without hard-gating speech
   - Helps with dip hiss, room hum, and lingering background texture while keeping speech natural
+- **Post-suppression VAD tap**
+  - The mic test monitor and local speaking indicator now read from the signal after residual floor attenuation
+  - This keeps the glow and mic test closer to the audio Voxpery would actually send, so keyboard, mouse, and breath noise are less likely to appear as speech
 - **Preset-aware DSP behavior**
   - With suppression enabled, Voxpery adjusts multiple stages together:
     - low-pass filtering for high-frequency keyboard/transient cleanup
@@ -118,9 +123,10 @@ Room.localParticipant.publishTrack
 Two modes:
 
 1. **Voice Activity**: Mic auto-mutes when RMS below threshold (Discord-like)
-   - Analyser reads RMS from the denoised signal (`post-RNNoise`, `pre-volume`)
+   - Analyser reads RMS from the post-suppression signal (`post-denoise`, `post-floor-suppression`, `pre-volume`)
    - If above `onThreshold`, enable track; below `offThreshold` for enough held frames, disable
    - Fast attack + slower release + hysteresis keep speaking feedback responsive without flicker during short pauses
+   - Suppression-enabled mode requires consecutive speech-like frames before opening the gate, and aggressive isolation rejects noise-dominant frames such as keyboard clicks, mouse clicks, and breath-heavy broadband noise
 2. **Push-to-Talk**: Manual control via keyboard (default: `V` key)
 
 ### Sensitivity Threshold
@@ -128,7 +134,7 @@ Two modes:
 - **Range**: `-100 dB .. 0 dB` in the UI (`0..100` internal slider scale)
 - **Presets**:
   - `Balanced` (`-58 dB`) - recommended default for everyday use
-  - `Noisy room` (`-46 dB`) - stricter for louder environments
+  - `Noisy room` (`-40 dB`) - stricter for louder environments with keyboard, mouse, fan, or breath noise
   - `Custom` - manual threshold control across the full `-100 .. 0 dB` range
 - **Default preset**: `Balanced`
 - **Mapping**:

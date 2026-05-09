@@ -1,6 +1,7 @@
 export interface SpeechFrameScore {
   score: number
   clicky: boolean
+  noiseDominant: boolean
 }
 
 export interface VoiceGateFrameInput {
@@ -74,7 +75,11 @@ export function getSpeechFrameScore(
     highNoiseDb > presenceDb + 3.2
     && highNoiseDb > speechBodyDb + 4.2
     && lowNoiseDb < speechBodyDb - 6
-  return { score, clicky }
+  const noiseDominant =
+    highNoiseDb > presenceDb + 2.2
+    && highNoiseDb > speechBodyDb + 2.8
+    && upperSpeechDb < highNoiseDb + 1.2
+  return { score, clicky, noiseDominant }
 }
 
 export function evaluateVoiceGateFrame(input: VoiceGateFrameInput): VoiceGateFrameResult {
@@ -95,18 +100,19 @@ export function evaluateVoiceGateFrame(input: VoiceGateFrameInput): VoiceGateFra
 
   const speechFrame = getSpeechFrameScore(frequencyData, sampleRate, fftSize)
   const speechLike = aggressiveIsolation
-    ? speechFrame.score >= -1.4 && !speechFrame.clicky
-    : speechFrame.score >= -2.6
-  const openFramesRequired = aggressiveIsolation ? 2 : 1
-  const holdFrames = aggressiveIsolation ? 8 : noiseSuppressionEnabled ? 9 : 7
-  const smoothAlpha = aggressiveIsolation ? 0.945 : 0.955
+    ? speechFrame.score >= -0.8 && !speechFrame.clicky && !speechFrame.noiseDominant
+    : speechFrame.score >= -2.4 && !speechFrame.noiseDominant
+  const openFramesRequired = aggressiveIsolation ? 3 : noiseSuppressionEnabled ? 2 : 1
+  const holdFrames = aggressiveIsolation ? 6 : noiseSuppressionEnabled ? 7 : 7
+  const smoothAlpha = aggressiveIsolation ? 0.94 : 0.955
   const effectiveOffThr = Math.max(
     offThr,
     onThr * (aggressiveIsolation ? 0.36 : noiseSuppressionEnabled ? 0.3 : 0.24),
   )
   const nextSmoothedRms = smoothAlpha * smoothedRms + (1 - smoothAlpha) * rms
-  const strongOnset = rms >= onThr * (aggressiveIsolation ? 1.35 : 1.12)
-  const shouldOpen = (rms >= onThr && speechLike) || (strongOnset && !speechFrame.clicky)
+  const strongOnset = rms >= onThr * (aggressiveIsolation ? 1.65 : 1.16)
+  const shouldOpen = (rms >= onThr && speechLike)
+    || (strongOnset && !speechFrame.clicky && !speechFrame.noiseDominant && (!aggressiveIsolation || speechFrame.score >= -0.4))
 
   if (shouldOpen) {
     const nextOpenFrames = openFrames + 1
