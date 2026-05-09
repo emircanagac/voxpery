@@ -33,6 +33,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Voice join/leave works.
 - [ ] Moderation flows (kick/ban) work.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
+- [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 
 ## 4) Desktop Smoke Tests (mandatory)
 
