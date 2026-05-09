@@ -69,12 +69,8 @@ fn visible_presence(status: &str, has_session: bool) -> String {
     }
 }
 
-fn notify_friend_update(state: &AppState, user_id: Uuid) {
-    if let Some(sessions) = state.sessions.get(&user_id) {
-        for sender in sessions.iter() {
-            let _ = sender.send(WsEvent::FriendUpdate { user_id });
-        }
-    }
+async fn notify_friend_update(state: &Arc<AppState>, user_id: Uuid) {
+    crate::ws::publish_user_event(state, user_id, WsEvent::FriendUpdate { user_id }).await;
 }
 
 async fn list_friends(
@@ -218,8 +214,8 @@ async fn send_friend_request(
     .execute(&state.db)
     .await?;
 
-    notify_friend_update(&state, claims.sub);
-    notify_friend_update(&state, target.id);
+    notify_friend_update(&state, claims.sub).await;
+    notify_friend_update(&state, target.id).await;
 
     Ok(Json(
         serde_json::json!({ "message": "Friend request sent" }),
@@ -269,8 +265,8 @@ async fn accept_friend_request(
     .execute(&state.db)
     .await?;
 
-    notify_friend_update(&state, requester_id);
-    notify_friend_update(&state, receiver_id);
+    notify_friend_update(&state, requester_id).await;
+    notify_friend_update(&state, receiver_id).await;
 
     Ok(Json(
         serde_json::json!({ "message": "Friend request accepted" }),
@@ -307,8 +303,8 @@ async fn reject_friend_request(
     .execute(&state.db)
     .await?;
 
-    notify_friend_update(&state, requester_id);
-    notify_friend_update(&state, receiver_id);
+    notify_friend_update(&state, requester_id).await;
+    notify_friend_update(&state, receiver_id).await;
 
     Ok(Json(serde_json::json!({
         "message": if requester_id == claims.sub {
@@ -357,8 +353,8 @@ async fn remove_friend(
     .execute(&state.db)
     .await?;
 
-    notify_friend_update(&state, claims.sub);
-    notify_friend_update(&state, friend_id);
+    notify_friend_update(&state, claims.sub).await;
+    notify_friend_update(&state, friend_id).await;
 
     Ok(Json(serde_json::json!({ "message": "Friend removed" })))
 }

@@ -159,9 +159,13 @@ async fn create_channel(
         tracing::warn!("channel_create audit log failed: {}", e);
     }
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
-        server_id: body.server_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerChannelsUpdated {
+            server_id: body.server_id,
+        },
+    )
+    .await;
 
     Ok(Json(channel))
 }
@@ -218,9 +222,13 @@ async fn delete_channel(
         .execute(&state.db)
         .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
-        server_id: channel.server_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerChannelsUpdated {
+            server_id: channel.server_id,
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Channel deleted" })))
 }
@@ -297,9 +305,13 @@ async fn rename_channel(
     )
     .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
-        server_id: channel.server_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerChannelsUpdated {
+            server_id: channel.server_id,
+        },
+    )
+    .await;
 
     Ok(Json(updated))
 }
@@ -360,9 +372,13 @@ async fn reorder_channels(
     }
     tx.commit().await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
-        server_id: body.server_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerChannelsUpdated {
+            server_id: body.server_id,
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Channels reordered" })))
 }
@@ -445,9 +461,13 @@ async fn update_channel_override(
     .fetch_one(&state.db)
     .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated {
-        server_id: channel.server_id,
-    });
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerChannelsUpdated {
+            server_id: channel.server_id,
+        },
+    )
+    .await;
 
     Ok(Json(ov))
 }
@@ -476,7 +496,7 @@ async fn delete_channel_override(
         .bind(channel_id)
         .fetch_one(&state.db)
         .await?;
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -608,7 +628,7 @@ async fn create_category(
 
     let canonical = ensure_category_exists(&state.db, server_id, name).await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(CategoryNameResponse { name: canonical }))
 }
@@ -710,7 +730,7 @@ async fn delete_category(
 
     tx.commit().await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Category deleted" })))
 }
@@ -816,7 +836,7 @@ async fn rename_category(
     )
     .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(CategoryNameResponse {
         name: new_name.to_string(),
@@ -901,7 +921,7 @@ async fn update_category_override(
     .fetch_one(&state.db)
     .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(ov))
 }
@@ -933,7 +953,7 @@ async fn delete_category_override(
     .execute(&state.db)
     .await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -1006,7 +1026,7 @@ async fn reorder_categories(
     }
     tx.commit().await?;
 
-    let _ = state.tx.send(WsEvent::ServerChannelsUpdated { server_id });
+    crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
     Ok(Json(
         serde_json::json!({ "message": "Categories reordered" }),

@@ -28,6 +28,7 @@ pub mod ws;
 
 /// Shared application state passed to all handlers.
 pub struct AppState {
+    pub instance_id: uuid::Uuid,
     pub db: sqlx::PgPool,
     pub redis: redis::Client,
     pub jwt_secret: String,

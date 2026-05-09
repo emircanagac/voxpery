@@ -1,11 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::{
-    extract::State,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::{errors::AppError, AppState, LatestReleaseCacheEntry};
@@ -115,9 +111,9 @@ async fn fetch_latest_release(state: &AppState) -> Result<LatestReleaseResponse,
 
     Ok(LatestReleaseResponse {
         tag: release.tag_name,
-        html_url: release
-            .html_url
-            .unwrap_or_else(|| "https://github.com/emircanagac/voxpery/releases/latest".to_string()),
+        html_url: release.html_url.unwrap_or_else(|| {
+            "https://github.com/emircanagac/voxpery/releases/latest".to_string()
+        }),
         published_at: release.published_at,
         downloads: LatestReleaseDownloads {
             windows: pick_windows_installer(&assets),
@@ -127,7 +123,9 @@ async fn fetch_latest_release(state: &AppState) -> Result<LatestReleaseResponse,
     })
 }
 
-fn installable_assets<'a>(assets: &'a [GithubReleaseAsset]) -> impl Iterator<Item = &'a GithubReleaseAsset> {
+fn installable_assets<'a>(
+    assets: &'a [GithubReleaseAsset],
+) -> impl Iterator<Item = &'a GithubReleaseAsset> {
     assets.iter().filter(|asset| {
         let name = asset.name.to_ascii_lowercase();
         !name.ends_with(".sig")
@@ -173,7 +171,9 @@ fn pick_linux_installer(assets: &[GithubReleaseAsset]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pick_linux_installer, pick_macos_installer, pick_windows_installer, GithubReleaseAsset};
+    use super::{
+        pick_linux_installer, pick_macos_installer, pick_windows_installer, GithubReleaseAsset,
+    };
 
     fn asset(name: &str, url: &str) -> GithubReleaseAsset {
         GithubReleaseAsset {
@@ -208,7 +208,10 @@ mod tests {
     fn ignores_signature_and_metadata_assets() {
         let assets = vec![
             asset("latest.json", "https://example.com/latest.json"),
-            asset("Voxpery_0.1.6_x64-setup.exe.sig", "https://example.com/app.exe.sig"),
+            asset(
+                "Voxpery_0.1.6_x64-setup.exe.sig",
+                "https://example.com/app.exe.sig",
+            ),
             asset("Voxpery_0.1.6_x64-setup.exe", "https://example.com/app.exe"),
         ];
 

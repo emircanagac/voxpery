@@ -138,7 +138,19 @@ Important:
 - These limits reduce single-host blast radius (LiveKit cannot consume all CPU/RAM/PIDs).
 - They do **not** protect against upstream bandwidth saturation from large volumetric UDP floods.
 
-## 4) Validation Checklist
+## 4) Horizontal Scaling Notes
+
+The backend is ready for multiple instances for REST traffic and cross-instance WebSocket event delivery when all instances share the same Postgres, Redis, `JWT_SECRET`, and public configuration.
+
+- Redis is required for JWT blacklist checks, distributed rate limits, and the WebSocket event bus.
+- WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
+- Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
+- REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.
+- Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`.
+- Local attachment storage is per-instance. For multiple backend instances, mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` or move attachments to a shared object storage backend before scaling writes.
+- Prefer one LiveKit deployment endpoint shared by all backend instances.
+
+## 5) Validation Checklist
 
 ```bash
 curl -f http://localhost:3001/health
@@ -154,14 +166,14 @@ Manual checks:
 - Voice join works
 - Moderation actions (kick/ban) work
 
-## 5) Updating
+## 6) Updating
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-## 6) Prebuilt Images (Optional, Recommended for Production)
+## 7) Prebuilt Images (Optional, Recommended for Production)
 
 You can prebuild and push images, then let Compose pull them during deploy instead of rebuilding on the server.
 
@@ -193,7 +205,7 @@ docker compose pull server web
 docker compose up -d --no-build --remove-orphans
 ```
 
-## 7) Backups
+## 8) Backups
 
 ```bash
 ./scripts/ops/db_backup.sh
