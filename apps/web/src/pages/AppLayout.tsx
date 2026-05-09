@@ -445,6 +445,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const createServerInFlightRef = useRef(false)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
+    const serverBootstrapRequestRef = useRef(0)
+    const channelMessagesRequestRef = useRef(0)
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
@@ -586,20 +588,25 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) return
         const serverId = activeServerId
+        const requestId = ++serverBootstrapRequestRef.current
+        let cancelled = false
         const hasCachedChannels = (useAppStore.getState().channelsByServerId[serverId] ?? []).length > 0
         setServerBootstrapLoading(!hasCachedChannels)
         Promise.all([
             serverApi.channels(serverId, token),
             channelApi.listCategories(serverId, token).catch(() => []),
         ]).then(([chs, categories]) => {
-            setChannels(chs)
             setChannelsForServer(serverId, chs)
-            setChannelCategories(categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
                 return next
             })
+            if (cancelled || requestId !== serverBootstrapRequestRef.current || activeServerIdRef.current !== serverId) {
+                return
+            }
+            setChannels(chs)
+            setChannelCategories(categories.map((c) => c.name))
             const currentActive = activeChannelIdRef.current
             const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
             if (!stillValid) {
@@ -608,13 +615,22 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 const target = storedValid ? stored : (chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null)
                 setActiveChannel(target)
             }
-        }).catch(console.error).finally(() => setServerBootstrapLoading(false))
+        }).catch(console.error).finally(() => {
+            if (!cancelled && requestId === serverBootstrapRequestRef.current && activeServerIdRef.current === serverId) {
+                setServerBootstrapLoading(false)
+            }
+        })
 
         serverApi.get(serverId, token).then((detail) => {
-            setMembers(detail.members)
             setMembersForServer(serverId, detail.members)
             setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+            if (!cancelled && requestId === serverBootstrapRequestRef.current && activeServerIdRef.current === serverId) {
+                setMembers(detail.members)
+            }
         }).catch(console.error)
+        return () => {
+            cancelled = true
+        }
     }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
 
     const refreshActiveServerView = useCallback(async (serverId: string) => {
@@ -625,17 +641,19 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 channelApi.listCategories(serverId, token).catch(() => []),
                 serverApi.get(serverId, token),
             ])
-            setChannels(chs)
             setChannelsForServer(serverId, chs)
-            setChannelCategories(categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
                 return next
             })
-            setMembers(detail.members)
             setMembersForServer(serverId, detail.members)
             setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
+            if (activeServerIdRef.current === serverId) {
+                setChannels(chs)
+                setChannelCategories(categories.map((c) => c.name))
+                setMembers(detail.members)
+            }
         } catch (err) {
             console.error(err)
         }
@@ -652,24 +670,36 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        const requestId = ++channelMessagesRequestRef.current
+        let cancelled = false
         setChannelSearch('')
         setChannelSearchResults(null)
         setHasMoreOlder(true)
         setOlderMessagesReady(false)
-        const cached = messagesByChannelRef.current[activeChannelId]
+        const cached = messagesByChannelRef.current[channelId]
         setMessages(cached ?? [])
-        messageApi.list(activeChannelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
+        messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
-            messagesByChannelRef.current[activeChannelId] = merged
+            messagesByChannelRef.current[channelId] = merged
+            if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
+                return
+            }
             setMessages(merged)
             setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
             setOlderMessagesReady(true)
         }).catch((err) => {
             console.error(err)
+            if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
+                return
+            }
             setHasMoreOlder(false)
             setOlderMessagesReady(true)
         })
+        return () => {
+            cancelled = true
+        }
     }, [activeChannelId, isLoggedIn, token])
 
     const refreshActiveChannelMessages = useCallback(async (channelId: string) => {
@@ -680,13 +710,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = mergeRemoteWithRetryableLocals(ui, cached)
             messagesByChannelRef.current[channelId] = merged
-            setMessages(merged)
-            setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
-            setOlderMessagesReady(true)
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(merged)
+                setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+                setOlderMessagesReady(true)
+            }
         } catch (err) {
             console.error(err)
-            setHasMoreOlder(false)
-            setOlderMessagesReady(true)
+            if (activeChannelIdRef.current === channelId) {
+                setHasMoreOlder(false)
+                setOlderMessagesReady(true)
+            }
         }
     }, [isLoggedIn, token])
 
@@ -699,7 +733,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
         if (current.some((message) => message.id === messageId)) {
             messagesByChannelRef.current[channelId] = current
-            setMessages(current)
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(current)
+            }
             return true
         }
         let before = current[0]?.id
@@ -712,7 +748,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             if (older.length === 0) break
             current = [...older, ...current]
             messagesByChannelRef.current[channelId] = current
-            setMessages(current)
+            if (activeChannelIdRef.current === channelId) {
+                setMessages(current)
+            }
             if (current.some((message) => message.id === messageId)) {
                 return true
             }
@@ -726,17 +764,26 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
+        let cancelled = false
         const q = channelSearch.trim()
         if (!q) {
             setChannelSearchResults(null)
             return
         }
         const id = window.setTimeout(() => {
-            messageApi.search(activeChannelId, q, token)
-                .then((rows) => setChannelSearchResults(rows))
-                .catch(() => setChannelSearchResults([]))
+            messageApi.search(channelId, q, token)
+                .then((rows) => {
+                    if (!cancelled && activeChannelIdRef.current === channelId) setChannelSearchResults(rows)
+                })
+                .catch(() => {
+                    if (!cancelled && activeChannelIdRef.current === channelId) setChannelSearchResults([])
+                })
         }, 220)
-        return () => window.clearTimeout(id)
+        return () => {
+            cancelled = true
+            window.clearTimeout(id)
+        }
     }, [activeChannelId, channelSearch, token, isLoggedIn])
 
     useEffect(() => {
@@ -761,12 +808,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (!activeChannelId || !isLoggedIn) return
-        messageApi.listPins(activeChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+        const channelId = activeChannelId
+        let cancelled = false
+        messageApi.listPins(channelId, token)
+            .then((pins) => {
+                if (!cancelled && activeChannelIdRef.current === channelId) setChannelPins(pins)
+            })
+            .catch(() => {
+                if (!cancelled && activeChannelIdRef.current === channelId) setChannelPins([])
+            })
+        return () => {
+            cancelled = true
+        }
     }, [activeChannelId, token, isLoggedIn])
 
     const refreshChannelPins = useCallback(() => {
         if (!activeChannelId) return
-        messageApi.listPins(activeChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+        const channelId = activeChannelId
+        messageApi.listPins(channelId, token)
+            .then((pins) => {
+                if (activeChannelIdRef.current === channelId) setChannelPins(pins)
+            })
+            .catch(() => {
+                if (activeChannelIdRef.current === channelId) setChannelPins([])
+            })
     }, [activeChannelId, token])
 
     useEffect(() => {
@@ -788,7 +853,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             const currentChannelId = activeChannelIdRef.current
             if (currentChannelId) {
                 void refreshActiveChannelMessages(currentChannelId)
-                messageApi.listPins(currentChannelId, token).then(setChannelPins).catch(() => setChannelPins([]))
+                messageApi.listPins(currentChannelId, token)
+                    .then((pins) => {
+                        if (activeChannelIdRef.current === currentChannelId) setChannelPins(pins)
+                    })
+                    .catch(() => {
+                        if (activeChannelIdRef.current === currentChannelId) setChannelPins([])
+                    })
             }
         })
         return () => unsubscribe()
@@ -816,15 +887,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const loadOlderMessages = useCallback(async () => {
         if (!activeChannelId || !isLoggedIn || loadingOlder || !hasMoreOlder) return
-        const current = messagesByChannelRef.current[activeChannelId] ?? []
+        const channelId = activeChannelId
+        const current = messagesByChannelRef.current[channelId] ?? []
         const oldestId = current[0]?.id
         if (!oldestId) return
         setLoadingOlder(true)
         try {
-            const rows = await messageApi.list(activeChannelId, token, oldestId, MESSAGE_PAGE_SIZE)
+            const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = [...ui, ...current]
-            messagesByChannelRef.current[activeChannelId] = merged
+            messagesByChannelRef.current[channelId] = merged
+            if (activeChannelIdRef.current !== channelId) return
             setMessages(merged)
             if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
             const scrollEl = messagesScrollRef.current
@@ -955,7 +1028,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const channelId = d.channel_id as string | undefined
                     const messageId = d.message_id as string | undefined
                     if (!channelId || !messageId) break
-                    setMessages((prev) => prev.filter((m) => m.id !== messageId))
+                    if (channelId === activeChannelIdRef.current) {
+                        setMessages((prev) => prev.filter((m) => m.id !== messageId))
+                    }
                     const cached = messagesByChannelRef.current[channelId]
                     if (cached) {
                         messagesByChannelRef.current[channelId] = cached.filter((m) => m.id !== messageId)
@@ -966,7 +1041,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const channelId = d.channel_id as string | undefined
                     const message = d.message as MessageWithAuthor | undefined
                     if (!channelId || !message?.id) break
-                    setMessages((prev) => prev.map((m) => (m.id === message.id ? message : m)))
+                    if (channelId === activeChannelIdRef.current) {
+                        setMessages((prev) => prev.map((m) => (m.id === message.id ? message : m)))
+                    }
                     const cached = messagesByChannelRef.current[channelId]
                     if (cached) {
                         messagesByChannelRef.current[channelId] = cached.map((m) => (m.id === message.id ? message : m))
@@ -1149,6 +1226,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         e?.preventDefault()
         if (!canSendMessages) return
         if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
         if (hasPendingDraftAttachments(draftAttachments)) {
             pushToast({
                 level: 'error',
@@ -1169,7 +1247,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const optimisticId = `local-${clientId}`
         const optimistic: UiMessage = {
             id: optimisticId,
-            channel_id: activeChannelId,
+            channel_id: channelId,
             content,
             attachments,
             created_at: new Date().toISOString(),
@@ -1187,72 +1265,96 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setDraftAttachments([])
         setMessages((prev) => {
             const next = [...prev, optimistic]
-            messagesByChannelRef.current[activeChannelId] = next
+            messagesByChannelRef.current[channelId] = next
             return next
         })
         try {
-            const msg = await messageApi.send(activeChannelId, content, attachments, token)
-            setMessages((prev) => {
-                if (prev.some((m) => m.id === msg.id)) return prev
-                const idx = prev.findIndex((m) => m.clientId === clientId)
+            const msg = await messageApi.send(channelId, content, attachments, token)
+            const applySentMessage = (current: UiMessage[]) => {
+                if (current.some((m) => m.id === msg.id)) return current
+                const idx = current.findIndex((m) => m.clientId === clientId)
                 if (idx < 0) {
-                    const next = [...prev, msg]
-                    messagesByChannelRef.current[activeChannelId] = next
-                    return next
+                    return [...current, msg]
                 }
-                const next = [...prev]
+                const next = [...current]
                 next[idx] = msg
-                messagesByChannelRef.current[activeChannelId] = next
                 return next
-            })
+            }
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applySentMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applySentMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
         } catch (err) {
             console.error('Failed to send:', err)
-            setMessages((prev) => {
-                const next = prev.map((m) =>
+            const applyFailedMessage = (current: UiMessage[]) =>
+                current.map((m) =>
                     m.clientId === clientId
                         ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
                         : m
                 ) as UiMessage[]
-                messagesByChannelRef.current[activeChannelId] = next
-                return next
-            })
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyFailedMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyFailedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
         }
     }
 
     const handleRetryMessage = async (clientId: string) => {
         if (!canSendMessages) return
         if (!activeChannelId || !isLoggedIn) return
+        const channelId = activeChannelId
         const target = messages.find((m) => m.clientId === clientId)
         if (!target || target.clientStatus !== 'failed') return
         setMessages((prev) => {
             const next = prev.map((m) => (
                 m.clientId === clientId ? { ...m, clientStatus: 'sending' as const, clientError: undefined } : m
             )) as UiMessage[]
-            messagesByChannelRef.current[activeChannelId] = next
+            messagesByChannelRef.current[channelId] = next
             return next
         })
         try {
-            const msg = await messageApi.send(activeChannelId, target.content, target.attachments ?? [], token)
-            setMessages((prev) => {
-                if (prev.some((m) => m.id === msg.id)) {
-                    const next = prev.filter((m) => m.clientId !== clientId)
-                    messagesByChannelRef.current[activeChannelId] = next
-                    return next
+            const msg = await messageApi.send(channelId, target.content, target.attachments ?? [], token)
+            const applyRetriedMessage = (current: UiMessage[]) => {
+                if (current.some((m) => m.id === msg.id)) {
+                    return current.filter((m) => m.clientId !== clientId)
                 }
-                const next = prev.map((m) => (m.clientId === clientId ? msg : m))
-                messagesByChannelRef.current[activeChannelId] = next
-                return next
-            })
+                return current.map((m) => (m.clientId === clientId ? msg : m))
+            }
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyRetriedMessage(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyRetriedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
         } catch (err) {
-            setMessages((prev) => {
-                const next = prev.map((m) =>
+            const applyFailedRetry = (current: UiMessage[]) =>
+                current.map((m) =>
                     m.clientId === clientId
                         ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Retry failed' }
                         : m
                 ) as UiMessage[]
-                messagesByChannelRef.current[activeChannelId] = next
-                return next
-            })
+            if (activeChannelIdRef.current === channelId) {
+                setMessages((prev) => {
+                    const next = applyFailedRetry(prev)
+                    messagesByChannelRef.current[channelId] = next
+                    return next
+                })
+            } else {
+                messagesByChannelRef.current[channelId] = applyFailedRetry(messagesByChannelRef.current[channelId] ?? [])
+            }
         }
     }
 

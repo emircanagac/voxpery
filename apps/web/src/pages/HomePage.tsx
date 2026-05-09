@@ -247,6 +247,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [dmDraftAttachments, setDmDraftAttachments] = useState<DraftAttachmentItem[]>([])
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
+  const dmMessagesRequestRef = useRef(0)
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
 
@@ -349,6 +350,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
     if (!user) return
+    const requestId = ++dmMessagesRequestRef.current
     setDmConversationReady(false)
     const cached = dmMessagesByChannelRef.current[channelId]
     setDmMessages(cached ?? [])
@@ -357,14 +359,20 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const ui = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
       const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
       dmMessagesByChannelRef.current[channelId] = merged
-      setDmMessages(merged)
-      setDmConversationReady(true)
+      if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
+        setDmMessages(merged)
+        setDmConversationReady(true)
+      }
     } catch (err) {
-      setDmConversationReady(true)
+      if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
+        setDmConversationReady(true)
+      }
       if (isDmAccessForbidden(err)) {
-        setActiveDmChannelId(null)
-        setView('friends')
-        setPersistedSocialView('friends')
+        if (activeDmChannelIdRef.current === channelId) {
+          setActiveDmChannelId(null)
+          setView('friends')
+          setPersistedSocialView('friends')
+        }
       } else {
         console.error(err)
       }
@@ -381,7 +389,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
       if (current.some((message) => message.id === messageId)) {
         dmMessagesByChannelRef.current[channelId] = current
-        setDmMessages(current)
+        if (activeDmChannelIdRef.current === channelId) {
+          setDmMessages(current)
+        }
         return true
       }
       let before = current[0]?.id
@@ -394,7 +404,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         if (older.length === 0) break
         current = [...older, ...current]
         dmMessagesByChannelRef.current[channelId] = current
-        setDmMessages(current)
+        if (activeDmChannelIdRef.current === channelId) {
+          setDmMessages(current)
+        }
         if (current.some((message) => message.id === messageId)) {
           return true
         }
@@ -439,38 +451,62 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
+    const channelId = activeDmChannelId
+    let cancelled = false
     const q = dmSearch.trim()
     if (!q) {
       setDmSearchResults(null)
       return
     }
     const id = window.setTimeout(() => {
-      dmApi.searchMessages(activeDmChannelId, q, token)
-        .then((rows) => setDmSearchResults(rows))
-        .catch(() => setDmSearchResults([]))
+      dmApi.searchMessages(channelId, q, token)
+        .then((rows) => {
+          if (!cancelled && activeDmChannelIdRef.current === channelId) setDmSearchResults(rows)
+        })
+        .catch(() => {
+          if (!cancelled && activeDmChannelIdRef.current === channelId) setDmSearchResults([])
+        })
     }, 220)
-    return () => window.clearTimeout(id)
+    return () => {
+      cancelled = true
+      window.clearTimeout(id)
+    }
   }, [activeDmChannelId, dmSearch, token, user])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
     const channelId = activeDmChannelId
+    let cancelled = false
     dmApi
       .listPins(channelId, token)
-      .then(setDmPins)
+      .then((pins) => {
+        if (!cancelled && activeDmChannelIdRef.current === channelId) setDmPins(pins)
+      })
       .catch((err) => {
         if (isDmAccessForbidden(err)) {
-          setActiveDmChannelId(null)
-          setView('friends')
-          setPersistedSocialView('friends')
+          if (!cancelled && activeDmChannelIdRef.current === channelId) {
+            setActiveDmChannelId(null)
+            setView('friends')
+            setPersistedSocialView('friends')
+          }
         }
-        setDmPins([])
+        if (!cancelled && activeDmChannelIdRef.current === channelId) setDmPins([])
       })
+    return () => {
+      cancelled = true
+    }
   }, [activeDmChannelId, token, user, setActiveDmChannelId, setView])
 
   const refreshDmPins = useCallback(() => {
     if (!activeDmChannelId) return
-    dmApi.listPins(activeDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
+    const channelId = activeDmChannelId
+    dmApi.listPins(channelId, token)
+      .then((pins) => {
+        if (activeDmChannelIdRef.current === channelId) setDmPins(pins)
+      })
+      .catch(() => {
+        if (activeDmChannelIdRef.current === channelId) setDmPins([])
+      })
   }, [activeDmChannelId, token])
 
   useEffect(() => {
@@ -481,7 +517,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const currentDmChannelId = activeDmChannelIdRef.current
       if (currentDmChannelId) {
         void refreshActiveDmConversation(currentDmChannelId)
-        dmApi.listPins(currentDmChannelId, token).then(setDmPins).catch(() => setDmPins([]))
+        dmApi.listPins(currentDmChannelId, token)
+          .then((pins) => {
+            if (activeDmChannelIdRef.current === currentDmChannelId) setDmPins(pins)
+          })
+          .catch(() => {
+            if (activeDmChannelIdRef.current === currentDmChannelId) setDmPins([])
+          })
       }
     })
     return () => unsubscribe()
@@ -772,6 +814,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const handleSendDm = async (_e?: FormEvent, forceContent?: string) => {
     if (!user || !activeDmChannelId) return
+    const channelId = activeDmChannelId
     if (hasPendingDraftAttachments(dmDraftAttachments)) {
       pushToast({
         level: 'error',
@@ -794,7 +837,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const optimisticId = `local-${clientId}`
     const optimistic: UiDmMessage = {
       id: optimisticId,
-      channel_id: activeDmChannelId,
+      channel_id: channelId,
       content,
       attachments: attachmentsToSend,
       created_at: new Date().toISOString(),
@@ -809,73 +852,97 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
     setDmMessages((prev) => {
       const next = [...prev, optimistic]
-      dmMessagesByChannelRef.current[activeDmChannelId] = next
+      dmMessagesByChannelRef.current[channelId] = next
       return next
     })
     try {
-      const msg = await dmApi.sendMessage(activeDmChannelId, content, attachmentsToSend, token)
-      clearDmUnread(activeDmChannelId)
-      setDmMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev
-        const idx = prev.findIndex((m) => m.clientId === clientId)
+      const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token)
+      clearDmUnread(channelId)
+      const applySentDm = (current: UiDmMessage[]) => {
+        if (current.some((m) => m.id === msg.id)) return current
+        const idx = current.findIndex((m) => m.clientId === clientId)
         if (idx < 0) {
-          const next = [...prev, msg]
-          dmMessagesByChannelRef.current[activeDmChannelId] = next
-          return next
+          return [...current, msg]
         }
-        const next = [...prev]
+        const next = [...current]
         next[idx] = msg
-        dmMessagesByChannelRef.current[activeDmChannelId] = next
         return next
-      })
+      }
+      if (activeDmChannelIdRef.current === channelId) {
+        setDmMessages((prev) => {
+          const next = applySentDm(prev)
+          dmMessagesByChannelRef.current[channelId] = next
+          return next
+        })
+      } else {
+        dmMessagesByChannelRef.current[channelId] = applySentDm(dmMessagesByChannelRef.current[channelId] ?? [])
+      }
     } catch (err) {
-      setDmMessages((prev) => {
-        const next = prev.map((m) =>
+      const applyFailedDm = (current: UiDmMessage[]) =>
+        current.map((m) =>
           m.clientId === clientId
             ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
             : m
         )
-        dmMessagesByChannelRef.current[activeDmChannelId] = next
-        return next
-      })
+      if (activeDmChannelIdRef.current === channelId) {
+        setDmMessages((prev) => {
+          const next = applyFailedDm(prev)
+          dmMessagesByChannelRef.current[channelId] = next
+          return next
+        })
+      } else {
+        dmMessagesByChannelRef.current[channelId] = applyFailedDm(dmMessagesByChannelRef.current[channelId] ?? [])
+      }
     }
   }
 
   const handleRetryDmMessage = useCallback(
     async (clientId: string) => {
       if (!user || !activeDmChannelId) return
+      const channelId = activeDmChannelId
       const target = dmMessages.find((m) => m.clientId === clientId)
       if (!target || target.clientStatus !== 'failed') return
       setDmMessages((prev) => {
         const next = prev.map((m) =>
           m.clientId === clientId ? { ...m, clientStatus: 'sending' as const, clientError: undefined } : m
         )
-        dmMessagesByChannelRef.current[activeDmChannelId] = next
+        dmMessagesByChannelRef.current[channelId] = next
         return next
       })
       try {
-        const msg = await dmApi.sendMessage(activeDmChannelId, target.content, target.attachments ?? [], token)
-        clearDmUnread(activeDmChannelId)
-        setDmMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) {
-            const next = prev.filter((m) => m.clientId !== clientId)
-            dmMessagesByChannelRef.current[activeDmChannelId] = next
-            return next
+        const msg = await dmApi.sendMessage(channelId, target.content, target.attachments ?? [], token)
+        clearDmUnread(channelId)
+        const applyRetriedDm = (current: UiDmMessage[]) => {
+          if (current.some((m) => m.id === msg.id)) {
+            return current.filter((m) => m.clientId !== clientId)
           }
-          const next = prev.map((m) => (m.clientId === clientId ? msg : m))
-          dmMessagesByChannelRef.current[activeDmChannelId] = next
-          return next
-        })
+          return current.map((m) => (m.clientId === clientId ? msg : m))
+        }
+        if (activeDmChannelIdRef.current === channelId) {
+          setDmMessages((prev) => {
+            const next = applyRetriedDm(prev)
+            dmMessagesByChannelRef.current[channelId] = next
+            return next
+          })
+        } else {
+          dmMessagesByChannelRef.current[channelId] = applyRetriedDm(dmMessagesByChannelRef.current[channelId] ?? [])
+        }
       } catch (err) {
-        setDmMessages((prev) => {
-          const next = prev.map((m) =>
+        const applyFailedRetry = (current: UiDmMessage[]) =>
+          current.map((m) =>
             m.clientId === clientId
               ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Retry failed' }
               : m
           )
-          dmMessagesByChannelRef.current[activeDmChannelId] = next
-          return next
-        })
+        if (activeDmChannelIdRef.current === channelId) {
+          setDmMessages((prev) => {
+            const next = applyFailedRetry(prev)
+            dmMessagesByChannelRef.current[channelId] = next
+            return next
+          })
+        } else {
+          dmMessagesByChannelRef.current[channelId] = applyFailedRetry(dmMessagesByChannelRef.current[channelId] ?? [])
+        }
       }
     },
     [token, activeDmChannelId, dmMessages, user, clearDmUnread]
