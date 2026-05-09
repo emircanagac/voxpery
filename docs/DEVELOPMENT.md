@@ -80,6 +80,7 @@ npm run test:e2e
 npm run smoke:e2e
 npm run chaos:reconnect
 npm run regression:multi-user
+npm run load:realtime
 npm run rate-limit:check
 ```
 

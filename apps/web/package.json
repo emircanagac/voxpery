@@ -22,6 +22,7 @@
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "chaos:reconnect": "node scripts/chaos-reconnect.mjs",
     "regression:multi-user": "node scripts/regression-multi-user.mjs",
+    "load:realtime": "node scripts/realtime-load-smoke.mjs",
     "rate-limit:check": "node scripts/rate-limit-check.mjs"
   },
   "dependencies": {
