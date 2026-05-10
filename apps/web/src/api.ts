@@ -27,6 +27,7 @@ export type {
     ServerInvitePreview,
     ServerReportEntry,
     ServerRole,
+    ServerRule,
     SignalingMessage,
     SystemFeatures,
     TurnCredentials,

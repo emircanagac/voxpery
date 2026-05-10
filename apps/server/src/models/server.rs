@@ -84,3 +84,24 @@ pub struct MemberInfo {
     #[serde(default)]
     pub roles: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ServerRule {
+    pub id: Uuid,
+    pub server_id: Uuid,
+    pub rule_text: String,
+    pub position: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateServerRuleRequest {
+    pub rule_text: String,
+    pub position: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateServerRuleRequest {
+    pub rule_text: Option<String>,
+    pub position: Option<i32>,
+}

@@ -132,6 +132,14 @@ export interface ServerRole {
     permissions: number
 }
 
+export interface ServerRule {
+    id: string
+    server_id: string
+    rule_text: string
+    position: number
+    created_at: string
+}
+
 export interface ChannelOverride {
     role_id: string
     allow: number
