@@ -233,7 +233,7 @@ impl Config {
                 .trim_matches('/')
                 .to_string(),
             attachments_max_file_bytes: std::env::var("ATTACHMENTS_MAX_FILE_BYTES")
-                .unwrap_or_else(|_| "5242880".into())
+                .unwrap_or_else(|_| "10485760".into())
                 .parse()
                 .expect("ATTACHMENTS_MAX_FILE_BYTES must be a number"),
             attachments_max_files_per_request: std::env::var("ATTACHMENTS_MAX_FILES_PER_REQUEST")
@@ -244,7 +244,7 @@ impl Config {
                 "ATTACHMENTS_ALLOWED_MIME_PREFIXES",
             )
             .unwrap_or_else(|_| {
-                "image/,video/,audio/,application/pdf,text/plain,application/zip,application/octet-stream".into()
+                "image/,video/,audio/,application/pdf,text/plain,application/zip,application/x-zip-compressed,application/octet-stream".into()
             })
             .split(',')
             .map(|x| x.trim().to_string())

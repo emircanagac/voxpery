@@ -784,7 +784,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmDraftAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
-      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
+      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, 'Upload failed'))
       pushToast({
         level: 'error',
         title: 'Upload failed',
@@ -803,14 +803,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmDraftAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
-      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+      setDmDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], 'Upload failed'))
       pushToast({
         level: 'error',
         title: 'Upload failed',
         message: errorMessage,
       })
     }
-  }, [dmDraftAttachments, pushToast, token])
+  }, [dmDraftAttachments, token, pushToast])
 
   const handleSendDm = async (_e?: FormEvent, forceContent?: string) => {
     if (!user || !activeDmChannelId) return

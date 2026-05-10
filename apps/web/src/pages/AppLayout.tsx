@@ -1493,7 +1493,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, pendingIds, uploaded))
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
-            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, errorMessage))
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, pendingIds, 'Upload failed'))
             pushToast({
                 level: 'error',
                 title: 'Upload failed',
@@ -2028,14 +2028,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setDraftAttachments((prev) => applyUploadedDraftAttachments(prev, [localId], [uploaded]))
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Could not upload attachment(s).'
-            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], errorMessage))
+            setDraftAttachments((prev) => markDraftAttachmentsFailed(prev, [localId], 'Upload failed'))
             pushToast({
                 level: 'error',
                 title: 'Upload failed',
                 message: errorMessage,
             })
         }
-    }, [draftAttachments, pushToast, token])
+    }, [draftAttachments, token, pushToast])
 
     const handleServerSettingsProfileRender = useCallback(
         (

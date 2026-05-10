@@ -404,7 +404,7 @@ mod tests {
             attachments_public_base_url: None,
             attachments_local_dir: "./storage/attachments".into(),
             attachments_key_prefix: "attachments".into(),
-            attachments_max_file_bytes: 5_242_880,
+            attachments_max_file_bytes: 10_485_760,
             attachments_max_files_per_request: 4,
             attachments_allowed_mime_prefixes: vec!["image/".into()],
             attachments_url_ttl_secs: 900,

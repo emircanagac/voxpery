@@ -136,6 +136,8 @@ Notes:
 
 - `POST /api/attachments/upload` (auth required)
   - `multipart/form-data` with one or more `files` fields.
+  - Default per-file limit is 10 MB (`ATTACHMENTS_MAX_FILE_BYTES=10485760`).
+  - Default MIME allowlist includes ZIP uploads from common browsers/Windows (`application/zip`, `application/x-zip-compressed`) but not executable installers.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
   - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
@@ -145,7 +147,9 @@ Notes:
 ## Message Endpoints (Server Channels)
 
 - `GET /api/messages/:channel_id?before=<uuid>&limit=<n>`
-- `GET /api/messages/:channel_id/search?q=<term>&limit=<n>`
+- `GET /api/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
+  - `from` filters by message author username.
+  - `has_attachment=true` returns only messages with one or more attachments.
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
 - `PATCH /api/messages/item/:message_id` (author only)
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
@@ -176,7 +180,9 @@ Notes:
 - `GET /api/dm/channels`
 - `POST /api/dm/channels/:peer_id`
 - `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
-- `GET /api/dm/messages/:channel_id/search?q=<term>&limit=<n>`
+- `GET /api/dm/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
+  - `from` filters by message author username.
+  - `has_attachment=true` returns only messages with one or more attachments.
 - `POST /api/dm/messages/:channel_id`
 - `PATCH /api/dm/messages/item/:message_id`
 - `DELETE /api/dm/messages/item/:message_id`

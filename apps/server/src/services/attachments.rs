@@ -146,6 +146,7 @@ impl AttachmentService {
                 "application/pdf".to_string(),
                 "text/plain".to_string(),
                 "application/zip".to_string(),
+                "application/x-zip-compressed".to_string(),
                 "application/octet-stream".to_string(),
             ],
             ClamAvConfig {
@@ -960,6 +961,23 @@ mod tests {
     fn sanitizes_filename() {
         assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
         assert_eq!(sanitize_file_name(""), "file.bin");
+    }
+
+    #[tokio::test]
+    async fn upload_meta_allows_windows_zip_mime_but_rejects_executables() {
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+
+        assert!(service
+            .validate_upload_file_meta("application/x-zip-compressed", 1024)
+            .is_ok());
+        assert!(service
+            .validate_upload_file_meta("application/x-msdownload", 1024)
+            .is_err());
+
+        fs::remove_dir_all(test_root).await.expect("cleanup");
     }
 
     #[tokio::test]
