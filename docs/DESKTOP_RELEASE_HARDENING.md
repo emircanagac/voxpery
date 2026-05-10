@@ -28,6 +28,7 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Release desktop capability scope must allow only Voxpery production network targets.
 - `apps/desktop/src-tauri/capabilities/default.json` must not allow `localhost` or `127.0.0.1` HTTP targets in release builds.
 - `apps/desktop/src-tauri/tauri.conf.json` CSP `connect-src` must not include local HTTP/WS backends in release builds.
+- `apps/desktop/src-tauri/tauri.conf.json` CSP must allow Cloudflare Turnstile on `connect-src`, `script-src`, and `frame-src` so desktop registration can render CAPTCHA when production requires it.
 - If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
 - Voxpery development uses `apps/desktop/src-tauri/tauri.dev.conf.json` together with `cargo tauri dev --config tauri.dev.conf.json` for local backend connectivity.
 
@@ -73,6 +74,7 @@ Voxpery desktop rollback is manual and release-artifact based:
 ## 6) Recommended Repository Secrets
 
 - `VITE_API_URL` (required for desktop release build)
+- `VITE_TURNSTILE_SITE_KEY` (required as a repository variable or secret for desktop release builds)
 - `TAURI_UPDATER_PUBLIC_KEY` (required when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY` (required only when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (optional; required if private key is encrypted)
