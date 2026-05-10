@@ -16,6 +16,7 @@ export interface Server {
     id: string;
     name: string;
     icon_url?: string;
+    description?: string;
     owner_id: string;
     invite_code: string;
 }
@@ -24,6 +25,7 @@ export interface ServerInvitePreview {
     id: string;
     name: string;
     icon_url?: string;
+    description?: string;
     invite_code: string;
     member_count: number;
 }

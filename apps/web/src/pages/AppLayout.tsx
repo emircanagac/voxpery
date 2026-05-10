@@ -331,6 +331,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [draftAttachments, setDraftAttachments] = useState<DraftAttachmentItem[]>([])
     const [emptyInviteCopied, setEmptyInviteCopied] = useState(false)
     const [newServerName, setNewServerName] = useState('')
+    const [newServerDescription, setNewServerDescription] = useState('')
     const [inviteCode, setInviteCode] = useState('')
     const [createServerError, setCreateServerError] = useState<string | null>(null)
     const [isCreatingServer, setIsCreatingServer] = useState(false)
@@ -342,6 +343,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
     )
     const [serverSettingsName, setServerSettingsName] = useState('')
+    const [serverSettingsDescription, setServerSettingsDescription] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
     const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
     const [showDeleteServerConfirm, setShowDeleteServerConfirm] = useState(false)
@@ -1516,11 +1518,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         createServerInFlightRef.current = true
         setIsCreatingServer(true)
         try {
-            const server = await serverApi.create(newServerName, token)
+            const server = await serverApi.create(newServerName, newServerDescription.trim() || undefined, token)
             const allServers = await serverApi.list(token)
             setServers(allServers)
             setActiveServer(server.id)
             setNewServerName('')
+            setNewServerDescription('')
             setShowCreateServer(false)
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to create server.'
@@ -1638,12 +1641,18 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         serverSettingsIconDraft !== undefined &&
         serverSettingsIconDraft !== (settingsServer.icon_url ?? null)
     )
-    const canSaveServerSettings = hasNameChanges || hasIconChanges
+    const hasDescriptionChanges = !!(
+        isOwner &&
+        settingsServer &&
+        serverSettingsDescription !== (settingsServer.description ?? '')
+    )
+    const canSaveServerSettings = hasNameChanges || hasIconChanges || hasDescriptionChanges
 
     useEffect(() => {
         setServerSettingsName(settingsServer?.name ?? '')
+        setServerSettingsDescription(settingsServer?.description ?? '')
         setServerSettingsIconDraft(undefined)
-    }, [settingsServer?.id, settingsServer?.name])
+    }, [settingsServer?.id, settingsServer?.name, settingsServer?.description])
 
     useEffect(() => {
         setEmptyInviteCopied(false)
@@ -2082,8 +2091,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!canSaveServerSettings) return
         setServerSettingsError(null)
         try {
-            const payload: { name?: string; icon_url?: string; clear_icon?: boolean } = {}
+            const payload: { name?: string; icon_url?: string; description?: string; clear_icon?: boolean } = {}
             if (hasNameChanges) payload.name = trimmedServerSettingsName
+            if (hasDescriptionChanges) payload.description = serverSettingsDescription.trim() || undefined
             if (hasIconChanges) {
                 if (serverSettingsIconDraft == null) payload.clear_icon = true
                 else payload.icon_url = serverSettingsIconDraft
@@ -2103,11 +2113,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setServerSettingsServerId(null)
         setCopiedInvite(null)
         setServerSettingsName(settingsServer?.name ?? '')
+        setServerSettingsDescription(settingsServer?.description ?? '')
         setServerSettingsIconDraft(undefined)
         setShowDeleteServerConfirm(false)
         setDeleteServerError(null)
         setDeleteServerInput('')
-    }, [settingsServer?.name])
+    }, [settingsServer?.name, settingsServer?.description])
 
     const handleCloseServerSettings = useCallback(() => {
         if (canSaveServerSettings) {
@@ -2923,6 +2934,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         required
                                     />
                                 </div>
+                                <div className="form-group">
+                                    <label>Description <span style={{ opacity: 0.6 }}>(optional)</span></label>
+                                    <input
+                                        type="text"
+                                        value={newServerDescription}
+                                        onChange={(e) => setNewServerDescription(e.target.value)}
+                                        placeholder="What's this server about?"
+                                        maxLength={500}
+                                        disabled={isCreatingServer}
+                                    />
+                                </div>
                                 <div className="modal-actions">
                                     <button
                                         type="button"
@@ -3353,6 +3375,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         value={serverSettingsName}
                                                                         onChange={(e) => setServerSettingsName(e.target.value)}
                                                                         placeholder="Server name"
+                                                                        disabled={!isOwner}
+                                                                    />
+                                                                </div>
+                                                                <div className="form-group">
+                                                                    <label>Description</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={serverSettingsDescription}
+                                                                        onChange={(e) => setServerSettingsDescription(e.target.value)}
+                                                                        placeholder="What's this server about?"
+                                                                        maxLength={500}
                                                                         disabled={!isOwner}
                                                                     />
                                                                 </div>
