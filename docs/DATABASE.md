@@ -15,6 +15,7 @@ users
  |                       +--< server_channel_categories --< channel_category_role_overrides
  |                       +--< server_bans
  |                       +--< server_reports
+ |                       +--< server_automod_rules
  |                       +--< audit_log
  |
  +--< friend_requests
@@ -152,6 +153,12 @@ Uniqueness (case-insensitive):
 - moderation fields: `reason`, `details`, `status`, `resolved_at`, `resolved_by`
 - timeline: `created_at`
 
+### `server_automod_rules`
+
+- Server-level AutoMod configuration for blocked keywords, invite links, links, and mention spam.
+- Key fields: `trigger_type`, `pattern`, `mention_limit`, `enabled`, `exempt_role_ids`, `exempt_channel_ids`.
+- Matching rules block server-channel sends/edits before message persistence and write `automod_message_block` audit entries.
+
 ### `password_reset_tokens`
 
 - `id`, `user_id` (unique), `token_hash`, `expires_at`, `created_at`
@@ -210,6 +217,7 @@ All migrations currently present:
 - `031_channel_descriptions.sql`
 - `032_user_storage_used_bytes.sql`
 - `033_email_verification.sql`
+- `034_server_automod_rules.sql`
 
 ## Notes
 

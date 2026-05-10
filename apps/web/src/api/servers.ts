@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogEntry, AuthToken, Channel, MemberInfo, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole } from './contracts'
+import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -38,6 +38,54 @@ export const serverApi = {
 
     listReports: (serverId: string, token: AuthToken) =>
         apiFetch<ServerReportEntry[]>(`/api/servers/${serverId}/reports`, { token }),
+
+    listAutoModRules: (serverId: string, token: AuthToken) =>
+        apiFetch<AutoModRule[]>(`/api/servers/${serverId}/automod-rules`, { token }),
+
+    createAutoModRule: (
+        serverId: string,
+        payload: {
+            name: string
+            trigger_type: AutoModTriggerType
+            pattern?: string | null
+            mention_limit?: number | null
+            enabled?: boolean
+            exempt_role_ids?: string[]
+            exempt_channel_ids?: string[]
+        },
+        token: AuthToken,
+    ) =>
+        apiFetch<AutoModRule>(`/api/servers/${serverId}/automod-rules`, {
+            method: 'POST',
+            body: payload,
+            token,
+        }),
+
+    updateAutoModRule: (
+        serverId: string,
+        ruleId: string,
+        payload: Partial<{
+            name: string
+            trigger_type: AutoModTriggerType
+            pattern: string | null
+            mention_limit: number | null
+            enabled: boolean
+            exempt_role_ids: string[]
+            exempt_channel_ids: string[]
+        }>,
+        token: AuthToken,
+    ) =>
+        apiFetch<AutoModRule>(`/api/servers/${serverId}/automod-rules/${ruleId}`, {
+            method: 'PATCH',
+            body: payload,
+            token,
+        }),
+
+    deleteAutoModRule: (serverId: string, ruleId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/automod-rules/${ruleId}`, {
+            method: 'DELETE',
+            token,
+        }),
 
     reportUser: (
         serverId: string,

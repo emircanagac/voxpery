@@ -12,10 +12,11 @@ import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
+import ServerSettingsAutoMod from '../components/ServerSettingsAutoMod'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, Ban, Flag, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Ban, Flag, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
@@ -65,6 +66,11 @@ const SERVER_SETTINGS_SECTION_META = {
         eyebrow: 'Trust & Safety',
         title: 'Reports',
         hint: 'Review community reports, investigate context, and resolve issues quickly.',
+    },
+    automod: {
+        eyebrow: 'Safety',
+        title: 'AutoMod',
+        hint: 'Create server-level filters that block risky messages before they reach channels.',
     },
     bans: {
         eyebrow: 'Safety',
@@ -331,7 +337,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger'>('overview')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
     )
@@ -1555,7 +1561,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
     const openServerSettingsModal = (
         serverId?: string | null,
-        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger' = 'overview',
     ) => {
         if (isMobileViewport) {
             pushToast({
@@ -1575,7 +1581,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
     const openServerSettingsForServer = (
         serverId: string,
-        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'bans' | 'danger' = 'overview',
+        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger' = 'overview',
     ) => {
         if (activeServerId !== serverId) setActiveServer(serverId)
         openServerSettingsModal(serverId, initialTab)
@@ -1614,6 +1620,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const settingsServerId = settingsServer?.id ?? null
     const settingsServerInviteLink = settingsServer ? `${inviteBaseUrl}/invite/${settingsServer.invite_code}` : ''
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
+    const canManageAutoMod = isOwner || (activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
     const canViewReports = isOwner || canViewAuditLog || canManageBans
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
@@ -3209,6 +3216,22 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     </span>
                                                 </button>
                                             )}
+                                            {canManageAutoMod && (
+                                                <button
+                                                    type="button"
+                                                    className={
+                                                        serverSettingsTab === 'automod'
+                                                            ? 'server-settings-nav__item server-settings-nav__item--active'
+                                                            : 'server-settings-nav__item'
+                                                    }
+                                                    onClick={() => setServerSettingsTab('automod')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><ShieldAlert size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">AutoMod</span>
+                                                    </span>
+                                                </button>
+                                            )}
                                             {(isOwner || canManageBans) && (
                                                 <button
                                                     type="button"
@@ -3247,6 +3270,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
                                                     {serverSettingsTab === 'audit' && <ScrollText size={18} />}
                                                     {serverSettingsTab === 'reports' && <Flag size={18} />}
+                                                    {serverSettingsTab === 'automod' && <ShieldAlert size={18} />}
                                                     {serverSettingsTab === 'bans' && <Ban size={18} />}
                                                     {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
                                                 </div>
@@ -3556,6 +3580,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         </div>
                                                     )}
                                                 </section>
+                                            )}
+
+                                            {serverSettingsTab === 'automod' && settingsServerId && canManageAutoMod && (
+                                                <ServerSettingsAutoMod
+                                                    serverId={settingsServerId}
+                                                    token={token}
+                                                />
                                             )}
 
                                             {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (

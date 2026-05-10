@@ -298,6 +298,8 @@ add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss:/
 
 Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, and server settings updates) and exposed via server audit endpoints.
 
+AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
+
 ## Dependency Security
 
 **Rust**:
