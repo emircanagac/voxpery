@@ -5,10 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { setLogLevel } from 'livekit-client'
 import './index.css'
 import App from './App'
+import { registerPwaServiceWorker } from './pwa'
 
 if (import.meta.env.PROD) {
   setLogLevel('silent')
 }
+
+registerPwaServiceWorker()
 
 const queryClient = new QueryClient({
   defaultOptions: {

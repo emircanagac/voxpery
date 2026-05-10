@@ -16,6 +16,7 @@ This folder is the source of truth for architecture, development, deployment, an
 - **[API.md](API.md)** - REST API endpoints and auth behavior
 - **[WEBSOCKET_EVENTS.md](WEBSOCKET_EVENTS.md)** - Realtime protocol and event contracts
 - **[VOICE_SYSTEM.md](VOICE_SYSTEM.md)** - LiveKit integration and voice pipeline
+- **[PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md)** - Realtime workload risks and measurement plan
 - **[DATABASE.md](DATABASE.md)** - Schema, migrations, and key queries
 - **[SECURITY.md](SECURITY.md)** - Security model and hardening checklist
 - **[../SECURITY.md](../SECURITY.md)** - Private vulnerability reporting policy
