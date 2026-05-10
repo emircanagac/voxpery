@@ -2,10 +2,13 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
-import { friendApi, serverApi, type ServerRole } from '../api'
+import { dmApi, friendApi, serverApi, type ServerRole } from '../api'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
+import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '../routes'
+import { setPersistedSocialView } from '../socialView'
 
 interface MemberItemProps {
     member: { user_id: string; username: string; role: string; avatar_url?: string | null; status?: string | null; role_color?: string | null; roles?: string[] }
@@ -18,7 +21,7 @@ interface MemberItemProps {
     canManageRoles: boolean
     myRole: string
     interactive: boolean
-    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
+    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
     onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
 
@@ -54,6 +57,7 @@ const MemberItem = memo(function MemberItem({
         (isOwner || canManageRoles)
     const canMakeAdmin = canManageOwnerSelf || canManageNonOwnerTarget
     const canAddFriend = member.user_id !== currentUserId && !isFriend
+    const canSendDm = member.user_id !== currentUserId
     const canKick =
         canKickAsRole &&
         !isServerOwner &&
@@ -67,7 +71,7 @@ const MemberItem = memo(function MemberItem({
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
     const canReport = member.user_id !== currentUserId
-    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canKick || canBan || canReport)
+    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canSendDm || canKick || canBan || canReport)
 
     return (
         <div
@@ -79,7 +83,7 @@ const MemberItem = memo(function MemberItem({
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu(e, member, canMakeAdmin, canAddFriend, canKick, canBan, canReport)
+                onContextMenu(e, member, canMakeAdmin, canAddFriend, canSendDm, canKick, canBan, canReport)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -120,7 +124,21 @@ export default function MemberSidebar({
     interactive?: boolean
 }) {
     const { user, token } = useAuthStore()
-    const { servers, activeServerId, activeChannelId, channels, members, setMembers, friends, setFriends } = useAppStore(
+    const navigate = useNavigate()
+    const {
+        servers,
+        activeServerId,
+        activeChannelId,
+        channels,
+        members,
+        setMembers,
+        friends,
+        setFriends,
+        setDmChannelIds,
+        setDmChannels,
+        setActiveDmChannelId,
+        clearDmUnread,
+    } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -130,6 +148,10 @@ export default function MemberSidebar({
             setMembers: s.setMembers,
             friends: s.friends,
             setFriends: s.setFriends,
+            setDmChannelIds: s.setDmChannelIds,
+            setDmChannels: s.setDmChannels,
+            setActiveDmChannelId: s.setActiveDmChannelId,
+            clearDmUnread: s.clearDmUnread,
         }))
     )
     const pushToast = useToastStore((s) => s.pushToast)
@@ -149,6 +171,7 @@ export default function MemberSidebar({
         y: number
         canMakeAdmin: boolean
         canAddFriend: boolean
+        canSendDm: boolean
         canKick: boolean
         canBan: boolean
         canReport: boolean
@@ -375,6 +398,34 @@ export default function MemberSidebar({
         [pushToast, setFriends, token, user],
     )
 
+    const handleSendDm = useCallback(
+        async (memberUserId: string, username: string) => {
+            if (!user || memberUserId === user.id) return
+            setContextMenu(null)
+            try {
+                const channel = await dmApi.getOrCreateChannel(memberUserId, token)
+                const currentChannels = useAppStore.getState().dmChannels
+                const nextChannels = [
+                    channel,
+                    ...currentChannels.filter((entry) => entry.id !== channel.id),
+                ]
+                setDmChannels(nextChannels)
+                setDmChannelIds(nextChannels.map((entry) => entry.id))
+                setActiveDmChannelId(channel.id)
+                clearDmUnread(channel.id)
+                setPersistedSocialView('dm')
+                navigate(ROUTES.dm)
+            } catch (e) {
+                pushToast({
+                    level: 'error',
+                    title: 'DM unavailable',
+                    message: e instanceof Error ? e.message : `Could not start a DM with ${username}.`,
+                })
+            }
+        },
+        [clearDmUnread, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, token, user],
+    )
+
     const handleKick = useCallback(
         async (memberUserId: string) => {
             if (!activeServerId) return
@@ -418,11 +469,12 @@ export default function MemberSidebar({
         member: MemberItemProps['member'],
         canMakeAdmin: boolean,
         canAddFriend: boolean,
+        canSendDm: boolean,
         canKick: boolean,
         canBan: boolean,
         canReport: boolean
     ) => {
-        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
+        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canSendDm ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
         const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
         setProfileCard(null)
         setContextMenu({
@@ -433,6 +485,7 @@ export default function MemberSidebar({
             y: pos.y,
             canMakeAdmin,
             canAddFriend,
+            canSendDm,
             canKick,
             canBan,
             canReport,
@@ -551,6 +604,17 @@ export default function MemberSidebar({
                             }}
                         >
                             Add Friend
+                        </button>
+                    )}
+                    {contextMenu.canSendDm && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            onClick={() => {
+                                void handleSendDm(contextMenu.userId, contextMenu.username)
+                            }}
+                        >
+                            Send DM
                         </button>
                     )}
                     {contextMenu.canMakeAdmin && (

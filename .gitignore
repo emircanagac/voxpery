@@ -21,6 +21,9 @@ dist/
 
 # IDE / Editor
 .rules/
+.codex/
+AGENTS.md
+graphify-out/
 .vscode/
 .idea/
 *.swp
