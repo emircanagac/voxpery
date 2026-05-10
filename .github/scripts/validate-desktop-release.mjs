@@ -61,6 +61,14 @@ function requireNoLocalTargets(label, value) {
   }
 }
 
+function requireCspSource(csp, directive, source) {
+  const value = csp?.[directive]
+  const sources = typeof value === 'string' ? value.split(/\s+/).filter(Boolean) : []
+  if (!sources.includes(source)) {
+    fail(`tauri.conf.json app.security.csp ${directive} must include ${source}`)
+  }
+}
+
 const tauri = loadJson('apps/desktop/src-tauri/tauri.conf.json')
 const cargoToml = existsSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'))
   ? readFileSync(resolve(repoRoot, 'apps/desktop/src-tauri/Cargo.toml'), 'utf8')
@@ -117,6 +125,9 @@ if (tauri) {
   }
 
   requireNoLocalTargets('tauri.conf.json app.security.csp', tauri.app?.security?.csp)
+  requireCspSource(tauri.app?.security?.csp, 'connect-src', 'https://challenges.cloudflare.com')
+  requireCspSource(tauri.app?.security?.csp, 'script-src', 'https://challenges.cloudflare.com')
+  requireCspSource(tauri.app?.security?.csp, 'frame-src', 'https://challenges.cloudflare.com')
 
   const installerIcon = tauri.bundle?.windows?.nsis?.installerIcon
   if (installerIcon !== 'icons/icon.ico') {

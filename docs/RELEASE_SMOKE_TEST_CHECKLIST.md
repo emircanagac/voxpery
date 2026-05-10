@@ -39,6 +39,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
 - [ ] App opens and reaches login screen.
 - [ ] Production desktop build connects only to the official API and does not allow localhost API scopes.
+- [ ] Desktop register screen renders CAPTCHA and new account registration succeeds when production CAPTCHA is enabled.
 - [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.
 - [ ] Session is restored after OAuth callback (user ends in authenticated app state).
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
