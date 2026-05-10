@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -16,7 +16,7 @@ import ServerSettingsAutoMod from '../components/ServerSettingsAutoMod'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, Ban, Flag, LayoutDashboard, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Ban, Flag, LayoutDashboard, ListChecks, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
@@ -56,6 +56,11 @@ const SERVER_SETTINGS_SECTION_META = {
         eyebrow: 'Access Control',
         title: 'Roles',
         hint: 'Shape permissions, moderation powers, and the hierarchy your members see.',
+    },
+    rules: {
+        eyebrow: 'Community',
+        title: 'Rules',
+        hint: 'Set clear expectations for your community with server rules.',
     },
     audit: {
         eyebrow: 'Moderation',
@@ -338,7 +343,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'rules' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger'>('overview')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
     )
@@ -404,6 +409,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [roleEditPreAdminPermissions, setRoleEditPreAdminPermissions] = useState<number | null>(null)
     const [roleEditColor, setRoleEditColor] = useState<string | null>(null)
     const [deleteRoleConfirmId, setDeleteRoleConfirmId] = useState<string | null>(null)
+    const [serverRules, setServerRules] = useState<ServerRule[]>([])
+    const [rulesLoading, setRulesLoading] = useState(false)
+    const [rulesError, setRulesError] = useState<string | null>(null)
+    const [newRuleText, setNewRuleText] = useState('')
+    const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+    const [editingRuleText, setEditingRuleText] = useState('')
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
@@ -1791,6 +1802,26 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 setRolesError(message)
             } finally {
                 setRolesLoading(false)
+            }
+        }
+        void load()
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
+    // Load rules when Rules tab is opened.
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'rules') return
+        if (!isLoggedIn || !settingsServerId) return
+        const load = async () => {
+            setRulesLoading(true)
+            setRulesError(null)
+            try {
+                const rules = await serverApi.listRules(settingsServerId, token)
+                setServerRules(rules)
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to load rules.'
+                setRulesError(message)
+            } finally {
+                setRulesLoading(false)
             }
         }
         void load()
@@ -3216,6 +3247,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     </span>
                                                 </button>
                                             )}
+                                            {isOwner && (
+                                                <button
+                                                    type="button"
+                                                    className={`server-settings-nav__item ${
+                                                        serverSettingsTab === 'rules' ? 'server-settings-nav__item--active' : ''
+                                                    }`}
+                                                    onClick={() => setServerSettingsTab('rules')}
+                                                >
+                                                    <span className="server-settings-nav__icon"><ListChecks size={16} /></span>
+                                                    <span className="server-settings-nav__copy">
+                                                        <span className="server-settings-nav__label">Rules</span>
+                                                    </span>
+                                                </button>
+                                            )}
                                             {canViewAuditLog && (
                                                 <button
                                                     type="button"
@@ -3300,6 +3345,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 <div className="server-settings-section-intro__icon">
                                                     {serverSettingsTab === 'overview' && <LayoutDashboard size={18} />}
                                                     {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
+                                                    {serverSettingsTab === 'rules' && <ListChecks size={18} />}
                                                     {serverSettingsTab === 'audit' && <ScrollText size={18} />}
                                                     {serverSettingsTab === 'reports' && <Flag size={18} />}
                                                     {serverSettingsTab === 'automod' && <ShieldAlert size={18} />}
@@ -3884,6 +3930,164 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                     </div>
                                                                 </div>
                                                             )}
+                                                        </div>
+                                                    </div>
+                                                </section>
+                                            )}
+
+                                            {serverSettingsTab === 'rules' && isOwner && (
+                                                <section className="server-settings-card server-settings-card--rules">
+                                                    {rulesError && (
+                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                            {rulesError}
+                                                        </div>
+                                                    )}
+                                                    <div className="server-rules-layout">
+                                                        <div className="server-rules-toolbar">
+                                                            <div className="server-rules-toolbar__copy">
+                                                                <span className="server-rules-toolbar__eyebrow">Rules</span>
+                                                                <strong className="server-rules-toolbar__title">{serverRules.length} rules</strong>
+                                                                <span className="server-rules-toolbar__hint">
+                                                                    Set clear expectations for your community. Rules are shown to users before they join.
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="server-rules-list">
+                                                            {rulesLoading && (
+                                                                <div className="server-rules-loading">Loading rules...</div>
+                                                            )}
+                                                            {!rulesLoading && serverRules.length === 0 && (
+                                                                <div className="server-rules-empty">
+                                                                    No rules yet. Add your first rule below.
+                                                                </div>
+                                                            )}
+                                                            {serverRules.map((rule, index) => (
+                                                                <div key={rule.id} className="server-rule-item">
+                                                                    <div className="server-rule-item__number">{index + 1}</div>
+                                                                    {editingRuleId === rule.id ? (
+                                                                        <div className="server-rule-item__edit">
+                                                                            <textarea
+                                                                                value={editingRuleText}
+                                                                                onChange={(e) => setEditingRuleText(e.target.value)}
+                                                                                className="server-rule-textarea"
+                                                                                rows={2}
+                                                                                maxLength={1000}
+                                                                            />
+                                                                            <div className="server-rule-item__actions">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-sm"
+                                                                                    onClick={() => {
+                                                                                        setEditingRuleId(null)
+                                                                                        setEditingRuleText('')
+                                                                                    }}
+                                                                                >
+                                                                                    Cancel
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-primary btn-sm"
+                                                                                    disabled={!editingRuleText.trim() || !settingsServer}
+                                                                                    onClick={() => {
+                                                                                        if (!settingsServer || !editingRuleText.trim()) return
+                                                                                        void (async () => {
+                                                                                            try {
+                                                                                                await serverApi.updateRule(
+                                                                                                    settingsServer.id,
+                                                                                                    rule.id,
+                                                                                                    { rule_text: editingRuleText.trim() },
+                                                                                                    token!,
+                                                                                                )
+                                                                                                setEditingRuleId(null)
+                                                                                                setEditingRuleText('')
+                                                                                                const rules = await serverApi.listRules(settingsServer.id, token!)
+                                                                                                setServerRules(rules)
+                                                                                            } catch (err: unknown) {
+                                                                                                setRulesError(err instanceof Error ? err.message : 'Failed to update rule')
+                                                                                            }
+                                                                                        })()
+                                                                                    }}
+                                                                                >
+                                                                                    Save
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="server-rule-item__content">
+                                                                            <p className="server-rule-text">{rule.rule_text}</p>
+                                                                            <div className="server-rule-item__actions">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-sm"
+                                                                                    onClick={() => {
+                                                                                        setEditingRuleId(rule.id)
+                                                                                        setEditingRuleText(rule.rule_text)
+                                                                                    }}
+                                                                                >
+                                                                                    Edit
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-danger-outline btn-sm"
+                                                                                    disabled={!settingsServer}
+                                                                                    onClick={() => {
+                                                                                        if (!settingsServer) return
+                                                                                        void (async () => {
+                                                                                            try {
+                                                                                                await serverApi.deleteRule(
+                                                                                                    settingsServer.id,
+                                                                                                    rule.id,
+                                                                                                    token!,
+                                                                                                )
+                                                                                                const rules = await serverApi.listRules(settingsServer.id, token!)
+                                                                                                setServerRules(rules)
+                                                                                            } catch (err: unknown) {
+                                                                                                setRulesError(err instanceof Error ? err.message : 'Failed to delete rule')
+                                                                                            }
+                                                                                        })()
+                                                                                    }}
+                                                                                >
+                                                                                    Delete
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="server-rules-add">
+                                                            <textarea
+                                                                value={newRuleText}
+                                                                onChange={(e) => setNewRuleText(e.target.value)}
+                                                                className="server-rule-textarea"
+                                                                placeholder="Add a new rule..."
+                                                                rows={2}
+                                                                maxLength={1000}
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-primary btn-sm"
+                                                                disabled={!newRuleText.trim() || !settingsServer}
+                                                                onClick={() => {
+                                                                    if (!settingsServer || !newRuleText.trim()) return
+                                                                    void (async () => {
+                                                                        try {
+                                                                            await serverApi.createRule(
+                                                                                settingsServer.id,
+                                                                                newRuleText.trim(),
+                                                                                token!,
+                                                                            )
+                                                                            setNewRuleText('')
+                                                                            const rules = await serverApi.listRules(settingsServer.id, token!)
+                                                                            setServerRules(rules)
+                                                                        } catch (err: unknown) {
+                                                                            setRulesError(err instanceof Error ? err.message : 'Failed to create rule')
+                                                                        }
+                                                                    })()
+                                                                }}
+                                                            >
+                                                                Add rule
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </section>

@@ -29,6 +29,7 @@ export type {
     ServerReportEntry,
     ServerRole,
     ServerTimeoutEntry,
+    ServerRule,
     SignalingMessage,
     SystemFeatures,
     TurnCredentials,

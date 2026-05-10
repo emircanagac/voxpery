@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { serverApi } from '../api'
+import type { ServerRule } from '../api/contracts'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -30,6 +31,9 @@ export default function InvitePage() {
     const [preview, setPreview] = useState<ServerInvitePreview | null>(null)
     const [previewLoading, setPreviewLoading] = useState(true)
     const [previewError, setPreviewError] = useState<string | null>(null)
+    const [rules, setRules] = useState<ServerRule[]>([])
+    const [rulesLoading, setRulesLoading] = useState(true)
+    const [acceptedRules, setAcceptedRules] = useState(false)
     const [joining, setJoining] = useState(false)
     const [joinError, setJoinError] = useState<string | null>(null)
 
@@ -39,6 +43,8 @@ export default function InvitePage() {
             setPreview(null)
             setPreviewError('Invalid invite code.')
             setPreviewLoading(false)
+            setRules([])
+            setRulesLoading(false)
             return
         }
         setPreviewLoading(true)
@@ -55,11 +61,29 @@ export default function InvitePage() {
             .finally(() => setPreviewLoading(false))
     }, [trimmedCode, user])
 
+    useEffect(() => {
+        if (!user || !preview) return
+        setRulesLoading(true)
+        serverApi
+            .listRules(preview.id, token)
+            .then((data) => {
+                setRules(data)
+                setAcceptedRules(data.length === 0)
+            })
+            .catch(() => {
+                setRules([])
+                setAcceptedRules(true)
+            })
+            .finally(() => setRulesLoading(false))
+    }, [preview, user, token])
+
     const invitePath = useMemo(() => ROUTES.invite(trimmedCode || ''), [trimmedCode])
     const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`
 
+    const canJoin = rules.length === 0 || acceptedRules
+
     const joinServer = async () => {
-        if (!user || !trimmedCode) return
+        if (!user || !trimmedCode || !canJoin) return
         setJoinError(null)
         setJoining(true)
         try {
@@ -115,6 +139,33 @@ export default function InvitePage() {
                             </div>
                         </div>
 
+                        {rulesLoading ? (
+                            <div className="invite-rules-loading">Loading rules...</div>
+                        ) : rules.length > 0 ? (
+                            <div className="invite-rules-section">
+                                <div className="invite-rules-header">
+                                    <span className="invite-rules-eyebrow">Server Rules</span>
+                                    <span className="invite-rules-count">{rules.length} {rules.length === 1 ? 'rule' : 'rules'}</span>
+                                </div>
+                                <ol className="invite-rules-list">
+                                    {rules.map((rule, index) => (
+                                        <li key={rule.id} className="invite-rule-item">
+                                            <span className="invite-rule-number">{index + 1}</span>
+                                            <span className="invite-rule-text">{rule.rule_text}</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                                <label className="invite-rules-accept">
+                                    <input
+                                        type="checkbox"
+                                        checked={acceptedRules}
+                                        onChange={(e) => setAcceptedRules(e.target.checked)}
+                                    />
+                                    <span>I have read and agree to the server rules</span>
+                                </label>
+                            </div>
+                        ) : null}
+
                         {joinError && (
                             <div className="auth-error invite-preview-error" role="alert">
                                 {joinError}
@@ -122,7 +173,12 @@ export default function InvitePage() {
                         )}
 
                         <div className="invite-preview-actions">
-                            <button type="button" className="auth-btn" onClick={() => void joinServer()} disabled={joining}>
+                            <button
+                                type="button"
+                                className="auth-btn"
+                                onClick={() => void joinServer()}
+                                disabled={joining || !canJoin}
+                            >
                                 {joining ? 'Joining…' : 'Join server'}
                             </button>
                             <button

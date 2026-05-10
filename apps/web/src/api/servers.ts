@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole, ServerTimeoutEntry } from './contracts'
+import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -209,6 +209,29 @@ export const serverApi = {
 
     clearMemberTimeout: (serverId: string, userId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}/members/${userId}/timeout`, {
+            method: 'DELETE',
+            token,
+        }),
+
+    listRules: (serverId: string, token?: AuthToken) =>
+        apiFetch<ServerRule[]>(`/api/servers/${serverId}/rules`, { token }),
+
+    createRule: (serverId: string, ruleText: string, token: AuthToken) =>
+        apiFetch<ServerRule>(`/api/servers/${serverId}/rules`, {
+            method: 'POST',
+            body: { rule_text: ruleText },
+            token,
+        }),
+
+    updateRule: (serverId: string, ruleId: string, payload: { rule_text?: string; position?: number }, token: AuthToken) =>
+        apiFetch<ServerRule>(`/api/servers/${serverId}/rules/${ruleId}`, {
+            method: 'PATCH',
+            body: payload,
+            token,
+        }),
+
+    deleteRule: (serverId: string, ruleId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/rules/${ruleId}`, {
             method: 'DELETE',
             token,
         }),
