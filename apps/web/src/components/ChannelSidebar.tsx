@@ -59,7 +59,7 @@ export default function ChannelSidebar({
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const user = useAuthStore((s) => s.user)
-    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, setActiveChannel, closeMobileSidebar } = useAppStore(
+    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, mutedChannelIds, setActiveChannel, toggleMutedChannel, closeMobileSidebar } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -71,7 +71,9 @@ export default function ChannelSidebar({
             voiceStateServerIds: s.voiceStateServerIds,
             voiceSpeakingUserIds: s.voiceSpeakingUserIds,
             voiceLocalSpeaking: s.voiceLocalSpeaking,
+            mutedChannelIds: s.mutedChannelIds,
             setActiveChannel: s.setActiveChannel,
+            toggleMutedChannel: s.toggleMutedChannel,
             closeMobileSidebar: s.closeMobileSidebar,
         }))
     )
@@ -430,10 +432,11 @@ export default function ChannelSidebar({
                                 })
                                 : []
                             const hasMention = (mentionByChannel[ch.id] ?? 0) > 0
+                            const isChannelMuted = mutedChannelIds.includes(ch.id)
                             return (
                                 <div key={ch.id}>
                                     <div
-                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${isVoiceLocked ? 'channel-item--disabled' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
+                                        className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${isVoiceLocked ? 'channel-item--disabled' : ''} ${isChannelMuted ? 'is-muted' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
                                         onMouseEnter={() => { if (ch.channel_type === 'voice' && !isVoiceLocked) preloadRnnoiseWorklet() }}
                                         title={isVoiceLocked ? "You don't have permission to connect to this voice channel." : undefined}
                                         onClick={() => {
@@ -453,7 +456,7 @@ export default function ChannelSidebar({
                                             closeMobileSidebar()
                                         }}
                                         onContextMenu={(e) => {
-                                            if (!canManageChannels) return
+                                            if (!canManageChannels && ch.channel_type !== 'text') return
                                             e.preventDefault()
                                             closeAllContextMenus()
                                             setContextMenu({ channelId: ch.id, x: e.clientX, y: e.clientY })
@@ -510,6 +513,11 @@ export default function ChannelSidebar({
                                         {isVoiceLocked && (
                                             <span className="channel-item-lock" aria-hidden>
                                                 <Lock size={12} />
+                                            </span>
+                                        )}
+                                        {ch.channel_type === 'text' && isChannelMuted && (
+                                            <span className="channel-muted-indicator" title="Muted channel" aria-label="Muted channel">
+                                                <VolumeX size={12} />
                                             </span>
                                         )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
@@ -609,9 +617,12 @@ export default function ChannelSidebar({
                 ))}
             </div>
 
-            {contextMenu && canManageChannels && (() => {
+            {contextMenu && (() => {
                 const channel = channels.find((c) => c.id === contextMenu.channelId)
                 if (!channel) return null
+                const isTextChannel = channel.channel_type === 'text'
+                if (!canManageChannels && !isTextChannel) return null
+                const isMuted = mutedChannelIds.includes(channel.id)
                 return (
                     <div
                         ref={menuRef}
@@ -619,26 +630,43 @@ export default function ChannelSidebar({
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <button
-                            type="button"
-                            className="server-context-menu-item"
-                            onClick={() => {
-                                setContextMenu(null)
-                                onRenameChannel?.(channel)
-                            }}
-                        >
-                            Rename
-                        </button>
-                        <button
-                            type="button"
-                            className="server-context-menu-item danger"
-                            onClick={() => {
-                                setContextMenu(null)
-                                onDeleteChannel?.(channel)
-                            }}
-                        >
-                            Delete Channel
-                        </button>
+                        {isTextChannel && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item"
+                                onClick={() => {
+                                    toggleMutedChannel(channel.id)
+                                    setContextMenu(null)
+                                }}
+                            >
+                                <VolumeX size={14} />
+                                {isMuted ? 'Unmute Channel' : 'Mute Channel'}
+                            </button>
+                        )}
+                        {canManageChannels && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="server-context-menu-item"
+                                    onClick={() => {
+                                        setContextMenu(null)
+                                        onRenameChannel?.(channel)
+                                    }}
+                                >
+                                    Rename
+                                </button>
+                                <button
+                                    type="button"
+                                    className="server-context-menu-item danger"
+                                    onClick={() => {
+                                        setContextMenu(null)
+                                        onDeleteChannel?.(channel)
+                                    }}
+                                >
+                                    Delete Channel
+                                </button>
+                            </>
+                        )}
                     </div>
                 )
             })()}

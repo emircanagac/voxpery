@@ -156,7 +156,12 @@ export default function AppShell() {
         if (state.mutedServerIds.includes(server.id)) return sum
         const serverChannels = state.channelsByServerId[server.id] ?? []
         const serverUnread = serverChannels.reduce(
-          (serverSum, channel) => serverSum + (state.serverUnreadByChannel[channel.id] ?? 0),
+          (serverSum, channel) => {
+            if (state.mutedChannelIds.includes(channel.id)) {
+              return serverSum + (state.serverMentionsByChannel[channel.id] ?? 0)
+            }
+            return serverSum + (state.serverUnreadByChannel[channel.id] ?? 0)
+          },
           0,
         )
         return sum + serverUnread
@@ -194,10 +199,12 @@ export default function AppShell() {
         state.dmUnread !== prev.dmUnread
         || state.dmChannels !== prev.dmChannels
         || state.serverUnreadByChannel !== prev.serverUnreadByChannel
+        || state.serverMentionsByChannel !== prev.serverMentionsByChannel
         || state.incomingRequestCount !== prev.incomingRequestCount
         || state.channelsByServerId !== prev.channelsByServerId
         || state.servers !== prev.servers
         || state.mutedServerIds !== prev.mutedServerIds
+        || state.mutedChannelIds !== prev.mutedChannelIds
       ) {
         syncUnreadFeedback(state)
       }

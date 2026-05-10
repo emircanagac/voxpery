@@ -40,8 +40,10 @@ export default function ServerSidebar({
         setChannelsForServer,
         setMembersForServer,
         serverUnreadByChannel,
+        serverMentionsByChannel,
         clearServerUnread,
         mutedServerIds,
+        mutedChannelIds,
         toggleMutedServer,
         voiceStates,
         voiceStateServerIds,
@@ -56,8 +58,10 @@ export default function ServerSidebar({
             setChannelsForServer: s.setChannelsForServer,
             setMembersForServer: s.setMembersForServer,
             serverUnreadByChannel: s.serverUnreadByChannel,
+            serverMentionsByChannel: s.serverMentionsByChannel,
             clearServerUnread: s.clearServerUnread,
             mutedServerIds: s.mutedServerIds,
+            mutedChannelIds: s.mutedChannelIds,
             toggleMutedServer: s.toggleMutedServer,
             voiceStates: s.voiceStates,
             voiceStateServerIds: s.voiceStateServerIds,
@@ -81,11 +85,16 @@ export default function ServerSidebar({
         for (const server of servers) {
             if (mutedServerIds.includes(server.id)) continue
             const serverChannels = channelsByServerId[server.id] ?? []
-            const total = serverChannels.reduce((sum, channel) => sum + (serverUnreadByChannel[channel.id] ?? 0), 0)
+            const total = serverChannels.reduce((sum, channel) => {
+                if (mutedChannelIds.includes(channel.id)) {
+                    return sum + (serverMentionsByChannel[channel.id] ?? 0)
+                }
+                return sum + (serverUnreadByChannel[channel.id] ?? 0)
+            }, 0)
             if (total > 0) counts[server.id] = total
         }
         return counts
-    }, [channelsByServerId, mutedServerIds, serverUnreadByChannel, servers])
+    }, [channelsByServerId, mutedChannelIds, mutedServerIds, serverMentionsByChannel, serverUnreadByChannel, servers])
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
     const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)

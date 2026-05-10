@@ -53,6 +53,12 @@ import {
   setPushNotificationsEnabled as persistPushNotificationsEnabled,
 } from '../pushNotifications'
 import {
+  getServerNotificationPreference,
+  SERVER_NOTIFICATION_PREFERENCE_OPTIONS,
+  setServerNotificationPreference as persistServerNotificationPreference,
+  type ServerNotificationPreference,
+} from '../notificationPreferences'
+import {
   DEFAULT_INPUT_DEVICE_LABEL,
   DEFAULT_OUTPUT_DEVICE_LABEL,
   enumerateVoiceDevices,
@@ -187,6 +193,7 @@ export default function UserBar() {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [pushNotificationsEnabled, setPushNotificationsEnabledState] = useState(true)
   const [pushNotificationPermission, setPushNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
+  const [serverNotificationPreference, setServerNotificationPreferenceState] = useState<ServerNotificationPreference>(() => getServerNotificationPreference())
   const [inputVolume, setInputVolume] = useState(DEFAULT_INPUT_VOLUME)
   const [outputVolume, setOutputVolume] = useState(DEFAULT_OUTPUT_VOLUME)
   const [inputDevices, setInputDevices] = useState<VoiceDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION])
@@ -512,6 +519,7 @@ export default function UserBar() {
     const preset = localStorage.getItem(SPEAKING_PRESET_KEY)
     const profileRaw = localStorage.getItem(VOICE_INPUT_PROFILE_KEY)
     if (sound != null) setSoundEnabled(sound === '1')
+    setServerNotificationPreferenceState(getServerNotificationPreference())
     const enabled = getPushNotificationsEnabled()
     setPushNotificationsEnabledState(enabled)
     setPushNotificationPermission(getPushNotificationPermission())
@@ -1416,7 +1424,7 @@ export default function UserBar() {
                         ? 'This environment does not support system notifications.'
                         : pushNotificationPermission === 'denied'
                           ? 'Notifications are blocked in your browser or desktop shell.'
-                          : 'Show browser or desktop pop-up notifications for direct messages and friend requests.'}
+                          : 'Show browser or desktop pop-up notifications for direct messages, friend requests, and selected server messages.'}
                     </div>
                   </div>
                   <button
@@ -1445,6 +1453,29 @@ export default function UserBar() {
                           ? 'On'
                           : 'Off'}
                   </button>
+                </div>
+                <div className="user-setting-row user-setting-row--span-two">
+                  <div>
+                    <div className="user-setting-title">Server message notifications</div>
+                    <div className="user-setting-desc">
+                      Choose which server messages can play sounds or show browser notifications. Muted channels only alert for direct mentions.
+                    </div>
+                  </div>
+                  <select
+                    className="user-select"
+                    value={serverNotificationPreference}
+                    onChange={(e) => {
+                      const next = e.target.value as ServerNotificationPreference
+                      setServerNotificationPreferenceState(next)
+                      persistServerNotificationPreference(next)
+                    }}
+                  >
+                    {SERVER_NOTIFICATION_PREFERENCE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="user-setting-row user-setting-row--span-two">
                   <div>

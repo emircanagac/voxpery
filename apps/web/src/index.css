@@ -1399,6 +1399,15 @@ body {
   color: var(--text-primary);
 }
 
+.channel-item.is-muted {
+  color: var(--text-muted);
+}
+
+.channel-item.is-muted .channel-icon,
+.channel-item.is-muted .channel-name {
+  opacity: 0.62;
+}
+
 .channel-item--disabled {
   opacity: 0.56;
   cursor: not-allowed;
@@ -1426,6 +1435,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.channel-muted-indicator {
+  margin-left: auto;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.channel-muted-indicator + .channel-unread-badge {
+  margin-left: 4px;
 }
 
 .channel-unread-badge {
