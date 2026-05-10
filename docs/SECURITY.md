@@ -195,9 +195,9 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 
 - **Upload endpoint**: `POST /api/attachments/upload` (`multipart/form-data`, auth required)
 - **Validation**:
-  - per-file size limit (`ATTACHMENTS_MAX_FILE_BYTES`)
+  - per-file size limit (`ATTACHMENTS_MAX_FILE_BYTES`, default 10 MB)
   - per-request file count limit (`ATTACHMENTS_MAX_FILES_PER_REQUEST`)
-  - MIME allowlist (`ATTACHMENTS_ALLOWED_MIME_PREFIXES`)
+  - MIME allowlist (`ATTACHMENTS_ALLOWED_MIME_PREFIXES`; ZIP includes `application/zip` and `application/x-zip-compressed`)
 - **Malware scan**:
   - Optional ClamAV (`ATTACHMENTS_CLAMAV_ENABLED=1`)
   - `ATTACHMENTS_CLAMAV_FAIL_CLOSED=1` blocks uploads if scanner is unavailable

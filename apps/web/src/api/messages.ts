@@ -1,5 +1,6 @@
 import { apiFetch } from './client'
 import type { AuthToken, MessageWithAuthor } from './contracts'
+import { buildMessageSearchQuery } from '../searchFilters'
 
 export const messageApi = {
     list: (channelId: string, token: AuthToken, before?: string, limit = 50) =>
@@ -10,7 +11,7 @@ export const messageApi = {
 
     search: (channelId: string, q: string, token: AuthToken, limit = 100) =>
         apiFetch<MessageWithAuthor[]>(
-            `/api/messages/${channelId}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+            `/api/messages/${channelId}/search?${buildMessageSearchQuery(q, limit)}`,
             { token },
         ),
 

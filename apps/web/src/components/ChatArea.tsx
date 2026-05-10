@@ -262,6 +262,23 @@ export default function ChatArea({
     const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const searchDropdownRef = useRef<HTMLDivElement | null>(null)
+    const searchHelpRef = useRef<HTMLDetailsElement | null>(null)
+    const applySearchFilter = useCallback((token: 'from:' | 'has:attachment') => {
+        const parts = searchQuery.trim().split(/\s+/).filter(Boolean)
+        const nextParts = parts.filter((part) => {
+            const normalized = part.toLowerCase()
+            if (token === 'from:') return !normalized.startsWith('from:')
+            return normalized !== 'has:attachment' && normalized !== 'has:attachments'
+        })
+        nextParts.push(token)
+        const nextQuery = nextParts.join(' ')
+        onSearchChange?.(nextQuery)
+        if (searchHelpRef.current) searchHelpRef.current.open = false
+        requestAnimationFrame(() => {
+            searchInputRef.current?.focus()
+            searchInputRef.current?.setSelectionRange(nextQuery.length, nextQuery.length)
+        })
+    }, [onSearchChange, searchQuery])
     const [mentionOpen, setMentionOpen] = useState(false)
     const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null)
     const [mentionQuery, setMentionQuery] = useState('')
@@ -710,6 +727,7 @@ export default function ChatArea({
             if (!isFindShortcut) return
             if (target && searchDropdownRef.current?.contains(target)) return
             e.preventDefault()
+            setPinnedOpen(false)
             setSearchOpen(true)
             requestAnimationFrame(() => searchInputRef.current?.focus())
         }
@@ -1077,6 +1095,7 @@ export default function ChatArea({
                                     className="chat-header-search-trigger"
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        setPinnedOpen(false)
                                         setSearchOpen(true)
                                         setTimeout(() => searchInputRef.current?.focus(), 0)
                                     }}
@@ -1090,13 +1109,33 @@ export default function ChatArea({
                                     <Search size={16} className="chat-header-search-icon" aria-hidden />
                                     <input
                                         ref={searchInputRef}
-                                        type="search"
+                                        type="text"
                                         className="chat-header-search-input"
-                                        placeholder="Search in conversation"
+                                        placeholder="Search messages"
                                         value={searchQuery}
                                         onChange={(e) => onSearchChange(e.target.value)}
+                                        title="Search text. Filters: from:username, has:attachment"
                                         aria-label="Search messages"
                                     />
+                                    <details ref={searchHelpRef} className="chat-header-search-help">
+                                        <summary>Filters</summary>
+                                        <div className="chat-header-search-help-panel" role="note">
+                                            <button
+                                                type="button"
+                                                onClick={() => applySearchFilter('from:')}
+                                                title="Add author filter"
+                                            >
+                                                from:
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => applySearchFilter('has:attachment')}
+                                                title="Only show messages with attachments"
+                                            >
+                                                has:attachment
+                                            </button>
+                                        </div>
+                                    </details>
                                     <button
                                         type="button"
                                         className="chat-header-search-close"
@@ -1119,7 +1158,13 @@ export default function ChatArea({
                         <button
                             type="button"
                             className="chat-header-pinned-btn"
-                            onClick={() => setPinnedOpen((o) => !o)}
+                            onClick={() => {
+                                if (!pinnedOpen) {
+                                    onSearchChange?.('')
+                                    setSearchOpen(false)
+                                }
+                                setPinnedOpen((o) => !o)
+                            }}
                             title="Pinned messages"
                             aria-label="Pinned messages"
                             aria-expanded={pinnedOpen}
@@ -1128,9 +1173,17 @@ export default function ChatArea({
                         </button>
                         {pinnedOpen && (
                             <div className="chat-header-pinned-dropdown">
-                                <div className="chat-header-pinned-title">Pinned messages</div>
+                                <div className="chat-header-pinned-title">
+                                    <span className="chat-header-pinned-title-main">
+                                        <Pin size={14} aria-hidden />
+                                        Pinned messages
+                                    </span>
+                                    <span className="chat-header-pinned-title-count">
+                                        {pinnedMessages.length}
+                                    </span>
+                                </div>
                                 {pinnedMessages.length === 0 ? (
-                                    <div className="chat-header-pinned-empty">No pinned messages</div>
+                                    <div className="chat-header-pinned-empty">No pinned messages yet</div>
                                 ) : (
                                     <ul className="chat-header-pinned-list">
                                         {pinnedMessages.map((m) => (
@@ -1269,7 +1322,7 @@ export default function ChatArea({
                                     key={msg.id}
                                     data-index={virtualRow.index}
                                     ref={rowVirtualizer.measureElement}
-                                    className="virtual-list-item"
+                                    className={`virtual-list-item ${virtualRow.index === 0 ? 'virtual-list-item-first' : ''}`}
                                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                                 >
                                     {showDayDivider && (
@@ -1478,11 +1531,17 @@ export default function ChatArea({
                 {draftAttachments.length > 0 && (
                     <div className="dm-draft-attachments">
                         {draftAttachments.map((att, i) => (
-                            <div key={`${att.name}-${i}`} className="dm-draft-attachment">
+                            <div
+                                key={`${att.name}-${i}`}
+                                className={`dm-draft-attachment is-${att.uploadStatus}`}
+                            >
                                 <div className="dm-draft-attachment-meta">
-                                    <span>{att.name}</span>
+                                    <span title={att.name}>{att.name}</span>
                                     {att.uploadStatus === 'uploading' && (
                                         <span className="dm-draft-attachment-state">Uploading...</span>
+                                    )}
+                                    {att.uploadStatus === 'uploaded' && (
+                                        <span className="dm-draft-attachment-state is-uploaded">Ready to send</span>
                                     )}
                                     {att.uploadStatus === 'failed' && (
                                         <span className="dm-draft-attachment-state is-failed">

@@ -1,5 +1,6 @@
 import { apiFetch } from './client'
 import type { AuthToken, DmChannel, DmReadState, MessageWithAuthor } from './contracts'
+import { buildMessageSearchQuery } from '../searchFilters'
 
 export const dmApi = {
     listChannels: (token: AuthToken) =>
@@ -19,7 +20,7 @@ export const dmApi = {
 
     searchMessages: (channelId: string, q: string, token: AuthToken, limit = 100) =>
         apiFetch<MessageWithAuthor[]>(
-            `/api/dm/messages/${channelId}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+            `/api/dm/messages/${channelId}/search?${buildMessageSearchQuery(q, limit)}`,
             { token },
         ),
 

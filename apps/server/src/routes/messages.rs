@@ -156,6 +156,8 @@ fn audit_content_preview(content: &str) -> (String, bool) {
 struct MessageSearchQuery {
     q: Option<String>,
     limit: Option<i64>,
+    from: Option<String>,
+    has_attachment: Option<bool>,
 }
 
 /// Intermediate row type for JOIN query result
@@ -364,12 +366,22 @@ async fn search_messages(
     .await?;
 
     let term = query.q.as_deref().unwrap_or("").trim();
-    if term.is_empty() {
+    let author = query.from.as_deref().unwrap_or("").trim().trim_start_matches('@');
+    let has_attachment = query.has_attachment.unwrap_or(false);
+    if term.is_empty() && author.is_empty() && !has_attachment {
         return Ok(Json(vec![]));
     }
     let limit = query.limit.unwrap_or(100).min(200);
-    let escaped_term = escape_ilike_pattern(term);
-    let pattern = format!("%{}%", escaped_term);
+    let pattern = if term.is_empty() {
+        String::new()
+    } else {
+        format!("%{}%", escape_ilike_pattern(term))
+    };
+    let author_pattern = if author.is_empty() {
+        None
+    } else {
+        Some(format!("%{}%", escape_ilike_pattern(author)))
+    };
 
     let rows = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -388,12 +400,22 @@ async fn search_messages(
            FROM messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.channel_id = $1
-             AND m.content ILIKE $2 ESCAPE '\'
+             AND ($2 = '' OR m.content ILIKE $2 ESCAPE '\')
+             AND ($3::TEXT IS NULL OR u.username ILIKE $3 ESCAPE '\')
+             AND (
+                 NOT $4
+                 OR (
+                     jsonb_typeof(m.attachments) = 'array'
+                     AND jsonb_array_length(m.attachments) > 0
+                 )
+             )
            ORDER BY m.created_at DESC
-           LIMIT $3"#,
+           LIMIT $5"#,
     )
     .bind(channel_id)
     .bind(&pattern)
+    .bind(&author_pattern)
+    .bind(has_attachment)
     .bind(limit)
     .fetch_all(&state.db)
     .await?;
