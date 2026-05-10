@@ -7,8 +7,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
-import { isTauri } from '../secureStorage'
 import { applyPreferredAudioOutputDevice, buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
+import {
+  desktopMediaPermissionRecoveryMessage,
+  isMediaPermissionDeniedError,
+  openDesktopMediaPermissionSettings,
+} from '../desktopMediaPermissions'
 import { ROUTES } from '../routes'
 
 interface VoxperyTrack extends MediaStreamTrack {
@@ -95,26 +99,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     navigate(ROUTES.servers)
   }
   const pushToast = useToastStore((s) => s.pushToast)
-  const isLinuxDesktop = useMemo(
-    () => isTauri() && typeof navigator !== 'undefined' && /linux/i.test(navigator.userAgent),
-    []
-  )
   const mapMicPreflightError = useCallback((err: unknown): string | null => {
     const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
     const errMessage = err && typeof err === 'object' && 'message' in err
       ? String((err as { message?: unknown }).message).toLowerCase()
       : ''
 
-    const isPermissionError =
-      errName === 'NotAllowedError' ||
-      errMessage.includes('permission denied') ||
-      errMessage.includes('notallowederror') ||
-      errMessage.includes('microphone permission denied')
-
-    if (isPermissionError) {
-      return isLinuxDesktop
-        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
-        : 'Permission was blocked. Allow microphone/screen access in system or browser settings and try again.'
+    if (isMediaPermissionDeniedError(err, 'microphone')) {
+      return desktopMediaPermissionRecoveryMessage('microphone')
     }
     if (errName === 'NotFoundError' || errMessage.includes('device not found') || errMessage.includes('no microphone')) {
       return 'No microphone device detected. Connect a microphone and retry.'
@@ -126,23 +118,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       return 'Microphone capture is not available in this runtime. Update your desktop runtime or use the latest Voxpery desktop build.'
     }
     return null
-  }, [isLinuxDesktop])
+  }, [])
   const mapCameraError = useCallback((err: unknown): string | null => {
     const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
     const errMessage = err && typeof err === 'object' && 'message' in err
       ? String((err as { message?: unknown }).message).toLowerCase()
       : ''
 
-    const isPermissionError =
-      errName === 'NotAllowedError' ||
-      errMessage.includes('permission denied') ||
-      errMessage.includes('camera permission denied') ||
-      errMessage.includes('securityerror')
-
-    if (isPermissionError) {
-      return isLinuxDesktop
-        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
-        : 'Permission was blocked. Allow camera access in system or browser settings and try again.'
+    if (isMediaPermissionDeniedError(err, 'camera')) {
+      return desktopMediaPermissionRecoveryMessage('camera')
     }
     if (errName === 'NotFoundError' || errMessage.includes('no camera') || errMessage.includes('no camera device detected')) {
       return 'No camera device detected. Connect a camera and retry.'
@@ -154,7 +138,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       return 'Camera capture is not available in this runtime. Update your desktop runtime or use the latest Voxpery desktop build.'
     }
     return null
-  }, [isLinuxDesktop])
+  }, [])
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
   const localControl = user?.id ? voiceControls[user.id] : null
@@ -567,6 +551,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         micStream?.getTracks().forEach((t) => t.stop())
         const message = mapMicPreflightError(err)
         if (message) {
+          if (isMediaPermissionDeniedError(err, 'microphone')) {
+            void openDesktopMediaPermissionSettings('microphone')
+          }
           pushToast({ level: 'error', title: 'Microphone access required', message })
           return
         }
@@ -611,9 +598,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       message = "You don't have permission to connect to this voice channel."
     } else
     if (lower.includes('notallowederror') || lower.includes('permission denied') || lower.includes('permission')) {
-      message = isLinuxDesktop
-        ? 'Permission was blocked. On Linux desktop, ensure xdg-desktop-portal (+ xdg-desktop-portal-gtk or xdg-desktop-portal-kde) and PipeWire are installed/running, then restart Voxpery.'
-        : 'Permission was blocked. Allow microphone/screen access in system or browser settings and try again.'
+      message = desktopMediaPermissionRecoveryMessage('microphone')
     } else if (lower.includes('notfounderror') || lower.includes('device not found')) {
       message = 'No microphone device detected. Connect a microphone and retry.'
     } else if (lower.includes('websocket is not connected')) {
@@ -625,7 +610,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       title,
       message,
     })
-  }, [isLinuxDesktop, pushToast, state.lastError])
+  }, [pushToast, state.lastError])
 
   const toggleMute = () => {
     const stream = localStreamRef.current ?? state.localStream
@@ -656,6 +641,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       stream?.getTracks().forEach((t) => t.stop())
       const message = mapMicPreflightError(err)
       if (message) {
+        if (isMediaPermissionDeniedError(err, 'microphone')) {
+          void openDesktopMediaPermissionSettings('microphone')
+        }
         pushToast({ level: 'error', title: 'Microphone access required', message })
         return
       }
@@ -821,6 +809,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       await startCamera()
     } catch (e) {
+      if (isMediaPermissionDeniedError(e, 'camera')) {
+        void openDesktopMediaPermissionSettings('camera')
+      }
       const message = mapCameraError(e) ?? (e instanceof Error ? e.message : 'Could not access camera. Check permission.')
       pushToast({ level: 'error', title: 'Camera failed', message })
     }

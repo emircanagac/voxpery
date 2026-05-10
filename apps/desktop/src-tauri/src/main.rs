@@ -4,6 +4,7 @@ use image::{
     imageops::{crop_imm, overlay, resize, FilterType},
     ImageReader, RgbaImage,
 };
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
@@ -239,6 +240,54 @@ fn desktop_update_unread_feedback(
     }
 }
 
+#[tauri::command]
+fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
+    let target = match kind.as_str() {
+        "camera" => "camera",
+        _ => "microphone",
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let uri = if target == "camera" {
+            "ms-settings:privacy-webcam"
+        } else {
+            "ms-settings:privacy-microphone"
+        };
+        Command::new("cmd")
+            .args(["/C", "start", "", uri])
+            .spawn()
+            .map_err(|err| format!("Failed to open Windows privacy settings: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let uri = if target == "camera" {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+        } else {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        };
+        Command::new("open")
+            .arg(uri)
+            .spawn()
+            .map_err(|err| format!("Failed to open macOS privacy settings: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Err(format!(
+            "Open your desktop privacy settings manually and verify portal/PipeWire services are running for {target} access."
+        ))
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err("Opening media permission settings is not supported on this platform.".into())
+    }
+}
+
 fn main() {
     // Dev-only convenience: auto-allow media permissions on Windows WebView2.
     // Never enable in production builds.
@@ -253,7 +302,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             desktop_set_minimize_to_tray_on_close,
             desktop_prepare_for_update_install,
-            desktop_update_unread_feedback
+            desktop_update_unread_feedback,
+            desktop_open_media_permission_settings
         ]);
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

@@ -225,6 +225,14 @@ await room.localParticipant.publishTrack(videoTrack, {
 3. Try another browser (Firefox, Chrome, Edge)
 4. Linux desktop: ensure `xdg-desktop-portal` + one backend (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` are installed/running, then restart Voxpery.
 
+### Mic or camera permission denied on desktop
+
+1. Open User Settings -> Voice & Audio.
+2. Click `Open settings` when microphone access is blocked, then allow Voxpery or desktop apps to use the microphone in OS privacy settings.
+3. For camera denial, open the OS camera privacy settings, allow Voxpery or desktop apps to use the camera, then retry the camera toggle.
+4. Restart Voxpery if the OS requires a restart before WebView permissions refresh.
+5. Return to Voxpery and click `Retry mic access` or retry the camera action.
+
 ### Echo or feedback
 
 - **Browser echo cancellation**: Enabled by default (`echoCancellation: true`)
