@@ -11,12 +11,12 @@ export const serverApi = {
     get: (serverId: string, token: AuthToken) =>
         apiFetch<ServerDetail>(`/api/servers/${serverId}`, { token }),
 
-    create: (name: string, token: AuthToken) =>
-        apiFetch<Server>('/api/servers', { method: 'POST', body: { name }, token }),
+    create: (name: string, description: string | undefined, token: AuthToken) =>
+        apiFetch<Server>('/api/servers', { method: 'POST', body: { name, description }, token }),
 
     update: (
         serverId: string,
-        payload: { name?: string; icon_url?: string; clear_icon?: boolean },
+        payload: { name?: string; icon_url?: string; description?: string; clear_icon?: boolean },
         token: AuthToken,
     ) =>
         apiFetch<Server>(`/api/servers/${serverId}`, { method: 'PATCH', body: payload, token }),

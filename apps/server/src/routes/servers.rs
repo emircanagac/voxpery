@@ -381,11 +381,11 @@ async fn get_invite_preview(
     }
 
     let preview = sqlx::query_as::<_, ServerInvitePreview>(
-        r#"SELECT s.id, s.name, s.icon_url, s.invite_code, COUNT(sm.user_id) AS member_count
+        r#"SELECT s.id, s.name, s.icon_url, s.description, s.invite_code, COUNT(sm.user_id) AS member_count
            FROM servers s
            LEFT JOIN server_members sm ON sm.server_id = s.id
            WHERE s.invite_code = $1
-           GROUP BY s.id, s.name, s.icon_url, s.invite_code"#,
+           GROUP BY s.id, s.name, s.icon_url, s.description, s.invite_code"#,
     )
     .bind(code)
     .fetch_optional(&state.db)
@@ -402,13 +402,13 @@ async fn list_servers(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<ServerWithMembers>>, AppError> {
     let rows = sqlx::query_as::<_, ServerWithMembers>(
-        r#"SELECT s.id, s.name, s.icon_url, s.owner_id, s.invite_code, s.created_at,
+        r#"SELECT s.id, s.name, s.icon_url, s.description, s.owner_id, s.invite_code, s.created_at,
                   COUNT(sm2.user_id) as member_count
            FROM servers s
            INNER JOIN server_members sm ON s.id = sm.server_id
            INNER JOIN server_members sm2 ON s.id = sm2.server_id
            WHERE sm.user_id = $1
-           GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.invite_code, s.created_at
+           GROUP BY s.id, s.name, s.icon_url, s.description, s.owner_id, s.invite_code, s.created_at
            ORDER BY MIN(sm.joined_at) ASC"#,
     )
     .bind(claims.sub)
@@ -512,13 +512,14 @@ async fn create_server(
     let invite_code = generate_invite_code();
 
     let server = sqlx::query_as::<_, Server>(
-        r#"INSERT INTO servers (id, name, icon_url, owner_id, invite_code, created_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
+        r#"INSERT INTO servers (id, name, icon_url, description, owner_id, invite_code, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
            RETURNING *"#,
     )
     .bind(server_id)
     .bind(&body.name)
     .bind(&icon_url)
+    .bind(&body.description)
     .bind(claims.sub)
     .bind(&invite_code)
     .fetch_one(&state.db)
@@ -1242,6 +1243,7 @@ async fn delete_server(
 struct UpdateServerRequest {
     name: Option<String>,
     icon_url: Option<String>,
+    description: Option<String>,
     clear_icon: Option<bool>,
 }
 
@@ -1291,14 +1293,26 @@ async fn update_server(
         next_icon = validate_server_icon_url(Some(trimmed))?;
     }
 
+    let mut next_description = current.description.clone();
+    if let Some(description) = body.description {
+        let trimmed = description.trim();
+        if trimmed.len() > 500 {
+            return Err(AppError::Validation(
+                "Server description must be under 500 characters".into(),
+            ));
+        }
+        next_description = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+    }
+
     let updated = sqlx::query_as::<_, Server>(
         r#"UPDATE servers
-           SET name = $1, icon_url = $2
-           WHERE id = $3
+           SET name = $1, icon_url = $2, description = $3
+           WHERE id = $4
            RETURNING *"#,
     )
     .bind(next_name)
     .bind(next_icon)
+    .bind(next_description)
     .bind(server_id)
     .fetch_one(&state.db)
     .await?;

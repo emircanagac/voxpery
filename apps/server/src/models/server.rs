@@ -10,6 +10,7 @@ pub struct Server {
     pub id: Uuid,
     pub name: String,
     pub icon_url: Option<String>,
+    pub description: Option<String>,
     pub owner_id: Uuid,
     pub invite_code: String,
     pub created_at: DateTime<Utc>,
@@ -30,6 +31,7 @@ pub struct ServerWithMembers {
     pub id: Uuid,
     pub name: String,
     pub icon_url: Option<String>,
+    pub description: Option<String>,
     pub owner_id: Uuid,
     pub invite_code: String,
     pub created_at: DateTime<Utc>,
@@ -40,6 +42,7 @@ pub struct ServerWithMembers {
 pub struct CreateServerRequest {
     pub name: String,
     pub icon_url: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +55,7 @@ pub struct ServerInvitePreview {
     pub id: Uuid,
     pub name: String,
     pub icon_url: Option<String>,
+    pub description: Option<String>,
     pub invite_code: String,
     pub member_count: i64,
 }

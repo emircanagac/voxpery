@@ -106,6 +106,9 @@ export default function InvitePage() {
                             </div>
                             <div className="invite-preview-copy">
                                 <div className="invite-preview-title">{preview.name}</div>
+                                {preview.description && (
+                                    <div className="invite-preview-description">{preview.description}</div>
+                                )}
                                 <div className="invite-preview-meta">
                                     <span className="invite-preview-pill">{memberCountLabel(preview.member_count)}</span>
                                 </div>
