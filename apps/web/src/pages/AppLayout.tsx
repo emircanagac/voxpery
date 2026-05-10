@@ -1283,7 +1283,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     return [...current, msg]
                 }
                 const next = [...current]
-                next[idx] = msg
+                next[idx] = { ...msg, id: next[idx].id }
                 return next
             }
             if (activeChannelIdRef.current === channelId) {
