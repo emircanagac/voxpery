@@ -43,6 +43,10 @@ import {
   setDesktopMinimizeToTrayOnClose,
 } from '../desktopSettings'
 import {
+  desktopMediaPermissionRecoveryMessage,
+  openDesktopMediaPermissionSettings,
+} from '../desktopMediaPermissions'
+import {
   getPushNotificationPermission,
   getPushNotificationsEnabled,
   requestPushNotificationPermission,
@@ -1145,6 +1149,10 @@ export default function UserBar() {
   const currentOutputDevice = outputDevices.find((device) => device.id === selectedOutputDeviceId) ?? DEFAULT_OUTPUT_DEVICE_OPTION
   const microphoneAccessAllowed = microphonePermissionState === 'granted'
   const microphoneAccessButtonLabel = microphonePermissionState === 'denied' ? 'Retry mic access' : 'Allow mic access'
+  const microphoneRecoveryMessage = microphonePermissionState === 'denied'
+    ? desktopMediaPermissionRecoveryMessage('microphone')
+    : 'Allow microphone access to unlock full voice controls.'
+  const showDesktopMicrophoneRecovery = isTauri() && microphonePermissionState === 'denied'
 
   const voiceDeviceMenu = openDeviceMenu && deviceMenuAnchor && typeof document !== 'undefined'
     ? createPortal(
@@ -1476,11 +1484,25 @@ export default function UserBar() {
                   <div className="voice-settings-block__title">Audio devices</div>
                   {!microphoneAccessAllowed && (
                     <div className="voice-settings-banner">
-                      <span>
-                        {microphonePermissionState === 'denied'
-                          ? 'Microphone access is blocked. Allow it to choose devices and run mic test.'
-                          : 'Allow microphone access to unlock full voice controls.'}
-                      </span>
+                      <span>{microphoneRecoveryMessage}</span>
+                      {showDesktopMicrophoneRecovery && (
+                        <button
+                          type="button"
+                          className="user-toggle account-action-btn"
+                          onClick={async () => {
+                            const opened = await openDesktopMediaPermissionSettings('microphone')
+                            if (!opened) {
+                              pushToast({
+                                level: 'info',
+                                title: 'Open privacy settings',
+                                message: microphoneRecoveryMessage,
+                              })
+                            }
+                          }}
+                        >
+                          Open settings
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="user-toggle account-action-btn"
