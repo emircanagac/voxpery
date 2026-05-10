@@ -101,6 +101,12 @@ Notes:
 
 - `DELETE /api/servers/:server_id/members/:user_id` (kick, requires `KICK_MEMBERS`)
 - `POST /api/servers/:server_id/members/:user_id/ban` (requires `BAN_MEMBERS`)
+- `POST /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
+  - Body: `{ "duration_minutes": 60, "reason": "optional note" }`
+  - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, and new reactions.
+- `DELETE /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
+- `GET /api/servers/:server_id/timeouts` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
+- `GET /api/servers/:server_id/raid-events` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
 - `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
@@ -161,6 +167,8 @@ Notes:
 - `PATCH /api/messages/item/:message_id` (author only)
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
 - Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast.
+- Active member timeouts block server-channel sends/edits and new reactions before persistence or broadcast.
+- Server-level raid protection records join bursts, new-account join bursts, message bursts, and invite spikes in moderation activity/audit logs; message and invite bursts can return `429`.
 
 ### Pins
 

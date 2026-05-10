@@ -18,6 +18,7 @@ use crate::{
     },
     services::{
         automod,
+        moderation,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
     },
@@ -645,6 +646,8 @@ async fn send_message(
     if !channel_perms.contains(Permissions::SEND_MESSAGES) {
         return Err(AppError::Forbidden("Missing required permission".into()));
     }
+    let server_id = server_id_for_channel(&state.db, channel_id).await?;
+    moderation::ensure_not_timed_out(&state.db, server_id, claims.sub).await?;
 
     enforce_rate_limit(
         &state.redis,
@@ -677,7 +680,6 @@ async fn send_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
-    let server_id = server_id_for_channel(&state.db, channel_id).await?;
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
@@ -688,6 +690,15 @@ async fn send_message(
             matched.rule_name
         )));
     }
+    moderation::enforce_message_raid_protection(
+        &state.redis,
+        &state.db,
+        server_id,
+        channel_id,
+        claims.sub,
+        &content,
+    )
+    .await?;
 
     // Insert and fetch with author in one round-trip using CTE
     let row = sqlx::query_as::<_, MessageRow>(
@@ -818,6 +829,8 @@ async fn edit_message(
         ));
     }
     check_channel_access(&state, channel_id, claims.sub).await?;
+    let server_id = server_id_for_channel(&state.db, channel_id).await?;
+    moderation::ensure_not_timed_out(&state.db, server_id, claims.sub).await?;
 
     let raw_content = body.content.trim();
     if raw_content.is_empty() {
@@ -837,7 +850,6 @@ async fn edit_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
-    let server_id = server_id_for_channel(&state.db, channel_id).await?;
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
@@ -970,6 +982,8 @@ async fn add_message_reaction(
         .ok_or(AppError::NotFound("Message not found".into()))?;
 
     check_channel_access(&state, channel_id, claims.sub).await?;
+    let server_id = server_id_for_channel(&state.db, channel_id).await?;
+    moderation::ensure_not_timed_out(&state.db, server_id, claims.sub).await?;
     permissions::ensure_channel_permission(
         &state.db,
         channel_id,

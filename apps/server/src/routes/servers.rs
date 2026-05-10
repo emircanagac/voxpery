@@ -5,6 +5,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use std::sync::Arc;
 use std::{
     net::{IpAddr, SocketAddr},
@@ -23,6 +24,7 @@ use crate::{
         audit,
         automod::AutoModRule,
         auth::generate_invite_code,
+        moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
     },
@@ -94,6 +96,12 @@ struct ReorderRolesRequest {
 
 #[derive(Debug, serde::Deserialize)]
 struct BanMemberRequest {
+    reason: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TimeoutMemberRequest {
+    duration_minutes: Option<i64>,
     reason: Option<String>,
 }
 
@@ -194,9 +202,15 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     patch(update_member_role),
                 )
                 .route("/{server_id}/members/{user_id}/ban", post(ban_member))
+                .route(
+                    "/{server_id}/members/{user_id}/timeout",
+                    post(timeout_member).delete(clear_member_timeout),
+                )
                 .route("/{server_id}/members/{user_id}", delete(kick_member))
                 .route("/{server_id}/bans", get(list_bans))
                 .route("/{server_id}/bans/{user_id}", delete(unban_member))
+                .route("/{server_id}/timeouts", get(list_active_timeouts))
+                .route("/{server_id}/raid-events", get(list_raid_events))
                 .route("/{server_id}/reports", get(list_reports))
                 .route("/{server_id}/reports/user", post(report_user))
                 .route("/{server_id}/reports/message", post(report_message))
@@ -293,6 +307,96 @@ async fn ensure_automod_manage_permission(
         Permissions::MANAGE_MESSAGES,
     )
     .await
+}
+
+async fn ensure_moderation_view_permission(
+    state: &AppState,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let perms = permissions::get_user_server_permissions(&state.db, server_id, user_id).await?;
+    if perms.intersects(
+        Permissions::VIEW_AUDIT_LOG | Permissions::BAN_MEMBERS | Permissions::MANAGE_MESSAGES,
+    ) {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden(
+            "Missing permission to view moderation activity".into(),
+        ))
+    }
+}
+
+async fn ensure_timeout_permission(
+    state: &AppState,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        user_id,
+        Permissions::MANAGE_MESSAGES,
+    )
+    .await
+}
+
+async fn ensure_member_timeout_target(
+    state: &AppState,
+    server_id: Uuid,
+    actor_id: Uuid,
+    target_id: Uuid,
+) -> Result<Server, AppError> {
+    if actor_id == target_id {
+        return Err(AppError::Validation("Cannot timeout yourself".into()));
+    }
+
+    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = $1")
+        .bind(server_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Server not found".into()))?;
+
+    if server.owner_id == target_id {
+        return Err(AppError::Forbidden(
+            "Cannot timeout the server owner".into(),
+        ));
+    }
+
+    let is_member = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(target_id)
+    .fetch_one(&state.db)
+    .await?;
+    if is_member == 0 {
+        return Err(AppError::NotFound("Member not found".into()));
+    }
+
+    let caller_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, actor_id).await?;
+    let target_pos =
+        permissions::get_user_highest_role_position(&state.db, server_id, target_id).await?;
+    if caller_pos >= target_pos {
+        return Err(AppError::Forbidden(
+            "You cannot timeout a member with an equal or higher role than yourself".into(),
+        ));
+    }
+
+    Ok(server)
+}
+
+fn normalize_timeout_reason(reason: Option<&str>) -> Result<Option<String>, AppError> {
+    let trimmed = reason.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(value) = trimmed {
+        if value.len() > 500 {
+            return Err(AppError::Validation(
+                "Timeout reason must be at most 500 characters".into(),
+            ));
+        }
+        return Ok(Some(value.to_string()));
+    }
+    Ok(None)
 }
 
 fn visible_presence(status: &str, has_session: bool) -> String {
@@ -1078,7 +1182,7 @@ async fn join_server(
     .await?;
 
     let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
-    if let Some(ip) = client_ip {
+    if let Some(ref ip) = client_ip {
         enforce_rate_limit(
             &state.redis,
             format!("servers:join:ip:{ip}"),
@@ -1134,6 +1238,18 @@ async fn join_server(
     .bind(claims.sub)
     .execute(&state.db)
     .await?;
+
+    if let Err(err) = moderation::record_join_raid_signal(
+        &state.redis,
+        &state.db,
+        server.id,
+        claims.sub,
+        client_ip.clone(),
+    )
+    .await
+    {
+        tracing::warn!("Failed to record join raid signal: {err}");
+    }
 
     // Ensure "@everyone" role exists for baseline permissions.
     let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
@@ -1902,6 +2018,132 @@ async fn ban_member(
         "message": "Member banned",
         "removed_member": removed_member
     })))
+}
+
+async fn timeout_member(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<TimeoutMemberRequest>,
+) -> Result<Json<ServerTimeoutEntry>, AppError> {
+    ensure_timeout_permission(&state, server_id, claims.sub).await?;
+    ensure_member_timeout_target(&state, server_id, claims.sub, user_id).await?;
+
+    let duration_minutes = body.duration_minutes.unwrap_or(60);
+    if !(1..=10_080).contains(&duration_minutes) {
+        return Err(AppError::Validation(
+            "Timeout duration must be between 1 minute and 7 days".into(),
+        ));
+    }
+    let reason = normalize_timeout_reason(body.reason.as_deref())?;
+    let until = Utc::now() + ChronoDuration::minutes(duration_minutes);
+
+    let entry = sqlx::query_as::<_, ServerTimeoutEntry>(
+        r#"WITH upserted AS (
+               INSERT INTO server_member_timeouts (
+                   server_id, user_id, timed_out_until, timeout_by, reason, created_at, updated_at
+               )
+               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+               ON CONFLICT (server_id, user_id)
+               DO UPDATE SET
+                   timed_out_until = EXCLUDED.timed_out_until,
+                   timeout_by = EXCLUDED.timeout_by,
+                   reason = EXCLUDED.reason,
+                   updated_at = NOW()
+               RETURNING server_id, user_id, timed_out_until, timeout_by, reason, created_at, updated_at
+           )
+           SELECT upserted.server_id,
+                  upserted.user_id,
+                  target.username,
+                  upserted.timed_out_until,
+                  upserted.timeout_by,
+                  moderator.username AS timeout_by_username,
+                  upserted.reason,
+                  upserted.created_at,
+                  upserted.updated_at
+           FROM upserted
+           INNER JOIN users target ON target.id = upserted.user_id
+           LEFT JOIN users moderator ON moderator.id = upserted.timeout_by"#,
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .bind(until)
+    .bind(claims.sub)
+    .bind(&reason)
+    .fetch_one(&state.db)
+    .await?;
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "member_timeout_create",
+        "member",
+        Some(user_id),
+        Some(serde_json::json!({
+            "duration_minutes": duration_minutes,
+            "timed_out_until": entry.timed_out_until,
+            "reason": reason
+        })),
+    )
+    .await?;
+
+    Ok(Json(entry))
+}
+
+async fn clear_member_timeout(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    ensure_timeout_permission(&state, server_id, claims.sub).await?;
+    ensure_member_timeout_target(&state, server_id, claims.sub, user_id).await?;
+
+    let deleted = sqlx::query(
+        r#"DELETE FROM server_member_timeouts
+           WHERE server_id = $1 AND user_id = $2"#,
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound("Timeout not found".into()));
+    }
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "member_timeout_clear",
+        "member",
+        Some(user_id),
+        None,
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Timeout cleared" })))
+}
+
+async fn list_active_timeouts(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<ServerTimeoutEntry>>, AppError> {
+    ensure_moderation_view_permission(&state, server_id, claims.sub).await?;
+    let rows = moderation::list_active_timeouts(&state.db, server_id).await?;
+    Ok(Json(rows))
+}
+
+async fn list_raid_events(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<RaidEventEntry>>, AppError> {
+    ensure_moderation_view_permission(&state, server_id, claims.sub).await?;
+    let rows = moderation::list_raid_events(&state.db, server_id).await?;
+    Ok(Json(rows))
 }
 
 async fn list_automod_rules(

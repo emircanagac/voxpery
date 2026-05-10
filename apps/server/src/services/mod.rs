@@ -4,5 +4,6 @@ pub mod automod;
 pub mod auth;
 pub mod email;
 pub mod jwt_blacklist;
+pub mod moderation;
 pub mod permissions;
 pub mod rate_limit;

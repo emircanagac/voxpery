@@ -31,8 +31,11 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
-- [ ] Moderation flows (kick/ban) work.
+- [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
+- [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
+- [ ] Safety moderation view shows open reports, active timeouts, and recent raid events.
 - [ ] AutoMod rule create/enable/disable/delete works and blocked messages do not persist or broadcast.
+- [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 

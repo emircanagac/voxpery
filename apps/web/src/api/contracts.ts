@@ -147,6 +147,30 @@ export interface ServerBanEntry {
     banned_by_username: string
 }
 
+export interface ServerTimeoutEntry {
+    server_id: string
+    user_id: string
+    username: string
+    timed_out_until: string
+    timeout_by: string | null
+    timeout_by_username: string | null
+    reason: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface RaidEventEntry {
+    id: string
+    server_id: string
+    event_type: 'join_burst' | 'new_account_join_burst' | 'message_burst' | 'invite_spike'
+    user_id: string | null
+    username: string | null
+    channel_id: string | null
+    channel_name: string | null
+    metadata: unknown | null
+    created_at: string
+}
+
 export interface ServerReportEntry {
     id: string
     server_id: string

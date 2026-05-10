@@ -109,6 +109,8 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **Auth** (`/api/auth/login`, `/api/auth/register`): 10 requests per minute per user
 - **Friend request** (`/api/friends/requests`): 5 requests per minute per user
 - **DM create** (`/api/dm/channels/:peer_id`): 5 requests per minute per user
+- **Server join raid signals**: join bursts and new-account join bursts are recorded for moderator review.
+- **Server message raid protection**: message bursts and invite spikes are tracked per server/user; bursts can be rejected with `429` and write raid audit events.
 - **Messages** (`/api/messages/:id`): 30 messages per 10 seconds per user
 - **WebSocket connect**: 3 attempts per 10 seconds per user
 - **WebSocket frames**: 120 frames per 10 seconds per user
@@ -299,6 +301,10 @@ add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss:/
 Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, and server settings updates) and exposed via server audit endpoints.
 
 AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
+
+Temporary member timeouts require `MANAGE_MESSAGES`, respect role hierarchy, cannot target the server owner, and block server-channel sends/edits plus new reactions until expiration or manual clearing. Timeout create/clear actions are audit logged.
+
+Raid protection records join bursts, new-account join bursts, message bursts, and invite spikes in `server_raid_events` and audit logs so moderators can review reports, bans, timeouts, and raid signals from the safety UI.
 
 ## Dependency Security
 

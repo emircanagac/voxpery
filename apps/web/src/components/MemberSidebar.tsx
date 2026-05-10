@@ -18,10 +18,11 @@ interface MemberItemProps {
     isFriend: boolean
     canKickAsRole: boolean
     canBanAsRole: boolean
+    canTimeoutAsRole: boolean
     canManageRoles: boolean
     myRole: string
     interactive: boolean
-    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
+    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
     onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
 
@@ -33,6 +34,7 @@ const MemberItem = memo(function MemberItem({
     isFriend,
     canKickAsRole,
     canBanAsRole,
+    canTimeoutAsRole,
     canManageRoles,
     myRole,
     interactive,
@@ -70,8 +72,14 @@ const MemberItem = memo(function MemberItem({
         member.user_id !== currentUserId &&
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
+    const canTimeout =
+        canTimeoutAsRole &&
+        !isServerOwner &&
+        member.user_id !== currentUserId &&
+        member.role !== 'owner' &&
+        (myRole === 'owner' || member.role === 'member')
     const canReport = member.user_id !== currentUserId
-    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canSendDm || canKick || canBan || canReport)
+    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canSendDm || canTimeout || canKick || canBan || canReport)
 
     return (
         <div
@@ -83,7 +91,7 @@ const MemberItem = memo(function MemberItem({
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu(e, member, canMakeAdmin, canAddFriend, canSendDm, canKick, canBan, canReport)
+                onContextMenu(e, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -111,6 +119,7 @@ const MemberItem = memo(function MemberItem({
 export default function MemberSidebar({
     canKickMembers,
     canBanMembers,
+    canTimeoutMembers,
     canManageRolesFromPerms,
     onReportMember,
     variant = 'sidebar',
@@ -118,6 +127,7 @@ export default function MemberSidebar({
 }: {
     canKickMembers: boolean
     canBanMembers: boolean
+    canTimeoutMembers: boolean
     canManageRolesFromPerms: boolean
     onReportMember?: (member: { user_id: string; username: string }) => void
     variant?: 'sidebar' | 'sheet'
@@ -172,6 +182,7 @@ export default function MemberSidebar({
         canMakeAdmin: boolean
         canAddFriend: boolean
         canSendDm: boolean
+        canTimeout: boolean
         canKick: boolean
         canBan: boolean
         canReport: boolean
@@ -186,6 +197,7 @@ export default function MemberSidebar({
     } | null>(null)
     const [kickConfirm, setKickConfirm] = useState<{ userId: string; username: string } | null>(null)
     const [banConfirm, setBanConfirm] = useState<{ userId: string; username: string } | null>(null)
+    const [timeoutConfirm, setTimeoutConfirm] = useState<{ userId: string; username: string; durationMinutes: number; reason: string } | null>(null)
     const [profileCard, setProfileCard] = useState<{
         member: MemberItemProps['member']
         isServerOwner: boolean
@@ -210,6 +222,7 @@ export default function MemberSidebar({
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
     const canKickAsRole = isOwner || canKickMembers
     const canBanAsRole = isOwner || canBanMembers
+    const canTimeoutAsRole = isOwner || canTimeoutMembers
 
     useEffect(() => {
         return subscribeWs((payload: unknown) => {
@@ -464,17 +477,43 @@ export default function MemberSidebar({
         [activeServerId, pushToast, setMembers, token],
     )
 
+    const handleTimeout = useCallback(
+        async (target: { userId: string; durationMinutes: number; reason: string }) => {
+            if (!activeServerId) return
+            try {
+                await serverApi.timeoutMember(activeServerId, target.userId, token, {
+                    duration_minutes: target.durationMinutes,
+                    reason: target.reason.trim() || null,
+                })
+                pushToast({
+                    level: 'info',
+                    title: 'Member timed out',
+                    message: 'They cannot send messages until the timeout expires.',
+                })
+                setTimeoutConfirm(null)
+            } catch (e) {
+                pushToast({
+                    level: 'error',
+                    title: 'Timeout failed',
+                    message: e instanceof Error ? e.message : 'Could not timeout member.',
+                })
+            }
+        },
+        [activeServerId, pushToast, token],
+    )
+
     const handleContextMenu = useCallback((
         e: React.MouseEvent,
         member: MemberItemProps['member'],
         canMakeAdmin: boolean,
         canAddFriend: boolean,
         canSendDm: boolean,
+        canTimeout: boolean,
         canKick: boolean,
         canBan: boolean,
         canReport: boolean
     ) => {
-        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canSendDm ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
+        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canSendDm ? 1 : 0) + (canTimeout ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
         const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
         setProfileCard(null)
         setContextMenu({
@@ -486,6 +525,7 @@ export default function MemberSidebar({
             canMakeAdmin,
             canAddFriend,
             canSendDm,
+            canTimeout,
             canKick,
             canBan,
             canReport,
@@ -552,6 +592,7 @@ export default function MemberSidebar({
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
                             canBanAsRole={canBanAsRole}
+                            canTimeoutAsRole={canTimeoutAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             interactive={interactive}
@@ -577,6 +618,7 @@ export default function MemberSidebar({
                             isFriend={friendUsernames.has(member.username.toLowerCase())}
                             canKickAsRole={canKickAsRole}
                             canBanAsRole={canBanAsRole}
+                            canTimeoutAsRole={canTimeoutAsRole}
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             interactive={interactive}
@@ -639,6 +681,23 @@ export default function MemberSidebar({
                             }}
                         >
                             Report user
+                        </button>
+                    )}
+                    {contextMenu.canTimeout && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item danger"
+                            onClick={() => {
+                                setTimeoutConfirm({
+                                    userId: contextMenu.userId,
+                                    username: contextMenu.username,
+                                    durationMinutes: 60,
+                                    reason: '',
+                                })
+                                setContextMenu(null)
+                            }}
+                        >
+                            Timeout user
                         </button>
                     )}
                     {contextMenu.canKick && (
@@ -887,6 +946,50 @@ export default function MemberSidebar({
                                 onClick={() => void handleBan(banConfirm.userId)}
                             >
                                 Ban user
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {timeoutConfirm && (
+                <div className="modal-overlay" onClick={() => setTimeoutConfirm(null)}>
+                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Timeout member</h2>
+                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                            Timeout <strong>{timeoutConfirm.username}</strong> from sending messages.
+                        </p>
+                        <div className="form-group">
+                            <label>Duration</label>
+                            <select
+                                value={timeoutConfirm.durationMinutes}
+                                onChange={(e) => setTimeoutConfirm((prev) => prev ? { ...prev, durationMinutes: Number(e.target.value) } : prev)}
+                            >
+                                <option value={5}>5 minutes</option>
+                                <option value={60}>1 hour</option>
+                                <option value={1440}>24 hours</option>
+                                <option value={10080}>7 days</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>Reason</label>
+                            <textarea
+                                value={timeoutConfirm.reason}
+                                maxLength={500}
+                                rows={3}
+                                onChange={(e) => setTimeoutConfirm((prev) => prev ? { ...prev, reason: e.target.value } : prev)}
+                                placeholder="Optional moderation note"
+                            />
+                        </div>
+                        <div className="modal-actions">
+                            <button type="button" className="btn btn-secondary" onClick={() => setTimeoutConfirm(null)}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger"
+                                onClick={() => void handleTimeout(timeoutConfirm)}
+                            >
+                                Timeout user
                             </button>
                         </div>
                     </div>

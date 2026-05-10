@@ -555,6 +555,148 @@ async fn create_server_list_servers_get_server() {
 }
 
 #[tokio::test]
+async fn member_timeout_blocks_and_clear_restores_messages() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let owner_uid = Uuid::new_v4();
+    let owner_email = format!("timeout-owner-{owner_uid}@example.com");
+    let owner_username = format!("timeout_owner_{}", owner_uid.as_u128() % 1_000_000);
+    let (owner_token, _) =
+        register_user(&mut app, &owner_email, &owner_username, "password123").await;
+    let owner_auth = format!("Bearer {owner_token}");
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": format!("Timeout {}", owner_uid) })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let invite_code = server["invite_code"].as_str().unwrap();
+
+    let member_uid = Uuid::new_v4();
+    let member_email = format!("timeout-member-{member_uid}@example.com");
+    let member_username = format!("timeout_member_{}", member_uid.as_u128() % 1_000_000);
+    let (member_token, member_id) =
+        register_user(&mut app, &member_email, &member_username, "password123").await;
+    let member_auth = format!("Bearer {member_token}");
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "join server failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'text' ORDER BY position ASC LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/servers/{server_id}/members/{member_id}/timeout"))
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "duration_minutes": 5,
+                "reason": "integration test"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "timeout member failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{channel_id}"))
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "blocked while timed out" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "timed out member should be blocked: {}",
+        String::from_utf8_lossy(&body)
+    );
+    assert!(
+        String::from_utf8_lossy(&body).contains("timed out"),
+        "timeout error should be user-facing: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/servers/{server_id}/members/{member_id}/timeout"))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "clear timeout failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{channel_id}"))
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "allowed after timeout clear" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "message should work after timeout clear: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
 async fn create_server_seeds_recommended_moderator_permissions() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
