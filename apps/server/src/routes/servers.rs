@@ -17,7 +17,7 @@ use crate::{
     middleware::auth::{require_auth, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
-        ServerInvitePreview, ServerWithMembers,
+        ServerInvitePreview, ServerRule, ServerWithMembers, UpdateServerRuleRequest,
     },
     services::{
         audit,
@@ -167,6 +167,7 @@ struct UpdateAutoModRuleRequest {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/invite/{invite_code}", get(get_invite_preview))
+        .route("/{server_id}/rules", get(list_server_rules))
         .merge(
             Router::new()
                 .route("/", get(list_servers).post(create_server))
@@ -207,6 +208,14 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route(
                     "/{server_id}/automod-rules/{rule_id}",
                     patch(update_automod_rule).delete(delete_automod_rule),
+                )
+                .route(
+                    "/{server_id}/rules",
+                    post(create_server_rule),
+                )
+                .route(
+                    "/{server_id}/rules/{rule_id}",
+                    patch(update_server_rule).delete(delete_server_rule),
                 )
                 .route(
                     "/{server_id}/reports/{report_id}/resolve",
@@ -2463,4 +2472,168 @@ async fn kick_member(
     crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Member kicked" })))
+}
+
+/// GET /api/servers/:server_id/rules — list server rules (public for invite preview).
+async fn list_server_rules(
+    State(state): State<Arc<AppState>>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<ServerRule>>, AppError> {
+    let rules = sqlx::query_as::<_, ServerRule>(
+        r#"SELECT id, server_id, rule_text, position, created_at
+           FROM server_rules
+           WHERE server_id = $1
+           ORDER BY position ASC, created_at ASC"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rules))
+}
+
+/// POST /api/servers/:server_id/rules — create a server rule (owner only).
+async fn create_server_rule(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<crate::models::CreateServerRuleRequest>,
+) -> Result<Json<ServerRule>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
+
+    let trimmed = body.rule_text.trim();
+    if trimmed.is_empty() || trimmed.len() > 1000 {
+        return Err(AppError::Validation(
+            "Rule text must be 1-1000 characters".into(),
+        ));
+    }
+
+    let max_position: Option<i32> =
+        sqlx::query_scalar("SELECT MAX(position) FROM server_rules WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+
+    let position = body.position.unwrap_or(max_position.map(|p| p + 1).unwrap_or(0));
+
+    let rule = sqlx::query_as::<_, ServerRule>(
+        r#"INSERT INTO server_rules (id, server_id, rule_text, position, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           RETURNING *"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(server_id)
+    .bind(trimmed)
+    .bind(position)
+    .fetch_one(&state.db)
+    .await?;
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "server_rule_create",
+        "server",
+        Some(server_id),
+        Some(serde_json::json!({ "rule_id": rule.id, "position": rule.position })),
+    )
+    .await?;
+
+    Ok(Json(rule))
+}
+
+/// PATCH /api/servers/:server_id/rules/:rule_id — update a server rule (owner only).
+async fn update_server_rule(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, rule_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateServerRuleRequest>,
+) -> Result<Json<ServerRule>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
+
+    let existing = sqlx::query_as::<_, ServerRule>(
+        "SELECT * FROM server_rules WHERE id = $1 AND server_id = $2",
+    )
+    .bind(rule_id)
+    .bind(server_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Rule not found".into()))?;
+
+    let next_text = match &body.rule_text {
+        Some(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() || trimmed.len() > 1000 {
+                return Err(AppError::Validation(
+                    "Rule text must be 1-1000 characters".into(),
+                ));
+            }
+            trimmed.to_string()
+        }
+        None => existing.rule_text,
+    };
+
+    let next_position = body.position.unwrap_or(existing.position);
+
+    let updated = sqlx::query_as::<_, ServerRule>(
+        r#"UPDATE server_rules SET rule_text = $1, position = $2 WHERE id = $3 RETURNING *"#,
+    )
+    .bind(next_text)
+    .bind(next_position)
+    .bind(rule_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(updated))
+}
+
+/// DELETE /api/servers/:server_id/rules/:rule_id — delete a server rule (owner only).
+async fn delete_server_rule(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, rule_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
+
+    let deleted = sqlx::query("DELETE FROM server_rules WHERE id = $1 AND server_id = $2")
+        .bind(rule_id)
+        .bind(server_id)
+        .execute(&state.db)
+        .await?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound("Rule not found".into()));
+    }
+
+    crate::services::audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "server_rule_delete",
+        "server",
+        Some(server_id),
+        Some(serde_json::json!({ "rule_id": rule_id })),
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({ "message": "Rule deleted" })))
 }
