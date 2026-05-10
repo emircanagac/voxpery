@@ -1,6 +1,6 @@
 # Voxpery Documentation
 
-This folder is the source of truth for architecture, development, deployment, and open-source contribution workflows.
+This folder is the source of truth for architecture, development, deployment, roadmap, release, and open-source contribution workflows.
 
 > Note: `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`, and `.github/SUPPORT.md` are lightweight pointers for GitHub Community Standards detection. Canonical content lives in this `docs/` folder.
 
@@ -9,6 +9,7 @@ This folder is the source of truth for architecture, development, deployment, an
 - **[../README.md](../README.md)** - Product overview and quick start
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Local development setup and scripts
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment (current repo structure)
+- **[ROADMAP.md](ROADMAP.md)** - Product direction, pillars, completed work, and current priorities
 
 ## Technical Reference
 
@@ -25,6 +26,6 @@ This folder is the source of truth for architecture, development, deployment, an
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution process and standards
 - **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** - Community behavior and enforcement
-- **[ROADMAP.md](ROADMAP.md)** - Priorities and planned milestones
+- **[ROADMAP.md](ROADMAP.md)** - Product pillars and current priority order
 - **[PROJECT_OPERATIONS.md](PROJECT_OPERATIONS.md)** - Support, governance, and release process
 - **[CHANGELOG.md](CHANGELOG.md)** - Release notes and notable changes

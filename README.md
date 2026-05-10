@@ -2,7 +2,7 @@
 
 # <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" /> Voxpery <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" />
 
-**Open-source, privacy-first communication platform**
+**Open-source, self-hostable Discord alternative for privacy-conscious communities**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml/badge.svg)](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml)
@@ -10,7 +10,7 @@
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org/)
 [![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg)](https://react.dev/)
 
-*Your data is yours. Voice, text, and real-time presence.*
+*Your data is yours. Voice, text, moderation foundations, and real-time presence.*
 
 **[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[Join community](#community)**
 
@@ -162,7 +162,7 @@ docker compose up -d --build  # Full stack
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Development setup, workflow, contribution areas
 - **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** - Community standards, enforcement
 - **[SECURITY.md](SECURITY.md)** - Private vulnerability reporting policy and supported versions
-- **[ROADMAP.md](docs/ROADMAP.md)** - Feature priorities & roadmap through Q4 2026
+- **[ROADMAP.md](docs/ROADMAP.md)** - Product pillars, completed work, and current priorities
 - **[PROJECT_OPERATIONS.md](docs/PROJECT_OPERATIONS.md)** - Support, governance, and release workflow
 - **[RELEASE_SMOKE_TEST_CHECKLIST.md](docs/RELEASE_SMOKE_TEST_CHECKLIST.md)** - Mandatory release sign-off checklist (web + desktop)
 - **[DESKTOP_RELEASE_HARDENING.md](docs/DESKTOP_RELEASE_HARDENING.md)** - Desktop metadata/deep-link/signing hardening policy

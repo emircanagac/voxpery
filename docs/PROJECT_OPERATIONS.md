@@ -38,7 +38,14 @@ This document combines support flow, governance rules, and release process for V
 
 ### Roadmap Ownership
 
-Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md) and updated based on community feedback and maintainer capacity.
+Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md). Maintainers keep the roadmap aligned with the product direction: an open-source, self-hostable Discord alternative for privacy-conscious communities.
+
+Roadmap changes should:
+
+- Prefer reliability, safety, onboarding, daily UX, and self-hosting improvements over speculative expansion.
+- Promote issues that block releases, registration, desktop voice, moderation, or production operation.
+- Keep completed work reflected in docs so contributors do not plan around stale milestones.
+- Split large product areas into focused issues before implementation starts.
 
 ## Release Process
 
