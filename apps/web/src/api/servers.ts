@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole, ServerRule } from './contracts'
+import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -35,6 +35,12 @@ export const serverApi = {
 
     listBans: (serverId: string, token: AuthToken) =>
         apiFetch<ServerBanEntry[]>(`/api/servers/${serverId}/bans`, { token }),
+
+    listTimeouts: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerTimeoutEntry[]>(`/api/servers/${serverId}/timeouts`, { token }),
+
+    listRaidEvents: (serverId: string, token: AuthToken) =>
+        apiFetch<RaidEventEntry[]>(`/api/servers/${serverId}/raid-events`, { token }),
 
     listReports: (serverId: string, token: AuthToken) =>
         apiFetch<ServerReportEntry[]>(`/api/servers/${serverId}/reports`, { token }),
@@ -186,6 +192,24 @@ export const serverApi = {
         apiFetch<void>(`/api/servers/${serverId}/members/${userId}/ban`, {
             method: 'POST',
             body: reason ? { reason } : {},
+            token,
+        }),
+
+    timeoutMember: (
+        serverId: string,
+        userId: string,
+        token: AuthToken,
+        payload: { duration_minutes?: number; reason?: string | null },
+    ) =>
+        apiFetch<ServerTimeoutEntry>(`/api/servers/${serverId}/members/${userId}/timeout`, {
+            method: 'POST',
+            body: payload,
+            token,
+        }),
+
+    clearMemberTimeout: (serverId: string, userId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/servers/${serverId}/members/${userId}/timeout`, {
+            method: 'DELETE',
             token,
         }),
 

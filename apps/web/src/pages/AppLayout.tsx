@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -422,6 +422,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [reportEntriesLoading, setReportEntriesLoading] = useState(false)
     const [reportEntriesError, setReportEntriesError] = useState<string | null>(null)
     const [resolveReportInFlightId, setResolveReportInFlightId] = useState<string | null>(null)
+    const [timeoutEntries, setTimeoutEntries] = useState<ServerTimeoutEntry[] | null>(null)
+    const [raidEventEntries, setRaidEventEntries] = useState<RaidEventEntry[] | null>(null)
+    const [clearTimeoutInFlightUserId, setClearTimeoutInFlightUserId] = useState<string | null>(null)
     const [banEntries, setBanEntries] = useState<ServerBanEntry[] | null>(null)
     const [banEntriesLoading, setBanEntriesLoading] = useState(false)
     const [banEntriesError, setBanEntriesError] = useState<string | null>(null)
@@ -1635,7 +1638,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const settingsServerInviteLink = settingsServer ? `${inviteBaseUrl}/invite/${settingsServer.invite_code}` : ''
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
     const canManageAutoMod = isOwner || (activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
-    const canViewReports = isOwner || canViewAuditLog || canManageBans
+    const canViewReports = isOwner || canViewAuditLog || canManageBans || canManageAutoMod
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
         isOwner &&
@@ -1852,15 +1855,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         let active = true
         setReportEntriesLoading(true)
         setReportEntriesError(null)
-        void serverApi
-            .listReports(settingsServerId, token)
-            .then((entries) => {
+        void Promise.all([
+            serverApi.listReports(settingsServerId, token),
+            serverApi.listTimeouts(settingsServerId, token),
+            serverApi.listRaidEvents(settingsServerId, token),
+        ])
+            .then(([entries, timeouts, raidEvents]) => {
                 if (!active) return
                 setReportEntries(entries)
+                setTimeoutEntries(timeouts)
+                setRaidEventEntries(raidEvents)
             })
             .catch((err) => {
                 if (!active) return
-                setReportEntriesError(err instanceof Error ? err.message : 'Failed to load reports.')
+                setReportEntriesError(err instanceof Error ? err.message : 'Failed to load moderation activity.')
             })
             .finally(() => {
                 if (!active) return
@@ -2893,6 +2901,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             <MemberSidebar
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
+                canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
                 canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                 onReportMember={openUserReport}
             />
@@ -2926,6 +2935,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                         <MemberSidebar
                             canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                             canBanMembers={canBanMembers}
+                            canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
                             canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                             onReportMember={openUserReport}
                             variant="sheet"
@@ -3657,6 +3667,93 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                 </div>
                                                             ))}
                                                         </div>
+                                                    )}
+                                                    {!reportEntriesLoading && (
+                                                        <>
+                                                            <h3 className="server-settings-card__title" style={{ marginTop: 18 }}>Active Timeouts</h3>
+                                                            {timeoutEntries && timeoutEntries.length === 0 && (
+                                                                <div className="server-settings-empty-state">
+                                                                    No active timeouts.
+                                                                </div>
+                                                            )}
+                                                            {timeoutEntries && timeoutEntries.length > 0 && (
+                                                                <div className="server-report-list">
+                                                                    {timeoutEntries.map((entry) => (
+                                                                        <div key={entry.user_id} className="server-report-row">
+                                                                            <div className="server-report-meta">
+                                                                                <div className="server-report-head">
+                                                                                    <strong>{entry.username}</strong>
+                                                                                    <span className="server-report-status is-open">Timed out</span>
+                                                                                </div>
+                                                                                <div className="server-report-subline">
+                                                                                    Until {new Date(entry.timed_out_until).toLocaleString()}
+                                                                                    {entry.timeout_by_username ? ` by ${entry.timeout_by_username}` : ''}
+                                                                                </div>
+                                                                                {entry.reason && (
+                                                                                    <div className="server-report-excerpt server-report-excerpt--details" title={entry.reason}>
+                                                                                        Reason: {entry.reason}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="server-report-actions">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-sm"
+                                                                                    disabled={clearTimeoutInFlightUserId === entry.user_id}
+                                                                                    onClick={async () => {
+                                                                                        if (!settingsServerId) return
+                                                                                        setClearTimeoutInFlightUserId(entry.user_id)
+                                                                                        setReportEntriesError(null)
+                                                                                        try {
+                                                                                            await serverApi.clearMemberTimeout(settingsServerId, entry.user_id, token)
+                                                                                            const refreshed = await serverApi.listTimeouts(settingsServerId, token)
+                                                                                            setTimeoutEntries(refreshed)
+                                                                                        } catch (err) {
+                                                                                            setReportEntriesError(err instanceof Error ? err.message : 'Failed to clear timeout.')
+                                                                                        } finally {
+                                                                                            setClearTimeoutInFlightUserId(null)
+                                                                                        }
+                                                                                    }}
+                                                                                >
+                                                                                    {clearTimeoutInFlightUserId === entry.user_id ? 'Clearing...' : 'Clear timeout'}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            <h3 className="server-settings-card__title" style={{ marginTop: 18 }}>Raid Events</h3>
+                                                            {raidEventEntries && raidEventEntries.length === 0 && (
+                                                                <div className="server-settings-empty-state">
+                                                                    No raid events yet.
+                                                                </div>
+                                                            )}
+                                                            {raidEventEntries && raidEventEntries.length > 0 && (
+                                                                <div className="server-report-list">
+                                                                    {raidEventEntries.map((entry) => (
+                                                                        <div key={entry.id} className="server-report-row">
+                                                                            <div className="server-report-meta">
+                                                                                <div className="server-report-head">
+                                                                                    <strong>{entry.event_type.replaceAll('_', ' ')}</strong>
+                                                                                    <span className="server-report-status is-open">Detected</span>
+                                                                                </div>
+                                                                                <div className="server-report-subline">
+                                                                                    {new Date(entry.created_at).toLocaleString()}
+                                                                                    {entry.username ? ` by ${entry.username}` : ''}
+                                                                                    {entry.channel_name ? ` in #${entry.channel_name}` : ''}
+                                                                                </div>
+                                                                                {entry.metadata != null && (
+                                                                                    <div className="server-report-excerpt server-report-excerpt--details">
+                                                                                        {JSON.stringify(entry.metadata) ?? ''}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </section>
                                             )}

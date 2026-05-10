@@ -13,10 +13,12 @@ users
  |                       |
  |                       +--< server_roles --< server_member_roles
  |                       +--< server_channel_categories --< channel_category_role_overrides
- |                       +--< server_bans
- |                       +--< server_reports
- |                       +--< server_automod_rules
- |                       +--< audit_log
+|                       +--< server_bans
+|                       +--< server_reports
+|                       +--< server_automod_rules
+|                       +--< server_member_timeouts
+|                       +--< server_raid_events
+|                       +--< audit_log
  |
  +--< friend_requests
  +--< friendships
@@ -159,6 +161,18 @@ Uniqueness (case-insensitive):
 - Key fields: `trigger_type`, `pattern`, `mention_limit`, `enabled`, `exempt_role_ids`, `exempt_channel_ids`.
 - Matching rules block server-channel sends/edits before message persistence and write `automod_message_block` audit entries.
 
+### `server_member_timeouts`
+
+- Active temporary moderation actions keyed by `(server_id, user_id)`.
+- Key fields: `timed_out_until`, `timeout_by`, `reason`, `created_at`, `updated_at`.
+- Active rows block message sends/edits and new reactions until expiration or moderator clearing.
+
+### `server_raid_events`
+
+- Persistent moderation activity timeline for raid signals.
+- `event_type` values: `join_burst`, `new_account_join_burst`, `message_burst`, `invite_spike`.
+- Optional linkage: `user_id`, `channel_id`, `metadata`.
+
 ### `password_reset_tokens`
 
 - `id`, `user_id` (unique), `token_hash`, `expires_at`, `created_at`
@@ -218,6 +232,8 @@ All migrations currently present:
 - `032_user_storage_used_bytes.sql`
 - `033_email_verification.sql`
 - `034_server_automod_rules.sql`
+- `035_server_description.sql`
+- `037_member_timeouts_and_raid_events.sql`
 
 ## Notes
 
