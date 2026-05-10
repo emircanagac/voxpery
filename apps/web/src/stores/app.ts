@@ -18,6 +18,9 @@ interface AppState {
     mutedServerIds: string[]
     toggleMutedServer: (serverId: string) => void
     setMutedServer: (serverId: string, muted: boolean) => void
+    mutedChannelIds: string[]
+    toggleMutedChannel: (channelId: string) => void
+    setMutedChannel: (channelId: string, muted: boolean) => void
 
     // Channels (current + cache per server for instant switch-back)
     channels: Channel[]
@@ -157,6 +160,42 @@ export const useAppStore = create<AppState>()(
                         ? (s.mutedServerIds.includes(serverId) ? s.mutedServerIds : [...s.mutedServerIds, serverId])
                         : s.mutedServerIds.filter((id) => id !== serverId),
                 })),
+            mutedChannelIds: [],
+            toggleMutedChannel: (channelId) =>
+                set((s) => {
+                    const isMuted = s.mutedChannelIds.includes(channelId)
+                    const serverUnreadByChannel = { ...s.serverUnreadByChannel }
+                    const serverMentionsByChannel = { ...s.serverMentionsByChannel }
+                    if (!isMuted) {
+                        delete serverUnreadByChannel[channelId]
+                        delete serverMentionsByChannel[channelId]
+                    }
+                    return {
+                        mutedChannelIds: isMuted
+                            ? s.mutedChannelIds.filter((id) => id !== channelId)
+                            : [...s.mutedChannelIds, channelId],
+                        serverUnreadByChannel,
+                        serverMentionsByChannel,
+                    }
+                }),
+            setMutedChannel: (channelId, muted) =>
+                set((s) => {
+                    const isMuted = s.mutedChannelIds.includes(channelId)
+                    if (isMuted === muted) return s
+                    const serverUnreadByChannel = { ...s.serverUnreadByChannel }
+                    const serverMentionsByChannel = { ...s.serverMentionsByChannel }
+                    if (muted) {
+                        delete serverUnreadByChannel[channelId]
+                        delete serverMentionsByChannel[channelId]
+                    }
+                    return {
+                        mutedChannelIds: muted
+                            ? [...s.mutedChannelIds, channelId]
+                            : s.mutedChannelIds.filter((id) => id !== channelId),
+                        serverUnreadByChannel,
+                        serverMentionsByChannel,
+                    }
+                }),
 
             // Channels
             channels: [],
@@ -368,6 +407,7 @@ export const useAppStore = create<AppState>()(
                 serverUnreadByChannel: s.serverUnreadByChannel,
                 serverMentionsByChannel: s.serverMentionsByChannel,
                 mutedServerIds: s.mutedServerIds,
+                mutedChannelIds: s.mutedChannelIds,
                 savedMediaByUserId: s.savedMediaByUserId,
                 unseenSavedMediaIdsByUserId: s.unseenSavedMediaIdsByUserId,
             }),

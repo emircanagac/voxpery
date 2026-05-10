@@ -37,6 +37,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] AutoMod rule create/enable/disable/delete works and blocked messages do not persist or broadcast.
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
+- [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 
 ## 4) Desktop Smoke Tests (mandatory)

@@ -30,6 +30,12 @@ import {
 } from '../draftAttachments'
 import { mergeRemoteWithRetryableLocals } from '../messageResilience'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
+import {
+    getServerNotificationPreference,
+    shouldNotifyForServerMessage,
+    shouldTrackServerUnread,
+} from '../notificationPreferences'
+import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump } from '../savedMediaJump'
 
@@ -270,6 +276,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         clearServerUnread,
         clearServerMention,
         mutedServerIds,
+        mutedChannelIds,
         setShowCreateServer, setShowJoinServer,
         showCreateServer, showJoinServer,
         openServerSettingsForServerId,
@@ -311,6 +318,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             clearServerUnread: s.clearServerUnread,
             clearServerMention: s.clearServerMention,
             mutedServerIds: s.mutedServerIds,
+            mutedChannelIds: s.mutedChannelIds,
             setShowCreateServer: s.setShowCreateServer,
             setShowJoinServer: s.setShowJoinServer,
             showCreateServer: s.showCreateServer,
@@ -1028,18 +1036,42 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                         }
                         if (incoming.author?.user_id !== user?.id) {
                             const incomingServerId = channelServerMapRef.current[incomingChannelId]
-                            if (!incomingServerId || !mutedServerIds.includes(incomingServerId)) {
+                            const isMention = messageMentionsUser(incoming.content, user?.username)
+                            const isMutedServer = !!incomingServerId && mutedServerIds.includes(incomingServerId)
+                            const isMutedChannel = mutedChannelIds.includes(incomingChannelId)
+                            if (shouldTrackServerUnread({ isMention, isMutedServer, isMutedChannel })) {
                                 incrementServerUnread(incomingChannelId)
-                                const isMention = messageMentionsUser(incoming.content, user?.username)
                                 if (isMention) {
                                     incrementServerMention(incomingChannelId)
                                 }
-                                if (
-                                    incomingServerId &&
-                                    isMention &&
-                                    shouldPlayNotificationSound(user?.status)
-                                ) {
+                            }
+
+                            if (
+                                incomingServerId
+                                && shouldNotifyForServerMessage({
+                                    preference: getServerNotificationPreference(),
+                                    isMention,
+                                    isMutedServer,
+                                    isMutedChannel,
+                                })
+                            ) {
+                                if (shouldPlayNotificationSound(user?.status)) {
                                     playMessageNotificationSound()
+                                }
+                                if (shouldShowPushNotification(user?.status)) {
+                                    const channelName =
+                                        channelsByServerId[incomingServerId]?.find((channel) => channel.id === incomingChannelId)?.name
+                                        ?? channels.find((channel) => channel.id === incomingChannelId)?.name
+                                        ?? 'channel'
+                                    showPushNotification({
+                                        title: isMention ? `Mention in #${channelName}` : `New message in #${channelName}`,
+                                        body: `${incoming.author?.username ?? 'Someone'}: ${incoming.content.slice(0, 120)}`,
+                                        tag: `server:${incomingServerId}:channel:${incomingChannelId}`,
+                                        onClick: () => {
+                                            setActiveServer(incomingServerId)
+                                            setActiveChannel(incomingChannelId)
+                                        },
+                                    })
                                 }
                             }
                         }
@@ -1220,7 +1252,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [incrementServerMention, incrementServerUnread, isViewActive, mutedServerIds, setChannels, user?.id, user?.status, user?.username])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {

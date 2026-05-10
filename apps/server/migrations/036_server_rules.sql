@@ -6,5 +6,5 @@ CREATE TABLE IF NOT EXISTS server_rules (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_server_rules_server ON server_rules(server_id);
-CREATE INDEX idx_server_rules_position ON server_rules(server_id, position);
+CREATE INDEX IF NOT EXISTS idx_server_rules_server ON server_rules(server_id);
+CREATE INDEX IF NOT EXISTS idx_server_rules_position ON server_rules(server_id, position);
