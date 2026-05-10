@@ -104,6 +104,13 @@ Notes:
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
 - `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
+- `GET /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
+- `POST /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
+- `PATCH /api/servers/:server_id/automod-rules/:rule_id` (requires `MANAGE_MESSAGES`)
+- `DELETE /api/servers/:server_id/automod-rules/:rule_id` (requires `MANAGE_MESSAGES`)
+  - `trigger_type` values: `blocked_keyword`, `invite_filter`, `link_filter`, `mention_spam`.
+  - Rules support `exempt_role_ids` and `exempt_channel_ids`.
+  - Enabled rules block matching server-channel sends/edits before persistence or broadcast.
 
 ## Channel & Category Endpoints
 
@@ -153,6 +160,7 @@ Notes:
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
 - `PATCH /api/messages/item/:message_id` (author only)
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
+- Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast.
 
 ### Pins
 

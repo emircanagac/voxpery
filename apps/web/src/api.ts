@@ -1,5 +1,7 @@
 export type {
     AuditLogEntry,
+    AutoModRule,
+    AutoModTriggerType,
     AuthResponse,
     AuthToken,
     Channel,

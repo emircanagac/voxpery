@@ -1,5 +1,6 @@
 pub mod attachments;
 pub mod audit;
+pub mod automod;
 pub mod auth;
 pub mod email;
 pub mod jwt_blacklist;

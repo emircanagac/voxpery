@@ -167,6 +167,24 @@ export interface ServerReportEntry {
     resolved_by_username: string | null
 }
 
+export type AutoModTriggerType = 'blocked_keyword' | 'invite_filter' | 'link_filter' | 'mention_spam'
+
+export interface AutoModRule {
+    id: string
+    server_id: string
+    name: string
+    trigger_type: AutoModTriggerType
+    pattern: string | null
+    mention_limit: number | null
+    enabled: boolean
+    exempt_role_ids: string[]
+    exempt_channel_ids: string[]
+    created_by: string | null
+    updated_by: string | null
+    created_at: string
+    updated_at: string
+}
+
 export interface UploadedAttachment {
     id: string
     url: string

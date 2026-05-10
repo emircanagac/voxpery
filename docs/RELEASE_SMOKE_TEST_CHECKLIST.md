@@ -32,6 +32,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
 - [ ] Moderation flows (kick/ban) work.
+- [ ] AutoMod rule create/enable/disable/delete works and blocked messages do not persist or broadcast.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 

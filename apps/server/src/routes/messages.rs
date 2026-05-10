@@ -17,6 +17,7 @@ use crate::{
         SendMessageRequest,
     },
     services::{
+        automod,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
     },
@@ -676,6 +677,17 @@ async fn send_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
+    let server_id = server_id_for_channel(&state.db, channel_id).await?;
+    if let Some(matched) =
+        automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
+    {
+        automod::log_blocked_message(&state.db, claims.sub, server_id, channel_id, &matched, &content)
+            .await?;
+        return Err(AppError::Forbidden(format!(
+            "Message blocked by AutoMod rule: {}",
+            matched.rule_name
+        )));
+    }
 
     // Insert and fetch with author in one round-trip using CTE
     let row = sqlx::query_as::<_, MessageRow>(
@@ -825,6 +837,17 @@ async fn edit_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
+    let server_id = server_id_for_channel(&state.db, channel_id).await?;
+    if let Some(matched) =
+        automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
+    {
+        automod::log_blocked_message(&state.db, claims.sub, server_id, channel_id, &matched, &content)
+            .await?;
+        return Err(AppError::Forbidden(format!(
+            "Message blocked by AutoMod rule: {}",
+            matched.rule_name
+        )));
+    }
 
     sqlx::query("UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2")
         .bind(&content)
@@ -832,10 +855,6 @@ async fn edit_message(
         .execute(&state.db)
         .await?;
 
-    let server_id: Uuid = sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
-        .bind(channel_id)
-        .fetch_one(&state.db)
-        .await?;
     let (before_preview, before_truncated) = audit_content_preview(&previous_content);
     let (after_preview, after_truncated) = audit_content_preview(&content);
     crate::services::audit::log(
@@ -1083,6 +1102,14 @@ async fn remove_message_reaction(
     .await;
 
     Ok(Json(msg_with_author))
+}
+
+async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Result<Uuid, AppError> {
+    sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_optional(db)
+        .await?
+        .ok_or(AppError::NotFound("Channel not found".into()))
 }
 
 /// Check if a user has access to a channel (via server membership).
