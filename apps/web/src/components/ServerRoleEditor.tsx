@@ -106,8 +106,7 @@ export default function ServerRoleEditor({
                         />
                         <button
                             type="button"
-                            className="btn btn-secondary btn-xs"
-                            style={{ fontSize: 11, padding: '4px 10px' }}
+                            className="btn btn-secondary btn-xs server-role-color-clear"
                             onClick={() => onRoleColorChange(null)}
                         >
                             Clear color
@@ -131,8 +130,7 @@ export default function ServerRoleEditor({
                                     return (
                                         <label
                                             key={perm.bit}
-                                            className="server-role-permission-item"
-                                            style={{ opacity: isDisabled ? 0.85 : 1 }}
+                                            className={`server-role-permission-item ${isDisabled ? 'server-role-permission-item--muted' : ''}`}
                                         >
                                             <input
                                                 type="checkbox"

@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry } from '../api'
+import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -13,6 +13,8 @@ import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerSettingsAutoMod from '../components/ServerSettingsAutoMod'
+import ServerSettingsOnboarding from '../components/ServerSettingsOnboarding'
+import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
@@ -45,6 +47,10 @@ type UiMessage = MessageWithAuthor & {
     clientError?: string
 }
 
+type SafetySettingsTab = 'reports' | 'automod' | 'bans'
+type ServerSettingsLocalTab = 'overview' | 'roles' | 'rules' | 'safety' | 'audit' | 'danger'
+type ServerSettingsOpenTab = ServerSettingsLocalTab | SafetySettingsTab
+
 export interface AppLayoutProps {
     /** When true, do not render ServerSidebar (used inside UnifiedLayout which has its own sidebar). */
     skipServerSidebar?: boolean
@@ -65,28 +71,18 @@ const SERVER_SETTINGS_SECTION_META = {
     },
     rules: {
         eyebrow: 'Community',
-        title: 'Rules',
-        hint: 'Set clear expectations for your community with server rules.',
+        title: 'Community',
+        hint: 'Give new members a clear starting point, then set expectations with server rules.',
     },
     audit: {
         eyebrow: 'Moderation',
         title: 'Audit Log',
         hint: 'Review important changes and actions taken across the server.',
     },
-    reports: {
-        eyebrow: 'Trust & Safety',
-        title: 'Reports',
-        hint: 'Review community reports, investigate context, and resolve issues quickly.',
-    },
-    automod: {
+    safety: {
         eyebrow: 'Safety',
-        title: 'AutoMod',
-        hint: 'Create server-level filters that block risky messages before they reach channels.',
-    },
-    bans: {
-        eyebrow: 'Safety',
-        title: 'Banned Users',
-        hint: 'Review blocked members and restore access when needed.',
+        title: 'Safety',
+        hint: 'Review reports, configure moderation filters, and manage bans in one place.',
     },
     danger: {
         eyebrow: 'Ownership',
@@ -95,11 +91,20 @@ const SERVER_SETTINGS_SECTION_META = {
     },
 } as const
 
+function isSafetySettingsTab(tab: ServerSettingsOpenTab): tab is SafetySettingsTab {
+    return tab === 'reports' || tab === 'automod' || tab === 'bans'
+}
+
+function normalizeServerSettingsTab(tab: ServerSettingsOpenTab): ServerSettingsLocalTab {
+    return isSafetySettingsTab(tab) ? 'safety' : tab
+}
+
 /** Page size for message list (pagination). Must match backend max (100) or less. */
 const MESSAGE_PAGE_SIZE = 50
 const CHANNEL_NAME_MAX = 32
 const CATEGORY_NAME_MAX = 32
 const CHANNEL_DESCRIPTION_MAX = 120
+const WELCOME_GUIDE_DISMISSED_STORAGE_KEY = 'voxpery-dismissed-welcome-guides'
 const REPORT_REASONS = [
     { value: 'spam', label: 'Spam' },
     { value: 'harassment', label: 'Harassment' },
@@ -213,6 +218,30 @@ function setStoredChannelId(serverId: string, channelId: string | null) {
         if (channelId) map[serverId] = channelId
         else delete map[serverId]
         sessionStorage.setItem(LAST_CHANNELS_STORAGE_KEY, JSON.stringify(map))
+    } catch {
+        // ignore
+    }
+}
+
+function getDismissedWelcomeGuideIds(): Set<string> {
+    try {
+        const raw = localStorage.getItem(WELCOME_GUIDE_DISMISSED_STORAGE_KEY)
+        const ids = raw ? JSON.parse(raw) : []
+        return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [])
+    } catch {
+        return new Set()
+    }
+}
+
+function isWelcomeGuideDismissed(serverId: string): boolean {
+    return getDismissedWelcomeGuideIds().has(serverId)
+}
+
+function dismissWelcomeGuide(serverId: string) {
+    try {
+        const ids = getDismissedWelcomeGuideIds()
+        ids.add(serverId)
+        localStorage.setItem(WELCOME_GUIDE_DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(ids)))
     } catch {
         // ignore
     }
@@ -351,7 +380,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [joinServerError, setJoinServerError] = useState<string | null>(null)
     const [showServerSettings, setShowServerSettings] = useState(false)
     const [serverSettingsServerId, setServerSettingsServerId] = useState<string | null>(null)
-    const [serverSettingsTab, setServerSettingsTab] = useState<'overview' | 'roles' | 'rules' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger'>('overview')
+    const [serverSettingsTab, setServerSettingsTab] = useState<ServerSettingsLocalTab>('overview')
+    const [safetySettingsTab, setSafetySettingsTab] = useState<SafetySettingsTab>('reports')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
     )
@@ -423,6 +453,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [newRuleText, setNewRuleText] = useState('')
     const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
     const [editingRuleText, setEditingRuleText] = useState('')
+    const [activeOnboardingGuide, setActiveOnboardingGuide] = useState<ServerOnboardingGuide | null>(null)
+    const [welcomeGuideDismissed, setWelcomeGuideDismissed] = useState(false)
+    const [settingsOnboardingGuide, setSettingsOnboardingGuide] = useState<ServerOnboardingGuide | null>(null)
+    const [onboardingLoading, setOnboardingLoading] = useState(false)
+    const [onboardingSaving, setOnboardingSaving] = useState(false)
+    const [onboardingError, setOnboardingError] = useState<string | null>(null)
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
@@ -594,7 +630,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setOpenServerSettingsForServerTab(null)
             return
         }
-        setServerSettingsTab(openServerSettingsForServerTab ?? 'overview')
+        const initialTab = openServerSettingsForServerTab ?? 'overview'
+        if (isSafetySettingsTab(initialTab)) setSafetySettingsTab(initialTab)
+        setServerSettingsTab(normalizeServerSettingsTab(initialTab))
         setServerSettingsServerId(activeServerId)
         setShowServerSettings(true)
         setOpenServerSettingsForServerId(null)
@@ -662,6 +700,33 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             cancelled = true
         }
     }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
+
+    useEffect(() => {
+        if (!activeServerId || !isLoggedIn) {
+            setActiveOnboardingGuide(null)
+            setWelcomeGuideDismissed(false)
+            return
+        }
+
+        const serverId = activeServerId
+        let cancelled = false
+        setWelcomeGuideDismissed(isWelcomeGuideDismissed(serverId))
+        serverApi.getOnboardingGuide(serverId, token)
+            .then((guide) => {
+                if (!cancelled && activeServerIdRef.current === serverId) {
+                    setActiveOnboardingGuide(guide)
+                }
+            })
+            .catch(() => {
+                if (!cancelled && activeServerIdRef.current === serverId) {
+                    setActiveOnboardingGuide(null)
+                }
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [activeServerId, isLoggedIn, token])
 
     const refreshActiveServerView = useCallback(async (serverId: string) => {
         if (!isLoggedIn) return
@@ -1610,7 +1675,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
     const openServerSettingsModal = (
         serverId?: string | null,
-        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger' = 'overview',
+        initialTab: ServerSettingsOpenTab = 'overview',
     ) => {
         if (isMobileViewport) {
             pushToast({
@@ -1624,13 +1689,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setDeleteServerError(null)
         setDeleteServerInput('')
         setShowDeleteServerConfirm(false)
-        setServerSettingsTab(initialTab)
+        if (isSafetySettingsTab(initialTab)) setSafetySettingsTab(initialTab)
+        setServerSettingsTab(normalizeServerSettingsTab(initialTab))
         setServerSettingsServerId(serverId ?? activeServerId ?? null)
         setShowServerSettings(true)
     }
     const openServerSettingsForServer = (
         serverId: string,
-        initialTab: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger' = 'overview',
+        initialTab: ServerSettingsOpenTab = 'overview',
     ) => {
         if (activeServerId !== serverId) setActiveServer(serverId)
         openServerSettingsModal(serverId, initialTab)
@@ -1671,6 +1737,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const isOwner = !!(settingsServer && user && settingsServer.owner_id === user.id)
     const canManageAutoMod = isOwner || (activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
     const canViewReports = isOwner || canViewAuditLog || canManageBans || canManageAutoMod
+    const availableSafetyTabs = useMemo(() => {
+        const tabs: SafetySettingsTab[] = []
+        if (canViewReports) tabs.push('reports')
+        if (canManageAutoMod) tabs.push('automod')
+        if (isOwner || canManageBans) tabs.push('bans')
+        return tabs
+    }, [canManageAutoMod, canManageBans, canViewReports, isOwner])
+    const canViewSafety = availableSafetyTabs.length > 0
     const trimmedServerSettingsName = serverSettingsName.trim()
     const hasNameChanges = !!(
         isOwner &&
@@ -1783,7 +1857,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     ? 'The message was reported to the server moderators.'
                     : 'The user was reported to the server moderators.',
             })
-            if (showServerSettings && serverSettingsTab === 'reports' && settingsServerId === activeServerId) {
+            if (showServerSettings && serverSettingsTab === 'safety' && safetySettingsTab === 'reports' && settingsServerId === activeServerId) {
                 const refreshed = await serverApi.listReports(activeServerId, token)
                 setReportEntries(refreshed)
             }
@@ -1799,7 +1873,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } finally {
             setReportSubmitting(false)
         }
-    }, [activeServerId, pushToast, reportDetails, reportReason, reportTarget, serverSettingsTab, settingsServerId, showServerSettings, token])
+    }, [activeServerId, pushToast, reportDetails, reportReason, reportTarget, safetySettingsTab, serverSettingsTab, settingsServerId, showServerSettings, token])
 
     // Load roles when Roles tab is opened.
     useEffect(() => {
@@ -1859,6 +1933,27 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         void load()
     }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
+    useEffect(() => {
+        if (!showServerSettings || serverSettingsTab !== 'rules') return
+        if (!isLoggedIn || !settingsServerId) return
+        let active = true
+        setOnboardingLoading(true)
+        setOnboardingError(null)
+        serverApi.getOnboardingGuide(settingsServerId, token)
+            .then((guide) => {
+                if (active) setSettingsOnboardingGuide(guide)
+            })
+            .catch((err) => {
+                if (active) setOnboardingError(err instanceof Error ? err.message : 'Failed to load welcome guide.')
+            })
+            .finally(() => {
+                if (active) setOnboardingLoading(false)
+            })
+        return () => {
+            active = false
+        }
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+
     // Load audit log when Audit tab is opened.
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'audit') return
@@ -1881,7 +1976,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
 
     useEffect(() => {
-        if (!showServerSettings || serverSettingsTab !== 'reports') return
+        if (!showServerSettings || serverSettingsTab !== 'safety' || safetySettingsTab !== 'reports' || !canViewReports) return
         if (!isLoggedIn || !settingsServerId) return
 
         let active = true
@@ -1910,11 +2005,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         return () => {
             active = false
         }
-    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+    }, [showServerSettings, serverSettingsTab, safetySettingsTab, canViewReports, isLoggedIn, settingsServerId, token])
 
     // Load bans when Bans tab is opened.
     useEffect(() => {
-        if (!showServerSettings || serverSettingsTab !== 'bans') return
+        if (!showServerSettings || serverSettingsTab !== 'safety' || safetySettingsTab !== 'bans' || !(isOwner || canManageBans)) return
         if (!isLoggedIn || !settingsServerId) return
         const load = async () => {
             setBanEntriesLoading(true)
@@ -1930,7 +2025,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             }
         }
         void load()
-    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+    }, [showServerSettings, serverSettingsTab, safetySettingsTab, isOwner, canManageBans, isLoggedIn, settingsServerId, token])
 
     // When leaving Roles tab or closing Server Settings, drop any unsaved role edits.
     useEffect(() => {
@@ -1946,6 +2041,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     useEffect(() => {
         setVisibleRoleCount(40)
     }, [serverSettingsServerId, serverRoles])
+
+    useEffect(() => {
+        if (availableSafetyTabs.length === 0) return
+        if (!availableSafetyTabs.includes(safetySettingsTab)) {
+            setSafetySettingsTab(availableSafetyTabs[0])
+        }
+    }, [availableSafetyTabs, safetySettingsTab])
 
     const handleCreateRoleDraft = () => {
         setRolesError(null)
@@ -2175,6 +2277,29 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to update server settings.'
             setServerSettingsError(message)
+        }
+    }
+
+    const handleSaveOnboardingGuide = async (payload: UpdateServerOnboardingGuideRequest) => {
+        if (!isLoggedIn || !settingsServerId) return
+        setOnboardingSaving(true)
+        setOnboardingError(null)
+        try {
+            const guide = await serverApi.updateOnboardingGuide(settingsServerId, payload, token)
+            setSettingsOnboardingGuide(guide)
+            if (activeServerId === settingsServerId) {
+                setActiveOnboardingGuide(guide)
+                if (guide.enabled) setWelcomeGuideDismissed(isWelcomeGuideDismissed(settingsServerId))
+            }
+            pushToast({
+                level: 'info',
+                title: 'Welcome guide saved',
+                message: guide.enabled ? 'New members will see the welcome guide.' : 'The welcome guide is disabled.',
+            })
+        } catch (err) {
+            setOnboardingError(err instanceof Error ? err.message : 'Failed to save welcome guide.')
+        } finally {
+            setOnboardingSaving(false)
         }
     }
 
@@ -2436,6 +2561,21 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             ).sort((a, b) => a.localeCompare(b)),
         [channels, channelCategories],
     )
+    const welcomeGuideNode = activeServer && activeChannel?.channel_type === 'text' && activeOnboardingGuide?.enabled && !welcomeGuideDismissed ? (
+        <ServerWelcomeGuide
+            guide={activeOnboardingGuide}
+            channels={channels}
+            serverName={activeServer.name}
+            onSelectChannel={(channelId) => {
+                setActiveChannel(channelId)
+                if (isMobileViewport) setMobileSidebarPanel('none')
+            }}
+            onDismiss={() => {
+                dismissWelcomeGuide(activeServer.id)
+                setWelcomeGuideDismissed(true)
+            }}
+        />
+    ) : undefined
 
     const handleCreateChannel = async (e: FormEvent) => {
         e.preventDefault()
@@ -2871,6 +3011,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
                 draftAttachments={draftAttachments}
                 messageInput={messageInput}
+                topContent={welcomeGuideNode}
                 onPickAttachments={handleAttachmentPick}
                 onRemoveAttachment={(index) => setDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
                 onRetryAttachment={handleRetryDraftAttachment}
@@ -3229,7 +3370,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                         <div className="server-settings-header__text">
                                             <h2>Server Settings</h2>
                                             <p className="server-settings-header__server-name">{settingsServer.name}</p>
-                                            <p className="server-settings-header__hint">Manage overview, roles, invites, and security.</p>
+                                            <p className="server-settings-header__hint">Manage community, roles, safety, and server identity.</p>
                                         </div>
                                     </div>
                                     <button
@@ -3289,7 +3430,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 >
                                                     <span className="server-settings-nav__icon"><ListChecks size={16} /></span>
                                                     <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Rules</span>
+                                                        <span className="server-settings-nav__label">Community</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -3309,49 +3450,19 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     </span>
                                                 </button>
                                             )}
-                                            {canViewReports && (
+                                            {canViewSafety && (
                                                 <button
                                                     type="button"
                                                     className={
-                                                        serverSettingsTab === 'reports'
+                                                        serverSettingsTab === 'safety'
                                                             ? 'server-settings-nav__item server-settings-nav__item--active'
                                                             : 'server-settings-nav__item'
                                                     }
-                                                    onClick={() => setServerSettingsTab('reports')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><Flag size={16} /></span>
-                                                    <span className="server-settings-nav__content">
-                                                        <span className="server-settings-nav__label">Reports</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {canManageAutoMod && (
-                                                <button
-                                                    type="button"
-                                                    className={
-                                                        serverSettingsTab === 'automod'
-                                                            ? 'server-settings-nav__item server-settings-nav__item--active'
-                                                            : 'server-settings-nav__item'
-                                                    }
-                                                    onClick={() => setServerSettingsTab('automod')}
+                                                    onClick={() => setServerSettingsTab('safety')}
                                                 >
                                                     <span className="server-settings-nav__icon"><ShieldAlert size={16} /></span>
                                                     <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">AutoMod</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {(isOwner || canManageBans) && (
-                                                <button
-                                                    type="button"
-                                                    className={`server-settings-nav__item ${
-                                                        serverSettingsTab === 'bans' ? 'server-settings-nav__item--active' : ''
-                                                    }`}
-                                                    onClick={() => setServerSettingsTab('bans')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><Ban size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Bans</span>
+                                                        <span className="server-settings-nav__label">Safety</span>
                                                     </span>
                                                 </button>
                                             )}
@@ -3379,9 +3490,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                     {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
                                                     {serverSettingsTab === 'rules' && <ListChecks size={18} />}
                                                     {serverSettingsTab === 'audit' && <ScrollText size={18} />}
-                                                    {serverSettingsTab === 'reports' && <Flag size={18} />}
-                                                    {serverSettingsTab === 'automod' && <ShieldAlert size={18} />}
-                                                    {serverSettingsTab === 'bans' && <Ban size={18} />}
+                                                    {serverSettingsTab === 'safety' && <ShieldAlert size={18} />}
                                                     {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
                                                 </div>
                                                 <div className="server-settings-section-intro__body">
@@ -3606,8 +3715,43 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 </section>
                                             )}
 
-                                            {serverSettingsTab === 'reports' && canViewReports && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                            {serverSettingsTab === 'safety' && canViewSafety && (
+                                                <>
+                                                    <div className="server-settings-subnav" role="tablist" aria-label="Safety sections">
+                                                        {canViewReports && (
+                                                            <button
+                                                                type="button"
+                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'reports' ? 'server-settings-subnav__item--active' : ''}`}
+                                                                onClick={() => setSafetySettingsTab('reports')}
+                                                            >
+                                                                <Flag size={15} />
+                                                                <span>Reports</span>
+                                                            </button>
+                                                        )}
+                                                        {canManageAutoMod && (
+                                                            <button
+                                                                type="button"
+                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'automod' ? 'server-settings-subnav__item--active' : ''}`}
+                                                                onClick={() => setSafetySettingsTab('automod')}
+                                                            >
+                                                                <ShieldAlert size={15} />
+                                                                <span>AutoMod</span>
+                                                            </button>
+                                                        )}
+                                                        {(isOwner || canManageBans) && (
+                                                            <button
+                                                                type="button"
+                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'bans' ? 'server-settings-subnav__item--active' : ''}`}
+                                                                onClick={() => setSafetySettingsTab('bans')}
+                                                            >
+                                                                <Ban size={15} />
+                                                                <span>Bans</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+
+                                            {safetySettingsTab === 'reports' && canViewReports && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-safety-section">
                                                     <h3 className="server-settings-card__title">Reports</h3>
                                                     <div className="server-settings-panel-copy">
                                                         <p className="server-settings-note">
@@ -3790,15 +3934,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 </section>
                                             )}
 
-                                            {serverSettingsTab === 'automod' && settingsServerId && canManageAutoMod && (
+                                            {safetySettingsTab === 'automod' && settingsServerId && canManageAutoMod && (
                                                 <ServerSettingsAutoMod
                                                     serverId={settingsServerId}
                                                     token={token}
                                                 />
                                             )}
 
-                                            {serverSettingsTab === 'bans' && (isOwner || canManageBans) && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
+                                            {safetySettingsTab === 'bans' && (isOwner || canManageBans) && (
+                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-safety-section">
                                                     <h3 className="server-settings-card__title">Banned Users</h3>
                                                     <div className="server-settings-panel-copy">
                                                         <p className="server-settings-note">
@@ -3863,6 +4007,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         </div>
                                                     )}
                                                 </section>
+                                            )}
+                                                </>
                                             )}
 
                                             {serverSettingsTab === 'roles' && isOwner && (
@@ -3930,8 +4076,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                     <div className="server-role-editor-actions">
                                                                         <button
                                                                             type="button"
-                                                                            className="btn btn-danger-outline btn-sm"
-                                                                            style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                            className="btn btn-danger-outline btn-sm server-role-editor-action-btn"
                                                                             disabled={!selectedRoleId || !serverRoles.find((r) => r.id === selectedRoleId)}
                                                                             onClick={() => {
                                                                                 if (!selectedRoleId) return
@@ -3943,16 +4088,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         <div className="server-role-editor-actions-right">
                                                                             <button
                                                                                 type="button"
-                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel"
-                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel server-role-editor-action-btn"
                                                                                 onClick={handleCancelRoleEdit}
                                                                             >
                                                                                 Cancel
                                                                             </button>
                                                                             <button
                                                                                 type="button"
-                                                                                className="btn btn-primary btn-sm server-role-btn-save"
-                                                                                style={{ fontSize: 12, padding: '4px 10px', minWidth: 0 }}
+                                                                                className="btn btn-primary btn-sm server-role-btn-save server-role-editor-action-btn"
                                                                                 disabled={!roleEditName.trim() || rolesLoading || !settingsServer}
                                                                                 onClick={() => void handleSaveRole()}
                                                                             >
@@ -3968,22 +4111,31 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'rules' && isOwner && (
-                                                <section className="server-settings-card server-settings-card--rules">
-                                                    {rulesError && (
-                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                            {rulesError}
-                                                        </div>
-                                                    )}
-                                                    <div className="server-rules-layout">
-                                                        <div className="server-rules-toolbar">
-                                                            <div className="server-rules-toolbar__copy">
-                                                                <span className="server-rules-toolbar__eyebrow">Rules</span>
-                                                                <strong className="server-rules-toolbar__title">{serverRules.length} rules</strong>
-                                                                <span className="server-rules-toolbar__hint">
-                                                                    Set clear expectations for your community. Rules are shown to users before they join.
-                                                                </span>
+                                                <>
+                                                    <ServerSettingsOnboarding
+                                                        guide={settingsOnboardingGuide}
+                                                        channels={channels}
+                                                        loading={onboardingLoading}
+                                                        saving={onboardingSaving}
+                                                        error={onboardingError}
+                                                        onSave={handleSaveOnboardingGuide}
+                                                    />
+                                                    <section className="server-settings-card server-settings-card--rules">
+                                                        {rulesError && (
+                                                            <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                                {rulesError}
                                                             </div>
-                                                        </div>
+                                                        )}
+                                                        <div className="server-rules-layout">
+                                                            <div className="server-rules-toolbar">
+                                                                <div className="server-rules-toolbar__copy">
+                                                                    <span className="server-rules-toolbar__eyebrow">Rules</span>
+                                                                    <strong className="server-rules-toolbar__title">{serverRules.length} rules</strong>
+                                                                    <span className="server-rules-toolbar__hint">
+                                                                        Set clear expectations for your community. Rules are shown to users before they join.
+                                                                    </span>
+                                                                </div>
+                                                            </div>
                                                         <div className="server-rules-list">
                                                             {rulesLoading && (
                                                                 <div className="server-rules-loading">Loading rules...</div>
@@ -4121,8 +4273,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                 Add rule
                                                             </button>
                                                         </div>
-                                                    </div>
-                                                </section>
+                                                        </div>
+                                                    </section>
+                                                </>
                                             )}
                                         </div>
                                         </Profiler>

@@ -18,12 +18,13 @@ use crate::{
     middleware::auth::{require_auth, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
-        ServerInvitePreview, ServerRule, ServerWithMembers, UpdateServerRuleRequest,
+        ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerWithMembers,
+        UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
     },
     services::{
         audit,
-        automod::AutoModRule,
         auth::generate_invite_code,
+        automod::AutoModRule,
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
@@ -45,6 +46,11 @@ const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
 const MAX_REORDER_ROLE_IDS: usize = 512;
+const MAX_ONBOARDING_CHANNELS: usize = 6;
+const MAX_ONBOARDING_TASKS: usize = 6;
+const MAX_ONBOARDING_TITLE_CHARS: usize = 80;
+const MAX_ONBOARDING_BODY_CHARS: usize = 1000;
+const MAX_ONBOARDING_TASK_CHARS: usize = 120;
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct AuditLogEntry {
@@ -223,9 +229,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     "/{server_id}/automod-rules/{rule_id}",
                     patch(update_automod_rule).delete(delete_automod_rule),
                 )
+                .route("/{server_id}/rules", post(create_server_rule))
                 .route(
-                    "/{server_id}/rules",
-                    post(create_server_rule),
+                    "/{server_id}/onboarding",
+                    get(get_server_onboarding_guide).patch(update_server_onboarding_guide),
                 )
                 .route(
                     "/{server_id}/rules/{rule_id}",
@@ -257,7 +264,9 @@ fn normalize_automod_trigger(trigger_type: &str) -> Result<String, AppError> {
         "blocked_keyword" | "invite_filter" | "link_filter" | "mention_spam" => {
             Ok(trigger_type.trim().to_string())
         }
-        _ => Err(AppError::Validation("Unsupported AutoMod trigger type".into())),
+        _ => Err(AppError::Validation(
+            "Unsupported AutoMod trigger type".into(),
+        )),
     }
 }
 
@@ -291,7 +300,9 @@ fn normalize_automod_rule_values(
             Ok((None, Some(limit)))
         }
         "invite_filter" | "link_filter" => Ok((None, None)),
-        _ => Err(AppError::Validation("Unsupported AutoMod trigger type".into())),
+        _ => Err(AppError::Validation(
+            "Unsupported AutoMod trigger type".into(),
+        )),
     }
 }
 
@@ -1426,7 +1437,11 @@ async fn update_server(
                 "Server description must be under 500 characters".into(),
             ));
         }
-        next_description = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+        next_description = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
     }
 
     let updated = sqlx::query_as::<_, Server>(
@@ -2346,7 +2361,9 @@ async fn delete_automod_rule(
     )
     .await?;
 
-    Ok(Json(serde_json::json!({ "message": "AutoMod rule deleted" })))
+    Ok(Json(
+        serde_json::json!({ "message": "AutoMod rule deleted" }),
+    ))
 }
 
 async fn report_user(
@@ -2716,6 +2733,209 @@ async fn kick_member(
     Ok(Json(serde_json::json!({ "message": "Member kicked" })))
 }
 
+fn default_onboarding_guide(server_id: Uuid) -> ServerOnboardingGuide {
+    ServerOnboardingGuide {
+        server_id,
+        enabled: false,
+        title: String::new(),
+        body: String::new(),
+        recommended_channel_ids: Vec::new(),
+        starter_tasks: Vec::new(),
+        updated_at: Utc::now(),
+    }
+}
+
+fn validate_onboarding_text(
+    value: Option<String>,
+    fallback: String,
+    max_chars: usize,
+    field_name: &str,
+) -> Result<String, AppError> {
+    let value = value.unwrap_or(fallback).trim().to_string();
+    if value.chars().count() > max_chars {
+        return Err(AppError::Validation(format!(
+            "{field_name} must be {max_chars} characters or fewer"
+        )));
+    }
+    Ok(value)
+}
+
+fn validate_onboarding_tasks(
+    tasks: Option<Vec<String>>,
+    fallback: Vec<String>,
+) -> Result<Vec<String>, AppError> {
+    let raw_tasks = tasks.unwrap_or(fallback);
+    if raw_tasks.len() > MAX_ONBOARDING_TASKS {
+        return Err(AppError::Validation(format!(
+            "Starter tasks cannot include more than {MAX_ONBOARDING_TASKS} items"
+        )));
+    }
+
+    let mut normalized = Vec::new();
+    for task in raw_tasks {
+        let trimmed = task.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.chars().count() > MAX_ONBOARDING_TASK_CHARS {
+            return Err(AppError::Validation(format!(
+                "Starter tasks must be {MAX_ONBOARDING_TASK_CHARS} characters or fewer"
+            )));
+        }
+        normalized.push(trimmed.to_string());
+    }
+
+    Ok(normalized)
+}
+
+async fn validate_onboarding_channels(
+    state: &AppState,
+    server_id: Uuid,
+    channel_ids: Option<Vec<Uuid>>,
+    fallback: Vec<Uuid>,
+) -> Result<Vec<Uuid>, AppError> {
+    let raw_channel_ids = channel_ids.unwrap_or(fallback);
+    if raw_channel_ids.len() > MAX_ONBOARDING_CHANNELS {
+        return Err(AppError::Validation(format!(
+            "Recommended channels cannot include more than {MAX_ONBOARDING_CHANNELS} channels"
+        )));
+    }
+
+    let mut deduped = Vec::new();
+    for channel_id in raw_channel_ids {
+        if !deduped.contains(&channel_id) {
+            deduped.push(channel_id);
+        }
+    }
+
+    if deduped.is_empty() {
+        return Ok(deduped);
+    }
+
+    let valid_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = $1 AND id = ANY($2)")
+            .bind(server_id)
+            .bind(&deduped)
+            .fetch_one(&state.db)
+            .await?;
+
+    if valid_count as usize != deduped.len() {
+        return Err(AppError::Validation(
+            "Recommended channels must belong to this server".into(),
+        ));
+    }
+
+    Ok(deduped)
+}
+
+async fn load_onboarding_guide(
+    state: &AppState,
+    server_id: Uuid,
+) -> Result<ServerOnboardingGuide, AppError> {
+    let guide = sqlx::query_as::<_, ServerOnboardingGuide>(
+        r#"SELECT server_id, enabled, title, body, recommended_channel_ids, starter_tasks, updated_at
+           FROM server_onboarding_guides
+           WHERE server_id = $1"#,
+    )
+    .bind(server_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(guide.unwrap_or_else(|| default_onboarding_guide(server_id)))
+}
+
+/// GET /api/servers/:server_id/onboarding - get the server welcome guide for members.
+async fn get_server_onboarding_guide(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<ServerOnboardingGuide>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_SERVER,
+    )
+    .await?;
+
+    Ok(Json(load_onboarding_guide(&state, server_id).await?))
+}
+
+/// PATCH /api/servers/:server_id/onboarding - update the server welcome guide.
+async fn update_server_onboarding_guide(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    Json(body): Json<UpdateServerOnboardingGuideRequest>,
+) -> Result<Json<ServerOnboardingGuide>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
+
+    let existing = load_onboarding_guide(&state, server_id).await?;
+    let title = validate_onboarding_text(
+        body.title,
+        existing.title,
+        MAX_ONBOARDING_TITLE_CHARS,
+        "Welcome title",
+    )?;
+    let body_text = validate_onboarding_text(
+        body.body,
+        existing.body,
+        MAX_ONBOARDING_BODY_CHARS,
+        "Welcome text",
+    )?;
+    let starter_tasks = validate_onboarding_tasks(body.starter_tasks, existing.starter_tasks)?;
+    let recommended_channel_ids = validate_onboarding_channels(
+        &state,
+        server_id,
+        body.recommended_channel_ids,
+        existing.recommended_channel_ids,
+    )
+    .await?;
+    let enabled = body.enabled.unwrap_or(existing.enabled);
+
+    let guide = sqlx::query_as::<_, ServerOnboardingGuide>(
+        r#"INSERT INTO server_onboarding_guides (
+               server_id, enabled, title, body, recommended_channel_ids, starter_tasks, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (server_id) DO UPDATE SET
+               enabled = EXCLUDED.enabled,
+               title = EXCLUDED.title,
+               body = EXCLUDED.body,
+               recommended_channel_ids = EXCLUDED.recommended_channel_ids,
+               starter_tasks = EXCLUDED.starter_tasks,
+               updated_at = NOW()
+           RETURNING server_id, enabled, title, body, recommended_channel_ids, starter_tasks, updated_at"#,
+    )
+    .bind(server_id)
+    .bind(enabled)
+    .bind(&title)
+    .bind(&body_text)
+    .bind(&recommended_channel_ids)
+    .bind(&starter_tasks)
+    .fetch_one(&state.db)
+    .await?;
+
+    audit::log(
+        &state.db,
+        claims.sub,
+        Some(server_id),
+        "server_onboarding_update",
+        "server",
+        Some(server_id),
+        Some(serde_json::json!({ "enabled": guide.enabled })),
+    )
+    .await?;
+
+    Ok(Json(guide))
+}
+
 /// GET /api/servers/:server_id/rules — list server rules (public for invite preview).
 async fn list_server_rules(
     State(state): State<Arc<AppState>>,
@@ -2763,7 +2983,9 @@ async fn create_server_rule(
             .await?
             .flatten();
 
-    let position = body.position.unwrap_or(max_position.map(|p| p + 1).unwrap_or(0));
+    let position = body
+        .position
+        .unwrap_or(max_position.map(|p| p + 1).unwrap_or(0));
 
     let rule = sqlx::query_as::<_, ServerRule>(
         r#"INSERT INTO server_rules (id, server_id, rule_text, position, created_at)

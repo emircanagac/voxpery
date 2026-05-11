@@ -11,7 +11,7 @@ interface ServerSidebarProps {
   onJoinServer: () => void
   onOpenServerSettings?: (
     serverId: string,
-    initialTab?: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger',
+    initialTab?: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'safety' | 'danger',
   ) => void
   onSelectServer?: (serverId: string) => void
   displayActiveServerId?: string | null

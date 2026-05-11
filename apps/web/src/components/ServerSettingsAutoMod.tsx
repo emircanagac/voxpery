@@ -175,7 +175,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     }
 
     return (
-        <section className="server-settings-card server-settings-card--stack server-settings-card--list-section">
+        <section className="server-settings-card server-settings-card--stack server-settings-safety-section">
             <h3 className="server-settings-card__title">AutoMod</h3>
             {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
             {loading ? (
@@ -230,9 +230,9 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                 </div>
             )}
 
-            <div className="server-settings-automod-create" style={{ marginTop: 14 }}>
+            <div className="server-settings-automod-create server-settings-subcard">
                 <h3 className="server-settings-card__title">Create rule</h3>
-                <div className="server-overview-profile__form">
+                <div className="server-settings-form-stack">
                     <div className="form-group">
                         <label>Rule name</label>
                         <input value={draft.name} maxLength={80} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} />
@@ -257,16 +257,16 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                             <input type="number" min={2} max={50} value={draft.mentionLimit} onChange={(e) => setDraft((prev) => ({ ...prev, mentionLimit: Number(e.target.value) || 5 }))} />
                         </div>
                     )}
-                    <label className="server-role-permission-item">
+                    <label className="server-settings-check-row">
                         <input type="checkbox" checked={draft.enabled} onChange={(e) => setDraft((prev) => ({ ...prev, enabled: e.target.checked }))} />
                         <span>Enabled</span>
                     </label>
                     {roles.length > 0 && (
-                        <div className="server-role-permission-group">
-                            <div className="server-role-permission-group-title">Exempt roles</div>
-                            <div className="server-role-permission-group-items">
+                        <div className="server-settings-option-group">
+                            <div className="server-settings-option-group__title">Exempt roles</div>
+                            <div className="server-settings-option-group__items">
                                 {roles.map((role) => (
-                                    <label key={role.id} className="server-role-permission-item">
+                                    <label key={role.id} className="server-settings-check-item">
                                         <input type="checkbox" checked={draft.exemptRoleIds.includes(role.id)} onChange={() => toggleDraftRole(role.id)} />
                                         <span>{role.name}</span>
                                     </label>
@@ -275,11 +275,11 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                         </div>
                     )}
                     {channels.length > 0 && (
-                        <div className="server-role-permission-group">
-                            <div className="server-role-permission-group-title">Exempt channels</div>
-                            <div className="server-role-permission-group-items">
+                        <div className="server-settings-option-group">
+                            <div className="server-settings-option-group__title">Exempt channels</div>
+                            <div className="server-settings-option-group__items">
                                 {channels.map((channel) => (
-                                    <label key={channel.id} className="server-role-permission-item">
+                                    <label key={channel.id} className="server-settings-check-item">
                                         <input type="checkbox" checked={draft.exemptChannelIds.includes(channel.id)} onChange={() => toggleDraftChannel(channel.id)} />
                                         <span>#{channel.name}</span>
                                     </label>

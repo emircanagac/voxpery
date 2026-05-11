@@ -94,6 +94,26 @@ pub struct ServerRule {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ServerOnboardingGuide {
+    pub server_id: Uuid,
+    pub enabled: bool,
+    pub title: String,
+    pub body: String,
+    pub recommended_channel_ids: Vec<Uuid>,
+    pub starter_tasks: Vec<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateServerOnboardingGuideRequest {
+    pub enabled: Option<bool>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub recommended_channel_ids: Option<Vec<Uuid>>,
+    pub starter_tasks: Option<Vec<String>>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateServerRuleRequest {
     pub rule_text: String,

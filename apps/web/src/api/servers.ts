@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry } from './contracts'
+import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerOnboardingGuide, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry, UpdateServerOnboardingGuideRequest } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -233,6 +233,16 @@ export const serverApi = {
     deleteRule: (serverId: string, ruleId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}/rules/${ruleId}`, {
             method: 'DELETE',
+            token,
+        }),
+
+    getOnboardingGuide: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerOnboardingGuide>(`/api/servers/${serverId}/onboarding`, { token }),
+
+    updateOnboardingGuide: (serverId: string, payload: UpdateServerOnboardingGuideRequest, token: AuthToken) =>
+        apiFetch<ServerOnboardingGuide>(`/api/servers/${serverId}/onboarding`, {
+            method: 'PATCH',
+            body: payload,
             token,
         }),
 }

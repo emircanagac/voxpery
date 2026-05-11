@@ -48,7 +48,14 @@ Key columns:
 
 ### `servers`
 
-- `id`, `name`, `icon_url`, `owner_id`, `invite_code`, `created_at`
+- `id`, `name`, `icon_url`, `description`, `owner_id`, `invite_code`, `created_at`
+
+### `server_onboarding_guides`
+
+- One optional welcome guide row per server.
+- Columns: `server_id`, `enabled`, `title`, `body`, `recommended_channel_ids`, `starter_tasks`, `updated_at`
+- `recommended_channel_ids` stores up to 6 server channel UUIDs; route validation ensures they belong to the server.
+- `starter_tasks` stores up to 6 short checklist items shown to members in the welcome panel.
 
 ### `server_members`
 
@@ -233,7 +240,9 @@ All migrations currently present:
 - `033_email_verification.sql`
 - `034_server_automod_rules.sql`
 - `035_server_description.sql`
+- `036_server_rules.sql`
 - `037_member_timeouts_and_raid_events.sql`
+- `038_server_onboarding_guides.sql`
 
 ## Notes
 

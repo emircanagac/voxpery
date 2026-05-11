@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -178,6 +178,7 @@ interface ChatAreaProps {
     onOpenMemberSheet?: () => void
     unreadDividerCount?: number
     loading?: boolean
+    topContent?: ReactNode
     emptyStateTitle?: string
     emptyStateDescription?: string
     emptyStateActions?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>
@@ -231,6 +232,7 @@ export default function ChatArea({
     onOpenMemberSheet,
     unreadDividerCount = 0,
     loading = false,
+    topContent,
     emptyStateTitle,
     emptyStateDescription,
     emptyStateActions,
@@ -1245,6 +1247,8 @@ export default function ChatArea({
                     )}
                 </div>
             </div>
+
+            {topContent}
 
             <div
                 className="chat-messages chat-messages-virtual"
