@@ -31,6 +31,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
+- [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
 - [ ] Safety moderation view shows open reports, active timeouts, and recent raid events.
