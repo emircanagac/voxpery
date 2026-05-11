@@ -82,6 +82,15 @@ Notes:
 - `GET /api/servers/:server_id/channels/:channel_id/members`
   - Returns only members who can view that channel.
 
+### Onboarding
+
+- `GET /api/servers/:server_id/onboarding` (requires `VIEW_SERVER`)
+  - Returns the server welcome guide, including enabled state, intro copy, starter tasks, and recommended channel IDs.
+- `PATCH /api/servers/:server_id/onboarding` (requires `MANAGE_SERVER`)
+  - Body: `{ "enabled": true, "title": "Welcome", "body": "Start here", "recommended_channel_ids": ["uuid"], "starter_tasks": ["Read the rules"] }`
+  - Limits: title 80 chars, body 1000 chars, up to 6 recommended channels, up to 6 starter tasks of 120 chars each.
+  - Recommended channels must belong to the same server.
+
 ### Roles
 
 - `GET /api/servers/:server_id/roles`

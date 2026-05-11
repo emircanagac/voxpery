@@ -140,6 +140,24 @@ export interface ServerRule {
     created_at: string
 }
 
+export interface ServerOnboardingGuide {
+    server_id: string
+    enabled: boolean
+    title: string
+    body: string
+    recommended_channel_ids: string[]
+    starter_tasks: string[]
+    updated_at: string
+}
+
+export interface UpdateServerOnboardingGuideRequest {
+    enabled?: boolean
+    title?: string
+    body?: string
+    recommended_channel_ids?: string[]
+    starter_tasks?: string[]
+}
+
 export interface ChannelOverride {
     role_id: string
     allow: number

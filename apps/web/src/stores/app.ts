@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { Server, Channel, MemberInfo, Friend, DmChannel } from '../api'
 import type { SavedMediaItem } from '../types'
 
-export type ServerSettingsTab = 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'danger'
+export type ServerSettingsTab = 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'safety' | 'danger'
 
 interface AppState {
     // Servers
