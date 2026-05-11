@@ -2,7 +2,7 @@
 
 ## Product Direction
 
-Voxpery is an open-source, self-hostable Discord alternative for privacy-conscious communities.
+Voxpery is open-source community chat and voice for groups that want hosted access, self-hosting, and ownership of their data.
 
 The project is not trying to beat every communication product in every category at once. The near-term goal is to become the best choice for communities that want real-time voice and text, strong moderation foundations, and ownership of their data without giving up a polished daily experience.
 

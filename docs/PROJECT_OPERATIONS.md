@@ -38,7 +38,7 @@ This document combines support flow, governance rules, and release process for V
 
 ### Roadmap Ownership
 
-Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md). Maintainers keep the roadmap aligned with the product direction: an open-source, self-hostable Discord alternative for privacy-conscious communities.
+Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md). Maintainers keep the roadmap aligned with the product direction: open-source community chat and voice with hosted access, self-hosting, and user data ownership.
 
 Roadmap changes should:
 

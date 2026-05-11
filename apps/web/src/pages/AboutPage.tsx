@@ -4,11 +4,12 @@ import { Download, Globe2, ShieldCheck } from 'lucide-react'
 import { releaseApi, type LatestReleaseResponse } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
+import productPreviewUrl from '../assets/voxpery-preview.png?url'
 import '../styles/about.css'
-
 const REPO_URL = 'https://github.com/emircanagac/voxpery'
 const SECURITY_URL = `${REPO_URL}/blob/main/SECURITY.md`
 const RELEASE_URL = `${REPO_URL}/releases/latest`
+const CONTRIBUTORS_URL = `${REPO_URL}/graphs/contributors`
 
 type DownloadPlatform = 'windows' | 'macos' | 'linux'
 type KnownPlatform = DownloadPlatform | 'unknown'
@@ -93,10 +94,13 @@ export default function AboutPage() {
           <a href={REPO_URL} target="_blank" rel="noreferrer" className="about-topbar-link">
             GitHub
           </a>
-          <a href={releaseUrl} target="_blank" rel="noreferrer" className="about-topbar-link">
+          <a href={releaseUrl} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
             Releases
           </a>
-          <a href={SECURITY_URL} target="_blank" rel="noreferrer" className="about-topbar-link">
+          <a href={CONTRIBUTORS_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
+            Contributors
+          </a>
+          <a href={SECURITY_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
             Security
           </a>
         </nav>
@@ -111,32 +115,36 @@ export default function AboutPage() {
       <main className="about-main">
         <section className="about-hero">
           <div className="about-hero-copy">
-            <h1>
-              <span>Your voice</span>
-              <span>Your space</span>
-            </h1>
+            <h1>Open-source chat and voice for communities.</h1>
             <p className="about-subtitle">
-              Voxpery is a privacy-first, open-source communication platform built for teams and communities that want
-              secure communication, transparent code, and a clean onboarding experience.
+              Voxpery gives communities chat, voice, desktop apps, moderation tools, and transparent code.
+              Use it hosted in your browser, or deploy the same stack yourself.
             </p>
           </div>
-        </section>
 
-        <section className="about-center-actions" aria-label="Primary actions">
-          <div className="about-center-actions-row">
-            <a href={primaryDownloadUrl} target="_blank" rel="noreferrer" className="about-cta about-cta--light about-cta--download">
-              <Download size={20} />
-              <span>{primaryDownloadLabel}</span>
-            </a>
-            <Link to={appEntryRoute} className="about-cta about-cta--primary">
-              <Globe2 size={20} />
-              <span>{appEntryLabel}</span>
-            </Link>
+          <section className="about-center-actions" aria-label="Primary actions">
+            <div className="about-center-actions-row">
+              <a href={primaryDownloadUrl} target="_blank" rel="noreferrer" className="about-cta about-cta--light about-cta--download">
+                <Download size={20} />
+                <span>{primaryDownloadLabel}</span>
+              </a>
+              <Link to={appEntryRoute} className="about-cta about-cta--primary">
+                <Globe2 size={20} />
+                <span>{appEntryLabel}</span>
+              </Link>
+            </div>
+            <p className="about-release-meta about-release-meta--center">
+              <ShieldCheck size={16} />
+              <span>{releaseMeta ? `Latest release: ${releaseMeta}` : 'Latest release available on GitHub'}</span>
+            </p>
+          </section>
+
+          <div className="about-product-previews" aria-label="Voxpery app preview">
+            <figure className="about-product-preview">
+              <img src={productPreviewUrl} alt="Voxpery voice channel interface" />
+            </figure>
           </div>
-          <p className="about-release-meta about-release-meta--center">
-            <ShieldCheck size={16} />
-            <span>{releaseMeta ? `Latest release: ${releaseMeta}` : 'Latest release available on GitHub'}</span>
-          </p>
+
         </section>
       </main>
     </div>
