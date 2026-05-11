@@ -10279,6 +10279,10 @@ a.community-open-btn:hover {
     gap: 8px;
 }
 
+.server-overview-profile__form .form-group {
+    margin-bottom: 0;
+}
+
 .server-overview-profile__actions .btn,
 .server-overview-invite__body .copy-btn {
       min-width: 112px;
@@ -10415,6 +10419,30 @@ a.community-open-btn:hover {
       border: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(0, 0, 0, 0.16);
   }
+
+@media (min-width: 760px) {
+  .server-overview-profile__hero {
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .server-overview-profile__actions {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+    justify-content: flex-end;
+  }
+
+  .server-overview-profile__form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .server-overview-profile__form .form-group {
+    min-width: 0;
+  }
+}
 
 .server-settings-error {
   margin-bottom: 12px;
@@ -10969,6 +10997,10 @@ a.community-open-btn:hover {
   background: var(--btn-secondary-bg-hover);
   border-color: var(--btn-secondary-border-hover);
   color: var(--text-primary);
+}
+
+.server-settings-automod-edit {
+  margin-top: 12px;
 }
 
 .modal-server-settings .btn-danger-outline {

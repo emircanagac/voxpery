@@ -12,13 +12,13 @@ import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
-import ServerSettingsAutoMod from '../components/ServerSettingsAutoMod'
-import ServerSettingsOnboarding from '../components/ServerSettingsOnboarding'
+import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
+import ServerSettingsSafety, { type SafetySettingsTab } from '../components/ServerSettingsSafety'
 import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, Ban, Flag, LayoutDashboard, ListChecks, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, LayoutDashboard, ListChecks, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
@@ -47,7 +47,6 @@ type UiMessage = MessageWithAuthor & {
     clientError?: string
 }
 
-type SafetySettingsTab = 'reports' | 'automod' | 'bans'
 type ServerSettingsLocalTab = 'overview' | 'roles' | 'rules' | 'safety' | 'audit' | 'danger'
 type ServerSettingsOpenTab = ServerSettingsLocalTab | SafetySettingsTab
 
@@ -2303,6 +2302,58 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
+    const handleResolveSafetyReport = useCallback((reportId: string) => {
+        if (!settingsServerId) return
+        void (async () => {
+            setResolveReportInFlightId(reportId)
+            setReportEntriesError(null)
+            try {
+                await serverApi.resolveReport(settingsServerId, reportId, token)
+                const refreshed = await serverApi.listReports(settingsServerId, token)
+                setReportEntries(refreshed)
+            } catch (err) {
+                setReportEntriesError(err instanceof Error ? err.message : 'Failed to resolve report.')
+            } finally {
+                setResolveReportInFlightId(null)
+            }
+        })()
+    }, [settingsServerId, token])
+
+    const handleClearSafetyTimeout = useCallback((userId: string) => {
+        if (!settingsServerId) return
+        void (async () => {
+            setClearTimeoutInFlightUserId(userId)
+            setReportEntriesError(null)
+            try {
+                await serverApi.clearMemberTimeout(settingsServerId, userId, token)
+                const refreshed = await serverApi.listTimeouts(settingsServerId, token)
+                setTimeoutEntries(refreshed)
+            } catch (err) {
+                setReportEntriesError(err instanceof Error ? err.message : 'Failed to clear timeout.')
+            } finally {
+                setClearTimeoutInFlightUserId(null)
+            }
+        })()
+    }, [settingsServerId, token])
+
+    const handleUnbanSafetyMember = useCallback((userId: string) => {
+        if (!settingsServerId) return
+        void (async () => {
+            setUnbanInFlightUserId(userId)
+            setBanEntriesError(null)
+            try {
+                await serverApi.unbanMember(settingsServerId, userId, token)
+                const refreshed = await serverApi.listBans(settingsServerId, token)
+                setBanEntries(refreshed)
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to unban member.'
+                setBanEntriesError(message)
+            } finally {
+                setUnbanInFlightUserId(null)
+            }
+        })()
+    }, [settingsServerId, token])
+
     const actuallyCloseServerSettings = useCallback(() => {
         setShowServerSettings(false)
         setServerSettingsError(null)
@@ -3354,7 +3405,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     {/* Server Settings Modal */}
                     {showServerSettings && settingsServer && (
                         <div
-                            className="modal-overlay"
+                            className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
                             onClick={handleCloseServerSettings}
                         >
                             <div className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
@@ -3550,6 +3601,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                                 Remove
                                                                             </button>
                                                                         )}
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-primary btn-sm"
+                                                                            disabled={!canSaveServerSettings}
+                                                                            onClick={() => void handleUpdateServerSettings()}
+                                                                        >
+                                                                            Save changes
+                                                                        </button>
                                                                         <input
                                                                             ref={serverIconInputRef}
                                                                             type="file"
@@ -3586,19 +3645,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                         disabled={!isOwner}
                                                                     />
                                                                 </div>
-
-                                                                {isOwner && (
-                                                                    <div className="server-settings-server-actions">
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-primary btn-sm"
-                                                                            disabled={!canSaveServerSettings}
-                                                                            onClick={() => void handleUpdateServerSettings()}
-                                                                        >
-                                                                            Save changes
-                                                                        </button>
-                                                                    </div>
-                                                                )}
                                                             </div>
                                                         </section>
 
@@ -3716,301 +3762,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'safety' && canViewSafety && (
-                                                <>
-                                                    <div className="server-settings-subnav" role="tablist" aria-label="Safety sections">
-                                                        {canViewReports && (
-                                                            <button
-                                                                type="button"
-                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'reports' ? 'server-settings-subnav__item--active' : ''}`}
-                                                                onClick={() => setSafetySettingsTab('reports')}
-                                                            >
-                                                                <Flag size={15} />
-                                                                <span>Reports</span>
-                                                            </button>
-                                                        )}
-                                                        {canManageAutoMod && (
-                                                            <button
-                                                                type="button"
-                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'automod' ? 'server-settings-subnav__item--active' : ''}`}
-                                                                onClick={() => setSafetySettingsTab('automod')}
-                                                            >
-                                                                <ShieldAlert size={15} />
-                                                                <span>AutoMod</span>
-                                                            </button>
-                                                        )}
-                                                        {(isOwner || canManageBans) && (
-                                                            <button
-                                                                type="button"
-                                                                className={`server-settings-subnav__item ${safetySettingsTab === 'bans' ? 'server-settings-subnav__item--active' : ''}`}
-                                                                onClick={() => setSafetySettingsTab('bans')}
-                                                            >
-                                                                <Ban size={15} />
-                                                                <span>Bans</span>
-                                                            </button>
-                                                        )}
-                                                    </div>
-
-                                            {safetySettingsTab === 'reports' && canViewReports && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-safety-section">
-                                                    <h3 className="server-settings-card__title">Reports</h3>
-                                                    <div className="server-settings-panel-copy">
-                                                        <p className="server-settings-note">
-                                                            Review user and message reports submitted by the community, then resolve them once handled.
-                                                        </p>
-                                                    </div>
-                                                    {reportEntriesError && (
-                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                            {reportEntriesError}
-                                                        </div>
-                                                    )}
-                                                    {reportEntriesLoading && (
-                                                        <div className="server-settings-empty-state">
-                                                            Loading reports...
-                                                        </div>
-                                                    )}
-                                                    {!reportEntriesLoading && reportEntries && reportEntries.length === 0 && (
-                                                        <div className="server-settings-empty-state">
-                                                            No reports yet.
-                                                        </div>
-                                                    )}
-                                                    {!reportEntriesLoading && reportEntries && reportEntries.length > 0 && (
-                                                        <div className="server-report-list">
-                                                            {reportEntries.map((entry) => (
-                                                                <div key={entry.id} className="server-report-row">
-                                                                    <div className="server-report-meta">
-                                                                        <div className="server-report-head">
-                                                                            <strong>
-                                                                                {entry.message_id ? `Message report: ${entry.reported_username}` : `User report: ${entry.reported_username}`}
-                                                                            </strong>
-                                                                            <span className={`server-report-status ${entry.status === 'resolved' ? 'is-resolved' : 'is-open'}`}>
-                                                                                {entry.status === 'resolved' ? 'Resolved' : 'Open'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="server-report-subline">
-                                                                            Reported by {entry.reporter_username} on {new Date(entry.created_at).toLocaleString()}
-                                                                        </div>
-                                                                        <div className="server-report-tags">
-                                                                            <span className="server-report-tag server-report-tag--reason">
-                                                                                {REPORT_REASONS.find((reason) => reason.value === entry.reason)?.label ?? entry.reason}
-                                                                            </span>
-                                                                            {entry.channel_name && (
-                                                                                <span className="server-report-tag">
-                                                                                    #{entry.channel_name}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        {entry.message_excerpt && (
-                                                                            <div className="server-report-excerpt" title={entry.message_excerpt}>
-                                                                                “{entry.message_excerpt}”
-                                                                            </div>
-                                                                        )}
-                                                                        {entry.details && (
-                                                                            <div className="server-report-excerpt server-report-excerpt--details" title={entry.details}>
-                                                                                Note: {entry.details}
-                                                                            </div>
-                                                                        )}
-                                                                        {entry.resolved_at && entry.resolved_by_username && (
-                                                                            <div className="server-report-subline">
-                                                                                Resolved by {entry.resolved_by_username} on {new Date(entry.resolved_at).toLocaleString()}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                    {entry.status === 'open' && (
-                                                                        <div className="server-report-actions">
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-secondary btn-sm"
-                                                                                disabled={resolveReportInFlightId === entry.id}
-                                                                                onClick={async () => {
-                                                                                    if (!settingsServerId) return
-                                                                                    setResolveReportInFlightId(entry.id)
-                                                                                    setReportEntriesError(null)
-                                                                                    try {
-                                                                                        await serverApi.resolveReport(settingsServerId, entry.id, token)
-                                                                                        const refreshed = await serverApi.listReports(settingsServerId, token)
-                                                                                        setReportEntries(refreshed)
-                                                                                    } catch (err) {
-                                                                                        setReportEntriesError(err instanceof Error ? err.message : 'Failed to resolve report.')
-                                                                                    } finally {
-                                                                                        setResolveReportInFlightId(null)
-                                                                                    }
-                                                                                }}
-                                                                            >
-                                                                                {resolveReportInFlightId === entry.id ? 'Resolving...' : 'Resolve'}
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    {!reportEntriesLoading && (
-                                                        <>
-                                                            <h3 className="server-settings-card__title" style={{ marginTop: 18 }}>Active Timeouts</h3>
-                                                            {timeoutEntries && timeoutEntries.length === 0 && (
-                                                                <div className="server-settings-empty-state">
-                                                                    No active timeouts.
-                                                                </div>
-                                                            )}
-                                                            {timeoutEntries && timeoutEntries.length > 0 && (
-                                                                <div className="server-report-list">
-                                                                    {timeoutEntries.map((entry) => (
-                                                                        <div key={entry.user_id} className="server-report-row">
-                                                                            <div className="server-report-meta">
-                                                                                <div className="server-report-head">
-                                                                                    <strong>{entry.username}</strong>
-                                                                                    <span className="server-report-status is-open">Timed out</span>
-                                                                                </div>
-                                                                                <div className="server-report-subline">
-                                                                                    Until {new Date(entry.timed_out_until).toLocaleString()}
-                                                                                    {entry.timeout_by_username ? ` by ${entry.timeout_by_username}` : ''}
-                                                                                </div>
-                                                                                {entry.reason && (
-                                                                                    <div className="server-report-excerpt server-report-excerpt--details" title={entry.reason}>
-                                                                                        Reason: {entry.reason}
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="server-report-actions">
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-sm"
-                                                                                    disabled={clearTimeoutInFlightUserId === entry.user_id}
-                                                                                    onClick={async () => {
-                                                                                        if (!settingsServerId) return
-                                                                                        setClearTimeoutInFlightUserId(entry.user_id)
-                                                                                        setReportEntriesError(null)
-                                                                                        try {
-                                                                                            await serverApi.clearMemberTimeout(settingsServerId, entry.user_id, token)
-                                                                                            const refreshed = await serverApi.listTimeouts(settingsServerId, token)
-                                                                                            setTimeoutEntries(refreshed)
-                                                                                        } catch (err) {
-                                                                                            setReportEntriesError(err instanceof Error ? err.message : 'Failed to clear timeout.')
-                                                                                        } finally {
-                                                                                            setClearTimeoutInFlightUserId(null)
-                                                                                        }
-                                                                                    }}
-                                                                                >
-                                                                                    {clearTimeoutInFlightUserId === entry.user_id ? 'Clearing...' : 'Clear timeout'}
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-
-                                                            <h3 className="server-settings-card__title" style={{ marginTop: 18 }}>Raid Events</h3>
-                                                            {raidEventEntries && raidEventEntries.length === 0 && (
-                                                                <div className="server-settings-empty-state">
-                                                                    No raid events yet.
-                                                                </div>
-                                                            )}
-                                                            {raidEventEntries && raidEventEntries.length > 0 && (
-                                                                <div className="server-report-list">
-                                                                    {raidEventEntries.map((entry) => (
-                                                                        <div key={entry.id} className="server-report-row">
-                                                                            <div className="server-report-meta">
-                                                                                <div className="server-report-head">
-                                                                                    <strong>{entry.event_type.replaceAll('_', ' ')}</strong>
-                                                                                    <span className="server-report-status is-open">Detected</span>
-                                                                                </div>
-                                                                                <div className="server-report-subline">
-                                                                                    {new Date(entry.created_at).toLocaleString()}
-                                                                                    {entry.username ? ` by ${entry.username}` : ''}
-                                                                                    {entry.channel_name ? ` in #${entry.channel_name}` : ''}
-                                                                                </div>
-                                                                                {entry.metadata != null && (
-                                                                                    <div className="server-report-excerpt server-report-excerpt--details">
-                                                                                        {JSON.stringify(entry.metadata) ?? ''}
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                </section>
-                                            )}
-
-                                            {safetySettingsTab === 'automod' && settingsServerId && canManageAutoMod && (
-                                                <ServerSettingsAutoMod
+                                                <ServerSettingsSafety
+                                                    activeTab={safetySettingsTab}
+                                                    onTabChange={setSafetySettingsTab}
                                                     serverId={settingsServerId}
                                                     token={token}
+                                                    canViewReports={canViewReports}
+                                                    canManageAutoMod={canManageAutoMod}
+                                                    canManageBans={isOwner || canManageBans}
+                                                    reportEntries={reportEntries}
+                                                    reportEntriesLoading={reportEntriesLoading}
+                                                    reportEntriesError={reportEntriesError}
+                                                    resolveReportInFlightId={resolveReportInFlightId}
+                                                    timeoutEntries={timeoutEntries}
+                                                    raidEventEntries={raidEventEntries}
+                                                    clearTimeoutInFlightUserId={clearTimeoutInFlightUserId}
+                                                    banEntries={banEntries}
+                                                    banEntriesLoading={banEntriesLoading}
+                                                    banEntriesError={banEntriesError}
+                                                    unbanInFlightUserId={unbanInFlightUserId}
+                                                    onResolveReport={handleResolveSafetyReport}
+                                                    onClearTimeout={handleClearSafetyTimeout}
+                                                    onUnban={handleUnbanSafetyMember}
                                                 />
                                             )}
-
-                                            {safetySettingsTab === 'bans' && (isOwner || canManageBans) && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-safety-section">
-                                                    <h3 className="server-settings-card__title">Banned Users</h3>
-                                                    <div className="server-settings-panel-copy">
-                                                        <p className="server-settings-note">
-                                                            Review blocked members and restore access when a ban is no longer needed.
-                                                        </p>
-                                                    </div>
-                                                    {banEntriesError && (
-                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                            {banEntriesError}
-                                                        </div>
-                                                    )}
-                                                    {banEntriesLoading && (
-                                                        <div className="server-settings-empty-state">
-                                                            Loading banned users...
-                                                        </div>
-                                                    )}
-                                                    {!banEntriesLoading && banEntries && banEntries.length === 0 && (
-                                                        <div className="server-settings-empty-state">
-                                                            No banned users.
-                                                        </div>
-                                                    )}
-                                                    {!banEntriesLoading && banEntries && banEntries.length > 0 && (
-                                                        <div className="server-settings-ban-list">
-                                                            {banEntries.map((entry) => (
-                                                                <div key={entry.user_id} className="server-settings-ban-row">
-                                                                    <div className="server-settings-ban-meta">
-                                                                        <strong>{entry.username}</strong>
-                                                                        <span>
-                                                                            Banned by {entry.banned_by_username} on {new Date(entry.created_at).toLocaleString()}
-                                                                        </span>
-                                                                        {entry.reason && (
-                                                                            <span className="server-settings-ban-reason">Reason: {entry.reason}</span>
-                                                                        )}
-                                                                    </div>
-                                                                    <button
-                                                                        type="button"
-                                                                        className="btn btn-secondary btn-sm"
-                                                                        disabled={unbanInFlightUserId === entry.user_id}
-                                                                        onClick={async () => {
-                                                                            if (!settingsServerId) return
-                                                                            setUnbanInFlightUserId(entry.user_id)
-                                                                            setBanEntriesError(null)
-                                                                            try {
-                                                                                await serverApi.unbanMember(settingsServerId, entry.user_id, token)
-                                                                                const refreshed = await serverApi.listBans(settingsServerId, token)
-                                                                                setBanEntries(refreshed)
-                                                                            } catch (err) {
-                                                                                const message =
-                                                                                    err instanceof Error
-                                                                                        ? err.message
-                                                                                        : 'Failed to unban member.'
-                                                                                setBanEntriesError(message)
-                                                                            } finally {
-                                                                                setUnbanInFlightUserId(null)
-                                                                            }
-                                                                        }}
-                                                                    >
-                                                                        {unbanInFlightUserId === entry.user_id ? 'Unbanning...' : 'Unban'}
-                                                                    </button>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </section>
-                                            )}
-                                                </>
-                                            )}
-
                                             {serverSettingsTab === 'roles' && isOwner && (
                                                 <section className="server-settings-card server-settings-card--roles">
                                                     {rolesError && (
@@ -4111,171 +3886,27 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             )}
 
                                             {serverSettingsTab === 'rules' && isOwner && (
-                                                <>
-                                                    <ServerSettingsOnboarding
-                                                        guide={settingsOnboardingGuide}
-                                                        channels={channels}
-                                                        loading={onboardingLoading}
-                                                        saving={onboardingSaving}
-                                                        error={onboardingError}
-                                                        onSave={handleSaveOnboardingGuide}
-                                                    />
-                                                    <section className="server-settings-card server-settings-card--rules">
-                                                        {rulesError && (
-                                                            <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                                {rulesError}
-                                                            </div>
-                                                        )}
-                                                        <div className="server-rules-layout">
-                                                            <div className="server-rules-toolbar">
-                                                                <div className="server-rules-toolbar__copy">
-                                                                    <span className="server-rules-toolbar__eyebrow">Rules</span>
-                                                                    <strong className="server-rules-toolbar__title">{serverRules.length} rules</strong>
-                                                                    <span className="server-rules-toolbar__hint">
-                                                                        Set clear expectations for your community. Rules are shown to users before they join.
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        <div className="server-rules-list">
-                                                            {rulesLoading && (
-                                                                <div className="server-rules-loading">Loading rules...</div>
-                                                            )}
-                                                            {!rulesLoading && serverRules.length === 0 && (
-                                                                <div className="server-rules-empty">
-                                                                    No rules yet. Add your first rule below.
-                                                                </div>
-                                                            )}
-                                                            {serverRules.map((rule, index) => (
-                                                                <div key={rule.id} className="server-rule-item">
-                                                                    <div className="server-rule-item__number">{index + 1}</div>
-                                                                    {editingRuleId === rule.id ? (
-                                                                        <div className="server-rule-item__edit">
-                                                                            <textarea
-                                                                                value={editingRuleText}
-                                                                                onChange={(e) => setEditingRuleText(e.target.value)}
-                                                                                className="server-rule-textarea"
-                                                                                rows={2}
-                                                                                maxLength={1000}
-                                                                            />
-                                                                            <div className="server-rule-item__actions">
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-sm"
-                                                                                    onClick={() => {
-                                                                                        setEditingRuleId(null)
-                                                                                        setEditingRuleText('')
-                                                                                    }}
-                                                                                >
-                                                                                    Cancel
-                                                                                </button>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-primary btn-sm"
-                                                                                    disabled={!editingRuleText.trim() || !settingsServer}
-                                                                                    onClick={() => {
-                                                                                        if (!settingsServer || !editingRuleText.trim()) return
-                                                                                        void (async () => {
-                                                                                            try {
-                                                                                                await serverApi.updateRule(
-                                                                                                    settingsServer.id,
-                                                                                                    rule.id,
-                                                                                                    { rule_text: editingRuleText.trim() },
-                                                                                                    token!,
-                                                                                                )
-                                                                                                setEditingRuleId(null)
-                                                                                                setEditingRuleText('')
-                                                                                                const rules = await serverApi.listRules(settingsServer.id, token!)
-                                                                                                setServerRules(rules)
-                                                                                            } catch (err: unknown) {
-                                                                                                setRulesError(err instanceof Error ? err.message : 'Failed to update rule')
-                                                                                            }
-                                                                                        })()
-                                                                                    }}
-                                                                                >
-                                                                                    Save
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="server-rule-item__content">
-                                                                            <p className="server-rule-text">{rule.rule_text}</p>
-                                                                            <div className="server-rule-item__actions">
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-sm"
-                                                                                    onClick={() => {
-                                                                                        setEditingRuleId(rule.id)
-                                                                                        setEditingRuleText(rule.rule_text)
-                                                                                    }}
-                                                                                >
-                                                                                    Edit
-                                                                                </button>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-danger-outline btn-sm"
-                                                                                    disabled={!settingsServer}
-                                                                                    onClick={() => {
-                                                                                        if (!settingsServer) return
-                                                                                        void (async () => {
-                                                                                            try {
-                                                                                                await serverApi.deleteRule(
-                                                                                                    settingsServer.id,
-                                                                                                    rule.id,
-                                                                                                    token!,
-                                                                                                )
-                                                                                                const rules = await serverApi.listRules(settingsServer.id, token!)
-                                                                                                setServerRules(rules)
-                                                                                            } catch (err: unknown) {
-                                                                                                setRulesError(err instanceof Error ? err.message : 'Failed to delete rule')
-                                                                                            }
-                                                                                        })()
-                                                                                    }}
-                                                                                >
-                                                                                    Delete
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        <div className="server-rules-add">
-                                                            <textarea
-                                                                value={newRuleText}
-                                                                onChange={(e) => setNewRuleText(e.target.value)}
-                                                                className="server-rule-textarea"
-                                                                placeholder="Add a new rule..."
-                                                                rows={2}
-                                                                maxLength={1000}
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-primary btn-sm"
-                                                                disabled={!newRuleText.trim() || !settingsServer}
-                                                                onClick={() => {
-                                                                    if (!settingsServer || !newRuleText.trim()) return
-                                                                    void (async () => {
-                                                                        try {
-                                                                            await serverApi.createRule(
-                                                                                settingsServer.id,
-                                                                                newRuleText.trim(),
-                                                                                token!,
-                                                                            )
-                                                                            setNewRuleText('')
-                                                                            const rules = await serverApi.listRules(settingsServer.id, token!)
-                                                                            setServerRules(rules)
-                                                                        } catch (err: unknown) {
-                                                                            setRulesError(err instanceof Error ? err.message : 'Failed to create rule')
-                                                                        }
-                                                                    })()
-                                                                }}
-                                                            >
-                                                                Add rule
-                                                            </button>
-                                                        </div>
-                                                        </div>
-                                                    </section>
-                                                </>
+                                                <ServerSettingsCommunity
+                                                    serverId={settingsServerId}
+                                                    token={token}
+                                                    channels={channels}
+                                                    guide={settingsOnboardingGuide}
+                                                    onboardingLoading={onboardingLoading}
+                                                    onboardingSaving={onboardingSaving}
+                                                    onboardingError={onboardingError}
+                                                    rules={serverRules}
+                                                    rulesLoading={rulesLoading}
+                                                    rulesError={rulesError}
+                                                    newRuleText={newRuleText}
+                                                    editingRuleId={editingRuleId}
+                                                    editingRuleText={editingRuleText}
+                                                    onSaveGuide={handleSaveOnboardingGuide}
+                                                    onRulesChange={setServerRules}
+                                                    onRulesError={setRulesError}
+                                                    onNewRuleTextChange={setNewRuleText}
+                                                    onEditingRuleIdChange={setEditingRuleId}
+                                                    onEditingRuleTextChange={setEditingRuleText}
+                                                />
                                             )}
                                         </div>
                                         </Profiler>
