@@ -235,6 +235,59 @@
   }
 }
 
+@media (min-width: 701px) and (max-height: 860px) {
+  .about-main {
+    padding-top: 28px;
+  }
+
+  .about-hero-copy h1 {
+    font-size: clamp(38px, 4vw, 58px);
+  }
+
+  .about-subtitle {
+    margin-top: 14px;
+    font-size: clamp(16px, 1.15vw, 18px);
+    line-height: 1.45;
+  }
+
+  .about-center-actions {
+    margin-top: 18px;
+  }
+
+  .about-cta {
+    min-height: 48px;
+  }
+
+  .about-product-previews {
+    width: min(640px, 100%);
+    margin-top: 24px;
+  }
+}
+
+@media (min-width: 701px) and (max-height: 740px) {
+  .about-topbar {
+    padding-top: 18px;
+    padding-bottom: 14px;
+  }
+
+  .about-main {
+    padding-top: 20px;
+  }
+
+  .about-hero-copy h1 {
+    font-size: clamp(34px, 3.6vw, 50px);
+  }
+
+  .about-subtitle {
+    max-width: 680px;
+  }
+
+  .about-product-previews {
+    width: min(560px, 100%);
+    margin-top: 18px;
+  }
+}
+
 @media (max-width: 700px) {
   .about-topbar {
     width: calc(100% - 28px);
