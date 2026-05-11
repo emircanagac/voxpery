@@ -39,8 +39,8 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 
 - `TrackSubscribed`: Remote peer published audio/video -> add to `remoteStreams`
 - `TrackUnsubscribed`: Remote peer unpublished -> remove from `remoteStreams`
-- `ParticipantConnected`: New user joined -> play join sound
-- `ParticipantDisconnected`: User left -> play leave sound, cleanup
+- `ParticipantConnected`: New user joined -> play a distinct rising join cue
+- `ParticipantDisconnected`: User left -> play a distinct descending leave cue, cleanup
 - `Reconnecting`/`Reconnected`: Network blip -> re-subscribe tracks, refresh stats
 - `Disconnected`: Lost connection -> backend WS resync handles re-join
 
@@ -232,6 +232,28 @@ await room.localParticipant.publishTrack(videoTrack, {
 3. For camera denial, open the OS camera privacy settings, allow Voxpery or desktop apps to use the camera, then retry the camera toggle.
 4. Restart Voxpery if the OS requires a restart before WebView permissions refresh.
 5. Return to Voxpery and click `Retry mic access` or retry the camera action.
+
+### Voice quality diagnostics
+
+The active call bar shows a compact voice quality indicator while connected. The indicator combines a colored Wi-Fi icon with the current ping so users can understand call health at a glance. The visible chip color follows the visible ping value, while internal diagnostics can still classify the call as good, fair, poor, or measuring from ping, packet loss, and jitter.
+
+- Poor internal quality means latency, packet loss, or jitter crossed the diagnostic threshold.
+- Reconnecting state shows a short warning and keeps the user in the channel while LiveKit/WebSocket state resyncs.
+- Poor internal quality does not show a proactive toast on its own; the compact indicator should stay calm unless the room is reconnecting.
+- Missing LiveKit configuration returns `FEATURE_DISABLED` from the token endpoint so the client can show a clear "voice service unavailable" message instead of a generic join failure.
+
+When debugging a production voice report, capture:
+
+1. The call bar ping color and visible ping.
+2. Whether the room was connected, connecting, or reconnecting.
+3. Whether the user recently changed microphone, camera, VPN, firewall, or network.
+
+### Voice cues
+
+- Join and leave cues are intentionally different so members can identify someone entering or leaving without watching the channel list.
+- Join uses a short rising three-note motif.
+- Leave uses a lower descending two-note motif.
+- Mute, unmute, deafen, and undeafen keep shorter local-only cues.
 
 ### Echo or feedback
 

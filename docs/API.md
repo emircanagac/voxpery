@@ -228,6 +228,7 @@ Attachment note:
 - `GET /api/webrtc/turn-credentials`
 - `GET /api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
   - Requires effective voice access (`VIEW_SERVER` + `CONNECT_VOICE` on the target channel).
+  - Returns `503` with `FEATURE_DISABLED` when the voice media service is not configured.
 
 ## Health
 

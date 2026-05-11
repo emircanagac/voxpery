@@ -386,12 +386,13 @@ export function useWebRTCVoice() {
 
     switch (kind) {
       case 'join':
-        playTone({ from: 640, to: 820, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.024 })
-        playTone({ from: 980, to: 1220, offsetSec: 0.085, durationSec: 0.1, wave: 'triangle', peak: 0.026 })
+        playTone({ from: 430, to: 520, offsetSec: 0, durationSec: 0.085, wave: 'triangle', peak: 0.02 })
+        playTone({ from: 640, to: 780, offsetSec: 0.07, durationSec: 0.1, wave: 'triangle', peak: 0.023 })
+        playTone({ from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, wave: 'sine', peak: 0.026 })
         break
       case 'leave':
-        playTone({ from: 760, to: 600, offsetSec: 0, durationSec: 0.08, wave: 'triangle', peak: 0.024 })
-        playTone({ from: 520, to: 390, offsetSec: 0.085, durationSec: 0.11, wave: 'sine', peak: 0.023 })
+        playTone({ from: 820, to: 610, offsetSec: 0, durationSec: 0.11, wave: 'triangle', peak: 0.024 })
+        playTone({ from: 430, to: 300, offsetSec: 0.095, durationSec: 0.16, wave: 'sine', peak: 0.022 })
         break
       case 'mute':
         playTone({ from: 430, to: 350, offsetSec: 0, durationSec: 0.07, wave: 'square', peak: 0.019 })

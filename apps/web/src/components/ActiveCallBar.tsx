@@ -13,6 +13,11 @@ import {
   isMediaPermissionDeniedError,
   openDesktopMediaPermissionSettings,
 } from '../desktopMediaPermissions'
+import {
+  classifyVoiceError,
+  formatMetric,
+  getVoicePingLevel,
+} from '../webrtc/voiceDiagnostics'
 import { ROUTES } from '../routes'
 import { attachMediaStreamPreview } from '../mediaStreamPreview'
 
@@ -178,6 +183,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   })
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
+  const lastVoiceQualityWarningRef = useRef<string | null>(null)
   useEffect(() => {
     const onFullscreenChange = () => {
       const key = document.fullscreenElement?.getAttribute('data-fullscreen-key')
@@ -606,27 +612,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (state.lastError === lastShownErrorRef.current) return
     lastShownErrorRef.current = state.lastError
 
-    const raw = state.lastError
-    const lower = raw.toLowerCase()
-    let message = raw
-    let title = 'Voice action failed'
-    let level: 'error' | 'info' = 'error'
-    if (
-      lower.includes('voice access denied')
-      || lower.includes('missing required permission')
-      || lower.includes('forbidden')
-    ) {
-      title = 'Voice access denied'
-      level = 'info'
-      message = "You don't have permission to connect to this voice channel."
-    } else
-    if (lower.includes('notallowederror') || lower.includes('permission denied') || lower.includes('permission')) {
-      message = desktopMediaPermissionRecoveryMessage('microphone')
-    } else if (lower.includes('notfounderror') || lower.includes('device not found')) {
-      message = 'No microphone device detected. Connect a microphone and retry.'
-    } else if (lower.includes('websocket is not connected')) {
-      message = 'Voice service is reconnecting. Wait a few seconds and try again.'
-    }
+    const { level, title, message } = classifyVoiceError(state.lastError)
 
     pushToast({
       level,
@@ -864,46 +850,54 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const stageColumns = getStageColumns(totalStageTiles)
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
-  const roomConnecting = state.isJoining || roomState === 'connecting'
   const roomReconnecting = roomState === 'reconnecting'
   const joiningTargetChannelId = state.isJoining ? selectedVoiceChannelId : null
   const hasActiveVoiceSession = !!(state.joinedChannelId || joiningTargetChannelId)
-  const participantIds = new Set(channelParticipants.map((member) => member.user_id))
-  if (state.joinedChannelId && user?.id) participantIds.add(user.id)
-  const participantCount = participantIds.size
-  const participantLabel = `${participantCount}`
-  const connectionLabel = !hasActiveVoiceSession ? 'Offline' : roomConnecting ? 'Connecting...' : roomReconnecting ? 'Reconnecting...' : roomConnected ? `Connected (${participantLabel})` : 'Offline'
-  const connectionTitle = roomConnected ? 'Connected' : connectionLabel
   const isDisconnectVisualActive = hasActiveVoiceSession
   const isDisconnectPendingVisual = hasActiveVoiceSession && !roomConnected
-  const packetLossPct = state.diagnostics.packetLossPct
-  const networkJitterMs = state.diagnostics.jitterMs
-  const pingJitterMs = state.diagnostics.pingJitterMs
-  const qualityLevel =
-    !hasActiveVoiceSession || state.pingMs == null
-      ? 'unknown'
-      : (state.pingMs >= 220 || (packetLossPct ?? 0) >= 5 || (networkJitterMs ?? 0) >= 45)
-        ? 'poor'
-        : (state.pingMs >= 120 || (packetLossPct ?? 0) >= 2 || (networkJitterMs ?? 0) >= 25 || (pingJitterMs ?? 0) >= 35)
-          ? 'fair'
-          : 'good'
+  const pingLevel = getVoicePingLevel(hasActiveVoiceSession, state.pingMs)
   const pingStateClass =
-    qualityLevel === 'good'
+    pingLevel === 'good'
       ? 'is-good'
-      : qualityLevel === 'fair'
+      : pingLevel === 'fair'
         ? 'is-mid'
-        : qualityLevel === 'poor'
+        : pingLevel === 'poor'
           ? 'is-bad'
           : 'is-unknown'
-  const pingTooltip = !hasActiveVoiceSession
-    ? 'Quality: N/A'
-    : [
-      `Quality: ${qualityLevel === 'good' ? 'Good' : qualityLevel === 'fair' ? 'Fair' : qualityLevel === 'poor' ? 'Poor' : 'Measuring'}`,
-      state.pingMs != null ? `Ping: ${state.pingMs} ms` : null,
-    ]
-      .filter(Boolean)
-      .join(' • ')
-  const connectionStateClass = !hasActiveVoiceSession ? 'is-offline' : roomConnecting || roomReconnecting ? 'is-connecting' : roomConnected ? 'is-connected' : 'is-offline'
+  const pingDisplay = formatMetric(state.pingMs, 'ms', '...')
+  const pingAriaLabel = !hasActiveVoiceSession
+    ? 'Voice ping: not in voice'
+    : `Voice ping: ${pingDisplay}.`
+  const micControlLabel = muted
+    ? 'Unmute microphone'
+    : (serverMuted || serverDeafened)
+      ? 'Muted by server'
+      : 'Mute microphone'
+  const deafenControlLabel = deafened
+    ? 'Undeafen'
+    : serverDeafened
+      ? 'Deafened by server'
+      : 'Deafen'
+  const cameraControlLabel = state.cameraStream ? 'Turn off camera' : 'Turn on camera'
+  const screenShareControlLabel = state.isScreenSharing ? 'Stop sharing' : 'Share screen'
+  const disconnectControlLabel = isDisconnectVisualActive ? 'Leave voice channel' : 'Join voice channel'
+
+  useEffect(() => {
+    if (!hasActiveVoiceSession) {
+      lastVoiceQualityWarningRef.current = null
+      return
+    }
+
+    const warningKey = roomReconnecting ? 'reconnecting' : null
+    if (!warningKey || lastVoiceQualityWarningRef.current === warningKey) return
+    lastVoiceQualityWarningRef.current = warningKey
+
+    pushToast({
+      level: 'info',
+      title: 'Voice reconnecting',
+      message: 'Voice is reconnecting. Stay in the channel while Voxpery resyncs.',
+    })
+  }, [hasActiveVoiceSession, pushToast, roomReconnecting])
 
   const screenShareModal = showScreenShareConfirm && (
     <div className="modal-overlay modal-overlay--compact" onClick={() => setShowScreenShareConfirm(false)}>
@@ -1119,13 +1113,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   onClick={toggleMute}
                   disabled={!state.joinedChannelId || !state.localStream || deafened}
                   className={`callbar-control-btn ${muted ? 'is-off' : (serverMuted || serverDeafened) ? 'is-server-off' : ''}`}
-                  title={
-                    muted
-                      ? 'Unmute (self)'
-                      : (serverMuted || serverDeafened)
-                        ? 'Muted by server'
-                        : 'Mute'
-                  }
+                  aria-label={micControlLabel}
                 >
                   {(muted || serverMuted || serverDeafened) ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
@@ -1133,34 +1121,29 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   onClick={toggleDeafen}
                   disabled={!state.joinedChannelId}
                   className={`callbar-control-btn ${deafened ? 'is-off' : serverDeafened ? 'is-server-off' : ''}`}
-                  title={deafened ? 'Enable headphones (self)' : serverDeafened ? 'Deafened by server' : 'Disable headphones'}
+                  aria-label={deafenControlLabel}
                 >
                   {(deafened || serverDeafened) ? <VolumeX size={16} /> : <Volume2 size={16} />}
                 </button>
-                <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} title={state.cameraStream ? 'Turn off camera' : 'Turn on camera'}>
+                <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} aria-label={cameraControlLabel}>
                   {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
                 </button>
                 {!isMobileViewport && (
-                  <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} title={state.isScreenSharing ? 'Stop sharing' : 'Share screen'}>
+                  <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} aria-label={screenShareControlLabel}>
                     <Monitor size={16} />
                   </button>
                 )}
               </div>
               <div className="callbar-controls-right">
                 <span className="callbar-connection-inline">
-                  <span className={`active-call-subtitle active-call-subtitle-inline ${connectionStateClass}`} title={connectionTitle}>
-                    {(roomConnecting || roomReconnecting) && <span className="active-call-subtitle-spinner" />}
-                    {connectionLabel}
-                  </span>
-                  <span
-                    className={`callbar-ping-inline-icon ${pingStateClass}`}
-                    title={pingTooltip}
-                    aria-label={pingTooltip}
-                  >
-                    <Wifi size={14} />
+                  <span className={`callbar-ping-chip ${pingStateClass}`} role="status" aria-label={pingAriaLabel}>
+                    <span className="callbar-ping-inline-icon" aria-hidden="true">
+                      <Wifi size={14} />
+                    </span>
+                    <span className="callbar-ping-value">{pingDisplay}</span>
                   </span>
                 </span>
-                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} title={isDisconnectVisualActive ? 'Leave voice channel' : 'Join voice channel'}>
+                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} aria-label={disconnectControlLabel}>
                   <PhoneOff size={16} style={{ transform: isDisconnectVisualActive ? 'none' : 'rotate(135deg)' }} />
                 </button>
               </div>

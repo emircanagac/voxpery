@@ -123,8 +123,10 @@ export function useVoiceActivity(options: {
         cleanupSilentTrack()
     }, [cleanupSilentTrack, localAudioTrackRef])
 
-    const applyVoiceActivityGate = useCallback((speaking: boolean) => {
-        voiceActivitySpeakingRef.current = speaking
+    const applyVoiceActivityGate = useCallback((speaking: boolean, options?: { updateSpeakingRef?: boolean }) => {
+        if (options?.updateSpeakingRef !== false) {
+            voiceActivitySpeakingRef.current = speaking
+        }
         const { mode } = getVoiceModeSettings()
         if (mode !== 'voice_activity') return
         // Don't override manual mute/deafen
@@ -298,6 +300,28 @@ export function useVoiceActivity(options: {
             window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged as EventListener)
         }
     }, [applyPushToTalkGate, applyVoiceActivityGate, getVoiceModeSettings, joinedChannelId])
+
+    useEffect(() => {
+        if (!joinedChannelId) return
+
+        const onVisibilityChange = () => {
+            const { mode } = getVoiceModeSettings()
+            if (mode !== 'voice_activity') return
+
+            if (document.hidden) {
+                // Browsers throttle requestAnimationFrame while backgrounded.
+                // Keep the real mic sender attached so voice activity mode does
+                // not get stuck publishing the silent gate track.
+                applyVoiceActivityGate(true, { updateSpeakingRef: false })
+                return
+            }
+
+            applyVoiceActivityGate(voiceActivitySpeakingRef.current)
+        }
+
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    }, [applyVoiceActivityGate, getVoiceModeSettings, joinedChannelId])
 
     const stopLocalSpeakingMonitor = useCallback(() => {
         if (inlineMonitorIntervalRef.current != null) {

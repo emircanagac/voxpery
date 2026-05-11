@@ -245,14 +245,15 @@ export function useAudioEngine() {
         switch (kind) {
             case 'join':
                 playCueStack(ctx, [
-                    { from: 520, to: 620, durationSec: 0.1, peak: 0.016, type: 'sine', overtoneGain: 0.07, filterHz: 1600 },
-                    { from: 760, to: 900, offsetSec: 0.08, durationSec: 0.12, peak: 0.013, type: 'triangle', overtoneGain: 0.1, filterHz: 2200 },
+                    { from: 430, to: 520, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.12, filterHz: 1800, q: 0.9 },
+                    { from: 640, to: 780, offsetSec: 0.07, durationSec: 0.1, peak: 0.023, type: 'triangle', overtoneGain: 0.14, filterHz: 2400, q: 0.9 },
+                    { from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, peak: 0.026, type: 'sine', overtoneGain: 0.08, filterHz: 3200, q: 0.75 },
                 ])
                 break
             case 'leave':
                 playCueStack(ctx, [
-                    { from: 760, to: 620, durationSec: 0.1, peak: 0.015, type: 'sine', overtoneGain: 0.06, filterHz: 1700 },
-                    { from: 480, to: 380, offsetSec: 0.08, durationSec: 0.125, peak: 0.012, type: 'triangle', overtoneGain: 0.08, filterHz: 1500 },
+                    { from: 820, to: 610, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.1, filterHz: 2300, q: 0.85 },
+                    { from: 430, to: 300, offsetSec: 0.095, durationSec: 0.16, peak: 0.022, type: 'sine', overtoneGain: 0.05, filterHz: 1200, q: 0.7 },
                 ])
                 break
             case 'mute':

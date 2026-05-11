@@ -154,15 +154,15 @@ async fn livekit_token(
     let ws_url = state
         .livekit_ws_url
         .clone()
-        .ok_or_else(|| AppError::Internal("LiveKit WS URL not configured".into()))?;
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
     let api_key = state
         .livekit_api_key
         .clone()
-        .ok_or_else(|| AppError::Internal("LiveKit API key not configured".into()))?;
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
     let api_secret = state
         .livekit_api_secret
         .clone()
-        .ok_or_else(|| AppError::Internal("LiveKit API secret not configured".into()))?;
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
