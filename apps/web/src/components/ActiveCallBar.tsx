@@ -14,6 +14,7 @@ import {
   openDesktopMediaPermissionSettings,
 } from '../desktopMediaPermissions'
 import { ROUTES } from '../routes'
+import { attachMediaStreamPreview } from '../mediaStreamPreview'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -197,24 +198,46 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const perPeerAudioCtxRef = useRef<Map<string, { ctx: AudioContext; source: MediaElementAudioSourceNode; gain: GainNode }>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraPreviewCleanupRef = useRef<(() => void) | null>(null)
+  const cameraKeepaliveVideoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraKeepaliveCleanupRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     localStreamRef.current = state.localStream
   }, [state.localStream])
+  const attachCameraPreviewElement = useCallback((video: HTMLVideoElement | null) => {
+    cameraPreviewCleanupRef.current?.()
+    cameraPreviewCleanupRef.current = null
+    cameraVideoRef.current = video
+    if (!video || !state.cameraStream) return
+    cameraPreviewCleanupRef.current = attachMediaStreamPreview(video, state.cameraStream)
+  }, [state.cameraStream])
+  const attachCameraKeepaliveElement = useCallback((video: HTMLVideoElement | null) => {
+    cameraKeepaliveCleanupRef.current?.()
+    cameraKeepaliveCleanupRef.current = null
+    cameraKeepaliveVideoRef.current = video
+    if (!video || !state.cameraStream) return
+    cameraKeepaliveCleanupRef.current = attachMediaStreamPreview(video, state.cameraStream)
+  }, [state.cameraStream])
   useEffect(() => {
     const video = cameraVideoRef.current
     const stream = state.cameraStream
     if (!video || !stream) return
-    if (video.srcObject !== stream) {
-      video.srcObject = stream
-      const play = () => void video.play().catch(() => { })
-      video.addEventListener('loadeddata', play, { once: true })
-      video.addEventListener('loadedmetadata', play, { once: true })
-      if (video.readyState >= 2) play()
-      const t = setTimeout(play, 150)
-      return () => {
-        clearTimeout(t)
-        if (video.srcObject === stream) video.srcObject = null
-      }
+    cameraPreviewCleanupRef.current?.()
+    cameraPreviewCleanupRef.current = attachMediaStreamPreview(video, stream)
+    return () => {
+      cameraPreviewCleanupRef.current?.()
+      cameraPreviewCleanupRef.current = null
+    }
+  }, [state.cameraStream])
+  useEffect(() => {
+    const video = cameraKeepaliveVideoRef.current
+    const stream = state.cameraStream
+    if (!video || !stream) return
+    cameraKeepaliveCleanupRef.current?.()
+    cameraKeepaliveCleanupRef.current = attachMediaStreamPreview(video, stream)
+    return () => {
+      cameraKeepaliveCleanupRef.current?.()
+      cameraKeepaliveCleanupRef.current = null
     }
   }, [state.cameraStream])
   useEffect(() => {
@@ -920,6 +943,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   return (
     <>
+      {state.cameraStream && (
+        <video
+          ref={attachCameraKeepaliveElement}
+          autoPlay
+          muted
+          playsInline
+          aria-hidden="true"
+          tabIndex={-1}
+          style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -9999, top: -9999 }}
+        />
+      )}
       {typeof document !== 'undefined' && createPortal(screenShareModal, document.body)}
       {typeof document !== 'undefined' && createPortal(cameraModal, document.body)}
       {showActiveCallBar && (
@@ -950,7 +984,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               )}
               {state.cameraStream && (
                 <div className="screen-share-preview voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
-                  <video ref={(el) => { cameraVideoRef.current = el }} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
+                  <video ref={attachCameraPreviewElement} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
                   <div className="screen-share-info-overlay"><span className="screen-share-info-text">Camera · You</span></div>
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
