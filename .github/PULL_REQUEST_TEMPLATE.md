@@ -1,26 +1,22 @@
 ## Summary
 
-<!-- What does this PR change and why? -->
+-
 
 ## Related
 
-<!-- Link issue/discussion, e.g. Closes #123 -->
+<!-- Closes #123, or leave blank. -->
 
 ## Changes
 
-- 
+-
 
 ## Validation
 
-<!-- Paste the commands you ran and key results -->
-
-```bash
-# web
-cd apps/web && npm run lint && npm run build
-
-# server
-cd apps/server && cargo check && cargo test
-```
+- [ ] `npm run lint`
+- [ ] `npm run test:run`
+- [ ] `npm run build`
+- [ ] `cargo test`
+- [ ] Other/manual:
 
 ## Security / Privacy Impact
 
@@ -30,9 +26,9 @@ cd apps/server && cargo check && cargo test
 
 ## Docs
 
-- [ ] API docs updated (if endpoint/behavior changed)
-- [ ] DB docs updated (if schema/migration changed)
-- [ ] Security docs updated (if auth/permission/security behavior changed)
+- [ ] API docs updated or not needed
+- [ ] DB docs updated or not needed
+- [ ] Security docs updated or not needed
 
 ## Checklist
 
