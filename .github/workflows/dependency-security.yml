@@ -42,11 +42,21 @@ jobs:
 
       - name: Dependency audit (Rust)
         working-directory: apps/server
-        run: cargo audit --deny warnings
+        run: |
+          for attempt in 1 2 3; do
+            cargo audit --deny warnings && exit 0
+            sleep $((attempt * 10))
+          done
+          exit 1
 
       - name: Dependency audit (desktop Rust)
         working-directory: apps/desktop/src-tauri
-        run: cargo audit --deny warnings
+        run: |
+          for attempt in 1 2 3; do
+            cargo audit --deny warnings && exit 0
+            sleep $((attempt * 10))
+          done
+          exit 1
 
       - name: Setup Node
         uses: actions/setup-node@v6
