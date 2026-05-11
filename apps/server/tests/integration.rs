@@ -1304,15 +1304,17 @@ async fn category_override_enforces_view_send_and_voice_access() {
     let owner_uid = Uuid::new_v4();
     let owner_email = format!("owner-cat-{}@example.com", owner_uid);
     let owner_username = format!("owner_cat_{}", owner_uid.as_u128() % 1_000_000);
+    let owner_password = Uuid::new_v4().to_string();
     let (owner_token, _owner_id) =
-        register_user(&mut app, &owner_email, &owner_username, "password123").await;
+        register_user(&mut app, &owner_email, &owner_username, &owner_password).await;
     let owner_auth = format!("Bearer {}", owner_token);
 
     let member_uid = Uuid::new_v4();
     let member_email = format!("member-cat-{}@example.com", member_uid);
     let member_username = format!("member_cat_{}", member_uid.as_u128() % 1_000_000);
+    let member_password = Uuid::new_v4().to_string();
     let (member_token, _member_id) =
-        register_user(&mut app, &member_email, &member_username, "password123").await;
+        register_user(&mut app, &member_email, &member_username, &member_password).await;
     let member_auth = format!("Bearer {}", member_token);
 
     // Create server as owner.
