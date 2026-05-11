@@ -33,6 +33,18 @@ const DEFAULT_DRAFT: DraftState = {
     exemptChannelIds: [],
 }
 
+function draftFromRule(rule: AutoModRule): DraftState {
+    return {
+        name: rule.name,
+        triggerType: rule.trigger_type,
+        pattern: rule.pattern ?? '',
+        mentionLimit: rule.mention_limit ?? 5,
+        enabled: rule.enabled,
+        exemptRoleIds: rule.exempt_role_ids,
+        exemptChannelIds: rule.exempt_channel_ids,
+    }
+}
+
 function triggerLabel(value: AutoModTriggerType) {
     return TRIGGER_OPTIONS.find((option) => option.value === value)?.label ?? value
 }
@@ -71,6 +83,8 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     const [error, setError] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [busyRuleId, setBusyRuleId] = useState<string | null>(null)
+    const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+    const [editingDraft, setEditingDraft] = useState<DraftState>(DEFAULT_DRAFT)
 
     useEffect(() => {
         let cancelled = false
@@ -107,6 +121,9 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     const canCreate = draft.name.trim().length > 0
         && (draft.triggerType !== 'blocked_keyword' || draft.pattern.trim().length >= 2)
 
+    const canUpdate = editingDraft.name.trim().length > 0
+        && (editingDraft.triggerType !== 'blocked_keyword' || editingDraft.pattern.trim().length >= 2)
+
     const toggleDraftRole = (roleId: string) => {
         setDraft((prev) => ({
             ...prev,
@@ -118,6 +135,24 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
 
     const toggleDraftChannel = (channelId: string) => {
         setDraft((prev) => ({
+            ...prev,
+            exemptChannelIds: prev.exemptChannelIds.includes(channelId)
+                ? prev.exemptChannelIds.filter((id) => id !== channelId)
+                : [...prev.exemptChannelIds, channelId],
+        }))
+    }
+
+    const toggleEditingRole = (roleId: string) => {
+        setEditingDraft((prev) => ({
+            ...prev,
+            exemptRoleIds: prev.exemptRoleIds.includes(roleId)
+                ? prev.exemptRoleIds.filter((id) => id !== roleId)
+                : [...prev.exemptRoleIds, roleId],
+        }))
+    }
+
+    const toggleEditingChannel = (channelId: string) => {
+        setEditingDraft((prev) => ({
             ...prev,
             exemptChannelIds: prev.exemptChannelIds.includes(channelId)
                 ? prev.exemptChannelIds.filter((id) => id !== channelId)
@@ -148,6 +183,40 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
         }
     }
 
+    const startEditingRule = (rule: AutoModRule) => {
+        setError(null)
+        setEditingRuleId(rule.id)
+        setEditingDraft(draftFromRule(rule))
+    }
+
+    const cancelEditingRule = () => {
+        setEditingRuleId(null)
+        setEditingDraft(DEFAULT_DRAFT)
+    }
+
+    const saveEditingRule = async (ruleId: string) => {
+        if (!canUpdate) return
+        setBusyRuleId(ruleId)
+        setError(null)
+        try {
+            const updated = await serverApi.updateAutoModRule(serverId, ruleId, {
+                name: editingDraft.name.trim(),
+                trigger_type: editingDraft.triggerType,
+                pattern: editingDraft.triggerType === 'blocked_keyword' ? editingDraft.pattern.trim() : null,
+                mention_limit: editingDraft.triggerType === 'mention_spam' ? editingDraft.mentionLimit : null,
+                enabled: editingDraft.enabled,
+                exempt_role_ids: editingDraft.exemptRoleIds,
+                exempt_channel_ids: editingDraft.exemptChannelIds,
+            }, token)
+            setRules((prev) => prev.map((item) => item.id === updated.id ? updated : item))
+            cancelEditingRule()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to update AutoMod rule.')
+        } finally {
+            setBusyRuleId(null)
+        }
+    }
+
     const toggleRule = async (rule: AutoModRule) => {
         setBusyRuleId(rule.id)
         setError(null)
@@ -167,6 +236,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
         try {
             await serverApi.deleteAutoModRule(serverId, rule.id, token)
             setRules((prev) => prev.filter((item) => item.id !== rule.id))
+            if (editingRuleId === rule.id) cancelEditingRule()
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to delete AutoMod rule.')
         } finally {
@@ -185,48 +255,164 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                     {rules.length === 0 && (
                         <div className="server-settings-empty-state">No AutoMod rules yet.</div>
                     )}
-                    {rules.map((rule) => (
-                        <div key={rule.id} className="server-report-row">
-                            <div className="server-report-meta">
-                                <div className="server-report-head">
-                                    <strong>{rule.name}</strong>
-                                    <span className={`server-report-status ${rule.enabled ? 'is-open' : 'is-resolved'}`}>
-                                        {rule.enabled ? 'Enabled' : 'Disabled'}
-                                    </span>
-                                </div>
-                                <div className="server-report-tags">
-                                    <span className="server-report-tag server-report-tag--reason">
-                                        {triggerLabel(rule.trigger_type)}
-                                    </span>
-                                    {rule.pattern && <span className="server-report-tag">{rule.pattern}</span>}
-                                    {rule.mention_limit && <span className="server-report-tag">{rule.mention_limit} mentions</span>}
-                                    {(rule.exempt_role_ids.length > 0 || rule.exempt_channel_ids.length > 0) && (
-                                        <span className="server-report-tag">
-                                            {rule.exempt_role_ids.length + rule.exempt_channel_ids.length} exemptions
+                    {rules.map((rule) => {
+                        const isEditing = editingRuleId === rule.id
+                        return (
+                            <div key={rule.id} className="server-report-row">
+                                <div className="server-report-meta">
+                                    <div className="server-report-head">
+                                        <strong>{rule.name}</strong>
+                                        <span className={`server-report-status ${rule.enabled ? 'is-open' : 'is-resolved'}`}>
+                                            {rule.enabled ? 'Enabled' : 'Disabled'}
                                         </span>
+                                    </div>
+                                    <div className="server-report-tags">
+                                        <span className="server-report-tag server-report-tag--reason">
+                                            {triggerLabel(rule.trigger_type)}
+                                        </span>
+                                        {rule.pattern && <span className="server-report-tag">{rule.pattern}</span>}
+                                        {rule.mention_limit && <span className="server-report-tag">{rule.mention_limit} mentions</span>}
+                                        {(rule.exempt_role_ids.length > 0 || rule.exempt_channel_ids.length > 0) && (
+                                            <span className="server-report-tag">
+                                                {rule.exempt_role_ids.length + rule.exempt_channel_ids.length} exemptions
+                                            </span>
+                                        )}
+                                    </div>
+                                    {isEditing && (
+                                        <div className="server-settings-subcard server-settings-automod-edit">
+                                            <h3 className="server-settings-card__title">Edit rule</h3>
+                                            <div className="server-settings-form-stack">
+                                                <div className="form-group">
+                                                    <label>Rule name</label>
+                                                    <input
+                                                        value={editingDraft.name}
+                                                        maxLength={80}
+                                                        onChange={(event) => setEditingDraft((prev) => ({ ...prev, name: event.target.value }))}
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label>Trigger</label>
+                                                    <select
+                                                        value={editingDraft.triggerType}
+                                                        onChange={(event) => setEditingDraft((prev) => ({ ...prev, triggerType: event.target.value as AutoModTriggerType }))}
+                                                    >
+                                                        {TRIGGER_OPTIONS.map((option) => (
+                                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                {editingDraft.triggerType === 'blocked_keyword' && (
+                                                    <div className="form-group">
+                                                        <label>Keyword</label>
+                                                        <input
+                                                            value={editingDraft.pattern}
+                                                            maxLength={128}
+                                                            onChange={(event) => setEditingDraft((prev) => ({ ...prev, pattern: event.target.value }))}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {editingDraft.triggerType === 'mention_spam' && (
+                                                    <div className="form-group">
+                                                        <label>Mention limit</label>
+                                                        <input
+                                                            type="number"
+                                                            min={2}
+                                                            max={50}
+                                                            value={editingDraft.mentionLimit}
+                                                            onChange={(event) => setEditingDraft((prev) => ({ ...prev, mentionLimit: Number(event.target.value) || 5 }))}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <label className="server-settings-check-row">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={editingDraft.enabled}
+                                                        onChange={(event) => setEditingDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+                                                    />
+                                                    <span>Enabled</span>
+                                                </label>
+                                                {roles.length > 0 && (
+                                                    <div className="server-settings-option-group">
+                                                        <div className="server-settings-option-group__title">Exempt roles</div>
+                                                        <div className="server-settings-option-group__items">
+                                                            {roles.map((role) => (
+                                                                <label key={role.id} className="server-settings-check-item">
+                                                                    <input type="checkbox" checked={editingDraft.exemptRoleIds.includes(role.id)} onChange={() => toggleEditingRole(role.id)} />
+                                                                    <span>{role.name}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {channels.length > 0 && (
+                                                    <div className="server-settings-option-group">
+                                                        <div className="server-settings-option-group__title">Exempt channels</div>
+                                                        <div className="server-settings-option-group__items">
+                                                            {channels.map((channel) => (
+                                                                <label key={channel.id} className="server-settings-check-item">
+                                                                    <input type="checkbox" checked={editingDraft.exemptChannelIds.includes(channel.id)} onChange={() => toggleEditingChannel(channel.id)} />
+                                                                    <span>#{channel.name}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="server-report-actions">
+                                    {isEditing ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                disabled={busyRuleId === rule.id}
+                                                onClick={cancelEditingRule}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary btn-sm"
+                                                disabled={!canUpdate || busyRuleId === rule.id}
+                                                onClick={() => void saveEditingRule(rule.id)}
+                                            >
+                                                {busyRuleId === rule.id ? 'Saving...' : 'Save'}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                disabled={busyRuleId === rule.id}
+                                                onClick={() => startEditingRule(rule)}
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                disabled={busyRuleId === rule.id}
+                                                onClick={() => void toggleRule(rule)}
+                                            >
+                                                {rule.enabled ? 'Disable' : 'Enable'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-danger-outline btn-sm"
+                                                disabled={busyRuleId === rule.id}
+                                                onClick={() => void deleteRule(rule)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </>
                                     )}
                                 </div>
                             </div>
-                            <div className="server-report-actions">
-                                <button
-                                    type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    disabled={busyRuleId === rule.id}
-                                    onClick={() => void toggleRule(rule)}
-                                >
-                                    {rule.enabled ? 'Disable' : 'Enable'}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn btn-danger-outline btn-sm"
-                                    disabled={busyRuleId === rule.id}
-                                    onClick={() => void deleteRule(rule)}
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             )}
 

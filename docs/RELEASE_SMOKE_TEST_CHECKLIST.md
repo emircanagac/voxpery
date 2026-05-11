@@ -35,7 +35,8 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
 - [ ] Safety moderation view shows open reports, active timeouts, and recent raid events.
-- [ ] AutoMod rule create/enable/disable/delete works and blocked messages do not persist or broadcast.
+- [ ] Server Settings opens and remains scrollable on desktop; mobile still shows the desktop-only guidance instead of a broken settings modal.
+- [ ] AutoMod rule create/edit/enable/disable/delete works and blocked messages do not persist or broadcast.
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
