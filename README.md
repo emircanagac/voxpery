@@ -2,7 +2,7 @@
 
 # <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" /> Voxpery <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" />
 
-**Open-source, self-hostable Discord alternative for privacy-conscious communities**
+**Open-source community chat and voice you can use hosted or self-host in minutes**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml/badge.svg)](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml)
@@ -10,11 +10,11 @@
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org/)
 [![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg)](https://react.dev/)
 
-*Your data is yours. Voice, text, moderation foundations, and real-time presence.*
+*Hosted at voxpery.com, self-hostable with Docker, and built around chat, voice, moderation, and real-time presence.*
 
-**[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[Join community](#community)**
+**[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[View roadmap](docs/ROADMAP.md)**
 
-![Voxpery Main UI](docs/images/voxpery01.png)
+![Voxpery Main UI](apps/web/src/assets/voxpery-preview.png)
 
 
 </div>
@@ -23,7 +23,9 @@
 
 ## Why Voxpery?
 
-Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or self-host the same stack for full data ownership.
+Voxpery is for communities that want real-time chat and voice without giving up code transparency or data ownership. Use the hosted app on **voxpery.com**, or deploy the same stack yourself.
+
+## Honest Comparison
 
 | Feature | Voxpery | Discord | Slack | Mattermost |
 |---------|---------|---------|-------|-----------|
@@ -34,6 +36,10 @@ Use Voxpery instantly on **voxpery.com** as a hosted Discord alternative, or sel
 | **Desktop app stack** | Tauri | Proprietary desktop client | Electron desktop client | Electron desktop client |
 | **Pricing model** | OSS / self-host free | Freemium (Nitro) | Freemium + paid tiers | OSS + paid enterprise tiers |
 | **Source code visibility** | Public repo | Core closed | Core closed | Public repo (open-core) |
+
+Voxpery is not trying to beat mature commercial platforms on every enterprise feature today. Discord and Slack still have bigger ecosystems, polished mobile apps, app directories, and years of edge-case hardening. Mattermost is more mature for enterprise compliance and large deployments.
+
+Voxpery is strongest when you want a smaller, inspectable, self-hostable community platform with hosted access available now, modern voice through LiveKit, no analytics by default, and a roadmap focused on open community ownership.
 
 ---
 

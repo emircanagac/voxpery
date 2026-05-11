@@ -1,7 +1,7 @@
 {
   "name": "Voxpery",
   "short_name": "Voxpery",
-  "description": "Privacy-first open-source communication for communities and teams.",
+  "description": "Open-source community chat and voice with hosted access, self-hosting, and desktop apps.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
