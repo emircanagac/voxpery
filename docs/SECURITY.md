@@ -117,7 +117,7 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 
 ### Implementation
 
-Rate limits are enforced with Redis sliding windows (`ZSET` based):
+Rate limits are enforced with Redis sliding windows (`ZSET` based). Cleanup, count, insert, and expiry run inside one Redis Lua script so each rate-limit decision is atomic across concurrent app instances. Each hit uses a unique sorted-set member to avoid same-millisecond request collapse:
 
 ```rust
 pub async fn enforce_rate_limit(
@@ -128,9 +128,16 @@ pub async fn enforce_rate_limit(
     message: &str,
 ) -> Result<(), AppError> {
     let mut conn = redis.get_multiplexed_async_connection().await?;
-    // trim window -> count -> insert -> expire
-    let current: isize = conn.zcard(format!("rate:{}", key)).await?;
-    if current >= max_requests as isize {
+    let allowed: i64 = redis::Script::new(RATE_LIMIT_SCRIPT)
+        .key(format!("rate:{}", key))
+        .arg(cutoff)
+        .arg(now_ms)
+        .arg(unique_member)
+        .arg(max_requests)
+        .arg(ttl_secs)
+        .invoke_async(&mut conn)
+        .await?;
+    if allowed == 0 {
         return Err(AppError::TooManyRequests(message.to_string()));
     }
     Ok(())
@@ -332,4 +339,4 @@ For privacy policy, see main README or project website.
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-05-12.

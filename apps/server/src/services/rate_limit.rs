@@ -1,11 +1,36 @@
 use std::time::Duration;
 
-use redis::AsyncCommands;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 
+const RATE_LIMIT_SCRIPT: &str = r#"
+local key = KEYS[1]
+local cutoff_ms = tonumber(ARGV[1])
+local now_ms = tonumber(ARGV[2])
+local member = ARGV[3]
+local max_requests = tonumber(ARGV[4])
+local ttl_secs = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff_ms)
+
+local current = redis.call('ZCARD', key)
+if current >= max_requests then
+  redis.call('EXPIRE', key, ttl_secs)
+  return 0
+end
+
+redis.call('ZADD', key, now_ms, member)
+redis.call('EXPIRE', key, ttl_secs)
+return 1
+"#;
+
 fn rate_limit_key(key: &str) -> String {
     format!("rate:{}", key)
+}
+
+fn rate_limit_member(now_ms: i64, request_id: Uuid) -> String {
+    format!("{now_ms}:{request_id}")
 }
 
 fn now_epoch_millis() -> i64 {
@@ -18,10 +43,8 @@ fn now_epoch_millis() -> i64 {
 /// Enforce a sliding-window rate limit using Redis sorted sets.
 ///
 /// - Stores each hit as a member in a ZSET with score = timestamp (ms since epoch).
-/// - On each call:
-///   - Remove entries older than the configured window.
-///   - Count remaining hits; if >= max_requests, return TooManyRequests.
-///   - Otherwise, insert the current hit and set an expiry slightly longer than the window.
+/// - Uses a Redis Lua script so cleanup, count, insert, and expiry are atomic.
+/// - Stores a unique member for each hit so same-millisecond requests cannot collapse.
 pub async fn enforce_rate_limit(
     redis: &redis::Client,
     key: String,
@@ -38,35 +61,23 @@ pub async fn enforce_rate_limit(
     let window_ms = window.as_millis() as i64;
     let cutoff = now_ms.saturating_sub(window_ms);
     let redis_key = rate_limit_key(&key);
+    let member = rate_limit_member(now_ms, Uuid::new_v4());
+    let ttl_secs = window.as_secs().saturating_add(60).max(1);
 
-    // 1) Drop all hits that are outside the sliding window.
-    let _: () = conn
-        .zrembyscore(&redis_key, "-inf", cutoff)
+    let allowed: i64 = redis::Script::new(RATE_LIMIT_SCRIPT)
+        .key(&redis_key)
+        .arg(cutoff)
+        .arg(now_ms)
+        .arg(member)
+        .arg(max_requests as i64)
+        .arg(ttl_secs as i64)
+        .invoke_async(&mut conn)
         .await
-        .map_err(|e| AppError::Internal(format!("Rate limit cleanup failed: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("Rate limit script failed: {e}")))?;
 
-    // 2) Count remaining hits in the window.
-    let current: isize = conn
-        .zcard(&redis_key)
-        .await
-        .map_err(|e| AppError::Internal(format!("Rate limit count failed: {e}")))?;
-
-    if current >= max_requests as isize {
+    if allowed == 0 {
         return Err(AppError::TooManyRequests(message.to_string()));
     }
-
-    // 3) Record this hit.
-    let _: () = conn
-        .zadd(&redis_key, now_ms, now_ms)
-        .await
-        .map_err(|e| AppError::Internal(format!("Rate limit record failed: {e}")))?;
-
-    // 4) Ensure the key expires eventually (defensive: window + 60s).
-    let ttl_secs = window.as_secs().saturating_add(60).max(1);
-    let _: () = conn
-        .expire(&redis_key, ttl_secs as i64)
-        .await
-        .map_err(|e| AppError::Internal(format!("Rate limit expire failed: {e}")))?;
 
     Ok(())
 }
@@ -74,6 +85,18 @@ pub async fn enforce_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use redis::AsyncCommands;
+
+    #[test]
+    fn rate_limit_members_are_unique_per_request() {
+        let now_ms = 1_700_000_000_000;
+        let first = rate_limit_member(now_ms, Uuid::from_u128(1));
+        let second = rate_limit_member(now_ms, Uuid::from_u128(2));
+
+        assert_ne!(first, second);
+        assert!(first.starts_with(&format!("{now_ms}:")));
+        assert!(second.starts_with(&format!("{now_ms}:")));
+    }
 
     /// These tests require a local Redis instance on redis://127.0.0.1:6379.
     #[ignore]
@@ -125,5 +148,36 @@ mod tests {
         enforce_rate_limit(&client, key.clone(), 1, window, "limit")
             .await
             .unwrap();
+    }
+
+    #[ignore]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_requests_are_capped_atomically() {
+        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let key = format!("test:concurrent:{}", now_epoch_millis());
+        let window = Duration::from_secs(60);
+        let max = 5usize;
+
+        let attempts = (0..32).map(|_| {
+            let client = client.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                enforce_rate_limit(&client, key, max, window, "limit")
+                    .await
+                    .is_ok()
+            })
+        });
+
+        let results = futures::future::join_all(attempts).await;
+        let allowed = results
+            .into_iter()
+            .filter(|result| result.as_ref().is_ok_and(|allowed| *allowed))
+            .count();
+
+        assert_eq!(allowed, max);
+
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let stored: isize = conn.zcard(rate_limit_key(&key)).await.unwrap();
+        assert_eq!(stored, max as isize);
     }
 }
