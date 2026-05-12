@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
-import { resolveAttachmentUrl, type MessageWithAuthor, type Channel } from '../api'
+import { resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import EmojiPicker from './EmojiPicker'
@@ -461,7 +461,7 @@ export default function ChatArea({
     const getInitial = (name: string) => (name || '?').charAt(0).toUpperCase()
     const getAuthorAvatarUrl = (author: { avatar_url?: string | null; avatarUrl?: string | null }) => {
         const url = author?.avatar_url ?? author?.avatarUrl ?? ''
-        return typeof url === 'string' ? url.trim() : ''
+        return typeof url === 'string' ? resolveAvatarUrl(url) : null
     }
 
     const formatTime = (dateStr: string) => {
@@ -1342,7 +1342,7 @@ export default function ChatArea({
                                     <div className={`message${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
                                         <div className="message-avatar">
                                             {getAuthorAvatarUrl(msg.author || {}) ? (
-                                                <img src={getAuthorAvatarUrl(msg.author || {})} alt="" />
+                                                <img src={getAuthorAvatarUrl(msg.author || {}) ?? ''} alt="" />
                                             ) : (
                                                 getInitial(msg.author?.username ?? '?')
                                             )}

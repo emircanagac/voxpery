@@ -273,6 +273,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .nest("/api/auth", routes::auth::router(state.clone()))
         .nest("/api/friends", routes::friends::router(state.clone()))
         .nest("/api/dm", routes::dm::router(state.clone()))
+        .nest("/api/images", routes::images::router(state.clone()))
         .nest("/api/servers", routes::servers::router(state.clone()))
         .nest("/api/channels", routes::channels::router(state.clone()))
         .nest(

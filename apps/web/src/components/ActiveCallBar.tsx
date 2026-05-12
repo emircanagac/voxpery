@@ -20,6 +20,7 @@ import {
 } from '../webrtc/voiceDiagnostics'
 import { ROUTES } from '../routes'
 import { attachMediaStreamPreview } from '../mediaStreamPreview'
+import { resolveAvatarUrl } from '../api'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -960,7 +961,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 return (
                   <div key={`participant-${p.user_id}`} className="voice-stage-tile">
                     <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
-                      {p.avatar_url ? <img src={p.avatar_url} alt="" /> : (p.username.charAt(0) || '?').toUpperCase()}
+                      {p.avatar_url ? <img src={resolveAvatarUrl(p.avatar_url) ?? ''} alt="" /> : (p.username.charAt(0) || '?').toUpperCase()}
                     </div>
                     <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`}>{p.username}</div>
                     <div className="voice-stage-sub"><Users size={12} />In voice</div>
@@ -970,7 +971,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
                 <div key="participant-local-fallback" className="voice-stage-tile">
                   <div className={`voice-stage-avatar${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}>
-                    {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : localInitial}
+                    {user?.avatar_url ? <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" /> : localInitial}
                   </div>
                   <div className={`voice-stage-name${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}>{user?.username ?? 'You'}</div>
                   <div className="voice-stage-sub"><Users size={12} />In voice</div>

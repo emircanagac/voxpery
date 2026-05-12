@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import type { Channel } from '../api'
+import { resolveAvatarUrl, type Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
@@ -561,7 +561,7 @@ export default function ChannelSidebar({
                                                     >
                                                         <div className={`voice-participant-avatar ${isSpeaking ? 'is-speaking' : ''}`}>
                                                             {vm.avatar_url ? (
-                                                                <img src={vm.avatar_url} alt="" />
+                                                                <img src={resolveAvatarUrl(vm.avatar_url) ?? ''} alt="" />
                                                             ) : (
                                                                 getInitial(vm.username)
                                                             )}

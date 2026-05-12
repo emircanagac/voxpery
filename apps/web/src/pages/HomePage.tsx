@@ -6,6 +6,7 @@ import {
   attachmentApi,
   dmApi,
   friendApi,
+  resolveAvatarUrl,
   serverApi,
   type Friend,
   type FriendRequest,
@@ -1082,7 +1083,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             >
               <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
                 {channel.peer_avatar_url ? (
-                  <img src={channel.peer_avatar_url} alt="" />
+                  <img src={resolveAvatarUrl(channel.peer_avatar_url) ?? ''} alt="" />
                 ) : (
                   channel.peer_username.charAt(0).toUpperCase()
                 )}
@@ -1297,7 +1298,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       >
                         <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
                           {friend.avatar_url ? (
-                            <img src={friend.avatar_url} alt="" />
+                            <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
                           ) : (
                             friend.username.charAt(0).toUpperCase()
                           )}
