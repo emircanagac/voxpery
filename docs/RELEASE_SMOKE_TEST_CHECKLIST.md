@@ -34,6 +34,8 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
+- [ ] Mobile server chat shows one visible message after send, including after the API response and WebSocket echo both arrive.
+- [ ] Mobile Social/Friends list scrolls when the visible friend or request list exceeds the viewport.
 - [ ] Safety moderation view shows open reports, active timeouts, and recent raid events.
 - [ ] Server Settings opens and remains scrollable on desktop; mobile still shows the desktop-only guidance instead of a broken settings modal.
 - [ ] AutoMod rule create/edit/enable/disable/delete works and blocked messages do not persist or broadcast.

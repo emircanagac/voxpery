@@ -29,7 +29,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeRemoteWithRetryableLocals } from '../messageResilience'
+import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
 import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump, setPendingSavedMediaJump } from '../savedMediaJump'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
@@ -859,14 +859,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token)
       clearDmUnread(channelId)
       const applySentDm = (current: UiDmMessage[]) => {
-        if (current.some((m) => m.id === msg.id)) return current
-        const idx = current.findIndex((m) => m.clientId === clientId)
-        if (idx < 0) {
-          return [...current, msg]
-        }
-        const next = [...current]
-        next[idx] = msg
-        return next
+        return reconcileConfirmedMessage(current, clientId, msg)
       }
       if (activeDmChannelIdRef.current === channelId) {
         setDmMessages((prev) => {

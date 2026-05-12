@@ -30,7 +30,7 @@ import {
     setDraftAttachmentUploading,
     type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeRemoteWithRetryableLocals } from '../messageResilience'
+import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import {
     getServerNotificationPreference,
@@ -1389,14 +1389,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         try {
             const msg = await messageApi.send(channelId, content, attachments, token)
             const applySentMessage = (current: UiMessage[]) => {
-                if (current.some((m) => m.id === msg.id)) return current
-                const idx = current.findIndex((m) => m.clientId === clientId)
-                if (idx < 0) {
-                    return [...current, msg]
-                }
-                const next = [...current]
-                next[idx] = { ...msg, id: next[idx].id }
-                return next
+                return reconcileConfirmedMessage(current, clientId, msg)
             }
             if (activeChannelIdRef.current === channelId) {
                 setMessages((prev) => {
