@@ -13245,12 +13245,19 @@ textarea {
     height: 13px;
   }
 
-  .home-main .social-content {
+  .home-main:not(.home-main-dm) {
     overflow-x: hidden;
     overflow-y: auto;
-    padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .home-main:not(.home-main-dm) .social-content {
+    flex: 0 0 auto;
+    min-height: max-content;
+    overflow: visible;
+    padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
   }
 
   .home-main-dm .social-content-dm {
