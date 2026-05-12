@@ -13246,7 +13246,11 @@ textarea {
   }
 
   .home-main .social-content {
+    overflow-x: hidden;
+    overflow-y: auto;
     padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .home-main-dm .social-content-dm {

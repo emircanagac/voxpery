@@ -33,3 +33,30 @@ export function mergeRemoteWithRetryableLocals<T extends RetryableMessage>(remot
   merged.sort((a, b) => toTimestamp(a.created_at) - toTimestamp(b.created_at))
   return merged
 }
+
+export function reconcileConfirmedMessage<T extends RetryableMessage>(
+  current: T[],
+  clientId: string,
+  confirmed: T,
+): T[] {
+  const confirmedIdx = current.findIndex((message) => message.id === confirmed.id)
+  const optimisticIdx = current.findIndex((message) => message.clientId === clientId)
+
+  if (confirmedIdx >= 0 && optimisticIdx >= 0 && confirmedIdx !== optimisticIdx) {
+    return current
+      .filter((_, index) => index !== optimisticIdx)
+      .map((message) => (message.id === confirmed.id ? confirmed : message))
+  }
+
+  if (confirmedIdx >= 0) {
+    return current.map((message) => (message.id === confirmed.id ? confirmed : message))
+  }
+
+  if (optimisticIdx >= 0) {
+    const next = [...current]
+    next[optimisticIdx] = confirmed
+    return next
+  }
+
+  return [...current, confirmed]
+}
