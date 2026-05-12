@@ -166,6 +166,13 @@ Notes:
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Intended for rendering attachment media in chat without exposing permanent public file URLs.
 
+## Image Proxy Endpoint
+
+- `GET /api/images/avatar?url=<encoded-https-url>`
+  - Proxies third-party avatar images so viewers do not request user-supplied image hosts directly.
+  - Accepts only public `https://` URLs, rejects redirects, local/private host resolution, unsupported content types, and images over 3 MB.
+  - Returns `image/jpeg`, `image/png`, `image/gif`, or `image/webp` with cache headers and `X-Content-Type-Options: nosniff`.
+
 ## Message Endpoints (Server Channels)
 
 - `GET /api/messages/:channel_id?before=<uuid>&limit=<n>`

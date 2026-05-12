@@ -12,7 +12,7 @@ use base64::{
 };
 use redis::AsyncCommands;
 use sha2::{Digest, Sha256};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
@@ -28,6 +28,7 @@ use crate::{
         User, UserBroadcastProfile, UserPublic,
     },
     services::auth::{generate_token, hash_password, verify_password},
+    services::avatar_images::validate_profile_avatar_url,
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
     AppState,
@@ -338,91 +339,6 @@ fn token_hash_base64(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     BASE64.encode(hasher.finalize())
-}
-
-fn is_private_or_local_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let octets = v4.octets();
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_multicast()
-                || v4.is_unspecified()
-                || *v4 == Ipv4Addr::BROADCAST
-                || octets[0] == 0
-                || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000)
-                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
-                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
-        }
-        IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_unique_local()
-                || v6.is_unicast_link_local()
-                || v6.is_multicast()
-        }
-    }
-}
-
-fn is_forbidden_avatar_host(host: &str) -> bool {
-    let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    matches!(
-        normalized.as_str(),
-        "localhost"
-            | "localhost.localdomain"
-            | "metadata"
-            | "metadata.google.internal"
-            | "instance-data"
-    ) || normalized.ends_with(".localhost")
-        || normalized.ends_with(".local")
-        || normalized.ends_with(".internal")
-}
-
-fn validate_avatar_url(raw: &str) -> Result<String, AppError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Validation("Avatar URL cannot be empty".into()));
-    }
-    if trimmed.len() > 3_000_000 {
-        return Err(AppError::Validation("Avatar image is too large".into()));
-    }
-    if trimmed
-        .to_ascii_lowercase()
-        .starts_with("data:image/svg+xml")
-    {
-        return Err(AppError::Validation(
-            "SVG images are not allowed for avatars (security)".into(),
-        ));
-    }
-    if trimmed.starts_with("data:image/") {
-        return Ok(trimmed.to_string());
-    }
-
-    let parsed = reqwest::Url::parse(trimmed)
-        .map_err(|_| AppError::Validation("Avatar must be a valid HTTPS image URL".into()))?;
-    if parsed.scheme() != "https" {
-        return Err(AppError::Validation(
-            "Avatar image URLs must use https://".into(),
-        ));
-    }
-
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| AppError::Validation("Avatar URL must include a host".into()))?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_or_local_ip(&ip) {
-            return Err(AppError::Validation(
-                "Avatar URL cannot point to local or private network addresses".into(),
-            ));
-        }
-    } else if is_forbidden_avatar_host(host) {
-        return Err(AppError::Validation(
-            "Avatar URL host is not allowed".into(),
-        ));
-    }
-
-    Ok(trimmed.to_string())
 }
 
 fn transliterate_special_latin_char(c: char) -> &'static str {
@@ -2117,7 +2033,7 @@ async fn update_profile(
     if body.clear_avatar.unwrap_or(false) {
         next_avatar = None;
     } else if let Some(url) = body.avatar_url {
-        next_avatar = Some(validate_avatar_url(&url)?);
+        next_avatar = Some(validate_profile_avatar_url(&url)?);
     }
 
     if let Some(dm_privacy) = body.dm_privacy {

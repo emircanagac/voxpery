@@ -17,6 +17,7 @@ import {
     shouldUseAggressiveVoiceIsolation,
 } from '../webrtc/voiceInputProfile'
 import { useAudioEngine } from '../webrtc/hooks/useAudioEngine'
+import { resolveAvatarUrl } from '../api'
 
 const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -503,7 +504,7 @@ export default function SensitivityBar({
                         <div className="sensitivity-bar-preview-shell sensitivity-bar-preview-shell--control">
                             <div className={`sensitivity-bar-preview-avatar${gatePassing ? ' is-speaking' : ''}`}>
                                 {previewAvatarUrl ? (
-                                    <img src={previewAvatarUrl} alt="Mic test preview" className="user-avatar-image" />
+                                    <img src={resolveAvatarUrl(previewAvatarUrl) ?? ''} alt="Mic test preview" className="user-avatar-image" />
                                 ) : (
                                     previewFallback
                                 )}

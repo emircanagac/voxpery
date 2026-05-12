@@ -8,7 +8,7 @@ import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
-import { authApi, getAuthErrorMessage } from '../api'
+import { authApi, getAuthErrorMessage, resolveAvatarUrl } from '../api'
 import { useSocketStore } from '../stores/socket'
 import {
   DEFAULT_SPEAKING_PRESET,
@@ -1285,7 +1285,7 @@ export default function UserBar() {
           aria-label="Set status"
         >
           {user?.avatar_url ? (
-            <img src={user.avatar_url} alt={user.username} className="user-avatar-image" />
+            <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt={user.username} className="user-avatar-image" />
           ) : (
             user ? getInitial(user.username) : '?'
           )}
@@ -1793,7 +1793,7 @@ export default function UserBar() {
                 <div className="user-profile-preview-card">
                   <div className={`user-profile-preview-avatar avatar-status-${(user?.status ?? 'online') as StatusValue}`} aria-hidden>
                     {user?.avatar_url ? (
-                      <img src={user.avatar_url} alt="" className="user-avatar-image" />
+                      <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" className="user-avatar-image" />
                     ) : (
                       user ? getInitial(user.username) : '?'
                     )}
@@ -1813,7 +1813,7 @@ export default function UserBar() {
                   <div className="user-setting-profile-photo">
                     <div className="user-setting-profile-avatar" aria-hidden>
                       {user?.avatar_url ? (
-                        <img src={user.avatar_url} alt="" className="user-avatar-image" />
+                        <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" className="user-avatar-image" />
                       ) : (
                         user ? getInitial(user.username) : '?'
                       )}

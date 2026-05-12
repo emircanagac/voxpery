@@ -2,7 +2,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
-import { dmApi, friendApi, serverApi, type ServerRole } from '../api'
+import { dmApi, friendApi, resolveAvatarUrl, serverApi, type ServerRole } from '../api'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
@@ -96,7 +96,7 @@ const MemberItem = memo(function MemberItem({
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
                 {member.avatar_url ? (
-                    <img src={member.avatar_url} alt="" className="member-avatar-image" />
+                    <img src={resolveAvatarUrl(member.avatar_url) ?? ''} alt="" className="member-avatar-image" />
                 ) : (
                     getInitial(member.username)
                 )}
@@ -755,7 +755,7 @@ export default function MemberSidebar({
                     <div className="member-profile-header">
                         <div className="member-profile-avatar">
                             {profileCard.member.avatar_url ? (
-                                <img src={profileCard.member.avatar_url} alt="" className="member-avatar-image" />
+                                <img src={resolveAvatarUrl(profileCard.member.avatar_url) ?? ''} alt="" className="member-avatar-image" />
                             ) : (
                                 profileCard.member.username.charAt(0).toUpperCase()
                             )}

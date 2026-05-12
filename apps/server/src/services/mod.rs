@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod avatar_images;
 pub mod audit;
 pub mod automod;
 pub mod auth;

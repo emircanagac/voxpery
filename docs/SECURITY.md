@@ -195,9 +195,16 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Backend**: No HTML rendering (JSON API only)
 - **Message content**: Stored as plain text, rendered as text (no `<script>` execution)
 
+### Avatar Image Proxy
+
+- User-supplied external avatar URLs are rendered through `GET /api/images/avatar?url=...` so viewers do not request third-party avatar hosts directly.
+- The proxy accepts only `https://` avatar URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, disables redirects, and rate-limits proxy requests.
+- Responses must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, are capped at 3 MB, and are returned with cache headers plus `X-Content-Type-Options: nosniff`.
+- `data:image/*` profile avatars are still accepted for uploaded profile photos, but SVG data URLs are rejected.
+
 ### Path Traversal
 
-- **Avatar URLs**: validated to allowed image URL/data-url schemes.
+- **Avatar URLs**: validated to allowed image URL/data-url schemes and proxied before third-party rendering.
 - **Attachments**: message payload URLs are restricted to `http(s)` only; `data:` URLs are blocked for new messages.
 
 ### File Upload Security
