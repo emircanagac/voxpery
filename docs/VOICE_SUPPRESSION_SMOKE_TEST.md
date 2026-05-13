@@ -14,6 +14,18 @@ Use this smoke test before production releases that touch voice, WebRTC, LiveKit
 
 ## Runtime Diagnostic Gate
 
+Before joining voice on production, confirm the web response CSP allows WebAssembly:
+
+```bash
+curl -I https://voxpery.com/
+```
+
+Required header detail:
+
+```text
+content-security-policy: ... script-src 'self' 'wasm-unsafe-eval' ...
+```
+
 After joining voice, open DevTools on the sender and run:
 
 ```js
@@ -34,6 +46,7 @@ Required result:
 
 Fail the release candidate if:
 
+- The production CSP does not include `'wasm-unsafe-eval'` in `script-src`.
 - `rnnoiseStatus` is `failed`, `loading` for more than a few seconds, or missing.
 - `noiseSuppressionEnabled` is not `true`.
 - `suppressionTuning` is not `high` after selecting `Noisy room`.
