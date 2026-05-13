@@ -248,8 +248,10 @@ add_header X-Content-Type-Options "nosniff" always;
 add_header X-Frame-Options "DENY" always;
 add_header X-XSS-Protection "1; mode=block" always;
 add_header Referrer-Policy "no-referrer" always;
-add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss://api.your-domain.com; img-src 'self' https:; style-src 'self' 'unsafe-inline';" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; connect-src 'self' https://api.your-domain.com wss://api.your-domain.com https://livekit.your-domain.com wss://livekit.your-domain.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" always;
 ```
+
+`'wasm-unsafe-eval'` is required for the RNNoise WebAssembly voice suppression runtime. It is narrower than broad JavaScript `'unsafe-eval'` and should stay in `script-src` for production voice releases.
 
 ## Secrets Management
 
