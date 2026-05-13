@@ -7,6 +7,7 @@ import {
     shouldUseAggressiveVoiceIsolation,
     type VoiceSuppressionTuning,
 } from '../voiceInputProfile'
+import { updateVoiceDiagnostics } from '../voiceDiagnostics'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -69,6 +70,9 @@ function getSpeechIsolationTarget(
     const boomyNoise = lowNoiseDb > bodyDb + 2.5
     const clickyNoise = highNoiseDb > presenceDb + 2.5
 
+    if (aggressiveIsolation && clickyNoise) return quietish ? 0.18 : 0.42
+    if (aggressiveIsolation && boomyNoise && quietish) return 0.24
+
     if (!speechLike) {
         if (rms <= lowFloorThr || quietish) return aggressiveIsolation ? 0.035 : 0.16
         return clickyNoise || boomyNoise
@@ -91,6 +95,7 @@ function isLikelySpeechFrame(
     frequencyData: Float32Array,
     sampleRate: number,
     fftSize: number,
+    aggressiveIsolation: boolean,
 ): boolean {
     const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1400)
     const speechBodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2200)
@@ -106,7 +111,13 @@ function isLikelySpeechFrame(
         highNoiseDb > presenceDb + 3.2
         && highNoiseDb > speechBodyDb + 4.2
         && lowNoiseDb < speechBodyDb - 6
-    return score >= -2.8 && !clicky
+    const noiseDominant =
+        highNoiseDb > presenceDb + 2.2
+        && highNoiseDb > speechBodyDb + 2.8
+        && upperSpeechDb < highNoiseDb + 1.2
+    return score >= (aggressiveIsolation ? -0.8 : -2.8)
+        && !clicky
+        && (!aggressiveIsolation || !noiseDominant)
 }
 
 export type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
@@ -136,6 +147,13 @@ function buildSuppressionConfig(
     const profile = getStoredVoiceInputProfile()
     const aggressiveIsolation = shouldUseAggressiveVoiceIsolation(profile, noiseSuppressionEnabled)
     const suppressionTuning = getStoredVoiceSuppressionTuning(noiseSuppressionEnabled)
+
+    updateVoiceDiagnostics({
+        noiseSuppressionEnabled,
+        voiceInputProfile: profile,
+        suppressionTuning,
+        aggressiveIsolation,
+    })
 
     return {
         aggressiveIsolation,
@@ -337,6 +355,9 @@ export function useAudioEngine() {
         rnnoiseRef.current?.destroy()
         const rnnoise = await createRnnoiseNode(ctx, noiseSuppressionEnabled)
         rnnoiseRef.current = rnnoise
+        if (noiseSuppressionEnabled) {
+            await rnnoise.waitUntilReady()
+        }
 
         // Tame sharp keyboard peaks before the final send gain.
         const transientCompressor = ctx.createDynamicsCompressor()
@@ -517,6 +538,7 @@ export function useAudioEngine() {
                         frequencyBuffer,
                         ctx.sampleRate,
                         refinementAnalyser.fftSize,
+                        liveSuppressionConfig.aggressiveIsolation,
                     )
                     // When we detect speech, avoid over-attenuating the send floor.
                     // This keeps syllables intact while retaining strong suppression in non-speech frames.

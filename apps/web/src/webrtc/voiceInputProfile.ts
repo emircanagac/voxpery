@@ -62,7 +62,7 @@ export function getVoiceInputProfileConfig(profile: VoiceInputProfile): VoiceInp
 
 export function getVoiceProfileSummary(profile: VoiceInputProfile): string {
   if (profile === 'studio') return 'Raw voice with minimal processing for maximum natural tone.'
-  if (profile === 'custom') return 'Fine-tuned settings with manual control over sensitivity and mode.'
+  if (profile === 'custom') return 'Fine-tuned sensitivity and mode with noise isolation kept active when enabled.'
   return 'Default isolation profile optimized for keyboard and room-noise suppression.'
 }
 
@@ -71,8 +71,8 @@ export function shouldUseAggressiveVoiceIsolation(
   noiseSuppressionEnabled: boolean,
 ): boolean {
   if (!noiseSuppressionEnabled) return false
-  // Profile still controls the overall isolation style; preset tuning is layered on top.
-  return profile === 'isolation'
+  // Custom settings should not silently downgrade noise isolation; only Studio is intentionally raw.
+  return profile !== 'studio'
 }
 
 export function getVoiceSuppressionTuning(

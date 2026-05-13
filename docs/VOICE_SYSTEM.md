@@ -85,11 +85,13 @@ Room.localParticipant.publishTrack
   - Runs inside an `AudioWorkletNode` for low-latency realtime processing
   - Lazy-loaded on first enable (~4.8 MB WASM, 3.1 MB gzipped) -> separate chunk in Vite build
   - Removes keyboard clicks, fan noise, background hum while preserving voice clarity
+  - While RNNoise is loading, the worklet briefly outputs silence instead of raw mic audio so startup cannot leak background noise before the denoiser is ready
   - Toggle: Live on/off in Voice Settings (no voice channel re-join required)
 - **Simple user-facing model**
   - Voice Settings intentionally exposes only `Off` / `On`
   - When `On`, Voxpery automatically changes cleanup strength based on the current **Input sensitivity** threshold
   - This keeps `Custom` sensitivity values logically aligned with the actual environment instead of tying suppression strength to preset names only
+  - `Custom` keeps the same isolation style as the default profile; only `Studio` intentionally disables the aggressive cleanup path
 - **Threshold-based suppression tuning**
   - `-100 .. -53 dB` -> `balanced` cleanup
   - `-52 .. 0 dB` -> `high` cleanup
@@ -246,7 +248,8 @@ When debugging a production voice report, capture:
 
 1. The call bar ping color and visible ping.
 2. Whether the room was connected, connecting, or reconnecting.
-3. Whether the user recently changed microphone, camera, VPN, firewall, or network.
+3. `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active.
+4. Whether the user recently changed microphone, camera, VPN, firewall, or network.
 
 ### Voice cues
 

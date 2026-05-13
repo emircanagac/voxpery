@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voxpery-static-v1'
+const CACHE_NAME = 'voxpery-static-v2'
 const PRECACHE_URLS = ['/manifest.webmanifest', '/pwa-192.png', '/pwa-512.png']
 
 self.addEventListener('install', (event) => {
@@ -26,6 +26,7 @@ function isCacheableStaticAsset(request) {
   if (request.mode === 'navigate') return false
   if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return false
   if (url.pathname === '/' || url.pathname.endsWith('.html')) return false
+  if (url.pathname === '/assets/rnnoise-worklet.js') return false
 
   return (
     url.pathname.startsWith('/assets/') ||

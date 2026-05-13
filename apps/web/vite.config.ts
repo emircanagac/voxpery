@@ -20,10 +20,12 @@ function rnnoiseProdStripPlugin() {
 }
 
 // https://vite.dev/config/
+const RNNOISE_WORKLET_URL = `/assets/rnnoise-worklet.js?v=${Date.now().toString(36)}`
+
 export default defineConfig(({ mode }) => ({
   envDir: '../../',
   plugins: [react(), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(Boolean),
-  define: mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify('/assets/rnnoise-worklet.js') } : {},
+  define: mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify(RNNOISE_WORKLET_URL) } : {},
   build: {
     // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output
     minify: 'esbuild',
@@ -31,7 +33,7 @@ export default defineConfig(({ mode }) => ({
       drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     rollupOptions: {
-      // Worklet as separate entry → one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
+      // Worklet as separate entry -> one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
       input: {
         main: 'index.html',
         worklet: 'src/webrtc/rnnoise-worklet-processor.ts',

@@ -47,6 +47,8 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
   private denoiseState: DenoiseState | null = null
   private isEnabled: boolean
   private destroyed = false
+  private loadFailed = false
+  private processFailureReported = false
 
   /* ring buffers (zero-alloc in the hot path) */
   private readonly inRing  = new Float32Array(RING_SIZE)
@@ -70,6 +72,7 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
       if (data.type === 'set-enabled') {
         this.isEnabled = data.enabled ?? true
         if (this.isEnabled && !this.denoiseState && !this.destroyed) {
+          this.loadFailed = false
           void this.loadWasm()
         }
       } else if (data.type === 'destroy') {
@@ -87,12 +90,18 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
 
   private async loadWasm(): Promise<void> {
     try {
+      this.loadFailed = false
       const rnnoise = await Rnnoise.load()
       if (!this.destroyed) {
         this.denoiseState = rnnoise.createDenoiseState()
         this.port.postMessage({ type: 'ready' })
       }
     } catch (err) {
+      this.loadFailed = true
+      this.port.postMessage({
+        type: 'load-failed',
+        message: err instanceof Error ? err.message : 'RNNoise WASM failed to load',
+      })
       console.error('[RnnoiseProcessor] Failed to load WASM:', err)
     }
   }
@@ -114,9 +123,15 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
     if (!input || !output) return true
 
     try {
-      /* passthrough when disabled or WASM not yet loaded */
-      if (!this.isEnabled || !this.denoiseState) {
+      /* passthrough when disabled or after a confirmed load failure */
+      if (!this.isEnabled || this.loadFailed) {
         output.set(input)
+        return true
+      }
+
+      /* avoid leaking raw background noise during the short WASM startup window */
+      if (!this.denoiseState) {
+        output.fill(0)
         return true
       }
 
@@ -160,6 +175,13 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
         output[i] = 0
       }
     } catch (err) {
+      if (!this.processFailureReported) {
+        this.processFailureReported = true
+        this.port.postMessage({
+          type: 'process-failed',
+          message: err instanceof Error ? err.message : 'RNNoise process loop failed',
+        })
+      }
       console.error('[RnnoiseProcessor] Exception in process loop:', err)
       output.set(input)
     }
