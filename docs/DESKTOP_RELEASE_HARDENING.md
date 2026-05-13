@@ -60,7 +60,10 @@ Before publishing a desktop release:
    - no-update state is understandable
    - available-update state shows version metadata
    - failed update check/install does not crash or leave the settings panel stuck
-5. Confirm installer/update preparation closes tray/minimize state cleanly before install.
+5. Confirm fresh installs enable `Launch on startup` by default, the user can disable it, and the disabled preference persists.
+6. Confirm normal app launch opens maximized on a fresh install, then restores the user's last size, position, and maximized state on later launches.
+7. Confirm Windows startup launch stays in the tray until the user opens Voxpery from the tray, and tray Show opens a maximized window.
+8. Confirm installer/update preparation closes tray/minimize state cleanly before install.
 
 ## 5) Rollback Expectations
 

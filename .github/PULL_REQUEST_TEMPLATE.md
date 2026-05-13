@@ -1,37 +1,21 @@
 ## Summary
 
--
-
-## Related
-
-<!-- Closes #123, or leave blank. -->
+<!-- Briefly explain what changed and why. -->
 
 ## Changes
+
+<!-- List the meaningful product or technical changes. -->
 
 -
 
 ## Validation
 
-- [ ] `npm run lint`
-- [ ] `npm run test:run`
-- [ ] `npm run build`
-- [ ] `cargo test`
-- [ ] Other/manual:
+<!-- List commands and manual checks that were run. If something was not run, say why. -->
 
-## Security / Privacy Impact
+-
 
-- [ ] No new secrets added
-- [ ] No auth/permission regression
-- [ ] No sensitive data added to logs
+## Notes
 
-## Docs
+<!-- Optional: related issue, docs/security/privacy impact, migration notes, or rollout risk. -->
 
-- [ ] API docs updated or not needed
-- [ ] DB docs updated or not needed
-- [ ] Security docs updated or not needed
-
-## Checklist
-
-- [ ] CI passes
-- [ ] Backward compatibility considered
-- [ ] Tests added/updated where needed
+-
