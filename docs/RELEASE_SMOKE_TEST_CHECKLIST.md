@@ -47,7 +47,10 @@ Use this checklist for every production release candidate before tag/publish.
 ## 4) Desktop Smoke Tests (mandatory)
 
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
-- [ ] App opens and reaches login screen.
+- [ ] App opens maximized by default and reaches login screen.
+- [ ] After resize/unmaximize and restart, the desktop app restores the user's last size, position, and maximized state.
+- [ ] Fresh desktop install enables `Launch on startup` by default, and disabling it from settings persists across restart.
+- [ ] Windows startup launch keeps Voxpery in the background/tray, and opening it from the tray shows a maximized window.
 - [ ] Production desktop build connects only to the official API and does not allow localhost API scopes.
 - [ ] Desktop register screen renders CAPTCHA and new account registration succeeds when production CAPTCHA is enabled.
 - [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.

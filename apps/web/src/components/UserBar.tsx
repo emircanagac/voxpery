@@ -34,10 +34,10 @@ import {
   type UpdateResult,
 } from '../updater'
 import {
+  bootstrapDesktopAutostartDefault,
   getDesktopStartupTargetLabel,
   getDesktopAutostartEnabled,
   getStoredMinimizeToTrayOnCloseEnabled,
-  shouldEnableDesktopAutostartByDefault,
   setDesktopAutostartEnabled,
   setStoredDesktopAutostartPreference,
   setDesktopMinimizeToTrayOnClose,
@@ -795,18 +795,9 @@ export default function UserBar() {
       setDesktopAutostartLoading(true)
       setMinimizeToTrayLoading(true)
       try {
-        const [autostartInitiallyEnabled, trayEnabled] = await Promise.all([
-          getDesktopAutostartEnabled(),
-          Promise.resolve(getStoredMinimizeToTrayOnCloseEnabled()),
-        ])
-        let autostartEnabled = autostartInitiallyEnabled
-        if (shouldEnableDesktopAutostartByDefault()) {
-          if (!autostartEnabled) {
-            await setDesktopAutostartEnabled(true)
-            autostartEnabled = true
-          }
-          setStoredDesktopAutostartPreference(true)
-        }
+        const trayEnabled = getStoredMinimizeToTrayOnCloseEnabled()
+        const defaultEnabled = await bootstrapDesktopAutostartDefault()
+        const autostartEnabled = defaultEnabled ?? await getDesktopAutostartEnabled()
         await setDesktopMinimizeToTrayOnClose(trayEnabled)
         if (cancelled) return
         setDesktopAutostartState(autostartEnabled)
@@ -1032,7 +1023,7 @@ export default function UserBar() {
     setDesktopAutostartLoading(true)
     try {
       await setDesktopAutostartEnabled(next)
-      setStoredDesktopAutostartPreference(next)
+      await setStoredDesktopAutostartPreference(next)
       setDesktopAutostartState(next)
       pushToast({
         level: 'info',

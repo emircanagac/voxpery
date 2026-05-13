@@ -15,6 +15,7 @@
         "title": "Voxpery",
         "width": 1280,
         "height": 800,
+        "maximized": true,
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,

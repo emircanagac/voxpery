@@ -32,6 +32,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(false);
         let _ = w.unminimize();
+        let _ = w.maximize();
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -110,7 +111,12 @@ fn focus_tray_icon_canvas(img: RgbaImage, padding: u32) -> RgbaImage {
     let target_width = ((crop_width as f32 * scale).round() as u32).clamp(1, width);
     let target_height = ((crop_height as f32 * scale).round() as u32).clamp(1, height);
     let cropped = crop_imm(&img, min_x, min_y, crop_width, crop_height).to_image();
-    let resized = resize(&cropped, target_width, target_height, FilterType::CatmullRom);
+    let resized = resize(
+        &cropped,
+        target_width,
+        target_height,
+        FilterType::CatmullRom,
+    );
 
     let mut canvas = RgbaImage::new(width, height);
     let offset_x = ((width - target_width) / 2) as i64;
@@ -130,7 +136,12 @@ fn make_base_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
 
     let focused = focus_tray_icon_canvas(img, 2);
     let (width, height) = focused.dimensions();
-    Some(apply_icon_variant(focused.into_raw(), width, height, variant))
+    Some(apply_icon_variant(
+        focused.into_raw(),
+        width,
+        height,
+        variant,
+    ))
 }
 
 fn make_unread_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
@@ -224,13 +235,11 @@ fn desktop_update_unread_feedback(
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_badge_count(if unread_count > 0 { Some(1) } else { None });
         let window_focused = window.is_focused().unwrap_or(false);
-        let _ = window.request_user_attention(
-            if unread_increased && !window_focused {
-                Some(tauri::UserAttentionType::Critical)
-            } else {
-                None
-            },
-        );
+        let _ = window.request_user_attention(if unread_increased && !window_focused {
+            Some(tauri::UserAttentionType::Critical)
+        } else {
+            None
+        });
     }
 
     if let Some(tray) = app.tray_by_id("main-tray") {
@@ -312,6 +321,9 @@ fn main() {
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
         use tauri::WindowEvent;
         use tauri::{Emitter, Manager};
+        use tauri_plugin_window_state::StateFlags;
+
+        let window_state_flags = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
 
         builder = builder
             .plugin(tauri_plugin_http::init())
@@ -320,6 +332,11 @@ fn main() {
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_deep_link::init())
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(window_state_flags)
+                    .build(),
+            )
             .setup(|app| {
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -329,13 +346,19 @@ fn main() {
                 let _ =
                     app.handle()
                         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-                            show_main_window(app);
+                            let deep_link = args
+                                .iter()
+                                .find(|arg| arg.starts_with("voxpery://"))
+                                .cloned();
+                            let is_startup_instance = args.iter().any(|arg| arg == "--autostart");
+
+                            if deep_link.is_some() || !is_startup_instance {
+                                show_main_window(app);
+                            }
+
                             if let Some(w) = app.get_webview_window("main") {
-                                for arg in args {
-                                    if arg.starts_with("voxpery://") {
-                                        let _ = w.emit("custom-deep-link", arg);
-                                        break;
-                                    }
+                                if let Some(arg) = deep_link {
+                                    let _ = w.emit("custom-deep-link", arg);
                                 }
                             }
                         }));
@@ -345,7 +368,10 @@ fn main() {
                 let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
                 let _tray = TrayIconBuilder::with_id("main-tray")
-                    .icon(make_base_tray_icon(false).unwrap_or_else(|| app.default_window_icon().unwrap().clone()))
+                    .icon(
+                        make_base_tray_icon(false)
+                            .unwrap_or_else(|| app.default_window_icon().unwrap().clone()),
+                    )
                     .menu(&menu)
                     .tooltip("Voxpery")
                     .show_menu_on_left_click(true)
@@ -381,23 +407,21 @@ fn main() {
 
                     let main_win_clone = main_win.clone();
                     let app_handle = app.handle().clone();
-                    main_win.on_window_event(move |event| {
-                        match event {
-                            WindowEvent::CloseRequested { api, .. } => {
-                                let state = app_handle.state::<DesktopRuntimeState>();
-                                let allow_close = state.allow_close_for_update.load(Ordering::Relaxed);
-                                let minimize_to_tray =
-                                    state.minimize_to_tray_on_close.load(Ordering::Relaxed);
+                    main_win.on_window_event(move |event| match event {
+                        WindowEvent::CloseRequested { api, .. } => {
+                            let state = app_handle.state::<DesktopRuntimeState>();
+                            let allow_close = state.allow_close_for_update.load(Ordering::Relaxed);
+                            let minimize_to_tray =
+                                state.minimize_to_tray_on_close.load(Ordering::Relaxed);
 
-                                if allow_close || !minimize_to_tray {
-                                    return;
-                                }
-
-                                api.prevent_close();
-                                let _ = main_win_clone.hide();
+                            if allow_close || !minimize_to_tray {
+                                return;
                             }
-                            _ => {}
+
+                            api.prevent_close();
+                            let _ = main_win_clone.hide();
                         }
+                        _ => {}
                     });
                 }
 

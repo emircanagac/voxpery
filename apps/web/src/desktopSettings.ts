@@ -2,30 +2,60 @@ import { isTauri } from './secureStorage'
 
 const MINIMIZE_TO_TRAY_ON_CLOSE_KEY = 'voxpery-settings-minimize-to-tray-on-close'
 const AUTOSTART_PREFERENCE_KEY = 'voxpery-settings-autostart-preference'
+const ENABLED_VALUE = '1'
+const DISABLED_VALUE = '0'
 
-function readBoolSetting(key: string, fallback: boolean) {
+function normalizeBoolValue(value: string | null | undefined): boolean | null {
+  if (value === ENABLED_VALUE) return true
+  if (value === DISABLED_VALUE) return false
+  return null
+}
+
+function readOptionalBoolSetting(key: string) {
   try {
     const value = localStorage.getItem(key)
-    if (value == null) return fallback
-    return value === '1'
+    return normalizeBoolValue(value)
   } catch {
-    return fallback
+    return null
   }
 }
 
-function writeBoolSetting(key: string, enabled: boolean) {
+function readBoolSetting(key: string, fallback: boolean) {
+  return readOptionalBoolSetting(key) ?? fallback
+}
+
+function writeLocalBoolSetting(key: string, enabled: boolean) {
   try {
-    localStorage.setItem(key, enabled ? '1' : '0')
+    localStorage.setItem(key, enabled ? ENABLED_VALUE : DISABLED_VALUE)
   } catch {
     // ignore storage errors
   }
 }
 
-function hasStoredSetting(key: string) {
+async function readNativeBoolSetting(key: string): Promise<boolean | null> {
+  if (!isTauri()) return null
   try {
-    return localStorage.getItem(key) != null
+    const { invoke } = await import('@tauri-apps/api/core')
+    const out = await invoke('plugin:secure-storage|get_item', {
+      payload: { prefixedKey: key },
+    })
+    if (typeof out === 'string') return normalizeBoolValue(out)
+    const obj = out as { data?: string | null } | null
+    return normalizeBoolValue(obj?.data)
   } catch {
-    return false
+    return null
+  }
+}
+
+async function writeNativeBoolSetting(key: string, enabled: boolean) {
+  if (!isTauri()) return
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('plugin:secure-storage|set_item', {
+      payload: { prefixedKey: key, data: enabled ? ENABLED_VALUE : DISABLED_VALUE },
+    })
+  } catch {
+    // localStorage remains a best-effort fallback.
   }
 }
 
@@ -49,16 +79,39 @@ export async function setDesktopAutostartEnabled(enabled: boolean) {
   await disable()
 }
 
-export function shouldEnableDesktopAutostartByDefault() {
+async function getStoredDesktopAutostartPreference(): Promise<boolean | null> {
+  const nativeValue = await readNativeBoolSetting(AUTOSTART_PREFERENCE_KEY)
+  if (nativeValue != null) return nativeValue
+
+  const localValue = readOptionalBoolSetting(AUTOSTART_PREFERENCE_KEY)
+  if (localValue != null) {
+    await writeNativeBoolSetting(AUTOSTART_PREFERENCE_KEY, localValue)
+  }
+  return localValue
+}
+
+export async function shouldEnableDesktopAutostartByDefault() {
   if (!isTauri()) return false
-  if (hasStoredSetting(AUTOSTART_PREFERENCE_KEY)) return false
+  if ((await getStoredDesktopAutostartPreference()) != null) return false
   if (typeof navigator === 'undefined') return false
   const platformSignal = `${navigator.userAgent ?? ''} ${navigator.platform ?? ''}`.toLowerCase()
   return platformSignal.includes('windows') || platformSignal.includes('win32') || platformSignal.includes('win64')
 }
 
-export function setStoredDesktopAutostartPreference(enabled: boolean) {
-  writeBoolSetting(AUTOSTART_PREFERENCE_KEY, enabled)
+export async function bootstrapDesktopAutostartDefault(): Promise<boolean | null> {
+  if (!(await shouldEnableDesktopAutostartByDefault())) return null
+
+  const enabled = await getDesktopAutostartEnabled()
+  if (!enabled) {
+    await setDesktopAutostartEnabled(true)
+  }
+  await setStoredDesktopAutostartPreference(true)
+  return true
+}
+
+export async function setStoredDesktopAutostartPreference(enabled: boolean) {
+  writeLocalBoolSetting(AUTOSTART_PREFERENCE_KEY, enabled)
+  await writeNativeBoolSetting(AUTOSTART_PREFERENCE_KEY, enabled)
 }
 
 export function getDesktopStartupTargetLabel() {
@@ -71,7 +124,7 @@ export function getDesktopStartupTargetLabel() {
 }
 
 export async function setDesktopMinimizeToTrayOnClose(enabled: boolean) {
-  writeBoolSetting(MINIMIZE_TO_TRAY_ON_CLOSE_KEY, enabled)
+  writeLocalBoolSetting(MINIMIZE_TO_TRAY_ON_CLOSE_KEY, enabled)
   if (!isTauri()) return
   const { invoke } = await import('@tauri-apps/api/core')
   await invoke('desktop_set_minimize_to_tray_on_close', { enabled })

@@ -16,6 +16,7 @@ import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
+import { bootstrapDesktopAutostartDefault } from './desktopSettings'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -82,6 +83,13 @@ function App() {
   useEffect(() => {
     void loadFeatures()
   }, [loadFeatures])
+
+  useEffect(() => {
+    if (!isDesktopApp) return
+    void bootstrapDesktopAutostartDefault().catch(() => {
+      // UserBar still exposes the manual control if the OS startup registration fails.
+    })
+  }, [isDesktopApp])
 
   useEffect(() => {
     const clearExpiredSession = () => {
