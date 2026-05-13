@@ -18,10 +18,11 @@ describe('voiceInputProfile suppression tuning', () => {
     expect(getVoiceSuppressionTuning('studio', 70, true)).toBe('off')
   })
 
-  it('applies aggressive isolation only for isolation profile with suppression enabled', () => {
+  it('keeps aggressive isolation for custom settings when suppression is enabled', () => {
     expect(shouldUseAggressiveVoiceIsolation('isolation', true)).toBe(true)
-    expect(shouldUseAggressiveVoiceIsolation('custom', true)).toBe(false)
+    expect(shouldUseAggressiveVoiceIsolation('custom', true)).toBe(true)
     expect(shouldUseAggressiveVoiceIsolation('isolation', false)).toBe(false)
+    expect(shouldUseAggressiveVoiceIsolation('studio', true)).toBe(false)
   })
 
   it('marks pipeline rebuild only when suppression tier changes', () => {

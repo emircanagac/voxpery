@@ -2,6 +2,8 @@
 
 Use this checklist for every production release candidate before tag/publish.
 
+For releases that touch voice, WebRTC, LiveKit, service workers, build output, or audio settings, also complete `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
+
 ## Release Candidate Info
 
 - Version:
@@ -43,6 +45,7 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
+- [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 
 ## 4) Desktop Smoke Tests (mandatory)
 
@@ -69,6 +72,9 @@ Use this checklist for every production release candidate before tag/publish.
 - [ ] Denying desktop microphone permission shows recovery guidance, opens OS privacy settings from Voice & Audio, and succeeds after permission is restored and retried.
 - [ ] Denying desktop camera permission shows OS-specific recovery guidance, opens OS privacy settings when supported, and succeeds after permission is restored and retried.
 - [ ] Voice settings mic test with noise suppression on and `Noisy room` selected does not pass normal keyboard, mouse, fan, or breath noise as speech.
+- [ ] Real production voice call with noise suppression on and `Noisy room` selected suppresses clap, keyboard, and room-noise bursts similarly to the local Docker build.
+- [ ] During the real production voice call, DevTools `window.__VOXPERY_VOICE_DIAGNOSTICS__` reports `rnnoiseStatus: "ready"` and `aggressiveIsolation: true` when suppression is on.
+- [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 
 ## 5) Final Sign-off

@@ -4,6 +4,7 @@ import {
   getVoiceNetworkQuality,
   getVoiceQualityAdvice,
   getVoicePingLevel,
+  updateVoiceDiagnostics,
   voiceQualityLabel,
 } from './voiceDiagnostics'
 
@@ -66,5 +67,24 @@ describe('voiceDiagnostics', () => {
     expect(voiceQualityLabel(summary.level)).toBe('Poor voice quality')
     expect(getVoiceQualityAdvice(summary, 'connected')).toContain('steadier connection')
     expect(getVoiceQualityAdvice(summary, 'reconnecting')).toContain('reconnecting')
+  })
+
+  it('exposes RNNoise runtime diagnostics for release smoke checks', () => {
+    updateVoiceDiagnostics({
+      rnnoiseStatus: 'ready',
+      noiseSuppressionEnabled: true,
+      voiceInputProfile: 'custom',
+      suppressionTuning: 'high',
+      aggressiveIsolation: true,
+    })
+
+    expect(window.__VOXPERY_VOICE_DIAGNOSTICS__).toMatchObject({
+      rnnoiseStatus: 'ready',
+      noiseSuppressionEnabled: true,
+      voiceInputProfile: 'custom',
+      suppressionTuning: 'high',
+      aggressiveIsolation: true,
+    })
+    expect(window.__VOXPERY_VOICE_DIAGNOSTICS__?.updatedAt).toEqual(expect.any(String))
   })
 })

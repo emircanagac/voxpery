@@ -1,3 +1,32 @@
+export type RnnoiseRuntimeStatus = 'disabled' | 'loading' | 'ready' | 'failed'
+
+export interface VoiceRuntimeDiagnostics {
+  rnnoiseStatus?: RnnoiseRuntimeStatus
+  rnnoiseError?: string
+  rnnoiseWorkletUrl?: string
+  noiseSuppressionEnabled?: boolean
+  voiceInputProfile?: string
+  suppressionTuning?: string
+  aggressiveIsolation?: boolean
+  updatedAt?: string
+}
+
+declare global {
+  interface Window {
+    __VOXPERY_VOICE_DIAGNOSTICS__?: VoiceRuntimeDiagnostics
+  }
+}
+
+export function updateVoiceDiagnostics(patch: VoiceRuntimeDiagnostics): void {
+  if (typeof window === 'undefined') return
+
+  window.__VOXPERY_VOICE_DIAGNOSTICS__ = {
+    ...(window.__VOXPERY_VOICE_DIAGNOSTICS__ ?? {}),
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
 export type VoiceQualityLevel = 'unknown' | 'good' | 'fair' | 'poor'
 
 export interface VoiceNetworkMetrics {
