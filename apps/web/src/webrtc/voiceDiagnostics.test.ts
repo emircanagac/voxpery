@@ -1,14 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  VOICE_DIAGNOSTICS_STORAGE_KEY,
   classifyVoiceError,
   getVoiceNetworkQuality,
   getVoiceQualityAdvice,
   getVoicePingLevel,
+  isVoiceDiagnosticsEnabled,
   updateVoiceDiagnostics,
   voiceQualityLabel,
 } from './voiceDiagnostics'
 
 describe('voiceDiagnostics', () => {
+  beforeEach(() => {
+    window.localStorage.removeItem(VOICE_DIAGNOSTICS_STORAGE_KEY)
+    delete window.__VOXPERY_VOICE_DIAGNOSTICS__
+  })
+
   it('classifies healthy, fair, and poor network quality', () => {
     expect(getVoiceNetworkQuality({
       hasActiveVoiceSession: true,
@@ -69,7 +76,21 @@ describe('voiceDiagnostics', () => {
     expect(getVoiceQualityAdvice(summary, 'reconnecting')).toContain('reconnecting')
   })
 
-  it('exposes RNNoise runtime diagnostics for release smoke checks', () => {
+  it('keeps RNNoise runtime diagnostics hidden until explicitly enabled', () => {
+    expect(isVoiceDiagnosticsEnabled()).toBe(false)
+
+    updateVoiceDiagnostics({
+      rnnoiseStatus: 'ready',
+      noiseSuppressionEnabled: true,
+    })
+
+    expect(window.__VOXPERY_VOICE_DIAGNOSTICS__).toBeUndefined()
+  })
+
+  it('exposes RNNoise runtime diagnostics for opt-in release smoke checks', () => {
+    window.localStorage.setItem(VOICE_DIAGNOSTICS_STORAGE_KEY, '1')
+    expect(isVoiceDiagnosticsEnabled()).toBe(true)
+
     updateVoiceDiagnostics({
       rnnoiseStatus: 'ready',
       noiseSuppressionEnabled: true,

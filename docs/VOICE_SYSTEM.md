@@ -248,7 +248,7 @@ When debugging a production voice report, capture:
 
 1. The call bar ping color and visible ping.
 2. Whether the room was connected, connecting, or reconnecting.
-3. `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active.
+3. Enable temporary diagnostics with `localStorage.setItem("voxperyVoiceDiagnostics", "1")`, reload, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active.
 4. Whether the user recently changed microphone, camera, VPN, firewall, or network.
 
 ### Voice cues

@@ -26,6 +26,13 @@ Required header detail:
 content-security-policy: ... script-src 'self' 'wasm-unsafe-eval' ...
 ```
 
+Before joining voice, explicitly enable the temporary diagnostics surface in DevTools:
+
+```js
+localStorage.setItem("voxperyVoiceDiagnostics", "1")
+location.reload()
+```
+
 After joining voice, open DevTools on the sender and run:
 
 ```js
@@ -81,6 +88,13 @@ The production candidate should not be meaningfully worse than local Docker with
 - `window.__VOXPERY_VOICE_DIAGNOSTICS__`.
 - Whether the request for `/assets/rnnoise-worklet.js` came from network or service worker cache.
 - Whether the test used browser, installed PWA, or desktop app.
+
+After the smoke test, remove the opt-in flag:
+
+```js
+localStorage.removeItem("voxperyVoiceDiagnostics")
+location.reload()
+```
 
 ## Notes
 
