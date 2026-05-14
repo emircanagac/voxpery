@@ -14,8 +14,16 @@
 
 **[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[View roadmap](docs/ROADMAP.md)**
 
-![Voxpery Main UI](apps/web/src/assets/voxpery-preview.png)
-
+<table>
+  <tr>
+    <td width="78%" align="center" valign="bottom">
+      <img src="apps/web/src/assets/voxpery-desktop.png" alt="Voxpery desktop voice channel interface" height="360" />
+    </td>
+    <td width="22%" align="center" valign="bottom">
+      <img src="apps/web/src/assets/voxpery-mobile.png" alt="Voxpery mobile voice channel interface" height="360" />
+    </td>
+  </tr>
+</table>
 
 </div>
 

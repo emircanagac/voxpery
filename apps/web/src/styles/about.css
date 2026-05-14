@@ -191,6 +191,7 @@
   background: rgba(255, 255, 255, 0.03);
   box-shadow: 0 28px 72px rgba(0, 0, 0, 0.34);
   overflow: hidden;
+  display: flex;
 }
 
 .about-product-preview img {
@@ -259,7 +260,7 @@
   }
 
   .about-product-previews {
-    width: min(640px, 100%);
+    width: min(680px, 100%);
     margin-top: 24px;
   }
 }
@@ -360,16 +361,6 @@
     margin-top: 18px;
     width: 100%;
     max-width: none;
-  }
-
-  .about-product-preview {
-    aspect-ratio: 16 / 7.4;
-  }
-
-  .about-product-preview img {
-    height: 100%;
-    object-fit: cover;
-    object-position: top left;
   }
 }
 
