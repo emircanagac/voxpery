@@ -2159,7 +2159,7 @@ async fn data_export_returns_user_profile_and_messages() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app().await;
+    let (mut app, state) = setup_app().await;
 
     let uid = Uuid::new_v4();
     let email = format!("export-{}@example.com", uid);
@@ -2217,6 +2217,26 @@ async fn data_export_returns_user_profile_and_messages() {
         "message send failed: {}",
         String::from_utf8_lossy(&body)
     );
+    let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let message_id = message["id"].as_str().unwrap();
+
+    sqlx::query(
+        r#"UPDATE messages
+           SET attachments = $1
+           WHERE id = $2"#,
+    )
+    .bind(serde_json::json!([{
+        "id": Uuid::new_v4().to_string(),
+        "url": "https://api.example.test/api/attachments/content/internal?exp=999&sig=secret",
+        "type": "image/png",
+        "name": "diagram.png",
+        "size": 1234,
+        "sha256": "internal-sha"
+    }]))
+    .bind(Uuid::parse_str(message_id).unwrap())
+    .execute(&state.db)
+    .await
+    .unwrap();
 
     let req = Request::builder()
         .method("GET")
@@ -2233,20 +2253,26 @@ async fn data_export_returns_user_profile_and_messages() {
     );
 
     let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(payload["account"]["id"], user_id.to_string());
+    assert_eq!(payload["export"]["format"], "voxpery-user-data-v2");
     assert_eq!(payload["account"]["email"], email);
-    assert!(payload["memberships"].is_array());
-    assert!(payload["server_messages"].is_array());
-    if let Some(first_membership) = payload["memberships"]
-        .as_array()
-        .and_then(|rows| rows.first())
-    {
+    assert_eq!(payload["account"]["username"], username);
+    assert!(payload["account"].get("id").is_none());
+    assert!(payload["account"].get("avatar_url").is_none());
+    assert!(payload["account"].get("password_hash").is_none());
+    assert!(payload["account"].get("token_version").is_none());
+    assert_eq!(payload["profile"]["has_avatar"], false);
+    assert!(payload["servers"].is_array());
+    assert!(payload["relationships"]["friends"].is_array());
+    assert!(payload["relationships"]["friend_requests"].is_array());
+    assert!(payload["messages"]["server"].is_array());
+    assert!(payload["messages"]["direct"].is_array());
+    if let Some(first_membership) = payload["servers"].as_array().and_then(|rows| rows.first()) {
         assert!(
             first_membership.get("server_id").is_none(),
             "server_id must not be included in export memberships",
         );
     }
-    if let Some(first_server_message) = payload["server_messages"]
+    if let Some(first_server_message) = payload["messages"]["server"]
         .as_array()
         .and_then(|rows| rows.first())
     {
@@ -2263,13 +2289,44 @@ async fn data_export_returns_user_profile_and_messages() {
             "message id must not be included in exported server messages",
         );
     }
-    let has_exported_message = payload["server_messages"]
+    let exported_message = payload["messages"]["server"]
         .as_array()
-        .map(|rows| rows.iter().any(|msg| msg["content"] == "export me"))
-        .unwrap_or(false);
+        .and_then(|rows| rows.iter().find(|msg| msg["content"] == "export me"))
+        .expect("export payload should include authored message");
+    assert_eq!(
+        exported_message["attachments"][0]["name"],
+        serde_json::json!("diagram.png")
+    );
+    assert_eq!(
+        exported_message["attachments"][0]["content_type"],
+        serde_json::json!("image/png")
+    );
+    assert_eq!(
+        exported_message["attachments"][0]["size_bytes"],
+        serde_json::json!(1234)
+    );
+    assert!(exported_message["attachments"][0].get("id").is_none());
+    assert!(exported_message["attachments"][0].get("url").is_none());
+    assert!(exported_message["attachments"][0].get("sha256").is_none());
+
+    let export_text = serde_json::to_string(&payload).unwrap();
+    for forbidden in [
+        "\"password_hash\"",
+        "\"access_token\"",
+        "\"refresh_token\"",
+        "\"session_id\"",
+        "\"avatar_url\"",
+        "internal-sha",
+        "sig=secret",
+    ] {
+        assert!(
+            !export_text.contains(forbidden),
+            "export payload must not contain sensitive/internal field: {forbidden}"
+        );
+    }
     assert!(
-        has_exported_message,
-        "export payload should include authored message"
+        !export_text.contains(&user_id.to_string()),
+        "export payload should not expose the account database id"
     );
 }
 

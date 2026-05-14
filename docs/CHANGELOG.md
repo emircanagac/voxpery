@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop release workflow now runs preflight metadata/icon validation and requires checklist confirmation on manual release runs.
 - Desktop preflight now enforces updater signing prerequisites when updater artifacts are enabled.
 - Security doc compliance section updated with GDPR/KVKK implementation status.
+- Data exports now use a more readable, data-minimized JSON format that omits internal identifiers, raw avatar URLs, signed attachment URLs, and storage metadata.
 
 ## [0.1.0] - 2026-03-14
 

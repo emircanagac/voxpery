@@ -551,7 +551,6 @@ struct DeleteAccountRequest {
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct ExportAccountRow {
-    id: Uuid,
     username: String,
     email: String,
     avatar_url: Option<String>,
@@ -571,8 +570,6 @@ struct ExportMembershipRow {
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct ExportFriendRow {
     username: String,
-    avatar_url: Option<String>,
-    status: String,
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -601,6 +598,29 @@ struct ExportDmMessageRow {
     attachments: Option<serde_json::Value>,
     created_at: chrono::DateTime<chrono::Utc>,
     edited_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn summarize_export_attachments(attachments: &Option<serde_json::Value>) -> Vec<serde_json::Value> {
+    let Some(serde_json::Value::Array(items)) = attachments else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| item.as_object())
+        .map(|obj| {
+            let name = obj
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("Attachment");
+            serde_json::json!({
+                "name": name,
+                "content_type": obj.get("type").and_then(serde_json::Value::as_str),
+                "size_bytes": obj.get("size").and_then(serde_json::Value::as_i64),
+            })
+        })
+        .collect()
 }
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -2386,7 +2406,7 @@ async fn export_my_data(
     .await?;
 
     let account = sqlx::query_as::<_, ExportAccountRow>(
-        r#"SELECT id, username, email, avatar_url, status, dm_privacy, created_at,
+        r#"SELECT username, email, avatar_url, status, dm_privacy, created_at,
                   (google_id IS NOT NULL) AS google_connected
            FROM users
            WHERE id = $1"#,
@@ -2411,8 +2431,6 @@ async fn export_my_data(
 
     let friends = sqlx::query_as::<_, ExportFriendRow>(
         r#"SELECT u.username,
-                  u.avatar_url,
-                  u.status,
                   f.created_at
            FROM friendships f
            INNER JOIN users u
@@ -2479,14 +2497,86 @@ async fn export_my_data(
     .fetch_all(&state.db)
     .await?;
 
+    let server_messages: Vec<_> = server_messages
+        .iter()
+        .map(|message| {
+            serde_json::json!({
+                "server": message.server_name,
+                "channel": message.channel_name,
+                "content": message.content,
+                "attachments": summarize_export_attachments(&message.attachments),
+                "sent_at": message.created_at,
+                "edited_at": message.edited_at,
+            })
+        })
+        .collect();
+
+    let dm_messages: Vec<_> = dm_messages
+        .iter()
+        .map(|message| {
+            serde_json::json!({
+                "conversation_with": message.peer_username.as_deref().unwrap_or("Unknown user"),
+                "content": message.content,
+                "attachments": summarize_export_attachments(&message.attachments),
+                "sent_at": message.created_at,
+                "edited_at": message.edited_at,
+            })
+        })
+        .collect();
+
     let payload = serde_json::json!({
-        "exported_at": chrono::Utc::now().to_rfc3339(),
-        "account": account,
-        "memberships": memberships,
-        "friends": friends,
-        "friend_requests": friend_requests,
-        "server_messages": server_messages,
-        "dm_messages": dm_messages,
+        "export": {
+            "format": "voxpery-user-data-v2",
+            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "description": "User-readable export of your Voxpery account, profile, relationships, servers, and authored messages.",
+            "privacy_notes": [
+                "Internal database identifiers, password hashes, sessions, tokens, and infrastructure values are not included.",
+                "Other users are represented with minimal display context needed to understand your relationships and conversations.",
+                "Message attachment entries are summarized without signed download URLs or storage identifiers."
+            ],
+            "limits": {
+                "server_messages": "Most recent 20000 authored server messages.",
+                "direct_messages": "Most recent 20000 authored direct messages."
+            }
+        },
+        "account": {
+            "username": account.username,
+            "email": account.email,
+            "status": account.status,
+            "dm_privacy": account.dm_privacy,
+            "created_at": account.created_at,
+            "google_connected": account.google_connected
+        },
+        "profile": {
+            "has_avatar": account.avatar_url.is_some()
+        },
+        "servers": memberships.iter().map(|membership| {
+            serde_json::json!({
+                "name": membership.server_name,
+                "role": membership.role,
+                "joined_at": membership.joined_at,
+            })
+        }).collect::<Vec<_>>(),
+        "relationships": {
+            "friends": friends.iter().map(|friend| {
+                serde_json::json!({
+                    "username": friend.username,
+                    "friends_since": friend.created_at,
+                })
+            }).collect::<Vec<_>>(),
+            "friend_requests": friend_requests.iter().map(|request| {
+                serde_json::json!({
+                    "direction": request.direction,
+                    "username": request.other_username,
+                    "status": request.status,
+                    "created_at": request.created_at,
+                })
+            }).collect::<Vec<_>>()
+        },
+        "messages": {
+            "server": server_messages,
+            "direct": dm_messages
+        }
     });
 
     let date = chrono::Utc::now().format("%Y-%m-%d");

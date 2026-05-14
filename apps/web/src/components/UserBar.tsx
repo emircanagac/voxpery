@@ -959,7 +959,7 @@ export default function UserBar() {
       pushToast({
         level: 'info',
         title: 'Data export ready',
-        message: 'Your account data has been downloaded as JSON.',
+        message: 'Your readable account export has been downloaded as JSON.',
       })
     } catch (err: unknown) {
       const message = getAuthErrorMessage(err).message || 'Could not export account data.'
@@ -1941,7 +1941,9 @@ export default function UserBar() {
                 <div className="user-setting-row">
                   <div>
                     <div className="user-setting-title">Data export</div>
-                    <div className="user-setting-desc">Download your account data in JSON format.</div>
+                    <div className="user-setting-desc">
+                      Download a readable JSON export with your account, servers, relationships, and authored messages. Internal IDs, tokens, sessions, and raw attachment URLs are excluded.
+                    </div>
                   </div>
                   <button
                     type="button"

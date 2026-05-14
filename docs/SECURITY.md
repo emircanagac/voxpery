@@ -340,7 +340,7 @@ npm audit fix
 
 ## Compliance
 
-- **GDPR/KVKK**: Implemented self-service account data export (`GET /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`).
+- **GDPR/KVKK**: Implemented self-service account data export (`GET /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`). Data exports use the `voxpery-user-data-v2` format and intentionally omit internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers.
 - **COPPA**: No age verification (assume 13+)
 - **Privacy**: No biometrics, no hidden telemetry
 

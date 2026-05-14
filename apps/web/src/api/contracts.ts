@@ -26,22 +26,36 @@ export interface AuthResponse {
 }
 
 export interface DataExportPayload {
-    exported_at: string
+    export: {
+        format: string
+        generated_at: string
+        description: string
+        privacy_notes: string[]
+        limits: {
+            server_messages: string
+            direct_messages: string
+        }
+    }
     account: {
-        id: string
         username: string
         email: string
-        avatar_url: string | null
         status: string
         dm_privacy: 'everyone' | 'friends'
         created_at: string
         google_connected: boolean
     }
-    memberships: unknown[]
-    friends: unknown[]
-    friend_requests: unknown[]
-    server_messages: unknown[]
-    dm_messages: unknown[]
+    profile: {
+        has_avatar: boolean
+    }
+    servers: unknown[]
+    relationships: {
+        friends: unknown[]
+        friend_requests: unknown[]
+    }
+    messages: {
+        server: unknown[]
+        direct: unknown[]
+    }
 }
 
 export interface DeleteAccountPayload {

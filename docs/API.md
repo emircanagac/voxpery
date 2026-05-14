@@ -55,7 +55,9 @@ Important behavior:
 - `GET /api/auth/google/callback`
 - `GET /api/auth/data-export`
   - GDPR/KVKK data export JSON payload for authenticated user.
-  - Export is intentionally user-readable: internal technical IDs (server/channel/message/friend IDs) are omitted.
+  - Export format: `voxpery-user-data-v2`.
+  - Export is intentionally user-readable and data-minimized: internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers are omitted.
+  - Payload sections include export metadata, account, profile summary, servers, relationships, and authored messages.
 - `DELETE /api/auth/account`
   - Body: `{ "confirm": "DELETE", "password"?: "..." }`
   - Permanently deletes account and authored content.
