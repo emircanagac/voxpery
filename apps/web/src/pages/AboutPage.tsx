@@ -4,7 +4,7 @@ import { Download, Globe2, ShieldCheck } from 'lucide-react'
 import { releaseApi, type LatestReleaseResponse } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
-import productPreviewUrl from '../assets/voxpery-preview.png?url'
+import productPreviewUrl from '../assets/voxpery-desktop.png?url'
 import '../styles/about.css'
 const REPO_URL = 'https://github.com/emircanagac/voxpery'
 const SECURITY_URL = `${REPO_URL}/blob/main/SECURITY.md`
@@ -140,7 +140,7 @@ export default function AboutPage() {
           </section>
 
           <div className="about-product-previews" aria-label="Voxpery app preview">
-            <figure className="about-product-preview">
+            <figure className="about-product-preview about-product-preview--desktop">
               <img src={productPreviewUrl} alt="Voxpery voice channel interface" />
             </figure>
           </div>
