@@ -442,16 +442,17 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 0 var(--member-sidebar-width);
+  justify-content: flex-end;
 }
 
 .shell-quick-switch-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: min(calc(var(--member-sidebar-width) - 16px), max(180px, calc(100vw - 520px)));
-  max-width: 100%;
-  flex: 0 1 auto;
+  width: calc(var(--member-sidebar-width) - 12px);
+  max-width: calc(var(--member-sidebar-width) - 12px);
+  flex: 0 0 calc(var(--member-sidebar-width) - 12px);
   min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
@@ -2337,46 +2338,61 @@ body {
   color: var(--text-primary);
 }
 
-.user-profile-preview-subtitle {
+.profile-status-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 5px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
-.user-profile-presence-pill {
+.profile-status-btn {
+  height: 28px;
+  min-width: 0;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 17, 32, 0.48);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-secondary);
+  justify-content: center;
+  gap: 5px;
   font-size: 11px;
+  line-height: 1;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.user-profile-presence-pill-dot {
-  width: 7px;
-  height: 7px;
+.profile-status-btn.is-active {
+  color: var(--text-primary);
+  border-color: rgba(102, 153, 255, 0.44);
+  background: rgba(79, 127, 216, 0.18);
+}
+
+.profile-status-btn:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.profile-status-btn-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
   border-radius: 999px;
-  background: currentColor;
+  background: var(--status-online);
+  box-shadow: 0 0 0 2px rgba(67, 181, 129, 0.12);
 }
 
-.user-profile-presence-pill-online {
-  color: #4ade80;
+.profile-status-btn-dot.dnd {
+  background: var(--status-dnd);
+  box-shadow: 0 0 0 2px rgba(255, 91, 91, 0.12);
 }
 
-.user-profile-presence-pill-dnd {
-  color: #f97373;
-}
-
-.user-profile-presence-pill-offline {
-  color: #94a3b8;
+.profile-status-btn-dot.invisible {
+  background: var(--status-offline);
+  box-shadow: 0 0 0 2px rgba(154, 166, 190, 0.12);
 }
 
 .user-settings-section-title {
@@ -3837,6 +3853,17 @@ body {
 .chat-header .channel-hash {
   color: var(--text-muted);
   font-size: 20px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.chat-header .channel-hash svg {
+  display: block;
 }
 
 .chat-header .channel-title {
@@ -10107,6 +10134,21 @@ a.community-open-btn:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.user-profile-preview-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.user-profile-preview-actions .account-action-btn {
+  width: auto;
+  min-width: 96px;
+  padding-inline: 12px;
+}
+
 .server-settings-section-intro {
     display: flex;
     align-items: center;
@@ -12461,8 +12503,8 @@ textarea {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
-/* ── Tablet landscape (≤1024px) ── */
-@media (max-width: 1024px) {
+/* Mobile shell: collapse side panels below the mobile breakpoint. */
+@media (max-width: 700px) {
   :root {
     --member-sidebar-width: 0px;
   }
@@ -12532,11 +12574,18 @@ textarea {
   }
 
   .shell-topbar-right {
-    display: none;
+    display: flex;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 36px;
+    margin-left: auto;
+    justify-content: flex-end;
   }
 
   .shell-quick-switch-btn {
     width: 36px;
+    max-width: 36px;
+    flex: 0 0 36px;
     height: 36px;
     min-width: 36px;
     min-height: 36px;
@@ -12899,7 +12948,7 @@ textarea {
   .mobile-member-sheet-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 125;
+    z-index: 2600;
     background: rgba(3, 6, 16, 0.48);
     border: none;
     padding: 0;
@@ -12927,11 +12976,12 @@ textarea {
     border-right: none;
     border-radius: 18px 0 0 0;
     box-shadow: -18px 0 42px rgba(0, 0, 0, 0.32);
-    z-index: 126;
+    z-index: 2601;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     backdrop-filter: blur(16px);
+    pointer-events: auto;
   }
 
   .mobile-member-sheet-header {
@@ -12942,6 +12992,8 @@ textarea {
     padding: 12px 12px 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.02);
+    position: relative;
+    z-index: 2;
   }
 
   .mobile-member-sheet-copy {
@@ -12978,11 +13030,15 @@ textarea {
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
   }
 
   .mobile-member-sheet .member-sidebar,
   .member-sidebar.member-sidebar--sheet {
     display: flex;
+    pointer-events: auto;
   }
 
   .member-sidebar--sheet {
@@ -13016,6 +13072,8 @@ textarea {
     background: rgba(255, 255, 255, 0.035);
     border: 1px solid rgba(255, 255, 255, 0.05);
     gap: 10px;
+    cursor: pointer;
+    pointer-events: auto;
   }
 
   .member-sidebar--sheet .member-item:hover {
@@ -13078,6 +13136,7 @@ textarea {
     height: 36px;
     min-width: 36px;
     min-height: 36px;
+    display: none;
   }
 
   .user-status-cue {
@@ -13092,8 +13151,8 @@ textarea {
   }
 
   .callbar-overlay {
-    left: var(--mobile-callbar-left, calc(var(--server-bar-width) + 84px));
-    right: var(--mobile-callbar-right, 60px);
+    left: var(--mobile-callbar-left, 60px);
+    right: var(--mobile-callbar-right, 10px);
     transform: none;
     bottom: 0;
     height: var(--mobile-bottom-dock-height);
@@ -13116,21 +13175,20 @@ textarea {
   .screen-share-stage {
     left: calc(var(--server-bar-width) + 12px);
     right: 12px;
-    top: 114px;
-    bottom: 94px;
+    top: 120px;
+    bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     gap: 8px;
-    grid-auto-rows: minmax(108px, auto);
-    justify-items: center;
-    align-content: start;
-    overflow-y: auto;
+    grid-auto-rows: minmax(0, 1fr);
+    justify-items: stretch;
+    align-content: stretch;
+    overflow: hidden;
     overscroll-behavior: contain;
-    padding: 0 2px 10px 0;
+    padding: 0;
   }
 
   .voice-stage-tile {
-    width: min(100%, 320px);
-    justify-self: center;
-    min-height: 108px;
+    width: 100%;
+    min-height: 0;
     gap: 6px;
     padding: 10px 8px;
   }
@@ -13166,12 +13224,12 @@ textarea {
   }
 
   .active-call-bar {
-    width: max-content;
+    width: 100%;
     max-width: 100%;
     min-height: 42px;
     padding: 6px;
     border-radius: 12px;
-    gap: 6px;
+    gap: 5px;
   }
 
   .callbar-status {
@@ -13189,15 +13247,15 @@ textarea {
   }
 
   .callbar-controls-center {
-    gap: 6px;
-    padding: 3px 5px;
+    gap: 5px;
+    padding: 3px 4px;
     border-radius: 10px;
   }
 
   .callbar-controls-right {
-    gap: 6px;
+    gap: 5px;
     padding-left: 0;
-    margin-left: 10px;
+    margin-left: auto;
     flex: 0 0 auto;
   }
 
@@ -13207,9 +13265,14 @@ textarea {
   }
 
   .callbar-overlay .active-call-bar {
-    width: max-content;
+    width: fit-content;
     max-width: 100%;
     margin: 0 auto;
+  }
+
+  .callbar-ping-chip {
+    min-width: 66px;
+    padding: 0 7px;
   }
 
   .callbar-ping-inline-icon {
@@ -13257,7 +13320,7 @@ textarea {
     flex: 0 0 auto;
     min-height: max-content;
     overflow: visible;
-    padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .home-main-dm .social-content-dm {
@@ -13265,18 +13328,18 @@ textarea {
   }
 
   .chat-area {
-    padding-bottom: calc(50px + var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(50px + var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-area.chat-area-replying {
-    padding-bottom: calc(88px + var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(88px + var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .message-input-container {
     position: fixed;
     left: calc(var(--server-bar-width) + var(--composer-mobile-side-gap));
     right: var(--composer-mobile-side-gap);
-    bottom: calc(var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + var(--mobile-voice-callbar-offset) + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--composer-mobile-bottom-gap) + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -13418,6 +13481,49 @@ textarea {
     height: min(90vh, 760px);
   }
 
+  .modal.user-settings-modal,
+  .modal.modal-server-settings,
+  .modal.channel-settings-modal,
+  .modal.category-permissions-modal,
+  .screen-share-confirm-modal,
+  .voice-join-modal {
+    overflow-x: hidden;
+  }
+
+  .modal.user-settings-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.user-settings-modal textarea,
+  .modal.user-settings-modal select,
+  .modal.user-settings-modal button,
+  .modal.modal-server-settings input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.modal-server-settings textarea,
+  .modal.modal-server-settings select,
+  .modal.modal-server-settings button,
+  .modal.channel-settings-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.channel-settings-modal textarea,
+  .modal.channel-settings-modal select,
+  .modal.channel-settings-modal button,
+  .modal.category-permissions-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.category-permissions-modal textarea,
+  .modal.category-permissions-modal select,
+  .modal.category-permissions-modal button {
+    max-width: 100%;
+  }
+
+  .modal.user-settings-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.user-settings-modal textarea,
+  .modal.user-settings-modal select,
+  .modal.modal-server-settings input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.modal-server-settings textarea,
+  .modal.modal-server-settings select,
+  .modal.channel-settings-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.channel-settings-modal textarea,
+  .modal.channel-settings-modal select,
+  .modal.category-permissions-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .modal.category-permissions-modal textarea,
+  .modal.category-permissions-modal select {
+    min-width: 0;
+  }
+
   .user-settings-header {
     padding: 18px 18px 12px;
   }
@@ -13465,10 +13571,44 @@ textarea {
     text-overflow: ellipsis;
   }
 
+  .server-settings-nav__item,
+  .server-settings-nav__copy,
+  .server-settings-nav__content,
+  .server-settings-nav__label,
+  .channel-settings-nav-title,
+  .server-settings-card,
+  .server-settings-subcard,
+  .channel-settings-card,
+  .server-overview-invite__body,
+  .server-overview-invite__code-pill,
+  .server-settings-note,
+  .server-settings-subcard__hint,
+  .server-settings-danger-text {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .server-settings-nav__label,
+  .channel-settings-nav-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .server-overview-invite__body,
+  .server-overview-invite__code-pill,
+  .server-settings-note,
+  .server-settings-subcard__hint,
+  .server-settings-danger-text {
+    overflow-wrap: anywhere;
+  }
+
   .user-settings-scroll {
     padding: 14px 14px 16px;
     flex: 1 1 auto;
     min-height: 0;
+    overflow-x: hidden;
+    scrollbar-gutter: auto;
   }
 
   .user-settings-modal--voice .user-settings-scroll {
@@ -13479,6 +13619,16 @@ textarea {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .user-settings-section--voice .voice-settings-block,
+  .user-settings-section--voice .voice-settings-grid,
+  .user-settings-section--voice .user-setting-row,
+  .user-settings-section--voice .user-setting-row > div {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .voice-settings-banner {
@@ -13496,6 +13646,38 @@ textarea {
     width: 100%;
   }
 
+  .user-profile-preview-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .user-profile-preview-meta {
+    flex: 1 1 calc(100% - 78px);
+  }
+
+  .profile-status-actions {
+    gap: 4px;
+    width: 100%;
+  }
+
+  .profile-status-btn {
+    flex: 1 1 0;
+    padding: 0 6px;
+    font-size: 10px;
+  }
+
+  .user-profile-preview-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: stretch;
+  }
+
+  .user-profile-preview-actions .account-action-btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
   .user-setting-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
@@ -13507,6 +13689,12 @@ textarea {
   .user-slider {
     width: 100%;
     min-width: 0;
+    max-width: 100%;
+  }
+
+  .user-settings-section--voice .device-select-trigger__label {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .user-settings-footer {
@@ -13791,9 +13979,11 @@ textarea {
   }
 }
 
-@media (max-width: 1180px) {
+@media (min-width: 701px) and (max-width: 1180px) {
   .shell-quick-switch-btn {
-    width: min(calc(var(--member-sidebar-width) - 24px), max(170px, calc(100vw - 580px)));
+    width: calc(var(--member-sidebar-width) - 12px);
+    max-width: calc(var(--member-sidebar-width) - 12px);
+    flex-basis: calc(var(--member-sidebar-width) - 12px);
   }
 
   .shell-quick-switch-shortcut {
@@ -13801,16 +13991,18 @@ textarea {
   }
 }
 
-@media (max-width: 900px) and (max-height: 760px) {
+@media (max-width: 700px) and (max-height: 760px) {
   .screen-share-stage {
-    top: 106px;
-    bottom: 88px;
+    top: 112px;
+    bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     gap: 6px;
-    grid-auto-rows: minmax(96px, auto);
+    grid-auto-rows: minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
   }
 
   .voice-stage-tile {
-    min-height: 96px;
+    min-height: 0;
     padding: 8px 6px;
   }
 

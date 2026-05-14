@@ -382,7 +382,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [serverSettingsTab, setServerSettingsTab] = useState<ServerSettingsLocalTab>('overview')
     const [safetySettingsTab, setSafetySettingsTab] = useState<SafetySettingsTab>('reports')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
-        typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
+        typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false,
     )
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsDescription, setServerSettingsDescription] = useState('')
@@ -576,7 +576,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     useEffect(() => {
         if (typeof window === 'undefined') return
-        const media = window.matchMedia('(max-width: 900px)')
+        const media = window.matchMedia('(max-width: 700px)')
         const sync = () => setIsMobileViewport(media.matches)
         sync()
         media.addEventListener('change', sync)
@@ -619,16 +619,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // When unified sidebar requested server settings for this server, open the modal.
     useEffect(() => {
         if (!openServerSettingsForServerId || openServerSettingsForServerId !== activeServerId) return
-        if (isMobileViewport) {
-            pushToast({
-                level: 'info',
-                title: 'Desktop-only for now',
-                message: 'Server Settings are currently available on desktop screens only.',
-            })
-            setOpenServerSettingsForServerId(null)
-            setOpenServerSettingsForServerTab(null)
-            return
-        }
         const initialTab = openServerSettingsForServerTab ?? 'overview'
         if (isSafetySettingsTab(initialTab)) setSafetySettingsTab(initialTab)
         setServerSettingsTab(normalizeServerSettingsTab(initialTab))
@@ -638,19 +628,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         setOpenServerSettingsForServerTab(null)
     }, [
         activeServerId,
-        isMobileViewport,
         openServerSettingsForServerId,
         openServerSettingsForServerTab,
-        pushToast,
         setOpenServerSettingsForServerId,
         setOpenServerSettingsForServerTab,
     ])
-
-    useEffect(() => {
-        if (!isMobileViewport || !showServerSettings) return
-        setShowServerSettings(false)
-        setServerSettingsServerId(null)
-    }, [isMobileViewport, showServerSettings])
 
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) return
@@ -1669,14 +1651,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         serverId?: string | null,
         initialTab: ServerSettingsOpenTab = 'overview',
     ) => {
-        if (isMobileViewport) {
-            pushToast({
-                level: 'info',
-                title: 'Desktop-only for now',
-                message: 'Server Settings are currently available on desktop screens only.',
-            })
-            return
-        }
         setServerSettingsError(null)
         setDeleteServerError(null)
         setDeleteServerInput('')
@@ -3156,7 +3130,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                             onReportMember={openUserReport}
                             variant="sheet"
-                            interactive={false}
                         />
                     </aside>
                 </>,

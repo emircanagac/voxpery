@@ -156,7 +156,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>(() => readScreenShareQuality())
   const [showCameraConfirm, setShowCameraConfirm] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
   )
   const lastShownErrorRef = useRef<string | null>(null)
   const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
@@ -531,7 +531,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 900px)')
+    const media = window.matchMedia('(max-width: 700px)')
     const sync = () => setIsMobileViewport(media.matches)
     sync()
     media.addEventListener('change', sync)
@@ -542,7 +542,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (typeof document === 'undefined') return
     const root = document.documentElement
     if (isMobileViewport && showActiveCallBar) {
-      root.style.setProperty('--mobile-voice-callbar-offset', '44px')
+      root.style.setProperty('--mobile-voice-callbar-offset', '0px')
       return () => {
         root.style.removeProperty('--mobile-voice-callbar-offset')
       }
