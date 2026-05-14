@@ -176,7 +176,7 @@ export default function UserBar() {
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [pendingStatusMenuOpen, setPendingStatusMenuOpen] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
   )
   const [openDeviceMenu, setOpenDeviceMenu] = useState<VoiceDeviceMenu | null>(null)
   const [deviceMenuAnchor, setDeviceMenuAnchor] = useState<{
@@ -338,15 +338,13 @@ export default function UserBar() {
       return
     }
     const userPanel = userPanelRef.current
-    const settingsButton = settingsButtonRef.current
-    if (!userPanel || !settingsButton) return
+    if (!userPanel) return
     const userPanelRect = userPanel.getBoundingClientRect()
-    const settingsRect = settingsButton.getBoundingClientRect()
     const left = Math.round(userPanelRect.right + 8)
-    const rightBoundary = Math.round(settingsRect.left - 8)
-    if (rightBoundary <= left) return
+    const right = 10
+    if (window.innerWidth - right <= left) return
     root.style.setProperty('--mobile-callbar-left', `${left}px`)
-    root.style.setProperty('--mobile-callbar-right', `${Math.max(8, window.innerWidth - rightBoundary)}px`)
+    root.style.setProperty('--mobile-callbar-right', `${right}px`)
   }, [isMobileViewport])
 
   const toggleStatusMenu = () => {
@@ -365,7 +363,7 @@ export default function UserBar() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 900px)')
+    const media = window.matchMedia('(max-width: 700px)')
     const sync = () => setIsMobileViewport(media.matches)
     sync()
     media.addEventListener('change', sync)
@@ -1270,10 +1268,14 @@ export default function UserBar() {
           type="button"
           className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
           onClick={() => {
+            if (isMobileViewport) {
+              openSettingsPanel()
+              return
+            }
             toggleStatusMenu()
           }}
-          title="Set status"
-          aria-label="Set status"
+          title={isMobileViewport ? 'User settings' : 'Set status'}
+          aria-label={isMobileViewport ? 'User settings' : 'Set status'}
         >
           {user?.avatar_url ? (
             <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt={user.username} className="user-avatar-image" />
@@ -1303,16 +1305,18 @@ export default function UserBar() {
         </button>
         </div>
       </div>
-      <button
-        type="button"
-        className="user-panel-icon-btn"
-        ref={settingsButtonRef}
-        onClick={openSettingsPanel}
-        title="User settings"
-        aria-label="Settings"
-      >
-        <Settings size={18} />
-      </button>
+      {!isMobileViewport && (
+        <button
+          type="button"
+          className="user-panel-icon-btn"
+          ref={settingsButtonRef}
+          onClick={openSettingsPanel}
+          title="User settings"
+          aria-label="Settings"
+        >
+          <Settings size={18} />
+        </button>
+      )}
       {showStatusMenu && !isMobileViewport && statusPopover}
       {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(
         <>
@@ -1792,29 +1796,27 @@ export default function UserBar() {
                   <div className="user-profile-preview-meta">
                     <div className="user-profile-preview-eyebrow">Current profile</div>
                     <div className="user-profile-preview-name">{user?.username ?? 'Unknown user'}</div>
-                    <div className="user-profile-preview-subtitle">
-                      <span className={`user-profile-presence-pill user-profile-presence-pill-${user?.status === 'dnd' ? 'dnd' : user?.status === 'offline' || user?.status === 'invisible' ? 'offline' : 'online'}`}>
-                        <span className="user-profile-presence-pill-dot" aria-hidden />
-                        {statusLabel(user?.status)}
-                      </span>
+                    <div className="profile-status-actions" role="group" aria-label="Set status">
+                      {(['online', 'dnd', 'invisible'] as const).map((status) => {
+                        const isActive = (user?.status === 'offline' && status === 'invisible') || user?.status === status
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            className={`profile-status-btn profile-status-btn-${status} ${isActive ? 'is-active' : ''}`}
+                            onClick={() => updateMyStatus(status)}
+                            disabled={statusSaving}
+                            aria-label={`Set status to ${statusLabel(status)}`}
+                            aria-pressed={isActive}
+                          >
+                            <span className={`profile-status-btn-dot ${status}`} aria-hidden />
+                            {footerStatusLabel(status)}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
-                </div>
-                <div className="user-setting-row">
-                  <div className="user-setting-profile-photo">
-                    <div className="user-setting-profile-avatar" aria-hidden>
-                      {user?.avatar_url ? (
-                        <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" className="user-avatar-image" />
-                      ) : (
-                        user ? getInitial(user.username) : '?'
-                      )}
-                    </div>
-                    <div>
-                      <div className="user-setting-title">Profile photo</div>
-                      <div className="user-setting-desc">Upload a square image to personalize your account.</div>
-                    </div>
-                  </div>
-                  <div className="user-setting-actions">
+                  <div className="user-profile-preview-actions">
                     <label className="user-toggle account-action-btn">
                       Upload
                       <input

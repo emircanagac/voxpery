@@ -391,8 +391,8 @@ export function useWebRTCVoice() {
         playTone({ from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, wave: 'sine', peak: 0.026 })
         break
       case 'leave':
-        playTone({ from: 820, to: 610, offsetSec: 0, durationSec: 0.11, wave: 'triangle', peak: 0.024 })
-        playTone({ from: 430, to: 300, offsetSec: 0.095, durationSec: 0.16, wave: 'sine', peak: 0.022 })
+        playTone({ from: 900, to: 650, offsetSec: 0, durationSec: 0.13, wave: 'triangle', peak: 0.032 })
+        playTone({ from: 520, to: 320, offsetSec: 0.105, durationSec: 0.18, wave: 'sine', peak: 0.028 })
         break
       case 'mute':
         playTone({ from: 430, to: 350, offsetSec: 0, durationSec: 0.07, wave: 'square', peak: 0.019 })

@@ -270,8 +270,8 @@ export function useAudioEngine() {
                 break
             case 'leave':
                 playCueStack(ctx, [
-                    { from: 820, to: 610, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.1, filterHz: 2300, q: 0.85 },
-                    { from: 430, to: 300, offsetSec: 0.095, durationSec: 0.16, peak: 0.022, type: 'sine', overtoneGain: 0.05, filterHz: 1200, q: 0.7 },
+                    { from: 900, to: 650, durationSec: 0.13, peak: 0.032, type: 'triangle', overtoneGain: 0.12, filterHz: 2400, q: 0.9 },
+                    { from: 520, to: 320, offsetSec: 0.105, durationSec: 0.18, peak: 0.028, type: 'sine', overtoneGain: 0.06, filterHz: 1300, q: 0.78 },
                 ])
                 break
             case 'mute':

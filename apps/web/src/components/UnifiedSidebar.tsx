@@ -39,7 +39,7 @@ export default function UnifiedSidebar({
     }))
   )
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
   )
   const [pendingMobilePanel, setPendingMobilePanel] = useState<MobilePanelTarget | null>(null)
   const [pendingNavigationTimeout, setPendingNavigationTimeout] = useState<number | null>(null)
@@ -54,7 +54,7 @@ export default function UnifiedSidebar({
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
 
-    const media = window.matchMedia('(max-width: 900px)')
+    const media = window.matchMedia('(max-width: 700px)')
     const updateViewport = () => setIsMobileViewport(media.matches)
 
     updateViewport()
