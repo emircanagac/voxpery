@@ -11,14 +11,30 @@ export interface VoiceRuntimeDiagnostics {
   updatedAt?: string
 }
 
+export const VOICE_DIAGNOSTICS_STORAGE_KEY = 'voxperyVoiceDiagnostics'
+
 declare global {
   interface Window {
     __VOXPERY_VOICE_DIAGNOSTICS__?: VoiceRuntimeDiagnostics
   }
 }
 
+export function isVoiceDiagnosticsEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+
+  try {
+    return window.localStorage.getItem(VOICE_DIAGNOSTICS_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export function updateVoiceDiagnostics(patch: VoiceRuntimeDiagnostics): void {
   if (typeof window === 'undefined') return
+  if (!isVoiceDiagnosticsEnabled()) {
+    delete window.__VOXPERY_VOICE_DIAGNOSTICS__
+    return
+  }
 
   window.__VOXPERY_VOICE_DIAGNOSTICS__ = {
     ...(window.__VOXPERY_VOICE_DIAGNOSTICS__ ?? {}),
