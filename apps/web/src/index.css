@@ -532,49 +532,39 @@ body {
 }
 
 .shell-update-dock {
-  padding: 0 12px 10px;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 8px;
 }
 
 .shell-update-btn--dock {
-  width: 100%;
-  min-height: 46px;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(71, 102, 191, 0.28), rgba(49, 74, 148, 0.22));
-  border-color: rgba(147, 197, 253, 0.28);
+  width: auto;
+  min-height: 34px;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(71, 102, 191, 0.22);
+  border-color: rgba(147, 197, 253, 0.26);
   color: #edf4ff;
   box-shadow:
-    0 16px 28px rgba(8, 13, 28, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 10px 18px rgba(8, 13, 28, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .shell-update-btn--dock:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(79, 127, 216, 0.34), rgba(55, 83, 166, 0.28));
-  border-color: rgba(191, 219, 254, 0.42);
+  background: rgba(79, 127, 216, 0.3);
+  border-color: rgba(191, 219, 254, 0.38);
 }
 
 .shell-update-dock-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
-  gap: 2px;
-}
-
-.shell-update-dock-eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(222, 236, 255, 0.72);
 }
 
 .shell-update-dock-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #f3f7ff;
   white-space: nowrap;

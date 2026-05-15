@@ -61,6 +61,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
 - [ ] Updater check shows a clear no-update state when no newer version is available.
 - [ ] Updater check shows the available version when a newer signed release is available.
+- [ ] Update availability appears as one calm toast plus a compact install pill; settings still provides manual check/install.
 - [ ] Updater install path prepares the desktop runtime before install/relaunch.
 - [ ] Failed updater check/install shows recoverable UI and does not leave settings stuck.
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.

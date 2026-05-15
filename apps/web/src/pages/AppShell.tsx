@@ -28,6 +28,8 @@ import {
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 
+const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+
 export default function AppShell() {
   const { user } = useAuthStore()
   const userId = user?.id ?? null
@@ -120,8 +122,8 @@ export default function AppShell() {
         lastDesktopUpdateToastVersionRef.current = result.version
         pushToast({
           level: 'info',
-          title: 'Desktop update available',
-          message: `Voxpery ${result.version} is ready to install.`,
+          title: 'Update available',
+          message: `Voxpery ${result.version} can be installed when you are ready.`,
         })
       }
     }
@@ -138,7 +140,7 @@ export default function AppShell() {
     void run()
     const intervalId = window.setInterval(() => {
       void run()
-    }, 5 * 60 * 1000)
+    }, DESKTOP_UPDATE_CHECK_INTERVAL_MS)
     return () => {
       cancelled = true
       window.removeEventListener(DESKTOP_UPDATE_STATUS_EVENT, onUpdateStatus as EventListener)
@@ -602,12 +604,11 @@ export default function AppShell() {
               title={`Install Voxpery ${desktopUpdate.version}`}
             >
               <span className="shell-update-dock-copy">
-                <span className="shell-update-dock-eyebrow">Desktop update ready</span>
                 <span className="shell-update-dock-title">
                   {installingDesktopUpdate ? 'Installing update…' : `Install ${desktopUpdate.version}`}
                 </span>
               </span>
-              <ArrowDownToLine size={16} aria-hidden />
+              <ArrowDownToLine size={14} aria-hidden />
             </button>
           </div>
         )}
