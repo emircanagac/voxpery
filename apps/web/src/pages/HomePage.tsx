@@ -35,6 +35,7 @@ import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump, setPendingSavedMediaJump } from '../savedMediaJump'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
+import { createReplyContentSnippet } from '../replyPreview'
 import { ROUTES } from '../routes'
 
 type FriendsFilter = 'all' | 'online' | 'requests'
@@ -1470,7 +1471,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onCancelReply={() => setReplyingToDm(null)}
                 onReplyToMessage={(msg) => {
                   const username = msg.author?.username ?? 'User'
-                  const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
+                  const snippet = createReplyContentSnippet(msg.content)
                   setReplyingToDm({ id: msg.id, username, contentSnippet: snippet })
                 }}
                 isViewActive={isMessagesView}
