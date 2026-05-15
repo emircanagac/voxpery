@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
+    body::Body,
     extract::{Multipart, Path, Query, State},
     http::{header, HeaderMap, HeaderValue},
     middleware,
@@ -8,6 +9,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 use crate::{
@@ -225,9 +227,9 @@ async fn get_attachment_content(
         .await?
         .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
 
-    let bytes = state
+    let file = state
         .attachment_service
-        .read_local_attachment_bytes(&row.storage_key)
+        .open_local_attachment_file(&row.storage_key)
         .await?;
 
     let content_type = HeaderValue::from_str(&row.content_type)
@@ -242,6 +244,9 @@ async fn get_attachment_content(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    if let Ok(content_length) = HeaderValue::from_str(&row.size_bytes.to_string()) {
+        headers.insert(header::CONTENT_LENGTH, content_length);
+    }
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; sandbox"),
@@ -255,7 +260,8 @@ async fn get_attachment_content(
         headers.insert(header::CONTENT_DISPOSITION, value);
     }
 
-    Ok((headers, bytes))
+    let stream = ReaderStream::new(file);
+    Ok((headers, Body::from_stream(stream)))
 }
 
 async fn ensure_attachment_view_access(

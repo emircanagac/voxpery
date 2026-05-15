@@ -195,12 +195,13 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Backend**: No HTML rendering (JSON API only)
 - **Message content**: Stored as plain text, rendered as text (no `<script>` execution)
 
-### Avatar Image Proxy
+### Remote Image Proxy
 
 - User-supplied external avatar URLs are rendered through `GET /api/images/avatar?url=...` so viewers do not request third-party avatar hosts directly.
-- The proxy accepts only `https://` avatar URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, disables redirects, and rate-limits proxy requests.
+- User-controlled remote server icons and inline GIF/sticker previews are rendered through `GET /api/images/remote?url=...`.
+- The proxy accepts only `https://` image URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, disables redirects, and rate-limits proxy requests.
 - Responses must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, are capped at 3 MB, and are returned with cache headers plus `X-Content-Type-Options: nosniff`.
-- `data:image/*` profile avatars are still accepted for uploaded profile photos, but SVG data URLs are rejected.
+- `data:image/*` profile avatars and server icons are still accepted for uploaded profile photos/icons, but SVG data URLs are rejected and stored data URLs are capped at 1 MB.
 
 ### Path Traversal
 
@@ -224,6 +225,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Delivery model**:
   - Files are not exposed under a permanent public `/uploads` route.
   - API returns short-lived signed URLs (`/api/attachments/content/:id?exp=...&sig=...`).
+  - Signed attachment content is streamed after signature and viewer ACL checks, preserving no-sniff headers, private cache headers, and forced download for active content types.
 
 ### Email Verification Security
 
@@ -252,6 +254,8 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-
 ```
 
 `'wasm-unsafe-eval'` is required for the RNNoise WebAssembly voice suppression runtime. It is narrower than broad JavaScript `'unsafe-eval'` and should stay in `script-src` for production voice releases.
+
+The production web image passes `APP_ENV=production` and uses `apps/web/nginx.production.conf`, which does not allow browser connections to visitor loopback targets. Local Docker compose passes `APP_ENV=development` by default and uses `apps/web/nginx.development.conf` so `localhost` API and LiveKit smoke tests keep working.
 
 ## Secrets Management
 

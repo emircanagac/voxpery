@@ -10,6 +10,7 @@ license = "AGPL-3.0-only"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

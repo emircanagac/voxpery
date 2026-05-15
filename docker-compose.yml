@@ -110,6 +110,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
         TURNSTILE_SITE_KEY_PUBLIC: ${VITE_TURNSTILE_SITE_KEY:-}
+        APP_ENV: ${APP_ENV:-development}
     container_name: voxpery-web
     restart: unless-stopped
     depends_on:

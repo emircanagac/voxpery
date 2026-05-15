@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { serverApi } from '../api'
+import { resolveServerIconUrl, serverApi } from '../api'
 import type { ServerRule } from '../api/contracts'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
@@ -123,7 +123,7 @@ export default function InvitePage() {
                         <div className="invite-preview-server">
                             <div className="invite-preview-icon">
                                 {preview.icon_url ? (
-                                    <img src={preview.icon_url} alt={preview.name} className="invite-preview-icon-image" />
+                                    <img src={resolveServerIconUrl(preview.icon_url) ?? ''} alt={preview.name} className="invite-preview-icon-image" />
                                 ) : (
                                     getServerInitial(preview.name)
                                 )}
