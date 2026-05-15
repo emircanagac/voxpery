@@ -1,10 +1,6 @@
 //! Attachment upload, storage, malware scanning, and URL validation.
 
-use std::{
-    io::Cursor,
-    path::{Component, Path, PathBuf},
-    time::Duration,
-};
+use std::{io::Cursor, path::PathBuf, time::Duration};
 
 use chrono::Datelike;
 use hmac::{Hmac, Mac};
@@ -173,6 +169,11 @@ impl AttachmentService {
     ) -> Result<Self, AppError> {
         fs::create_dir_all(&local_dir).await.map_err(|e| {
             AppError::Internal(format!("Failed to create attachment directory: {e}"))
+        })?;
+        let local_dir = fs::canonicalize(&local_dir).await.map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to resolve attachment storage directory: {e}"
+            ))
         })?;
         let normalized_key_prefix = sanitize_storage_key_prefix(&key_prefix);
 
@@ -359,7 +360,7 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<Vec<u8>, AppError> {
-        let path = self.resolve_local_path(storage_key)?;
+        let path = self.resolve_existing_local_path(storage_key).await?;
         fs::read(path)
             .await
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
@@ -369,7 +370,7 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<fs::File, AppError> {
-        let path = self.resolve_local_path(storage_key)?;
+        let path = self.resolve_existing_local_path(storage_key).await?;
         fs::File::open(path)
             .await
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
@@ -618,14 +619,32 @@ impl AttachmentService {
     }
 
     fn resolve_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
-        validate_storage_key(storage_key)?;
-        let joined = self.local_dir.join(storage_key);
+        let segments = parse_storage_key_segments(storage_key)?;
+        let joined = segments
+            .iter()
+            .fold(self.local_dir.clone(), |mut path, segment| {
+                path.push(segment);
+                path
+            });
         if !joined.starts_with(&self.local_dir) {
             return Err(AppError::Validation(
                 "Attachment storage key resolves outside storage root".into(),
             ));
         }
         Ok(joined)
+    }
+
+    async fn resolve_existing_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
+        let path = self.resolve_local_path(storage_key)?;
+        let canonical = fs::canonicalize(&path)
+            .await
+            .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))?;
+        if !canonical.starts_with(&self.local_dir) {
+            return Err(AppError::Validation(
+                "Attachment storage key resolves outside storage root".into(),
+            ));
+        }
+        Ok(canonical)
     }
 
     async fn scan_with_clamav(&self, bytes: &[u8]) -> Result<ScanResult, String> {
@@ -846,42 +865,45 @@ fn sanitize_storage_key_prefix(prefix: &str) -> String {
     }
 }
 
-fn validate_storage_key(storage_key: &str) -> Result<(), AppError> {
-    if !is_safe_storage_key(storage_key) {
+fn is_safe_storage_key(storage_key: &str) -> bool {
+    parse_storage_key_segments(storage_key).is_ok()
+}
+
+fn parse_storage_key_segments(storage_key: &str) -> Result<Vec<String>, AppError> {
+    if storage_key.is_empty()
+        || storage_key.len() > 1024
+        || storage_key.starts_with('/')
+        || storage_key.contains('\\')
+        || storage_key.contains(':')
+    {
         return Err(AppError::Validation(
             "Invalid attachment storage key".into(),
         ));
     }
-    Ok(())
-}
 
-fn is_safe_storage_key(storage_key: &str) -> bool {
-    if storage_key.is_empty() || storage_key.len() > 1024 {
-        return false;
-    }
-
-    let path = Path::new(storage_key);
-    let mut saw_component = false;
-    for component in path.components() {
-        match component {
-            Component::Normal(segment) => {
-                let segment = segment.to_string_lossy();
-                if segment.is_empty()
-                    || segment == "."
-                    || segment == ".."
-                    || !segment
-                        .chars()
-                        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-                {
-                    return false;
-                }
-                saw_component = true;
-            }
-            _ => return false,
+    let mut segments = Vec::new();
+    for segment in storage_key.split('/') {
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || !segment
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        {
+            return Err(AppError::Validation(
+                "Invalid attachment storage key".into(),
+            ));
         }
+        segments.push(segment.to_string());
     }
 
-    saw_component
+    if segments.is_empty() {
+        return Err(AppError::Validation(
+            "Invalid attachment storage key".into(),
+        ));
+    }
+
+    Ok(segments)
 }
 
 fn compute_signature(secret: &str, attachment_id: Uuid, exp: i64) -> String {
@@ -971,6 +993,26 @@ mod tests {
     fn sanitizes_filename() {
         assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
         assert_eq!(sanitize_file_name(""), "file.bin");
+    }
+
+    #[test]
+    fn storage_key_validation_rejects_path_escape_inputs() {
+        for key in [
+            "",
+            "/attachments/2026/05/file",
+            "attachments/../secret",
+            "attachments//file",
+            "attachments\\file",
+            "C:/attachments/file",
+            "attachments/%2e%2e/file",
+        ] {
+            assert!(
+                parse_storage_key_segments(key).is_err(),
+                "{key} should fail"
+            );
+        }
+
+        assert!(parse_storage_key_segments("attachments/2026/05/file-01_abc.png").is_ok());
     }
 
     #[tokio::test]
