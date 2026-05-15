@@ -639,7 +639,6 @@ export default function ChannelSidebar({
                                     setContextMenu(null)
                                 }}
                             >
-                                <VolumeX size={14} />
                                 {isMuted ? 'Unmute Channel' : 'Mute Channel'}
                             </button>
                         )}

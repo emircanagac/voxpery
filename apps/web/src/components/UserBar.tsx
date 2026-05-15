@@ -1993,7 +1993,7 @@ export default function UserBar() {
           </div>
         </div>
       ), document.body)}
-      {showDeleteModal && (
+      {showDeleteModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={closeDeleteModal}>
           <div className="modal pw-modal delete-account-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
@@ -2058,8 +2058,8 @@ export default function UserBar() {
             </footer>
           </div>
         </div>
-      )}
-      {showEmailModal && (
+      ), document.body)}
+      {showEmailModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={() => closeEmailModal()}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
@@ -2108,8 +2108,8 @@ export default function UserBar() {
             </footer>
           </div>
         </div>
-      )}
-      {showUsernameModal && (() => {
+      ), document.body)}
+      {showUsernameModal && typeof document !== 'undefined' && createPortal((() => {
         const changedAt = user?.username_changed_at ? new Date(user.username_changed_at).getTime() : null
         const nextAllowedMs = changedAt ? changedAt + 30 * 24 * 60 * 60 * 1000 : null
         const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
@@ -2261,8 +2261,8 @@ export default function UserBar() {
             </footer>
           </div>
         </div>
-        ); })()}
-      {showPwModal && (
+        ); })(), document.body)}
+      {showPwModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={() => closePasswordModal()}>
           <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
@@ -2393,7 +2393,7 @@ export default function UserBar() {
             </footer>
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   )
 }

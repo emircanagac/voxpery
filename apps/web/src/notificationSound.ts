@@ -15,23 +15,23 @@ export function playMessageNotificationSound(): void {
 
   playCueStack(ctx, [
     {
-      from: 620,
-      to: 580,
-      durationSec: 0.14,
-      peak: 0.014,
+      from: 1046,
+      durationSec: 0.055,
+      peak: 0.012,
       type: 'sine',
-      overtoneGain: 0.08,
-      filterHz: 1800,
+      overtoneGain: 0.03,
+      filterHz: 2800,
+      q: 0.55,
     },
     {
-      from: 880,
-      to: 820,
-      offsetSec: 0.055,
-      durationSec: 0.12,
-      peak: 0.011,
+      from: 1568,
+      offsetSec: 0.045,
+      durationSec: 0.075,
+      peak: 0.009,
       type: 'sine',
-      overtoneGain: 0.05,
-      filterHz: 2200,
+      overtoneGain: 0.02,
+      filterHz: 3600,
+      q: 0.5,
     },
   ])
 }

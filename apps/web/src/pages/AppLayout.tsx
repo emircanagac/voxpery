@@ -38,6 +38,7 @@ import {
     shouldTrackServerUnread,
 } from '../notificationPreferences'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
+import { createReplyContentSnippet } from '../replyPreview'
 import { createSavedMediaItem } from '../savedMedia'
 import { clearPendingSavedMediaJump, getPendingSavedMediaJump } from '../savedMediaJump'
 
@@ -1507,7 +1508,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const handleReplyToMessage = useCallback((msg: { id: string; author?: { username?: string }; content: string }) => {
         const username = msg.author?.username ?? 'User'
-        const snippet = msg.content.length > 80 ? msg.content.slice(0, 80) + '...' : msg.content
+        const snippet = createReplyContentSnippet(msg.content)
         setReplyingTo({ id: msg.id, username, contentSnippet: snippet })
     }, [])
 

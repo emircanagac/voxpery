@@ -6,6 +6,7 @@ import type { Attachment } from '../types'
 import { resolveAttachmentUrl, resolveAvatarUrl, resolveInlineMediaUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
+import { cleanReplyQuotePreview } from '../replyPreview'
 import EmojiPicker from './EmojiPicker'
 import MessageInlineActions from './MessageInlineActions'
 import { useAuthStore } from '../stores/auth'
@@ -996,7 +997,7 @@ export default function ChatArea({
         const replyBody = content.slice(doubleNewline + 2).trim()
         const match = quotePart.match(/^>\s*@([^:]+):\s*(.*)$/s)
         if (!match) return null
-        return { replyUsername: match[1].trim(), replyQuote: match[2].trim(), replyBody }
+        return { replyUsername: match[1].trim(), replyQuote: cleanReplyQuotePreview(match[2]), replyBody }
     }
 
     const renderMessageContent = (content: string) => {
