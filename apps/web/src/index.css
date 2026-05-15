@@ -4950,13 +4950,24 @@ body {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 84px;
+  bottom: calc(100% + 8px);
+  max-height: min(224px, 42vh);
   background: var(--bg-surface);
   border: var(--border-subtle);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-medium);
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 6;
+}
+
+.mention-suggest-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mention-suggest-menu::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
 }
 
 .mention-suggest-item {
@@ -13388,6 +13399,13 @@ textarea {
 
   .message-input-container > * {
     pointer-events: auto;
+  }
+
+  .mention-suggest-menu {
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    max-height: min(196px, 34vh);
   }
 
   .message-input-wrapper {
