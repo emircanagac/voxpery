@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest } from '../api'
+import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -1721,6 +1721,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const effectiveServerIcon = serverSettingsIconDraft !== undefined
         ? serverSettingsIconDraft
         : (settingsServer?.icon_url ?? null)
+    const effectiveServerIconSrc = resolveServerIconUrl(effectiveServerIcon)
     const hasIconChanges = !!(
         isOwner &&
         settingsServer &&
@@ -3377,8 +3378,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                             <div className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
                                 <div className="server-settings-header">
                                     <div className="server-settings-header__left">
-                                        {effectiveServerIcon ? (
-                                            <img src={effectiveServerIcon} alt="" className="server-settings-header__icon" />
+                                        {effectiveServerIconSrc ? (
+                                            <img src={effectiveServerIconSrc} alt="" className="server-settings-header__icon" />
                                         ) : (
                                             <div className="server-settings-header__icon server-settings-header__icon--placeholder">
                                                 {settingsServer.name.charAt(0).toUpperCase()}
@@ -3530,9 +3531,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                         <section className="server-overview-profile">
                                                             <div className="server-overview-profile__hero">
                                                                 <div className="server-overview-profile__icon">
-                                                                    {effectiveServerIcon ? (
+                                                                    {effectiveServerIconSrc ? (
                                                                         <img
-                                                                            src={effectiveServerIcon}
+                                                                            src={effectiveServerIconSrc}
                                                                             alt={settingsServer.name}
                                                                             className="server-settings-icon-preview"
                                                                         />

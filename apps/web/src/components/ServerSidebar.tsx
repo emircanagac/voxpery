@@ -3,7 +3,7 @@ import { PlusCircle, LogIn, LogOut, Settings, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
-import { serverApi } from '../api'
+import { resolveServerIconUrl, serverApi } from '../api'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 interface ServerSidebarProps {
@@ -391,7 +391,7 @@ export default function ServerSidebar({
                     title={server.name}
                     aria-label={server.name}
                 >
-                    {server.icon_url ? <img src={server.icon_url} alt={server.name} /> : getInitial(server.name)}
+                    {server.icon_url ? <img src={resolveServerIconUrl(server.icon_url) ?? ''} alt={server.name} /> : getInitial(server.name)}
                     {isVoiceActive && (
                         <span
                             className="server-voice-indicator"

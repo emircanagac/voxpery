@@ -365,6 +365,16 @@ impl AttachmentService {
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
     }
 
+    pub async fn open_local_attachment_file(
+        &self,
+        storage_key: &str,
+    ) -> Result<fs::File, AppError> {
+        let path = self.resolve_local_path(storage_key)?;
+        fs::File::open(path)
+            .await
+            .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
+    }
+
     async fn find_attachment_by_id_for_owner(
         &self,
         db: &sqlx::PgPool,

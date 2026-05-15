@@ -166,7 +166,7 @@ Notes:
   - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
-  - Intended for rendering attachment media in chat without exposing permanent public file URLs.
+  - Streams attachment media in chat without exposing permanent public file URLs.
 
 ## Image Proxy Endpoint
 
@@ -174,6 +174,9 @@ Notes:
   - Proxies third-party avatar images so viewers do not request user-supplied image hosts directly.
   - Accepts only public `https://` URLs, rejects redirects, local/private host resolution, unsupported content types, and images over 3 MB.
   - Returns `image/jpeg`, `image/png`, `image/gif`, or `image/webp` with cache headers and `X-Content-Type-Options: nosniff`.
+- `GET /api/images/remote?url=<encoded-https-url>`
+  - Uses the same SSRF, MIME, size, redirect, cache, and rate-limit controls for remote server icons and inline GIF/sticker previews.
+  - Intended for user-controlled remote media that should render without exposing viewer IP/user-agent to the original host.
 
 ## Message Endpoints (Server Channels)
 

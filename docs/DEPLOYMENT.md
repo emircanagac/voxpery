@@ -121,6 +121,7 @@ Default ports:
 Security defaults in compose:
 
 - `web`, `server`, `postgres`, `redis`, `livekit:7880` bind to `127.0.0.1` only
+- Local compose passes `APP_ENV=development` and builds the web image with `apps/web/nginx.development.conf` so localhost API and LiveKit smoke tests work. Public production images pass `APP_ENV=production` in CI and use `apps/web/nginx.production.conf`, which omits browser loopback `connect-src` allowances.
 - Public media ports stay open for LiveKit:
   - `7881/tcp` (fallback)
   - `7882/udp`
