@@ -27,6 +27,7 @@ type MentionUser = {
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const BOTTOM_LOCK_THRESHOLD_PX = 120
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
 function mentionPresenceRank(status?: string | null): number {
     const normalized = (status ?? 'offline').toLowerCase()
@@ -516,6 +517,30 @@ export default function ChatArea({
         const previous = messages[index - 1]
         if (!current?.created_at || !previous?.created_at) return false
         return new Date(current.created_at).toDateString() !== new Date(previous.created_at).toDateString()
+    }
+
+    const getMessageAuthorKey = (msg: UiMessage | undefined) => {
+        if (!msg?.author) return ''
+        return msg.author.user_id || msg.author.username || ''
+    }
+
+    const isGroupedMessage = (index: number) => {
+        if (index <= 0) return false
+        if (isNewMessageDay(index)) return false
+        if (firstUnreadIndex >= 0 && index === firstUnreadIndex) return false
+
+        const current = messages[index]
+        const previous = messages[index - 1]
+        if (!current || !previous) return false
+        if (current.edited_at || current.clientStatus === 'failed') return false
+
+        const currentAuthor = getMessageAuthorKey(current)
+        if (!currentAuthor || currentAuthor !== getMessageAuthorKey(previous)) return false
+
+        const currentTime = new Date(current.created_at).getTime()
+        const previousTime = new Date(previous.created_at).getTime()
+        const diff = currentTime - previousTime
+        return Number.isFinite(diff) && diff >= 0 && diff <= MESSAGE_GROUP_WINDOW_MS
     }
 
     const firstUnreadIndex = useMemo(() => {
@@ -1328,6 +1353,46 @@ export default function ChatArea({
                             const msg = messages[virtualRow.index]
                             const showDayDivider = isNewMessageDay(virtualRow.index)
                             const showUnreadDivider = firstUnreadIndex >= 0 && virtualRow.index === firstUnreadIndex
+                            const isGrouped = isGroupedMessage(virtualRow.index)
+                            const messageInlineActions = !msg.clientId ? (
+                                <MessageInlineActions
+                                    messageId={msg.id}
+                                    currentUserId={currentUserId}
+                                    authorUserId={msg.author?.user_id}
+                                    canModerate={canModerate}
+                                    canReact={!!onToggleReaction}
+                                    reactionPickerOpen={reactionPickerMessageId === msg.id}
+                                    onToggleReactionPicker={(messageId, anchorEl) => {
+                                        reactionPickerAnchorRef.current = anchorEl
+                                        setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
+                                    }}
+                                    canPin={!!(onPinMessage || onUnpinMessage)}
+                                    isPinned={pinnedMessageIds.has(msg.id)}
+                                    onPin={onPinMessage}
+                                    onUnpin={onUnpinMessage}
+                                    onReply={onReplyToMessage ? () => {
+                                        onReplyToMessage(msg)
+                                        setTimeout(() => textareaRef.current?.focus(), 0)
+                                    } : undefined}
+                                    canSave={Array.isArray(msg.attachments) && msg.attachments.length > 0 && !!onToggleSaveMessage}
+                                    isSaved={!!savedMessageIds?.has(msg.id)}
+                                    onToggleSave={onToggleSaveMessage ? () => onToggleSaveMessage(msg) : undefined}
+                                    onReport={msg.author?.user_id !== currentUserId && onReportMessage ? () => onReportMessage(msg) : undefined}
+                                    onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
+                                        const parsed = parseReplyContent(msg.content)
+                                        if (parsed) {
+                                            const quotePart = msg.content.slice(0, msg.content.indexOf('\n\n'))
+                                            onEditMessage({ id: msg.id, content: msg.content, contentToEdit: parsed.replyBody, replyQuotePart: quotePart })
+                                        } else {
+                                            onEditMessage({ id: msg.id, content: msg.content })
+                                        }
+                                    } : undefined}
+                                    onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
+                                />
+                            ) : null
+                            const failedState = msg.clientStatus === 'failed' ? (
+                                <span className="message-send-state is-failed">Failed</span>
+                            ) : null
                             return (
                                 <div
                                     key={msg.id}
@@ -1346,66 +1411,34 @@ export default function ChatArea({
                                             <span>New messages</span>
                                         </div>
                                     )}
-                                    <div className={`message${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
-                                        <div className="message-avatar">
-                                            {getAuthorAvatarUrl(msg.author || {}) ? (
-                                                <img src={getAuthorAvatarUrl(msg.author || {}) ?? ''} alt="" />
-                                            ) : (
-                                                getInitial(msg.author?.username ?? '?')
+                                    <div className={`message${isGrouped ? ' message-compact' : ''}${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
+                                        <div className="message-avatar" aria-hidden={isGrouped ? 'true' : undefined}>
+                                            {!isGrouped && (
+                                                getAuthorAvatarUrl(msg.author || {}) ? (
+                                                    <img src={getAuthorAvatarUrl(msg.author || {}) ?? ''} alt="" />
+                                                ) : (
+                                                    getInitial(msg.author?.username ?? '?')
+                                                )
                                             )}
                                         </div>
                                         <div className="message-content">
-                                            <div className="message-header">
-                                                <span 
-                                                    className="message-author" 
-                                                    style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
-                                                >
-                                                    {msg.author.username}
-                                                </span>
-                                                <span className="message-timestamp" title={formatDate(msg.created_at)}>
-                                                    {formatMessageTimestamp(msg.created_at)}
-                                                </span>
-                                                {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
-                                                {!msg.clientId && (
-                                                    <MessageInlineActions
-                                                        messageId={msg.id}
-                                                        currentUserId={currentUserId}
-                                                        authorUserId={msg.author?.user_id}
-                                                        canModerate={canModerate}
-                                                        canReact={!!onToggleReaction}
-                                                        reactionPickerOpen={reactionPickerMessageId === msg.id}
-                                                        onToggleReactionPicker={(messageId, anchorEl) => {
-                                                            reactionPickerAnchorRef.current = anchorEl
-                                                            setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
-                                                        }}
-                                                        canPin={!!(onPinMessage || onUnpinMessage)}
-                                                        isPinned={pinnedMessageIds.has(msg.id)}
-                                                        onPin={onPinMessage}
-                                                        onUnpin={onUnpinMessage}
-                                                        onReply={onReplyToMessage ? () => {
-                                                            onReplyToMessage(msg)
-                                                            setTimeout(() => textareaRef.current?.focus(), 0)
-                                                        } : undefined}
-                                                        canSave={Array.isArray(msg.attachments) && msg.attachments.length > 0 && !!onToggleSaveMessage}
-                                                        isSaved={!!savedMessageIds?.has(msg.id)}
-                                                        onToggleSave={onToggleSaveMessage ? () => onToggleSaveMessage(msg) : undefined}
-                                                        onReport={msg.author?.user_id !== currentUserId && onReportMessage ? () => onReportMessage(msg) : undefined}
-                                                        onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
-                                                            const parsed = parseReplyContent(msg.content)
-                                                            if (parsed) {
-                                                                const quotePart = msg.content.slice(0, msg.content.indexOf('\n\n'))
-                                                                onEditMessage({ id: msg.id, content: msg.content, contentToEdit: parsed.replyBody, replyQuotePart: quotePart })
-                                                            } else {
-                                                                onEditMessage({ id: msg.id, content: msg.content })
-                                                            }
-                                                        } : undefined}
-                                                        onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
-                                                    />
+                                            {isGrouped && messageInlineActions}
+                                            {!isGrouped && (
+                                                <div className="message-header">
+                                                    <span
+                                                        className="message-author"
+                                                        style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
+                                                    >
+                                                        {msg.author.username}
+                                                    </span>
+                                                    <span className="message-timestamp" title={formatDate(msg.created_at)}>
+                                                        {formatMessageTimestamp(msg.created_at)}
+                                                    </span>
+                                                    {msg.edited_at && <span className="message-edited" title="Edited">(edited)</span>}
+                                                    {messageInlineActions}
+                                                    {failedState}
+                                                </div>
                                                 )}
-                                                {msg.clientStatus === 'failed' && (
-                                                    <span className="message-send-state is-failed">Failed</span>
-                                                )}
-                                            </div>
                                             {editingMessageId === msg.id ? (
                                                 <div className="dm-edit-row">
                                                     <input

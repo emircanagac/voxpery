@@ -4503,10 +4503,30 @@ body {
   object-fit: cover;
 }
 
+.message.message-compact {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.message.message-compact .message-avatar {
+  height: 0;
+  margin-top: 0;
+  visibility: hidden;
+}
+
 .message-content {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.message.message-compact .message-inline-actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 
 .message-header {
