@@ -34,6 +34,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
+- [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share also mutes only the screen-share audio while normal microphone audio continues.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
 - [ ] Mobile server chat shows one visible message after send, including after the API response and WebSocket echo both arrive.

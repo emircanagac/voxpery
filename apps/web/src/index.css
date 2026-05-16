@@ -8613,6 +8613,63 @@ a.community-open-btn:hover {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
+.voice-stage-hidden-media-tile {
+  min-height: clamp(150px, 22vh, 260px);
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(24, 32, 58, 0.78), rgba(17, 24, 43, 0.88));
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  pointer-events: auto;
+}
+
+.voice-stage-hidden-media-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(96, 122, 177, 0.16);
+  color: rgba(203, 213, 245, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-stage-hidden-media-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voice-stage-hidden-media-sub {
+  font-size: 12px;
+}
+
+.voice-stage-hidden-media-show {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(96, 165, 250, 0.36);
+  background: rgba(59, 130, 246, 0.14);
+  color: rgba(219, 234, 254, 0.95);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.voice-stage-hidden-media-show:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(147, 197, 253, 0.48);
+}
+
 .active-call-bar {
   min-height: 48px;
   display: flex;
@@ -13006,6 +13063,17 @@ textarea {
     min-height: 0;
     gap: 6px;
     padding: 10px 8px;
+  }
+
+  .voice-stage-hidden-media-tile {
+    min-height: 0;
+    gap: 6px;
+    padding: 12px 8px;
+  }
+
+  .voice-stage-hidden-media-icon {
+    width: 34px;
+    height: 34px;
   }
 
   .voice-stage-avatar {
