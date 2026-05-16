@@ -2621,27 +2621,6 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.user-status-popover-footer {
-  padding: 8px 10px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.user-status-popover-logout {
-  width: 100%;
-  height: 30px;
-  border: 1px solid rgba(240, 71, 71, 0.35);
-  background: rgba(240, 71, 71, 0.12);
-  color: #ffd5d5;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.user-status-popover-logout:hover {
-  background: rgba(240, 71, 71, 0.22);
-}
-
 .user-status-popover-avatar {
   width: 32px;
   height: 32px;
@@ -3111,6 +3090,18 @@ body {
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.24);
   color: var(--text-primary);
+}
+
+.user-settings-modal .account-action-btn--danger {
+  border-color: var(--btn-danger-soft-border);
+  background: var(--btn-danger-soft-bg);
+  color: var(--btn-danger-soft-text);
+}
+
+.user-settings-modal .account-action-btn--danger:hover:not(:disabled) {
+  border-color: var(--btn-danger-soft-border-hover);
+  background: var(--btn-danger-soft-bg-hover);
+  color: #ffd5d5;
 }
 
 .quick-switcher-overlay {
@@ -13890,14 +13881,6 @@ textarea {
     font-size: 12px;
   }
 
-  .user-status-popover-footer {
-    padding: 5px 7px 7px;
-  }
-
-  .user-status-popover-logout {
-    height: 26px;
-    font-size: 11px;
-  }
 }
 
 @media (min-width: 701px) and (max-width: 1180px) {

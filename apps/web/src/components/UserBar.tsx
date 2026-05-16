@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -469,6 +469,14 @@ export default function UserBar() {
   const closeSettingsPanel = useCallback(() => {
     setShowSettingsPanel(false)
   }, [])
+
+  const handleLogout = useCallback(() => {
+    closeSettingsPanel()
+    closeStatusMenu()
+    disconnect()
+    logout()
+    navigate(ROUTES.login, { replace: true })
+  }, [closeSettingsPanel, closeStatusMenu, disconnect, logout, navigate])
 
   const openSettingsPanel = useCallback(() => {
     closeStatusMenu()
@@ -1244,19 +1252,6 @@ export default function UserBar() {
       {statusSaving && (
         <div className="user-status-popover-saving">Updating…</div>
       )}
-      <div className="user-status-popover-footer">
-        <button
-          type="button"
-          className="user-status-popover-logout"
-          onClick={() => {
-            disconnect()
-            logout()
-            navigate(ROUTES.login, { replace: true })
-          }}
-        >
-          Log out
-        </button>
-      </div>
     </div>
   )
 
@@ -1935,6 +1930,20 @@ export default function UserBar() {
                     {isGoogleOnlyAccount ? 'Set password' : 'Change'}
                   </button>
                 </div>
+                <div className="user-setting-row user-setting-row--account-action">
+                  <div>
+                    <div className="user-setting-title">Log out</div>
+                    <div className="user-setting-desc">End this session and return to the login screen.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="user-toggle account-action-btn account-action-btn--danger"
+                    onClick={handleLogout}
+                  >
+                    <LogOut size={14} style={{ marginRight: 6 }} />
+                    Log out
+                  </button>
+                </div>
               </section>
               )}
               {activeSettingsSection === 'privacy' && (
@@ -2374,9 +2383,7 @@ export default function UserBar() {
                       setPwSuccess(true)
                       setPwOld(''); setPwNew(''); setPwConfirm('')
                       setTimeout(() => {
-                        disconnect()
-                        logout()
-                        navigate(ROUTES.login, { replace: true })
+                        handleLogout()
                       }, 1500)
                     }
                   } catch (err: unknown) {
