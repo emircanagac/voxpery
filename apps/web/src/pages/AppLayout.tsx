@@ -1200,9 +1200,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     const channel_id = d.channel_id as string | null | undefined
                     const user_id = d.user_id as string | undefined
                     const server_id = d.server_id as string | null | undefined
+                    const channel_active_since_ms = d.channel_active_since_ms as number | null | undefined
                     if (!user_id) break
                     const store = useAppStore.getState()
-                    store.setVoiceState(user_id, channel_id ?? null)
+                    store.setVoiceState(user_id, channel_id ?? null, channel_active_since_ms ?? null)
                     store.setVoiceStateServerId(user_id, server_id ?? null)
                     if (server_id && channel_id) {
                         const activeMembers = activeServerIdRef.current === server_id ? (store.members ?? []) : []

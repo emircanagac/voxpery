@@ -2740,7 +2740,17 @@ async fn delete_my_account(
     }
 
     state.sessions.remove(&claims.sub);
-    state.voice_sessions.remove(&claims.sub);
+    if let Some((_, previous_channel_id)) = state.voice_sessions.remove(&claims.sub) {
+        let channel_still_has_participants = state
+            .voice_sessions
+            .iter()
+            .any(|entry| *entry.value() == previous_channel_id);
+        if !channel_still_has_participants {
+            state
+                .voice_channel_active_since_ms
+                .remove(&previous_channel_id);
+        }
+    }
     state.voice_controls.remove(&claims.sub);
     crate::ws::publish_event(
         &state,

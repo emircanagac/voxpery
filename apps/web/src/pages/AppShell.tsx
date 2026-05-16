@@ -246,11 +246,11 @@ export default function AppShell() {
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
       try {
-        const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; status?: string; muted?: boolean; deafened?: boolean; server_muted?: boolean; server_deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
+        const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; channel_active_since_ms?: number | null; status?: string; muted?: boolean; deafened?: boolean; server_muted?: boolean; server_deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
         if (e?.type === 'VoiceStateUpdate') {
-          const { user_id, channel_id, server_id } = e.data ?? {}
+          const { user_id, channel_id, server_id, channel_active_since_ms } = e.data ?? {}
           if (user_id) {
-            setVoiceState(user_id, channel_id ?? null)
+            setVoiceState(user_id, channel_id ?? null, channel_active_since_ms ?? null)
             useAppStore.getState().setVoiceStateServerId(user_id, server_id ?? null)
             if (user_id === userId) {
               setJoinedVoiceChannelId(channel_id ?? null)

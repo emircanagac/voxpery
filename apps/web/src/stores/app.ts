@@ -59,7 +59,9 @@ interface AppState {
     resetIncomingRequestCount: () => void
     // Voice presence (user_id -> channel_id | null)
     voiceStates: Record<string, string | null>
-    setVoiceState: (userId: string, channelId: string | null) => void
+    setVoiceState: (userId: string, channelId: string | null, channelActiveSinceMs?: number | null) => void
+    // Voice channel activity start time (channel_id -> epoch milliseconds while at least one participant is connected)
+    voiceChannelActiveSince: Record<string, number>
     // Voice presence: user_id -> server_id when in a voice channel (null when left)
     voiceStateServerIds: Record<string, string | null>
     setVoiceStateServerId: (userId: string, serverId: string | null) => void
@@ -255,10 +257,28 @@ export const useAppStore = create<AppState>()(
             resetIncomingRequestCount: () => set({ incomingRequestCount: 0 }),
             // Voice presence
             voiceStates: {},
-            setVoiceState: (userId, channelId) =>
-                set((s) => ({
-                    voiceStates: { ...s.voiceStates, [userId]: channelId },
-                })),
+            voiceChannelActiveSince: {},
+            setVoiceState: (userId, channelId, channelActiveSinceMs) =>
+                set((s) => {
+                    const previousChannelId = s.voiceStates[userId] ?? null
+                    const voiceStates = { ...s.voiceStates, [userId]: channelId }
+                    const voiceChannelActiveSince = { ...s.voiceChannelActiveSince }
+                    const channelHasParticipants = (targetChannelId: string) =>
+                        Object.values(voiceStates).some((id) => id === targetChannelId)
+
+                    if (previousChannelId && !channelHasParticipants(previousChannelId)) {
+                        delete voiceChannelActiveSince[previousChannelId]
+                    }
+                    if (channelId && channelHasParticipants(channelId)) {
+                        if (typeof channelActiveSinceMs === 'number' && Number.isFinite(channelActiveSinceMs)) {
+                            voiceChannelActiveSince[channelId] = channelActiveSinceMs
+                        } else if (!voiceChannelActiveSince[channelId]) {
+                            voiceChannelActiveSince[channelId] = Date.now()
+                        }
+                    }
+
+                    return { voiceStates, voiceChannelActiveSince }
+                }),
             voiceStateServerIds: {},
             setVoiceStateServerId: (userId, serverId) =>
                 set((s) => ({
@@ -335,6 +355,7 @@ export const useAppStore = create<AppState>()(
                     serverMentionsByChannel: {},
                     incomingRequestCount: 0,
                     voiceStates: {},
+                    voiceChannelActiveSince: {},
                     voiceStateServerIds: {},
                     voiceControls: {},
                     voiceSpeakingUserIds: [],

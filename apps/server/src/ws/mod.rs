@@ -60,6 +60,7 @@ pub enum WsEvent {
         channel_id: Option<Uuid>, // None if left voice
         user_id: Uuid,
         server_id: Option<Uuid>, // server that owns the channel; None if left voice
+        channel_active_since_ms: Option<u64>, // Same for every client while the voice channel remains non-empty
     },
     /// Voice control state update (mute/deafen).
     VoiceControlUpdate {

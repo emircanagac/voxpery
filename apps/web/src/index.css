@@ -1427,6 +1427,21 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+
+.channel-voice-duration {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  min-width: 38px;
+  color: rgba(117, 230, 168, 0.96);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .channel-muted-indicator {
