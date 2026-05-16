@@ -60,12 +60,85 @@ function extractEmbeddedMediaMarkdown(content: string): { text: string; gifUrls:
     return { text, gifUrls, stickerUrls }
 }
 
+function AttachmentImagePreviewModal({
+    src,
+    title,
+    onClose,
+    onImageLoadError,
+}: {
+    src: string
+    title: string
+    onClose: () => void
+    onImageLoadError: () => void
+}) {
+    useEffect(() => {
+        const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+            if (event.key === 'Escape') onClose()
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [onClose])
+
+    if (typeof document === 'undefined') return null
+
+    return createPortal(
+        <div
+            className="chat-image-preview-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            onMouseDown={(event) => {
+                if (event.target === event.currentTarget) onClose()
+            }}
+        >
+            <div className="chat-image-preview-modal">
+                <div className="chat-image-preview-toolbar">
+                    <span className="chat-image-preview-title">{title}</span>
+                    <button
+                        type="button"
+                        className="chat-image-preview-close"
+                        onClick={onClose}
+                        aria-label="Close image preview"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="chat-image-preview-stage">
+                    <img
+                        src={src}
+                        alt={title}
+                        className="chat-image-preview-image"
+                        onError={onImageLoadError}
+                    />
+                </div>
+            </div>
+        </div>,
+        document.body
+    )
+}
+
+function isImageAttachment(attachment: Attachment): boolean {
+    if (typeof attachment?.type === 'string' && attachment.type.startsWith('image/')) return true
+    const name = attachment.name ?? ''
+    const path = (() => {
+        try {
+            return new URL(attachment.url).pathname
+        } catch {
+            return attachment.url
+        }
+    })()
+    return /\.(apng|avif|gif|jpe?g|png|webp)$/i.test(`${name} ${path}`)
+}
+
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
     const token = useAuthStore((s) => s.token)
+    const [previewOpen, setPreviewOpen] = useState(false)
+    const isImage = isImageAttachment(attachment)
     const [resolution, setResolution] = useState(() => ({
         sourceUrl: attachment.url,
         resolvedUrl: attachment.url,
         loadFailed: false,
+        triedDirectFallback: false,
     }))
     const currentResolution = resolution.sourceUrl === attachment.url
         ? resolution
@@ -73,13 +146,17 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             sourceUrl: attachment.url,
             resolvedUrl: attachment.url,
             loadFailed: false,
+            triedDirectFallback: false,
         }
 
     useEffect(() => {
         let cancelled = false
         let objectUrl: string | null = null
 
-        resolveAttachmentUrl(attachment.url, token ?? null)
+        resolveAttachmentUrl(attachment.url, token ?? null, {
+            forceAuthenticatedFetch: isImage,
+            fallbackMimeType: attachment.type,
+        })
             .then((nextUrl) => {
                 if (cancelled) {
                     if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
@@ -90,6 +167,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     sourceUrl: attachment.url,
                     resolvedUrl: nextUrl,
                     loadFailed: false,
+                    triedDirectFallback: false,
                 })
             })
             .catch(() => {
@@ -97,7 +175,8 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     setResolution({
                         sourceUrl: attachment.url,
                         resolvedUrl: attachment.url,
-                        loadFailed: true,
+                        loadFailed: isImage,
+                        triedDirectFallback: true,
                     })
                 }
             })
@@ -106,21 +185,51 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             cancelled = true
             if (objectUrl) URL.revokeObjectURL(objectUrl)
         }
-    }, [attachment.url, token])
+    }, [attachment.type, attachment.url, isImage, token])
 
-    const isImage = typeof attachment?.type === 'string' && attachment.type.startsWith('image/')
     if (isImage) {
+        const alt = attachment.name || `Attachment ${index + 1}`
+        const handleImageLoadError = () => {
+            setResolution((current) => {
+                if (current.sourceUrl !== attachment.url) return current
+                if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
+                return {
+                    ...current,
+                    loadFailed: true,
+                }
+            })
+        }
         if (currentResolution.loadFailed) {
             return (
-                <a href={attachment.url} target="_blank" rel="noreferrer" className="dm-attachment-link">
+                <span className="dm-attachment-link chat-image-unavailable" title="Image preview could not be loaded">
                     {attachment.name || `Image attachment ${index + 1}`}
-                </a>
+                </span>
             )
         }
         return (
-            <a href={currentResolution.resolvedUrl} target="_blank" rel="noreferrer" className="chat-image-link">
-                <img src={currentResolution.resolvedUrl} alt={attachment.name || `Attachment ${index + 1}`} className="chat-image-attachment" />
-            </a>
+            <>
+                <button
+                    type="button"
+                    className="chat-image-link chat-image-preview-trigger"
+                    onClick={() => setPreviewOpen(true)}
+                    aria-label={`Preview ${alt}`}
+                >
+                    <img
+                        src={currentResolution.resolvedUrl}
+                        alt={alt}
+                        className="chat-image-attachment"
+                        onError={handleImageLoadError}
+                    />
+                </button>
+                {previewOpen && (
+                    <AttachmentImagePreviewModal
+                        src={currentResolution.resolvedUrl}
+                        title={alt}
+                        onClose={() => setPreviewOpen(false)}
+                        onImageLoadError={handleImageLoadError}
+                    />
+                )}
+            </>
         )
     }
 
@@ -990,9 +1099,16 @@ export default function ChatArea({
                     <div className="chat-inline-gif-list">
                         {stickerUrls.map((url, index) => {
                             return (
-                                <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link chat-inline-sticker-link">
+                                <div
+                                    key={`${url}-${index}`}
+                                    className="chat-inline-gif-link chat-inline-sticker-link"
+                                    onClickCapture={(event) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                    }}
+                                >
                                     <InlineMediaImage src={url} alt="Sticker preview" className="chat-inline-sticker" />
-                                </a>
+                                </div>
                             )
                         })}
                     </div>
@@ -1001,9 +1117,16 @@ export default function ChatArea({
                     <div className="chat-inline-gif-list">
                         {gifUrls.map((url, index) => {
                             return (
-                                <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link">
+                                <div
+                                    key={`${url}-${index}`}
+                                    className="chat-inline-gif-link"
+                                    onClickCapture={(event) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                    }}
+                                >
                                     <InlineMediaImage src={url} alt="GIF preview" className="chat-inline-gif" />
-                                </a>
+                                </div>
                             )
                         })}
                     </div>
