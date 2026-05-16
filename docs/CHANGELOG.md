@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-16
+
+### Added
+- Voice channel active duration indicators so users can see how long a voice channel has been active.
+- Remote media watching controls for voice calls, including hide/show camera and stop-watching screen share behavior.
+
+### Changed
+- New accounts now default to allowing DMs from everyone, with the existing setting still available for users who prefer friends-only DMs.
+- Settings/Profile now owns the logout action across desktop and mobile for a more predictable account flow.
+- Chat media previews now use a more consistent in-app preview model across web and desktop.
+- GIF and sticker picker results were cleaned up and deduplicated.
+
 ### Removed
 - Removed the unfinished Saved/bookmark media surface from Social and message actions to keep the core chat experience simpler.
+
+### Fixed
+- Fixed refresh-time placeholder flashes when reopening a server.
+- Fixed settings modal layering issues from voice/chat surfaces.
+- Fixed mention suggestion positioning, message grouping polish, and chat layout shift cases.
+- Fixed GIF/sticker preview and navigation polish so media stays inside the app experience.
+- Fixed desktop image preview behavior so chat images can be viewed consistently with web.
 
 ## [0.1.9] - 2026-05-15
 
