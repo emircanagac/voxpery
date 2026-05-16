@@ -211,7 +211,7 @@ export default function UserBar() {
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
   const [voiceInputProfile, setVoiceInputProfile] = useState<VoiceInputProfile>(() => getStoredVoiceInputProfile())
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
-    (user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends') ?? 'friends'
+    user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'everyone'
   )
   const [speakingThreshold, setSpeakingThreshold] = useState(() => thresholdByPreset(DEFAULT_SPEAKING_PRESET))
   const [speakingPreset, setSpeakingPreset] = useState<SpeakingPreset>(DEFAULT_SPEAKING_PRESET)
@@ -671,7 +671,7 @@ export default function UserBar() {
   }, [capturingPtt, markVoiceProfileCustom])
 
   useEffect(() => {
-    setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'friends')
+    setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'everyone')
   }, [user?.dm_privacy])
 
   useEffect(() => {

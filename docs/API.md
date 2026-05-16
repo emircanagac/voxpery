@@ -44,7 +44,7 @@ Important behavior:
 - `GET /api/auth/me`
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
-  - `dm_privacy` values: `everyone`, `friends`
+  - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`
 - `GET /api/auth/check-username?username=...`
 - `POST /api/auth/change-password`
 - `POST /api/auth/forgot-password`
