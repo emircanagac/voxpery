@@ -1162,24 +1162,32 @@ export default function ChatArea({
     if (!activeChannel) {
         return (
             <div className="chat-area">
-                <div className="core-landing">
-                    <h2>Welcome to Voxpery</h2>
-                    <p>Simple communication focused on what matters most.</p>
-                    <div className="core-pillars">
-                        <div className="core-pillar">
-                            <div className="core-pillar-title">Messaging</div>
-                            <div className="core-pillar-desc">Fast channel chat and direct conversation flow.</div>
-                        </div>
-                        <div className="core-pillar">
-                            <div className="core-pillar-title">Voice Chat</div>
-                            <div className="core-pillar-desc">Low-latency voice with clean controls.</div>
-                        </div>
-                        <div className="core-pillar">
-                            <div className="core-pillar-title">Screen Sharing</div>
-                            <div className="core-pillar-desc">Share your screen in voice rooms when needed.</div>
+                {loading ? (
+                    <div className="chat-loading-state chat-loading-state--centered" aria-hidden="true">
+                        <div className="chat-loading-bubble" />
+                        <div className="chat-loading-bubble short" />
+                        <div className="chat-loading-bubble" />
+                    </div>
+                ) : (
+                    <div className="core-landing">
+                        <h2>Welcome to Voxpery</h2>
+                        <p>Simple communication focused on what matters most.</p>
+                        <div className="core-pillars">
+                            <div className="core-pillar">
+                                <div className="core-pillar-title">Messaging</div>
+                                <div className="core-pillar-desc">Fast channel chat and direct conversation flow.</div>
+                            </div>
+                            <div className="core-pillar">
+                                <div className="core-pillar-title">Voice Chat</div>
+                                <div className="core-pillar-desc">Low-latency voice with clean controls.</div>
+                            </div>
+                            <div className="core-pillar">
+                                <div className="core-pillar-title">Screen Sharing</div>
+                                <div className="core-pillar-desc">Share your screen in voice rooms when needed.</div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
         )
     }
