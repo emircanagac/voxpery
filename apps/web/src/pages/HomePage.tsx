@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Activity, ArrowRight, Bookmark, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -13,7 +13,6 @@ import {
   type MessageWithAuthor,
 } from '../api'
 import ChatArea from '../components/ChatArea'
-import SavedMediaCard from '../components/SavedMediaCard'
 import type { StatusValue } from '../components/StatusIcon'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -31,8 +30,6 @@ import {
   type DraftAttachmentItem,
 } from '../draftAttachments'
 import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
-import { createSavedMediaItem } from '../savedMedia'
-import { clearPendingSavedMediaJump, getPendingSavedMediaJump, setPendingSavedMediaJump } from '../savedMediaJump'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { createReplyContentSnippet } from '../replyPreview'
@@ -109,7 +106,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setServersLoading,
     setServers,
     setActiveServer,
-    setActiveChannel,
     dmUnread,
     clearDmUnread,
     activeDmChannelId,
@@ -122,18 +118,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setDmChannels: setStoreDmChannels,
     mobileSidebarPanel,
     setMobileSidebarPanel,
-    savedMediaByUserId,
-    unseenSavedMediaIdsByUserId,
-    toggleSavedMedia,
-    removeSavedMedia,
-    markSavedMediaSeen,
   } = useAppStore(
     useShallow((s) => ({
       servers: s.servers,
       setServersLoading: s.setServersLoading,
       setServers: s.setServers,
       setActiveServer: s.setActiveServer,
-      setActiveChannel: s.setActiveChannel,
       dmUnread: s.dmUnread,
       clearDmUnread: s.clearDmUnread,
       activeDmChannelId: s.activeDmChannelId,
@@ -146,11 +136,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmChannels: s.setDmChannels,
       mobileSidebarPanel: s.mobileSidebarPanel,
       setMobileSidebarPanel: s.setMobileSidebarPanel,
-      savedMediaByUserId: s.savedMediaByUserId,
-      unseenSavedMediaIdsByUserId: s.unseenSavedMediaIdsByUserId,
-      toggleSavedMedia: s.toggleSavedMedia,
-      removeSavedMedia: s.removeSavedMedia,
-      markSavedMediaSeen: s.markSavedMediaSeen,
     }))
   )
   const navigate = useNavigate()
@@ -179,15 +164,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [removingFriend, setRemovingFriend] = useState(false)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
-  const savedMedia = useMemo(
-    () => (userId ? (savedMediaByUserId[userId] ?? []) : []),
-    [savedMediaByUserId, userId],
-  )
-  const unseenSavedCount = useMemo(
-    () => (userId ? (unseenSavedMediaIdsByUserId[userId] ?? []).length : 0),
-    [unseenSavedMediaIdsByUserId, userId],
-  )
-  const savedMessageIds = useMemo(() => new Set(savedMedia.map((item) => item.message_id)), [savedMedia])
   const dmChannels = useMemo(
     () =>
       storeDmChannels.filter(
@@ -215,8 +191,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
       return
     }
-    const saved = getPersistedSocialView()
-    if (saved === 'dm' && activeDmChannelId) {
+    const persistedSocialView = getPersistedSocialView()
+    if (persistedSocialView === 'dm' && activeDmChannelId) {
       setView('dm')
       if (location.pathname !== ROUTES.dm) {
         navigate(ROUTES.dm, { replace: true })
@@ -226,8 +202,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (location.pathname === ROUTES.dm) {
       navigate(ROUTES.home, { replace: true })
     }
-    if (saved === 'saved') setView('saved')
-    else setView('friends')
+    setView('friends')
   }, [location.pathname, location.state, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
 
   const voxperyServer = useMemo(
@@ -236,8 +211,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
   const [dmUnreadDividerCount, setDmUnreadDividerCount] = useState(0)
-  const [dmConversationReady, setDmConversationReady] = useState(false)
-  const [pendingSavedJumpMessageId, setPendingSavedJumpMessageId] = useState<string | null>(null)
+  const [, setDmConversationReady] = useState(false)
   const [dmInput, setDmInput] = useState('')
   const [dmSearch, setDmSearch] = useState('')
   const [dmSearchResults, setDmSearchResults] = useState<MessageWithAuthor[] | null>(null)
@@ -318,36 +292,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [navigate, pushToast, setActiveServer, setServers, token, voxperyServer])
 
-  const openSavedMediaSource = useCallback((item: (typeof savedMedia)[number]) => {
-    if (item.source === 'dm') {
-      setPendingSavedMediaJump({
-        source: 'dm',
-        channelId: item.channel_id,
-        messageId: item.message_id,
-      })
-      if (item.peer_user_id) {
-        setHiddenDmPeerIds((prev) => prev.filter((id) => id !== item.peer_user_id))
-      }
-      setActiveDmChannelId(item.channel_id)
-      clearDmUnread(item.channel_id)
-      setView('dm')
-      setPersistedSocialView('dm')
-      setMobileSidebarPanel('none')
-      navigate(ROUTES.dm, { replace: true })
-      return
-    }
-    if (!item.server_id) return
-    setPendingSavedMediaJump({
-      source: 'server',
-      channelId: item.channel_id,
-      messageId: item.message_id,
-    })
-    setActiveServer(item.server_id)
-    setActiveChannel(item.channel_id)
-    setMobileSidebarPanel('none')
-    navigate(ROUTES.servers)
-  }, [clearDmUnread, navigate, setActiveChannel, setActiveDmChannelId, setActiveServer, setMobileSidebarPanel])
-
   const onlineFriends = friends.filter((f) => f.status !== 'offline')
   const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
@@ -381,75 +325,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [token, user, setActiveDmChannelId, setView])
 
-  const ensureDmMessageLoaded = useCallback(
-    async (channelId: string, messageId: string) => {
-      if (!user) return false
-      let current = dmMessagesByChannelRef.current[channelId] ?? []
-      if (current.length === 0) {
-        const rows = await dmApi.listMessages(channelId, token)
-        current = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
-      }
-      if (current.some((message) => message.id === messageId)) {
-        dmMessagesByChannelRef.current[channelId] = current
-        if (activeDmChannelIdRef.current === channelId) {
-          setDmMessages(current)
-        }
-        return true
-      }
-      let before = current[0]?.id
-      while (before) {
-        const rows = await dmApi.listMessages(channelId, token, before)
-        if (rows.length === 0) break
-        const older = rows
-          .map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
-          .filter((message) => !current.some((existing) => existing.id === message.id))
-        if (older.length === 0) break
-        current = [...older, ...current]
-        dmMessagesByChannelRef.current[channelId] = current
-        if (activeDmChannelIdRef.current === channelId) {
-          setDmMessages(current)
-        }
-        if (current.some((message) => message.id === messageId)) {
-          return true
-        }
-        const nextBefore = current[0]?.id
-        if (!nextBefore || nextBefore === before) break
-        before = nextBefore
-      }
-      return current.some((message) => message.id === messageId)
-    },
-    [token, user],
-  )
-
   useEffect(() => {
     if (!user || !activeDmChannelId) return
     void refreshActiveDmConversation(activeDmChannelId)
   }, [activeDmChannelId, refreshActiveDmConversation, user])
-
-  useEffect(() => {
-    if (!user || view !== 'saved') return
-    markSavedMediaSeen(user.id)
-  }, [markSavedMediaSeen, user, view])
-
-  useEffect(() => {
-    if (!user || !activeDmChannelId || view !== 'dm' || !dmConversationReady) return
-    const pendingJump = getPendingSavedMediaJump()
-    if (!pendingJump || pendingJump.source !== 'dm' || pendingJump.channelId !== activeDmChannelId) return
-    let cancelled = false
-    void (async () => {
-      const found = await ensureDmMessageLoaded(activeDmChannelId, pendingJump.messageId)
-      if (cancelled) return
-      if (found) {
-        setPendingSavedJumpMessageId(pendingJump.messageId)
-      }
-      clearPendingSavedMediaJump()
-    })().catch(() => {
-      clearPendingSavedMediaJump()
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activeDmChannelId, dmConversationReady, ensureDmMessageLoaded, user, view])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
@@ -943,24 +822,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [token, activeDmChannelId, dmMessages, user, clearDmUnread]
   )
 
-  const handleToggleSaveDmMessage = useCallback((msg: MessageWithAuthor) => {
-    if (!user?.id || !activeDmChannelId || !Array.isArray(msg.attachments) || msg.attachments.length === 0) return
-    const dmChannel = storeDmChannels.find((channel) => channel.id === activeDmChannelId)
-    if (!dmChannel) return
-    toggleSavedMedia(
-      user.id,
-      createSavedMediaItem(msg, {
-        kind: 'dm',
-        channelId: dmChannel.id,
-        channelName: dmChannel.peer_username,
-        peerUserId: dmChannel.peer_id,
-        peerUsername: dmChannel.peer_username,
-      }),
-    )
-  }, [activeDmChannelId, storeDmChannels, toggleSavedMedia, user?.id])
-
-
-
   const displayedDmMessages = dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages
 
   const saveDmEdit = useCallback(async () => {
@@ -1033,21 +894,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           <span className="social-nav-item-label">Friends</span>
           {incomingRequests.length > 0 && <span className="notif-dot" />}
         </button>
-        <button
-          type="button"
-          className={`social-nav-item ${view === 'saved' ? 'active' : ''}`}
-          onClick={() => {
-            setView('saved')
-            setPersistedSocialView('saved')
-            if (location.pathname !== ROUTES.home) navigate(ROUTES.home)
-            setMobileSidebarPanel('none')
-          }}
-        >
-          <Bookmark size={14} />
-          <span className="social-nav-item-label">Saved</span>
-          {unseenSavedCount > 0 && <span className="home-chip-badge">{formatBadgeCount(unseenSavedCount)}</span>}
-        </button>
-
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">Direct Messages</div>
         {socialBootstrapLoading ? (
@@ -1333,55 +1179,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             </>
           )}
 
-          {view === 'saved' && (
-            <div className="home-list-group home-list-group--saved">
-              <div className="home-list-title home-list-title-with-icon">
-                <Bookmark size={16} />
-                <span>Saved media</span>
-                <span className="home-list-count">{formatBadgeCount(savedMedia.length)}</span>
-              </div>
-              {savedMedia.length === 0 ? (
-                <OnboardingCard
-                  title="Save media for later"
-                  description="Bookmark images and files from chats so you can jump back to them from one place."
-                  actionsLayout="equal"
-                  actions={[
-                    {
-                      label: 'Open friends',
-                      onClick: () => {
-                        setView('friends')
-                        setPersistedSocialView('friends')
-                      },
-                      icon: <Users size={14} />,
-                    },
-                    {
-                      label: voxperyServer ? 'Open community' : 'Join community',
-                      onClick: () => {
-                        void openOfficialCommunity()
-                      },
-                      variant: 'secondary',
-                      icon: <Compass size={14} />,
-                    },
-                  ]}
-                />
-              ) : (
-                <div className="saved-media-list">
-                  {savedMedia.map((item) => (
-                    <SavedMediaCard
-                      key={item.id}
-                      item={item}
-                      onOpen={() => openSavedMediaSource(item)}
-                      onRemove={() => {
-                        if (!user?.id) return
-                        removeSavedMedia(user.id, item.id)
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {view === 'dm' && (() => {
             const dmChannel = activeDmChannelId ? storeDmChannels.find((c) => c.id === activeDmChannelId) : null
             if (socialBootstrapLoading) {
@@ -1451,8 +1248,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onSendMessage={handleSendDm}
                 onRetryMessage={handleRetryDmMessage}
                 onDeleteMessage={setDeleteDmConfirmMessageId}
-                onToggleSaveMessage={handleToggleSaveDmMessage}
-                savedMessageIds={savedMessageIds}
                 editingMessageId={editingDmMessageId}
                 editingContent={editingDmContent}
                 onEditMessage={(msg) => {
@@ -1481,8 +1276,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onPinMessage={handlePinDmMessage}
                 onUnpinMessage={handleUnpinDmMessage}
                 onToggleReaction={handleToggleDmReaction}
-                jumpToMessageId={pendingSavedJumpMessageId}
-                onJumpToMessageHandled={() => setPendingSavedJumpMessageId(null)}
               />
             )
           })()}

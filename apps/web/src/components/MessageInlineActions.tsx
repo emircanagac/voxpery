@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from 'react'
-import { Bookmark, Edit3, Flag, Pin, PinOff, Reply, Smile, Trash2 } from 'lucide-react'
+import { Edit3, Flag, Pin, PinOff, Reply, Smile, Trash2 } from 'lucide-react'
 
 type MessageInlineActionsProps = {
   messageId: string
@@ -14,9 +14,6 @@ type MessageInlineActionsProps = {
   onPin?: (messageId: string) => void
   onUnpin?: (messageId: string) => void
   onReply?: () => void
-  canSave?: boolean
-  isSaved?: boolean
-  onToggleSave?: () => void
   onReport?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -37,9 +34,6 @@ export default function MessageInlineActions({
   onPin,
   onUnpin,
   onReply,
-  canSave = false,
-  isSaved = false,
-  onToggleSave,
   onReport,
   onEdit,
   onDelete,
@@ -54,7 +48,6 @@ export default function MessageInlineActions({
     !canReact &&
     !canPin &&
     !onReply &&
-    !canSave &&
     !onReport &&
     !canEdit &&
     !canDelete &&
@@ -147,20 +140,6 @@ export default function MessageInlineActions({
           }}
         >
           <Edit3 size={14} />
-        </button>
-      )}
-      {canSave && onToggleSave && (
-        <button
-          type="button"
-          className={`message-inline-action-btn message-inline-action-btn--save ${isSaved ? 'active' : ''}`}
-          title={isSaved ? 'Remove from saved' : 'Save media'}
-          aria-label={isSaved ? 'Remove from saved' : 'Save media'}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleSave()
-          }}
-        >
-          <Bookmark size={14} />
         </button>
       )}
       {canDelete && (
