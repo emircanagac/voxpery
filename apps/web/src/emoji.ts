@@ -34,6 +34,16 @@ function dedupeEmojiOptions(options: EmojiOption[]): EmojiOption[] {
   })
 }
 
+function dedupeMediaOptions<T extends { id: string; url?: string; imageUrl?: string }>(options: T[]): T[] {
+  const seen = new Set<string>()
+  return options.filter((entry) => {
+    const mediaKey = (entry.url ?? entry.imageUrl ?? entry.id).trim().toLowerCase()
+    if (!mediaKey || seen.has(mediaKey)) return false
+    seen.add(mediaKey)
+    return true
+  })
+}
+
 function item(emoji: string, label: string, keywords: string[] = []): EmojiOption {
   return { emoji, label, keywords }
 }
@@ -634,8 +644,8 @@ export const GIF_OPTIONS: GifOption[] = [
     keywords: ['party', 'ready', 'hype'],
   },
   {
-    id: 'cheers',
-    label: 'Cheers',
+    id: 'toast',
+    label: 'Toast',
     url: 'https://media.giphy.com/media/3o6Zt6ML6BklcajjsA/giphy.gif',
     keywords: ['cheers', 'celebrate', 'toast'],
   },
@@ -818,15 +828,15 @@ export const STICKER_OPTIONS: StickerOption[] = [
   },
   {
     id: 'party-hat',
-    label: 'Celebrate',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f973.png',
-    keywords: ['party', 'celebrate', 'fun'],
+    label: 'Hat',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3a9.png',
+    keywords: ['hat', 'party', 'fun'],
   },
   {
     id: 'rocket-launch',
     label: 'Launch',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f680.png',
-    keywords: ['rocket', 'launch', 'ship'],
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f6f8.png',
+    keywords: ['launch', 'ship', 'fly'],
   },
   {
     id: 'trophy',
@@ -848,9 +858,9 @@ export const STICKER_OPTIONS: StickerOption[] = [
   },
   {
     id: 'sunglasses',
-    label: 'Cool',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png',
-    keywords: ['cool', 'style', 'nice'],
+    label: 'Shades',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f576.png',
+    keywords: ['cool', 'style', 'shades'],
   },
   {
     id: 'robot',
@@ -885,8 +895,8 @@ export const STICKER_OPTIONS: StickerOption[] = [
   {
     id: 'eyes-big',
     label: 'Watching',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f440.png',
-    keywords: ['watching', 'eyes', 'look'],
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f9d0.png',
+    keywords: ['watching', 'look', 'inspect'],
   },
   {
     id: 'idea',
@@ -951,13 +961,13 @@ export const STICKER_OPTIONS: StickerOption[] = [
   {
     id: 'check-green',
     label: 'Approved',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2705.png',
-    keywords: ['approve', 'check', 'yes'],
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f7e2.png',
+    keywords: ['approve', 'green', 'yes'],
   },
   {
     id: 'cross-red',
     label: 'Rejected',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/274c.png',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f6d1.png',
     keywords: ['reject', 'no', 'stop'],
   },
   {
@@ -987,19 +997,19 @@ export const STICKER_OPTIONS: StickerOption[] = [
   {
     id: 'rocket-blue',
     label: 'Ship it',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f680.png',
-    keywords: ['ship', 'rocket', 'launch'],
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f6a2.png',
+    keywords: ['ship', 'launch', 'done'],
   },
   {
     id: 'fire-blue',
     label: 'Lit',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png',
-    keywords: ['fire', 'lit', 'hot'],
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4a5.png',
+    keywords: ['fire', 'lit', 'boom'],
   },
   {
     id: 'eyes-side',
     label: 'Seen',
-    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f440.png',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f50e.png',
     keywords: ['seen', 'watch', 'look'],
   },
   {
@@ -1062,8 +1072,9 @@ export function filterEmojiOptions(query: string, categoryId?: string): EmojiOpt
 
 export function filterGifOptions(query: string): GifOption[] {
   const normalized = query.trim().toLowerCase()
-  if (!normalized) return GIF_OPTIONS
-  return GIF_OPTIONS.filter((entry) =>
+  const source = dedupeMediaOptions(GIF_OPTIONS)
+  if (!normalized) return source
+  return source.filter((entry) =>
     entry.label.toLowerCase().includes(normalized) ||
     entry.keywords.some((keyword) => keyword.includes(normalized)),
   )
@@ -1071,8 +1082,9 @@ export function filterGifOptions(query: string): GifOption[] {
 
 export function filterStickerOptions(query: string): StickerOption[] {
   const normalized = query.trim().toLowerCase()
-  if (!normalized) return STICKER_OPTIONS
-  return STICKER_OPTIONS.filter((entry) =>
+  const source = dedupeMediaOptions(STICKER_OPTIONS)
+  if (!normalized) return source
+  return source.filter((entry) =>
     entry.label.toLowerCase().includes(normalized) ||
     entry.keywords.some((keyword) => keyword.includes(normalized)),
   )
