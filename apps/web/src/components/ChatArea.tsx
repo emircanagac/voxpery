@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
-import { resolveAttachmentUrl, resolveAvatarUrl, resolveInlineMediaUrl, type MessageWithAuthor, type Channel } from '../api'
+import { resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import { cleanReplyQuotePreview } from '../replyPreview'
 import EmojiPicker from './EmojiPicker'
+import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
 import { useAuthStore } from '../stores/auth'
 
@@ -988,10 +989,9 @@ export default function ChatArea({
                 {stickerUrls.length > 0 && (
                     <div className="chat-inline-gif-list">
                         {stickerUrls.map((url, index) => {
-                            const previewUrl = resolveInlineMediaUrl(url) ?? url
                             return (
                                 <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link chat-inline-sticker-link">
-                                    <img src={previewUrl} alt="Sticker preview" className="chat-inline-sticker" loading="lazy" />
+                                    <InlineMediaImage src={url} alt="Sticker preview" className="chat-inline-sticker" />
                                 </a>
                             )
                         })}
@@ -1000,10 +1000,9 @@ export default function ChatArea({
                 {gifUrls.length > 0 && (
                     <div className="chat-inline-gif-list">
                         {gifUrls.map((url, index) => {
-                            const previewUrl = resolveInlineMediaUrl(url) ?? url
                             return (
                                 <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="chat-inline-gif-link">
-                                    <img src={previewUrl} alt="GIF preview" className="chat-inline-gif" loading="lazy" />
+                                    <InlineMediaImage src={url} alt="GIF preview" className="chat-inline-gif" />
                                 </a>
                             )
                         })}

@@ -8,7 +8,7 @@ import {
   getReactionModeEmojiOptions,
   type EmojiOption,
 } from '../emoji'
-import { resolveInlineMediaUrl } from '../api'
+import InlineMediaImage from './InlineMediaImage'
 
 type EmojiPickerProps = {
   onSelect: (emoji: string) => void
@@ -144,7 +144,7 @@ export default function EmojiPicker({
                   title={entry.label}
                   aria-label={entry.label}
                 >
-                  <img src={resolveInlineMediaUrl(entry.url) ?? entry.url} alt={entry.label} loading="lazy" />
+                  <InlineMediaImage src={entry.url} alt={entry.label} />
                   <span>{entry.label}</span>
                 </button>
               ))}
@@ -164,7 +164,7 @@ export default function EmojiPicker({
                   title={entry.label}
                   aria-label={entry.label}
                 >
-                  <img src={resolveInlineMediaUrl(entry.imageUrl) ?? entry.imageUrl} alt={entry.label} className="chat-sticker-image" loading="lazy" />
+                  <InlineMediaImage src={entry.imageUrl} alt={entry.label} className="chat-sticker-image" />
                   <span className="chat-sticker-label">{entry.label}</span>
                 </button>
               ))}

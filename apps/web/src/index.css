@@ -5385,7 +5385,9 @@ body {
   display: inline-flex;
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: none;
+  background: transparent;
+  box-shadow: none;
   max-width: min(320px, 100%);
 }
 
