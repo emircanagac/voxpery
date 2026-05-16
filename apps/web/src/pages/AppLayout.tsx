@@ -421,6 +421,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
     const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
+    const [serverListReady, setServerListReady] = useState(false)
     const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const currentServerMember = useMemo(
         () => (user?.id ? members.find((member) => member.user_id === user.id) ?? null : null),
@@ -526,12 +527,19 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const inviteBaseUrl = resolveInviteBaseUrl()
 
     useEffect(() => {
-        if (!isLoggedIn) return
+        if (!isLoggedIn) {
+            setServerListReady(false)
+            return
+        }
+        setServerListReady(false)
         setServersLoading(true)
         serverApi.list(token)
             .then(setServers)
             .catch(console.error)
-            .finally(() => setServersLoading(false))
+            .finally(() => {
+                setServerListReady(true)
+                setServersLoading(false)
+            })
     }, [isLoggedIn, token, setServers, setServersLoading])
 
     useEffect(() => {
@@ -1605,6 +1613,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
+    const hasResolvedActiveChannel = !!activeChannelId && channels.some((c) => c.id === activeChannelId)
+    const serverRouteLoading = isLoggedIn && (
+        !serverListReady
+        || serverBootstrapLoading
+        || (servers.length > 0 && !activeServerId)
+        || (!!activeServerId && channels.length > 0 && !hasResolvedActiveChannel)
+    )
     const activeServerInviteLink = activeServer ? `${inviteBaseUrl}/invite/${activeServer.invite_code}` : ''
     const isSoloServer = !!activeServer && members.length <= 1
     const [myServerPermissions, setMyServerPermissions] = useState<Record<string, number>>({})
@@ -2909,7 +2924,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 />
             )}
             <ChannelSidebar
-                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
+                loading={serverRouteLoading || (!activeServerId && serversLoading)}
                 onOpenServerSettings={openServerSettingsModal}
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
@@ -2943,7 +2958,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             )}
             <ChatArea
                 activeChannel={activeChannel}
-                loading={serverBootstrapLoading || (!activeServerId && serversLoading)}
+                loading={serverRouteLoading || (!activeServerId && serversLoading)}
                 messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
                 unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
                 draftAttachments={draftAttachments}

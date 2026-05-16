@@ -6515,6 +6515,12 @@ body {
   padding: 20px 16px 4px;
 }
 
+.chat-loading-state--centered {
+  flex: 1;
+  justify-content: center;
+  padding: 24px;
+}
+
 .chat-loading-bubble {
   height: 56px;
 }
