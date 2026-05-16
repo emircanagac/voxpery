@@ -93,6 +93,7 @@ async fn main() {
         tx,
         sessions: dashmap::DashMap::new(),
         voice_sessions: dashmap::DashMap::new(),
+        voice_channel_active_since_ms: dashmap::DashMap::new(),
         voice_controls: dashmap::DashMap::new(),
         auth_rate_limit_max: config.auth_rate_limit_max,
         auth_rate_limit_window_secs: config.auth_rate_limit_window_secs,

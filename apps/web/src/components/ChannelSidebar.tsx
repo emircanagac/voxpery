@@ -8,6 +8,7 @@ import { resolveAvatarUrl, type Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
+import { formatVoiceChannelDuration } from '../voiceChannelDuration'
 
 const PERM_CONNECT_VOICE = 1 << 10
 type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
@@ -59,7 +60,7 @@ export default function ChannelSidebar({
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
     const user = useAuthStore((s) => s.user)
-    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceSpeakingUserIds, voiceLocalSpeaking, mutedChannelIds, setActiveChannel, toggleMutedChannel, closeMobileSidebar } = useAppStore(
+    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceChannelActiveSince, voiceSpeakingUserIds, voiceLocalSpeaking, mutedChannelIds, setActiveChannel, toggleMutedChannel, closeMobileSidebar } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -69,6 +70,7 @@ export default function ChannelSidebar({
             membersByServerId: s.membersByServerId,
             voiceStates: s.voiceStates,
             voiceStateServerIds: s.voiceStateServerIds,
+            voiceChannelActiveSince: s.voiceChannelActiveSince,
             voiceSpeakingUserIds: s.voiceSpeakingUserIds,
             voiceLocalSpeaking: s.voiceLocalSpeaking,
             mutedChannelIds: s.mutedChannelIds,
@@ -87,6 +89,7 @@ export default function ChannelSidebar({
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
     const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
     const [dragOverCategoryForChannel, setDragOverCategoryForChannel] = useState<string | null>(null)
+    const [durationNow, setDurationNow] = useState(() => Date.now())
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
         try {
             const raw = localStorage.getItem('voxpery-voice-peer-volume')
@@ -204,6 +207,13 @@ export default function ChannelSidebar({
             window.removeEventListener('scroll', close, true)
         }
     }, [contextMenu, participantMenu, categoryMenu])
+
+    useEffect(() => {
+        if (Object.keys(voiceChannelActiveSince).length === 0) return
+        setDurationNow(Date.now())
+        const intervalId = window.setInterval(() => setDurationNow(Date.now()), 1000)
+        return () => window.clearInterval(intervalId)
+    }, [voiceChannelActiveSince])
 
     const savePeerVolume = (userId: string, volume: number) => {
         const bounded = Math.min(200, Math.max(0, Math.round(volume)))
@@ -431,6 +441,12 @@ export default function ChannelSidebar({
                                     return !activeServerId || voiceServerId == null || voiceServerId === activeServerId
                                 })
                                 : []
+                            const voiceActiveSince = ch.channel_type === 'voice' && voiceMembers.length > 0
+                                ? voiceChannelActiveSince[ch.id] ?? null
+                                : null
+                            const voiceActiveDurationLabel = voiceActiveSince
+                                ? formatVoiceChannelDuration(durationNow - voiceActiveSince)
+                                : null
                             const hasMention = (mentionByChannel[ch.id] ?? 0) > 0
                             const isChannelMuted = mutedChannelIds.includes(ch.id)
                             return (
@@ -510,6 +526,11 @@ export default function ChannelSidebar({
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
                                         </span>
                                         <span className="channel-name" title={ch.description?.trim() || ch.name}>{ch.name}</span>
+                                        {voiceActiveDurationLabel && (
+                                            <span className="channel-voice-duration" title="Voice channel active time">
+                                                {voiceActiveDurationLabel}
+                                            </span>
+                                        )}
                                         {isVoiceLocked && (
                                             <span className="channel-item-lock" aria-hidden>
                                                 <Lock size={12} />

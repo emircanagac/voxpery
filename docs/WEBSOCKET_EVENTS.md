@@ -146,6 +146,7 @@ Legacy custom signaling event.
 
 - `VoiceStateUpdate`
   - `channel_id: null` means user left voice.
+  - `channel_active_since_ms` is the backend epoch millisecond timestamp for when the channel became non-empty. It is `null` on leave events.
 - `VoiceControlUpdate`
   - Includes combined and server-enforced flags:
     - `muted`

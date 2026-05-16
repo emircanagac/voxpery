@@ -10,7 +10,7 @@ use futures::{SinkExt, StreamExt};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -29,6 +29,38 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
         .await
         .ok()
         .flatten()
+}
+
+fn current_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0)
+}
+
+fn channel_has_voice_participants(state: &AppState, channel_id: Uuid) -> bool {
+    state
+        .voice_sessions
+        .iter()
+        .any(|entry| *entry.value() == channel_id)
+}
+
+fn ensure_voice_channel_active_since_ms(state: &AppState, channel_id: Uuid) -> u64 {
+    if let Some(existing) = state.voice_channel_active_since_ms.get(&channel_id) {
+        return *existing;
+    }
+    let now = current_epoch_ms();
+    let entry = state
+        .voice_channel_active_since_ms
+        .entry(channel_id)
+        .or_insert(now);
+    *entry
+}
+
+fn cleanup_voice_channel_active_since_if_empty(state: &AppState, channel_id: Uuid) {
+    if !channel_has_voice_participants(state, channel_id) {
+        state.voice_channel_active_since_ms.remove(&channel_id);
+    }
 }
 
 /// Max incoming WebSocket text message size (256 KB) to mitigate DoS via huge Signal payloads.
@@ -614,10 +646,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     for entry in recv_state.voice_sessions.iter() {
                                         let (other_uid, other_cid) = entry.pair();
                                         if *other_cid == cid {
+                                            let channel_active_since_ms =
+                                                ensure_voice_channel_active_since_ms(
+                                                    &recv_state,
+                                                    cid,
+                                                );
                                             let _ = client_tx.send(WsEvent::VoiceStateUpdate {
                                                 channel_id: Some(cid),
                                                 user_id: *other_uid,
                                                 server_id,
+                                                channel_active_since_ms: Some(
+                                                    channel_active_since_ms,
+                                                ),
                                             });
                                             let control_state = recv_state
                                                 .voice_controls
@@ -696,12 +736,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     }
                                     Ok(true) => {
                                         // 1. Update voice session
-                                        let _ =
+                                        let previous_channel_id =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
+                                        if let Some(previous_channel_id) = previous_channel_id {
+                                            if previous_channel_id != channel_id {
+                                                cleanup_voice_channel_active_since_if_empty(
+                                                    &recv_state,
+                                                    previous_channel_id,
+                                                );
+                                            }
+                                        }
                                         let _ = recv_state.voice_controls.insert(
                                             user_id,
                                             (false, false, false, false, false, false),
                                         );
+                                        let channel_active_since_ms =
+                                            ensure_voice_channel_active_since_ms(
+                                                &recv_state,
+                                                channel_id,
+                                            );
 
                                         // 2. Broadcast join to everyone
                                         let server_id =
@@ -712,6 +765,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                 channel_id: Some(channel_id),
                                                 user_id,
                                                 server_id,
+                                                channel_active_since_ms: Some(
+                                                    channel_active_since_ms,
+                                                ),
                                             },
                                         )
                                         .await;
@@ -733,6 +789,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                     channel_id: Some(channel_id),
                                                     user_id: *other_uid,
                                                     server_id,
+                                                    channel_active_since_ms: Some(
+                                                        channel_active_since_ms,
+                                                    ),
                                                 });
                                                 let control_state = recv_state
                                                     .voice_controls
@@ -760,12 +819,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
                                     let _ = recv_state.voice_controls.remove(&user_id);
+                                    cleanup_voice_channel_active_since_if_empty(
+                                        &recv_state,
+                                        previous_channel_id,
+                                    );
                                     super::publish_event(
                                         &recv_state,
                                         WsEvent::VoiceStateUpdate {
                                             channel_id: None,
                                             user_id,
                                             server_id: previous_server_id,
+                                            channel_active_since_ms: None,
                                         },
                                     )
                                     .await;
@@ -823,12 +887,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
                                     let _ = recv_state.voice_controls.remove(&target_user_id);
+                                    cleanup_voice_channel_active_since_if_empty(
+                                        &recv_state,
+                                        previous_channel_id,
+                                    );
                                     super::publish_event(
                                         &recv_state,
                                         WsEvent::VoiceStateUpdate {
                                             channel_id: None,
                                             user_id: target_user_id,
                                             server_id: previous_server_id,
+                                            channel_active_since_ms: None,
                                         },
                                     )
                                     .await;
@@ -1056,12 +1125,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
         if let Some((_, previous_channel_id)) = removed_voice {
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
             let _ = state.voice_controls.remove(&user_id);
+            cleanup_voice_channel_active_since_if_empty(&state, previous_channel_id);
             super::publish_event(
                 &state,
                 WsEvent::VoiceStateUpdate {
                     channel_id: None,
                     user_id,
                     server_id: previous_server_id,
+                    channel_active_since_ms: None,
                 },
             )
             .await;
