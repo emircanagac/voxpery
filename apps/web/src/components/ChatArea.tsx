@@ -255,8 +255,6 @@ interface ChatAreaProps {
     onReplyToMessage?: (msg: { id: string; author?: { username?: string }; content: string }) => void
     replyingTo?: { id: string; username: string; contentSnippet: string } | null
     onCancelReply?: () => void
-    onToggleSaveMessage?: (msg: MessageWithAuthor) => void
-    savedMessageIds?: Set<string>
     editingMessageId?: string | null
     editingContent?: string
     onEditMessage?: (msg: { id: string; content: string; contentToEdit?: string; replyQuotePart?: string }) => void
@@ -314,8 +312,6 @@ export default function ChatArea({
     onReplyToMessage,
     replyingTo,
     onCancelReply,
-    onToggleSaveMessage,
-    savedMessageIds,
     editingMessageId,
     editingContent = '',
     onEditMessage,
@@ -1496,9 +1492,6 @@ export default function ChatArea({
                                         onReplyToMessage(msg)
                                         setTimeout(() => textareaRef.current?.focus(), 0)
                                     } : undefined}
-                                    canSave={Array.isArray(msg.attachments) && msg.attachments.length > 0 && !!onToggleSaveMessage}
-                                    isSaved={!!savedMessageIds?.has(msg.id)}
-                                    onToggleSave={onToggleSaveMessage ? () => onToggleSaveMessage(msg) : undefined}
                                     onReport={msg.author?.user_id !== currentUserId && onReportMessage ? () => onReportMessage(msg) : undefined}
                                     onEdit={msg.author?.user_id === currentUserId && onEditMessage && onSaveEdit && onCancelEdit ? () => {
                                         const parsed = parseReplyContent(msg.content)

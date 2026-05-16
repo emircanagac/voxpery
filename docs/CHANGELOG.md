@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Removed the unfinished Saved/bookmark media surface from Social and message actions to keep the core chat experience simpler.
+
 ## [0.1.9] - 2026-05-15
 
 ### Added

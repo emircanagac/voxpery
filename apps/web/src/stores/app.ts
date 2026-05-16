@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Server, Channel, MemberInfo, Friend, DmChannel } from '../api'
-import type { SavedMediaItem } from '../types'
 
 export type ServerSettingsTab = 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'safety' | 'danger'
 
@@ -58,12 +57,6 @@ interface AppState {
     incomingRequestCount: number
     setIncomingRequestCount: (count: number) => void
     resetIncomingRequestCount: () => void
-    savedMediaByUserId: Record<string, SavedMediaItem[]>
-    unseenSavedMediaIdsByUserId: Record<string, string[]>
-    toggleSavedMedia: (userId: string, item: SavedMediaItem) => void
-    removeSavedMedia: (userId: string, savedId: string) => void
-    markSavedMediaSeen: (userId: string) => void
-
     // Voice presence (user_id -> channel_id | null)
     voiceStates: Record<string, string | null>
     setVoiceState: (userId: string, channelId: string | null) => void
@@ -260,48 +253,6 @@ export const useAppStore = create<AppState>()(
             incomingRequestCount: 0,
             setIncomingRequestCount: (count) => set({ incomingRequestCount: Math.max(0, count) }),
             resetIncomingRequestCount: () => set({ incomingRequestCount: 0 }),
-            savedMediaByUserId: {},
-            unseenSavedMediaIdsByUserId: {},
-            toggleSavedMedia: (userId, item) =>
-                set((s) => {
-                    const current = s.savedMediaByUserId[userId] ?? []
-                    const exists = current.some((entry) => entry.id === item.id)
-                    const next = exists
-                        ? current.filter((entry) => entry.id !== item.id)
-                        : [item, ...current].slice(0, 250)
-                    const unseen = s.unseenSavedMediaIdsByUserId[userId] ?? []
-                    return {
-                        savedMediaByUserId: {
-                            ...s.savedMediaByUserId,
-                            [userId]: next,
-                        },
-                        unseenSavedMediaIdsByUserId: {
-                            ...s.unseenSavedMediaIdsByUserId,
-                            [userId]: exists
-                                ? unseen.filter((id) => id !== item.id)
-                                : [item.id, ...unseen.filter((id) => id !== item.id)],
-                        },
-                    }
-                }),
-            removeSavedMedia: (userId, savedId) =>
-                set((s) => ({
-                    savedMediaByUserId: {
-                        ...s.savedMediaByUserId,
-                        [userId]: (s.savedMediaByUserId[userId] ?? []).filter((entry) => entry.id !== savedId),
-                    },
-                    unseenSavedMediaIdsByUserId: {
-                        ...s.unseenSavedMediaIdsByUserId,
-                        [userId]: (s.unseenSavedMediaIdsByUserId[userId] ?? []).filter((id) => id !== savedId),
-                    },
-                })),
-            markSavedMediaSeen: (userId) =>
-                set((s) => ({
-                    unseenSavedMediaIdsByUserId: {
-                        ...s.unseenSavedMediaIdsByUserId,
-                        [userId]: [],
-                    },
-                })),
-
             // Voice presence
             voiceStates: {},
             setVoiceState: (userId, channelId) =>
@@ -366,7 +317,7 @@ export const useAppStore = create<AppState>()(
             setMobileSidebarPanel: (panel) => set({ mobileSidebarPanel: panel }),
             closeMobileSidebar: () => set({ mobileSidebarPanel: 'none' }),
             resetSessionState: () =>
-                set((s) => ({
+                set(() => ({
                     servers: [],
                     activeServerId: null,
                     serversLoading: false,
@@ -383,8 +334,6 @@ export const useAppStore = create<AppState>()(
                     serverUnreadByChannel: {},
                     serverMentionsByChannel: {},
                     incomingRequestCount: 0,
-                    savedMediaByUserId: s.savedMediaByUserId,
-                    unseenSavedMediaIdsByUserId: s.unseenSavedMediaIdsByUserId,
                     voiceStates: {},
                     voiceStateServerIds: {},
                     voiceControls: {},
@@ -408,8 +357,6 @@ export const useAppStore = create<AppState>()(
                 serverMentionsByChannel: s.serverMentionsByChannel,
                 mutedServerIds: s.mutedServerIds,
                 mutedChannelIds: s.mutedChannelIds,
-                savedMediaByUserId: s.savedMediaByUserId,
-                unseenSavedMediaIdsByUserId: s.unseenSavedMediaIdsByUserId,
             }),
         },
     ),

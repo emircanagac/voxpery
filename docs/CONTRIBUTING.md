@@ -75,7 +75,7 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 ## Current Priority Areas
 
 - Desktop release hardening and updater readiness
-- Media parity work (GIF/sticker/custom emoji, saved media)
+- Media parity work (GIF/sticker/custom emoji, image previews)
 - Scaling/self-host operations docs
 - Public contributor onboarding and issue quality
 
