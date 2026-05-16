@@ -164,6 +164,7 @@ Speaker
 - **Output volume**: Global 1-100% + per-peer 0-200%
 - **Amplification >100%**: Routed through WebAudio GainNode (gain > 1.0)
 - **Deafen**: Sets `audio.muted = true` on all remote elements
+- **Stop watching screen**: Hiding a remote screen share removes its screen-share audio track from playback while keeping the peer's normal microphone audio active.
 
 ## Screen Sharing
 
@@ -194,6 +195,13 @@ await room.localParticipant.publishTrack(videoTrack, {
 
 - **Screen share video**: `contentHint = 'detail'` (preserves text sharpness)
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
+
+### Remote Viewing Controls
+
+- Remote camera and screen-share tiles can be hidden per viewer without leaving the voice channel.
+- Hidden media stays as a compact placeholder with a `Show` action so the user can resume watching.
+- Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
+- Hiding a screen share also mutes that screen-share audio track; the participant's microphone audio continues normally.
 
 ## Camera
 

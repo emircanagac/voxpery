@@ -446,6 +446,8 @@ export function useLiveKitVoice() {
           if (pub.source === Track.Source.ScreenShare) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.add(mediaTrack.id)
+          } else if (pub.source === Track.Source.ScreenShareAudio) {
+            Object.defineProperty(mediaTrack, '__voxpery_isScreenShareAudio', { value: true, writable: true, configurable: true })
           } else if (pub.source === Track.Source.Camera) {
             Object.defineProperty(mediaTrack, '__voxpery_isCamera', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.delete(mediaTrack.id)

@@ -1,4 +1,4 @@
-import { PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, Users, Video, VideoOff, Wifi } from 'lucide-react'
+import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
@@ -21,10 +21,12 @@ import {
 import { ROUTES } from '../routes'
 import { attachMediaStreamPreview } from '../mediaStreamPreview'
 import { resolveAvatarUrl } from '../api'
+import { createRemoteAudioPlaybackStream, remoteMediaVisibilityKey, type RemoteMediaKind } from '../webrtc/remoteMediaControls'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
   __voxpery_isScreenShare?: boolean
+  __voxpery_isScreenShareAudio?: boolean
 }
 
 interface VoxperyAudioElement extends HTMLAudioElement {
@@ -184,6 +186,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   })
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
+  const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const lastVoiceQualityWarningRef = useRef<string | null>(null)
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -258,9 +261,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [members, peerVolumeByUserId])
 
   const peerIdsWithScreenShareRef = useRef<Set<string>>(new Set())
+  const hiddenScreenSharePeerIdsRef = useRef<Set<string>>(new Set())
   const getPeerVolumeFactor = useCallback((peerId: string) => {
     const volumeKey = resolvePeerVolumeKey(peerId)
-    const useScreenKey = peerIdsWithScreenShareRef.current.has(peerId)
+    const useScreenKey = peerIdsWithScreenShareRef.current.has(peerId) && !hiddenScreenSharePeerIdsRef.current.has(peerId)
     const storageKey = useScreenKey ? `screen:${volumeKey}` : volumeKey
     const raw = peerVolumeByUserId[storageKey]
     const bounded = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(200, Math.max(0, raw)) : 100
@@ -427,6 +431,32 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     const ids = Array.from(state.remoteStreams.keys()).sort()
     return ids.join(',')
   }, [state.remoteStreams])
+  const currentVoiceChannelId = state.joinedChannelId
+  useEffect(() => {
+    setHiddenRemoteMediaKeys(new Set())
+  }, [currentVoiceChannelId])
+
+  const getRemoteMediaKey = useCallback((peerId: string, kind: RemoteMediaKind) => {
+    if (!currentVoiceChannelId) return null
+    return remoteMediaVisibilityKey(currentVoiceChannelId, peerId, kind)
+  }, [currentVoiceChannelId])
+
+  const isRemoteMediaHidden = useCallback((peerId: string, kind: RemoteMediaKind) => {
+    const key = getRemoteMediaKey(peerId, kind)
+    return !!key && hiddenRemoteMediaKeys.has(key)
+  }, [getRemoteMediaKey, hiddenRemoteMediaKeys])
+
+  const setRemoteMediaHidden = useCallback((peerId: string, kind: RemoteMediaKind, hidden: boolean) => {
+    const key = getRemoteMediaKey(peerId, kind)
+    if (!key) return
+    setHiddenRemoteMediaKeys((current) => {
+      const next = new Set(current)
+      if (hidden) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }, [getRemoteMediaKey])
+
   // Track total audio track count so we re-trigger playback when screen share audio arrives
   const remoteAudioTrackCount = useMemo(() => {
     let count = 0
@@ -436,7 +466,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return count
   }, [state.remoteStreams])
   const remoteVideoTrackEntries = useMemo(() => {
-    const entries: Array<{ peerId: string; track: MediaStreamTrack; label: string }> = []
+    const entries: Array<{ peerId: string; track: MediaStreamTrack; label: string; kind: RemoteMediaKind }> = []
     for (const [peerId, stream] of remoteEntries) {
       const tracks = stream
         .getVideoTracks()
@@ -444,7 +474,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       for (const track of tracks) {
         // Prefer camera: if track was published as Camera, always show "Camera" (not "Screen share")
         if ('__voxpery_isCamera' in track && (track as VoxperyTrack).__voxpery_isCamera) {
-          entries.push({ peerId, track, label: 'Camera' })
+          entries.push({ peerId, track, label: 'Camera', kind: 'camera' })
           continue
         }
         // Screen share: authoritative set from useLiveKitVoice or property set on subscribe
@@ -457,26 +487,41 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             label.includes('window') ||
             label.includes('tab')
         }
-        entries.push({ peerId, track, label: isScreen ? 'Screen share' : 'Camera' })
+        entries.push({ peerId, track, label: isScreen ? 'Screen share' : 'Camera', kind: isScreen ? 'screen' : 'camera' })
       }
     }
     return entries
   }, [remoteEntries, state.remoteScreenTrackIds])
   useEffect(() => {
     peerIdsWithScreenShareRef.current = new Set(
-      remoteVideoTrackEntries.filter((e) => e.label === 'Screen share').map((e) => e.peerId)
+      remoteVideoTrackEntries.filter((e) => e.kind === 'screen').map((e) => e.peerId)
     )
   }, [remoteVideoTrackEntries])
+
+  const hiddenScreenSharePeerIds = useMemo(() => {
+    const hidden = new Set<string>()
+    for (const entry of remoteVideoTrackEntries) {
+      if (entry.kind === 'screen' && isRemoteMediaHidden(entry.peerId, 'screen')) {
+        hidden.add(entry.peerId)
+      }
+    }
+    return hidden
+  }, [isRemoteMediaHidden, remoteVideoTrackEntries])
+  useEffect(() => {
+    hiddenScreenSharePeerIdsRef.current = hiddenScreenSharePeerIds
+    applyOutputVolumeToElements(outputVolumeRef.current / 100)
+  }, [applyOutputVolumeToElements, hiddenScreenSharePeerIds])
 
   useEffect(() => {
     for (const [peerId, stream] of state.remoteStreams.entries()) {
       const el = remoteAudioRefsRef.current.get(peerId) as VoxperyAudioElement | undefined
       if (!el) continue
       // Force srcObject re-assignment when track count changes (e.g. screen share audio added)
-      const currentTrackIds = stream.getTracks().map(t => t.id).sort().join(',')
+      const playbackStream = createRemoteAudioPlaybackStream(stream, !hiddenScreenSharePeerIds.has(peerId))
+      const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
       const prevTrackIds = el.__voxpery_trackIds
-      if (el.srcObject !== stream || currentTrackIds !== prevTrackIds) {
-        el.srcObject = new MediaStream(stream.getTracks())
+      if (currentTrackIds !== prevTrackIds) {
+        el.srcObject = playbackStream
         el.__voxpery_trackIds = currentTrackIds
         void applyPreferredAudioOutputDevice(el)
       }
@@ -485,7 +530,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       if (!deafenedRef.current) ensureRemoteAudioPlayback(peerId, el)
     }
-  }, [stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
+  }, [hiddenScreenSharePeerIds, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
@@ -499,7 +544,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   }, [])
 
-  const currentVoiceChannelId = state.joinedChannelId
   const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
   const channelParticipants = useMemo(() => {
     if (!currentVoiceChannelId) return []
@@ -1015,18 +1059,35 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </div>
                 </div>
               )}
-              {remoteVideoTrackEntries.map(({ peerId, track, label }) => {
+              {remoteVideoTrackEntries.map(({ peerId, track, label, kind }) => {
                 const volumeKey = resolvePeerVolumeKey(peerId)
                 const screenVolumeKey = `screen:${volumeKey}`
-                const currentVol = label === 'Screen share' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
+                const currentVol = kind === 'screen' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
                 const tileKey = `${peerId}-${track.id}`
+                const owner = remoteShareOwner(peerId)
+                const isHidden = isRemoteMediaHidden(peerId, kind)
+                if (isHidden) {
+                  return (
+                    <div key={tileKey} className="voice-stage-hidden-media-tile">
+                      <div className="voice-stage-hidden-media-icon">
+                        <EyeOff size={18} />
+                      </div>
+                      <div className="voice-stage-hidden-media-title">{label} hidden</div>
+                      <div className="voice-stage-hidden-media-sub">{owner}</div>
+                      <button type="button" className="voice-stage-hidden-media-show" onClick={() => setRemoteMediaHidden(peerId, kind, false)}>
+                        <Eye size={14} />
+                        Show
+                      </button>
+                    </div>
+                  )
+                }
                 return (
                   <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <video autoPlay muted playsInline ref={(el) => { if (!el) return; let stream = remoteVideoStreamByTrackIdRef.current.get(track.id); if (!stream) { stream = new MediaStream([track]); remoteVideoStreamByTrackIdRef.current.set(track.id, stream) }; if (el.srcObject !== stream) el.srcObject = stream; void el.play().catch(() => { }) }} />
-                    <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {remoteShareOwner(peerId)}</span></div>
+                    <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {owner}</span></div>
                     <div className="screen-share-controls-bar">
                       <div className="screen-share-controls-left">
-                        {label === 'Screen share' && (
+                        {kind === 'screen' && (
                           <div className="screen-share-volume-container">
                             <button type="button" className="screen-share-volume-btn" title={currentVol === 0 ? 'Unmute' : 'Mute'} onClick={() => {
                               const isMuted = currentVol === 0
@@ -1061,6 +1122,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         )}
                       </div>
                       <div className="screen-share-controls-right">
+                        <button type="button" className="screen-share-controls-btn" title={kind === 'screen' ? 'Stop watching screen' : 'Hide camera'} onClick={() => setRemoteMediaHidden(peerId, kind, true)}>
+                          <EyeOff size={16} />
+                        </button>
                         <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
                           const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                           if (!tile) return
@@ -1085,18 +1149,24 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   return (
                     <audio key={peerId} autoPlay playsInline ref={(el) => {
                       if (el) {
-                        remoteAudioRefsRef.current.set(peerId, el)
-                        if (el.srcObject !== stream) el.srcObject = stream
-                        void applyPreferredAudioOutputDevice(el)
+                        const audioEl = el as VoxperyAudioElement
+                        remoteAudioRefsRef.current.set(peerId, audioEl)
+                        const playbackStream = createRemoteAudioPlaybackStream(stream, !hiddenScreenSharePeerIds.has(peerId))
+                        const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
+                        if (audioEl.__voxpery_trackIds !== currentTrackIds) {
+                          audioEl.srcObject = playbackStream
+                          audioEl.__voxpery_trackIds = currentTrackIds
+                        }
+                        void applyPreferredAudioOutputDevice(audioEl)
                         const shouldMute = deafenedRef.current
                         const isCaptured = perPeerAudioCtxRef.current.has(peerId)
                         if (!isCaptured) {
                           const peerFactor = getPeerVolumeFactor(peerId)
                           const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
-                          try { el.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
-                          el.muted = shouldMute
+                          try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
+                          audioEl.muted = shouldMute
                         }
-                        if (!shouldMute) ensureRemoteAudioPlayback(peerId, el)
+                        if (!shouldMute) ensureRemoteAudioPlayback(peerId, audioEl)
                       } else {
                         remoteAudioRefsRef.current.delete(peerId)
                         const t = remoteAudioRetryTimerRef.current.get(peerId)
