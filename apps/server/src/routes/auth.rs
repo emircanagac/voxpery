@@ -824,8 +824,8 @@ async fn register(
 
     // Insert user (use validated trimmed values)
     let user = sqlx::query_as::<_, User>(
-        r#"INSERT INTO users (id, username, email, password_hash, status, email_verified, created_at)
-           VALUES ($1, $2, $3, $4, 'online', FALSE, NOW())
+        r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, email_verified, created_at)
+           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
@@ -1705,7 +1705,7 @@ async fn google_oauth_callback(
             let id = Uuid::new_v4();
             if let Err(e) = sqlx::query(
                 r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, email_verified, created_at)
-               VALUES ($1, $2, $3, $4, 'online', 'friends', $5, TRUE, NOW())"#,
+               VALUES ($1, $2, $3, $4, 'online', 'everyone', $5, TRUE, NOW())"#,
             )
             .bind(id)
             .bind(&username)

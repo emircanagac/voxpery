@@ -41,7 +41,7 @@ Key columns:
 - `token_version` (session invalidation counter)
 - `avatar_url`
 - `status` (string; runtime uses `online`/`dnd`/`offline`)
-- `dm_privacy` (`everyone` or `friends` in current backend behavior)
+- `dm_privacy` (`everyone` or `friends`; new accounts default to `everyone`)
 - `google_id` (nullable unique)
 - `username_changed_at`
 - `created_at`
@@ -243,6 +243,7 @@ All migrations currently present:
 - `036_server_rules.sql`
 - `037_member_timeouts_and_raid_events.sql`
 - `038_server_onboarding_guides.sql`
+- `039_default_dm_privacy_everyone.sql`
 
 ## Notes
 
