@@ -585,6 +585,90 @@ export const GIF_OPTIONS: GifOption[] = [
     url: 'https://media.giphy.com/media/xUPGcjQ6dJEjH5uwMw/giphy.gif',
     keywords: ['bye', 'peace', 'later'],
   },
+  {
+    id: 'ship-it',
+    label: 'Ship it',
+    url: 'https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif',
+    keywords: ['ship', 'done', 'approve'],
+  },
+  {
+    id: 'lets-go',
+    label: "Let's go",
+    url: 'https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif',
+    keywords: ['go', 'hype', 'party'],
+  },
+  {
+    id: 'loading',
+    label: 'Loading',
+    url: 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif',
+    keywords: ['loading', 'wait', 'thinking'],
+  },
+  {
+    id: 'nailed-it',
+    label: 'Nailed it',
+    url: 'https://media.giphy.com/media/5VKbvrjxpVJCM/giphy.gif',
+    keywords: ['win', 'done', 'nice'],
+  },
+  {
+    id: 'focus',
+    label: 'Focus',
+    url: 'https://media.giphy.com/media/l0HlPystfePnAI3G8/giphy.gif',
+    keywords: ['focus', 'math', 'confused'],
+  },
+  {
+    id: 'well-played',
+    label: 'Well played',
+    url: 'https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif',
+    keywords: ['well played', 'nice', 'win'],
+  },
+  {
+    id: 'thinking-loop',
+    label: 'Thinking loop',
+    url: 'https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif',
+    keywords: ['thinking', 'hmm', 'wait'],
+  },
+  {
+    id: 'party-ready',
+    label: 'Party ready',
+    url: 'https://media.giphy.com/media/26xBwdIuRJiAIqHwA/giphy.gif',
+    keywords: ['party', 'ready', 'hype'],
+  },
+  {
+    id: 'cheers',
+    label: 'Cheers',
+    url: 'https://media.giphy.com/media/3o6Zt6ML6BklcajjsA/giphy.gif',
+    keywords: ['cheers', 'celebrate', 'toast'],
+  },
+  {
+    id: 'good-vibes',
+    label: 'Good vibes',
+    url: 'https://media.giphy.com/media/l0Exk8EUzSLsrErEQ/giphy.gif',
+    keywords: ['vibes', 'happy', 'nice'],
+  },
+  {
+    id: 'confetti',
+    label: 'Confetti',
+    url: 'https://media.giphy.com/media/26gsspfbt1HfVQ9va/giphy.gif',
+    keywords: ['confetti', 'celebrate', 'party'],
+  },
+  {
+    id: 'dramatic-nod',
+    label: 'Dramatic nod',
+    url: 'https://media.giphy.com/media/l4FGuhL4U2WyjdkaY/giphy.gif',
+    keywords: ['nod', 'agree', 'yes'],
+  },
+  {
+    id: 'sparkle-win',
+    label: 'Sparkle win',
+    url: 'https://media.giphy.com/media/3o7qE1YN7aBOFPRw8E/giphy.gif',
+    keywords: ['sparkle', 'win', 'celebrate'],
+  },
+  {
+    id: 'mind-blown-loop',
+    label: 'Mind blown loop',
+    url: 'https://media.giphy.com/media/26BRBKqUiq586bRVm/giphy.gif',
+    keywords: ['mind blown', 'wow', 'surprised'],
+  },
 ]
 
 export const STICKER_OPTIONS: StickerOption[] = [
@@ -923,6 +1007,30 @@ export const STICKER_OPTIONS: StickerOption[] = [
     label: 'Peace',
     imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/270c.png',
     keywords: ['peace', 'bye', 'later'],
+  },
+  {
+    id: 'bug',
+    label: 'Bug',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f41b.png',
+    keywords: ['bug', 'issue', 'fix'],
+  },
+  {
+    id: 'tools',
+    label: 'Tools',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f6e0.png',
+    keywords: ['tools', 'fix', 'work'],
+  },
+  {
+    id: 'gem',
+    label: 'Gem',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f48e.png',
+    keywords: ['gem', 'nice', 'polish'],
+  },
+  {
+    id: 'shield',
+    label: 'Shield',
+    imageUrl: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f6e1.png',
+    keywords: ['shield', 'security', 'safe'],
   },
 ]
 
