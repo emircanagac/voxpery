@@ -145,7 +145,6 @@ export default function EmojiPicker({
                   aria-label={entry.label}
                 >
                   <InlineMediaImage src={entry.url} alt={entry.label} />
-                  <span>{entry.label}</span>
                 </button>
               ))}
             </div>
@@ -165,7 +164,6 @@ export default function EmojiPicker({
                   aria-label={entry.label}
                 >
                   <InlineMediaImage src={entry.imageUrl} alt={entry.label} className="chat-sticker-image" />
-                  <span className="chat-sticker-label">{entry.label}</span>
                 </button>
               ))}
             </div>
