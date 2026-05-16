@@ -29,6 +29,14 @@ type MentionUser = {
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const BOTTOM_LOCK_THRESHOLD_PX = 120
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
+const ESTIMATED_GROUPED_MESSAGE_ROW_PX = 24
+const ESTIMATED_MESSAGE_GROUP_ROW_PX = 52
+const ESTIMATED_DAY_DIVIDER_PX = 36
+const ESTIMATED_UNREAD_DIVIDER_PX = 30
+const ESTIMATED_ATTACHMENT_ROW_PX = 36
+const ESTIMATED_MEDIA_ROW_PX = 228
+const ESTIMATED_STICKER_ROW_PX = 128
+const ESTIMATED_TEXT_CHARS_PER_LINE = 92
 
 function mentionPresenceRank(status?: string | null): number {
     const normalized = (status ?? 'offline').toLowerCase()
@@ -128,6 +136,93 @@ function isImageAttachment(attachment: Attachment): boolean {
         }
     })()
     return /\.(apng|avif|gif|jpe?g|png|webp)$/i.test(`${name} ${path}`)
+}
+
+function getMessageAuthorKey(msg: UiMessage | undefined) {
+    if (!msg?.author) return ''
+    return msg.author.user_id || msg.author.username || ''
+}
+
+function isNewMessageDayAt(messages: UiMessage[], index: number) {
+    if (index <= 0) return true
+    const current = messages[index]
+    const previous = messages[index - 1]
+    if (!current?.created_at || !previous?.created_at) return false
+    return new Date(current.created_at).toDateString() !== new Date(previous.created_at).toDateString()
+}
+
+function isMessageGroupedAt(messages: UiMessage[], index: number, firstUnreadIndex: number) {
+    if (index <= 0) return false
+    if (isNewMessageDayAt(messages, index)) return false
+    if (firstUnreadIndex >= 0 && index === firstUnreadIndex) return false
+
+    const current = messages[index]
+    const previous = messages[index - 1]
+    if (!current || !previous) return false
+    if (current.edited_at || current.clientStatus === 'failed') return false
+
+    const currentAuthor = getMessageAuthorKey(current)
+    if (!currentAuthor || currentAuthor !== getMessageAuthorKey(previous)) return false
+
+    const currentTime = new Date(current.created_at).getTime()
+    const previousTime = new Date(previous.created_at).getTime()
+    const diff = currentTime - previousTime
+    return Number.isFinite(diff) && diff >= 0 && diff <= MESSAGE_GROUP_WINDOW_MS
+}
+
+function estimateTextExtraHeight(content: string) {
+    const parsed = parseReplyContent(content)
+    const text = parsed ? parsed.replyBody : content
+    const { text: visibleText } = extractEmbeddedMediaMarkdown(text)
+    const normalized = visibleText.trim()
+    if (!normalized) return 0
+    const explicitLines = normalized.split('\n').length
+    const wrappedLines = Math.ceil(normalized.length / ESTIMATED_TEXT_CHARS_PER_LINE)
+    const estimatedLines = Math.max(explicitLines, wrappedLines, 1)
+    return Math.max(0, estimatedLines - 1) * 20
+}
+
+function estimateEmbeddedMediaHeight(content: string) {
+    const { gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
+    let extra = 0
+    if (gifUrls.length > 0) extra += ESTIMATED_MEDIA_ROW_PX * Math.ceil(gifUrls.length / 2)
+    if (stickerUrls.length > 0) extra += ESTIMATED_STICKER_ROW_PX * Math.ceil(stickerUrls.length / 2)
+    return extra
+}
+
+function estimateAttachmentHeight(attachments?: Attachment[]) {
+    if (!Array.isArray(attachments) || attachments.length === 0) return 0
+    const hasImage = attachments.some(isImageAttachment)
+    if (hasImage) return ESTIMATED_MEDIA_ROW_PX
+    return ESTIMATED_ATTACHMENT_ROW_PX * Math.ceil(attachments.length / 2)
+}
+
+/** Parses "> @username: quote\n\nreply" into { replyUsername, replyQuote, replyBody } or null. */
+function parseReplyContent(content: string): { replyUsername: string; replyQuote: string; replyBody: string } | null {
+    if (!content.startsWith('> @')) return null
+    const doubleNewline = content.indexOf('\n\n')
+    if (doubleNewline < 0) return null
+    const quotePart = content.slice(0, doubleNewline).trim()
+    const replyBody = content.slice(doubleNewline + 2).trim()
+    const match = quotePart.match(/^>\s*@([^:]+):\s*(.*)$/s)
+    if (!match) return null
+    return { replyUsername: match[1].trim(), replyQuote: cleanReplyQuotePreview(match[2]), replyBody }
+}
+
+function estimateMessageRowHeight(messages: UiMessage[], index: number, firstUnreadIndex: number, hasTypingRow: boolean) {
+    if (hasTypingRow && index === messages.length) return 34
+    const message = messages[index]
+    if (!message) return ESTIMATED_MESSAGE_GROUP_ROW_PX
+
+    const isGrouped = isMessageGroupedAt(messages, index, firstUnreadIndex)
+    let estimate = isGrouped ? ESTIMATED_GROUPED_MESSAGE_ROW_PX : ESTIMATED_MESSAGE_GROUP_ROW_PX
+    if (isNewMessageDayAt(messages, index)) estimate += ESTIMATED_DAY_DIVIDER_PX
+    if (firstUnreadIndex >= 0 && index === firstUnreadIndex) estimate += ESTIMATED_UNREAD_DIVIDER_PX
+    if (message.edited_at || message.clientStatus === 'failed') estimate += 8
+    estimate += estimateTextExtraHeight(message.content ?? '')
+    estimate += estimateEmbeddedMediaHeight(message.content ?? '')
+    estimate += estimateAttachmentHeight(message.attachments)
+    return Math.max(ESTIMATED_GROUPED_MESSAGE_ROW_PX, estimate)
 }
 
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
@@ -432,14 +527,21 @@ export default function ChatArea({
         return withAll.slice(0, 9)
     }, [mentionCandidates, mentionOpen, mentionQuery])
 
+    const firstUnreadIndex = useMemo(() => {
+        if (!Number.isFinite(unreadDividerCount) || unreadDividerCount <= 0) return -1
+        if (messages.length === 0) return -1
+        return Math.max(0, messages.length - unreadDividerCount)
+    }, [messages.length, unreadDividerCount])
+
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
 
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
         getScrollElement: () => messagesScrollRef.current,
         getItemKey: (index) => messages[index]?.id ?? (index === messages.length ? 'typing-indicator' : index),
-        // Keep server chat row height tight even before first measurement.
-        estimateSize: () => 64,
+        // Keep newly-added rows close to their final measured height so bottom-locked
+        // chats do not visibly settle after the virtualizer's first measurement.
+        estimateSize: (index) => estimateMessageRowHeight(messages, index, firstUnreadIndex, !!typingIndicatorLabel),
         measureElement: (el) => el?.getBoundingClientRect().height ?? 64,
         overscan: 8,
     })
@@ -625,35 +727,9 @@ export default function ChatArea({
         return new Date(current.created_at).toDateString() !== new Date(previous.created_at).toDateString()
     }
 
-    const getMessageAuthorKey = (msg: UiMessage | undefined) => {
-        if (!msg?.author) return ''
-        return msg.author.user_id || msg.author.username || ''
-    }
-
     const isGroupedMessage = (index: number) => {
-        if (index <= 0) return false
-        if (isNewMessageDay(index)) return false
-        if (firstUnreadIndex >= 0 && index === firstUnreadIndex) return false
-
-        const current = messages[index]
-        const previous = messages[index - 1]
-        if (!current || !previous) return false
-        if (current.edited_at || current.clientStatus === 'failed') return false
-
-        const currentAuthor = getMessageAuthorKey(current)
-        if (!currentAuthor || currentAuthor !== getMessageAuthorKey(previous)) return false
-
-        const currentTime = new Date(current.created_at).getTime()
-        const previousTime = new Date(previous.created_at).getTime()
-        const diff = currentTime - previousTime
-        return Number.isFinite(diff) && diff >= 0 && diff <= MESSAGE_GROUP_WINDOW_MS
+        return isMessageGroupedAt(messages, index, firstUnreadIndex)
     }
-
-    const firstUnreadIndex = useMemo(() => {
-        if (!Number.isFinite(unreadDividerCount) || unreadDividerCount <= 0) return -1
-        if (messages.length === 0) return -1
-        return Math.max(0, messages.length - unreadDividerCount)
-    }, [messages.length, unreadDividerCount])
 
     const scrollToMessageId = useCallback((messageId: string) => {
         const index = messages.findIndex((m) => m.id === messageId)
@@ -1129,18 +1205,6 @@ export default function ChatArea({
                 )}
             </>
         )
-    }
-
-    /** Parses "> @username: quote\n\nreply" into { replyUsername, replyQuote, replyBody } or null. */
-    const parseReplyContent = (content: string): { replyUsername: string; replyQuote: string; replyBody: string } | null => {
-        if (!content.startsWith('> @')) return null
-        const doubleNewline = content.indexOf('\n\n')
-        if (doubleNewline < 0) return null
-        const quotePart = content.slice(0, doubleNewline).trim()
-        const replyBody = content.slice(doubleNewline + 2).trim()
-        const match = quotePart.match(/^>\s*@([^:]+):\s*(.*)$/s)
-        if (!match) return null
-        return { replyUsername: match[1].trim(), replyQuote: cleanReplyQuotePreview(match[2]), replyBody }
     }
 
     const renderMessageContent = (content: string) => {
