@@ -320,7 +320,9 @@ The production web image passes `APP_ENV=production` and uses `apps/web/nginx.pr
 
 Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, and server settings updates) and exposed via server audit endpoints.
 
-AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
+AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod matching removes common invisible Unicode format/control characters before evaluation so zero-width and bidi override characters cannot be used to split blocked keywords or links. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
+
+User and message reports require server membership, are rate limited per reporter/server, and repeated open reports for the same target are deduplicated before they reach the moderation queue. Report listing is capped to keep the safety panel responsive under abuse.
 
 Temporary member timeouts require `MANAGE_MESSAGES`, respect role hierarchy, cannot target the server owner, and block server-channel sends/edits plus new reactions until expiration or manual clearing. Timeout create/clear actions are audit logged.
 

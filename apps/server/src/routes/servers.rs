@@ -53,6 +53,9 @@ const MAX_ONBOARDING_TASKS: usize = 6;
 const MAX_ONBOARDING_TITLE_CHARS: usize = 80;
 const MAX_ONBOARDING_BODY_CHARS: usize = 1000;
 const MAX_ONBOARDING_TASK_CHARS: usize = 120;
+const REPORT_SUBMIT_RATE_LIMIT_MAX: usize = 5;
+const REPORT_SUBMIT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+const REPORT_LIST_LIMIT: i64 = 200;
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct AuditLogEntry {
@@ -492,6 +495,21 @@ fn normalize_report_details(details: Option<&str>) -> Result<Option<String>, App
         return Ok(Some(value.to_string()));
     }
     Ok(None)
+}
+
+async fn enforce_report_submit_rate_limit(
+    state: &Arc<AppState>,
+    server_id: Uuid,
+    reporter_user_id: Uuid,
+) -> Result<(), AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("reports:submit:{server_id}:{reporter_user_id}"),
+        REPORT_SUBMIT_RATE_LIMIT_MAX,
+        REPORT_SUBMIT_RATE_LIMIT_WINDOW,
+        "Too many report submissions. Please wait a moment and try again.",
+    )
+    .await
 }
 
 /// GET /api/servers/invite/:invite_code — public preview for invite pages.
@@ -2355,6 +2373,8 @@ async fn report_user(
         return Err(AppError::Validation("Cannot report yourself".into()));
     }
 
+    enforce_report_submit_rate_limit(&state, server_id, claims.sub).await?;
+
     let reason = normalize_report_reason(&body.reason)?;
     let details = normalize_report_details(body.details.as_deref())?;
 
@@ -2367,6 +2387,27 @@ async fn report_user(
     .await?;
     if member_exists == 0 {
         return Err(AppError::NotFound("Member not found".into()));
+    }
+
+    let existing_report_id = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id
+           FROM server_reports
+           WHERE server_id = $1
+             AND reporter_user_id = $2
+             AND reported_user_id = $3
+             AND message_id IS NULL
+             AND status = 'open'
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .bind(claims.sub)
+    .bind(body.reported_user_id)
+    .fetch_optional(&state.db)
+    .await?;
+    if existing_report_id.is_some() {
+        return Ok(Json(
+            serde_json::json!({ "message": "Report already submitted" }),
+        ));
     }
 
     sqlx::query(
@@ -2400,6 +2441,8 @@ async fn report_message(
     )
     .await?;
 
+    enforce_report_submit_rate_limit(&state, server_id, claims.sub).await?;
+
     let reason = normalize_report_reason(&body.reason)?;
     let details = normalize_report_details(body.details.as_deref())?;
 
@@ -2421,6 +2464,26 @@ async fn report_message(
     if reported_user_id == claims.sub {
         return Err(AppError::Validation(
             "Cannot report your own message".into(),
+        ));
+    }
+
+    let existing_report_id = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id
+           FROM server_reports
+           WHERE server_id = $1
+             AND reporter_user_id = $2
+             AND message_id = $3
+             AND status = 'open'
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .bind(claims.sub)
+    .bind(body.message_id)
+    .fetch_optional(&state.db)
+    .await?;
+    if existing_report_id.is_some() {
+        return Ok(Json(
+            serde_json::json!({ "message": "Report already submitted" }),
         ));
     }
 
@@ -2497,9 +2560,11 @@ async fn list_reports(
            WHERE sr.server_id = $1
            ORDER BY
              CASE WHEN sr.status = 'open' THEN 0 ELSE 1 END,
-             sr.created_at DESC"#,
+             sr.created_at DESC
+           LIMIT $2"#,
     )
     .bind(server_id)
+    .bind(REPORT_LIST_LIMIT)
     .fetch_all(&state.db)
     .await?;
 
