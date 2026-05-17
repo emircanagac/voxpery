@@ -366,6 +366,14 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
     diff == 0
 }
 
+fn redact_email_for_log(email: &str) -> String {
+    let Some((local, domain)) = email.split_once('@') else {
+        return "[redacted-email]".to_string();
+    };
+    let first = local.chars().next().unwrap_or('*');
+    format!("{}***@{}", first, domain)
+}
+
 fn transliterate_special_latin_char(c: char) -> &'static str {
     match c {
         '\u{00DF}' => "ss",
@@ -1537,11 +1545,11 @@ async fn google_oauth_callback(
             let c = parts.next().unwrap_or("").trim().to_string();
             if n.is_empty() || o.is_empty() || !r.starts_with('/') {
                 tracing::warn!(
-                    "OAuth state parsing failed. Parts: n='{}', o='{}', r='{}', c='{}'",
-                    n,
-                    o,
-                    r,
-                    c
+                    "OAuth state parsing failed. nonce_present={}, origin_len={}, redirect_len={}, pkce_challenge_present={}",
+                    !n.is_empty(),
+                    o.len(),
+                    r.len(),
+                    !c.is_empty()
                 );
                 (
                     "".to_string(),
@@ -1665,7 +1673,10 @@ async fn google_oauth_callback(
     let email = email.trim().to_lowercase();
 
     if let Some(false) = userinfo.verified_email {
-        tracing::warn!("Google OAuth login rejected: unverified email ({})", email);
+        tracing::warn!(
+            "Google OAuth login rejected: unverified email ({})",
+            redact_email_for_log(&email)
+        );
         let redirect_error = format!("{}?error=oauth_unverified_email", redirect_path);
         return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
     }

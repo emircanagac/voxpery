@@ -230,11 +230,11 @@ async fn remove_livekit_participant(
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             tracing::warn!(
-                "LiveKit participant revoke failed for user {} room {}: {} {}",
+                "LiveKit participant revoke failed for user {} room {}: status={} body_length={}",
                 user_id,
                 channel_id,
                 status,
-                body
+                body.len()
             );
         }
         Err(e) => {
