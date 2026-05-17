@@ -13,6 +13,7 @@ use crate::{
     models::Channel,
     services::audit,
     services::permissions::{self, Permissions},
+    services::voice_revoke,
     ws::WsEvent,
     AppState,
 };
@@ -468,6 +469,12 @@ async fn update_channel_override(
         },
     )
     .await;
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        channel.server_id,
+        "channel permissions updated",
+    )
+    .await?;
 
     Ok(Json(ov))
 }
@@ -497,6 +504,12 @@ async fn delete_channel_override(
         .fetch_one(&state.db)
         .await?;
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "channel permissions deleted",
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }
@@ -922,6 +935,12 @@ async fn update_category_override(
     .await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "category permissions updated",
+    )
+    .await?;
 
     Ok(Json(ov))
 }
@@ -954,6 +973,12 @@ async fn delete_category_override(
     .await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "category permissions deleted",
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({ "message": "Override deleted" })))
 }

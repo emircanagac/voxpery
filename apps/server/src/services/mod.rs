@@ -8,3 +8,4 @@ pub mod jwt_blacklist;
 pub mod moderation;
 pub mod permissions;
 pub mod rate_limit;
+pub mod voice_revoke;

@@ -19,6 +19,7 @@ use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::permissions::{get_user_server_permissions, Permissions};
+use crate::services::voice_revoke;
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
 
@@ -884,36 +885,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 }
 
-                                if let Some((_, previous_channel_id)) =
-                                    recv_state.voice_sessions.remove(&target_user_id)
+                                if let Err(e) = voice_revoke::revoke_active_voice_session(
+                                    &recv_state,
+                                    target_user_id,
+                                    "voice moderator disconnect",
+                                )
+                                .await
                                 {
-                                    let previous_server_id =
-                                        server_id_for_channel(&recv_state.db, previous_channel_id)
-                                            .await;
-                                    let _ = recv_state.voice_controls.remove(&target_user_id);
-                                    cleanup_voice_channel_active_since_if_empty(
-                                        &recv_state,
-                                        previous_channel_id,
+                                    tracing::warn!(
+                                        "DisconnectVoiceMember voice revoke failed: {}",
+                                        e
                                     );
-                                    super::publish_event(
-                                        &recv_state,
-                                        WsEvent::VoiceStateUpdate {
-                                            channel_id: None,
-                                            user_id: target_user_id,
-                                            server_id: previous_server_id,
-                                            channel_active_since_ms: None,
-                                        },
-                                    )
-                                    .await;
-                                    super::publish_event(
-                                        &recv_state,
-                                        voice_control_event_from_state(
-                                            target_user_id,
-                                            previous_server_id,
-                                            (false, false, false, false, false, false),
-                                        ),
-                                    )
-                                    .await;
                                 }
                             }
                             WsClientMessage::SetVoiceControl {
