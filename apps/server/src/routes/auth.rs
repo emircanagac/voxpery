@@ -230,7 +230,17 @@ async fn consume_desktop_oauth_code(
 
 #[cfg(test)]
 mod oauth_pkce_tests {
-    use super::{is_valid_pkce_component, normalize_oauth_username_seed, pkce_s256_challenge};
+    use super::{
+        constant_time_eq, is_valid_pkce_component, normalize_oauth_username_seed,
+        pkce_s256_challenge,
+    };
+
+    #[test]
+    fn compares_sensitive_strings_without_plain_equality() {
+        assert!(constant_time_eq("same-secret", "same-secret"));
+        assert!(!constant_time_eq("same-secret", "same-secret-extended"));
+        assert!(!constant_time_eq("same-secret", "same-secres"));
+    }
 
     #[test]
     fn validates_pkce_component_charset_and_length() {
@@ -339,6 +349,21 @@ fn token_hash_base64(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     BASE64.encode(hasher.finalize())
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let max_len = left.len().max(right.len());
+    let mut diff = left.len() ^ right.len();
+
+    for i in 0..max_len {
+        let left_byte = left.get(i).copied().unwrap_or(0);
+        let right_byte = right.get(i).copied().unwrap_or(0);
+        diff |= (left_byte ^ right_byte) as usize;
+    }
+
+    diff == 0
 }
 
 fn transliterate_special_latin_char(c: char) -> &'static str {
@@ -1410,7 +1435,7 @@ async fn google_oauth_desktop_exchange(
         .filter(|c| is_valid_pkce_component(c))
         .ok_or(AppError::Unauthorized)?;
     let computed_challenge = pkce_s256_challenge(code_verifier);
-    if computed_challenge != expected_challenge {
+    if !constant_time_eq(&computed_challenge, &expected_challenge) {
         tracing::warn!("Desktop OAuth PKCE challenge mismatch");
         return Err(AppError::Unauthorized);
     }
@@ -1549,7 +1574,7 @@ async fn google_oauth_callback(
                 let prefix = "oauth_state=";
                 if let Some(cookie_val) = part.strip_prefix(prefix) {
                     found_oauth_state = Some(cookie_val.to_string());
-                    if !nonce.is_empty() && nonce == cookie_val {
+                    if !nonce.is_empty() && constant_time_eq(&nonce, cookie_val) {
                         is_csrf_valid = true;
                     }
                     break;

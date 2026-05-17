@@ -10,10 +10,17 @@ Authentication, authorization, CORS policies, and security best practices.
 - **Signing key**: `JWT_SECRET` from environment (never hardcode)
 - **Expiration**: 30 days (configurable via `JWT_EXPIRATION`)
 - **Claims**: `sub` (user ID), `username`, `exp` (expiration time), `ver` (token version)
+- **Sensitive comparisons**: OAuth state and desktop PKCE checks use constant-time comparison helpers.
 
 **Token storage**:
 - **Web**: httpOnly cookie (`Secure` flag in production)
 - **Desktop**: Secure keyring (OS-native credential store via Tauri)
+
+### Desktop Capabilities
+
+- Production desktop HTTP access is scoped to the official API origin.
+- Desktop URL opening uses Tauri's default `http(s)`, `mailto`, and `tel` URL scope instead of an unscoped opener command.
+- No production `fs:*` or `shell:*` capability is granted to the main window.
 
 ### Password Hashing
 
@@ -202,6 +209,12 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - The proxy accepts only `https://` image URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, pins the outbound request to the validated public IP addresses to prevent DNS rebinding, disables redirects, and rate-limits proxy requests.
 - Responses must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, are capped at 3 MB, and are returned with cache headers plus `X-Content-Type-Options: nosniff`.
 - `data:image/*` profile avatars and server icons are still accepted for uploaded profile photos/icons, but SVG data URLs are rejected and stored data URLs are capped at 1 MB.
+
+### API Data Minimization
+
+- Database user records are not serializable as API payloads.
+- Current-account endpoints use explicit self-only DTOs, while WebSocket profile broadcasts use the smaller `UserBroadcastProfile` DTO.
+- Password hashes, token versions, OAuth provider IDs, and emails are not included in cross-user WebSocket profile events.
 
 ### Path Traversal
 
