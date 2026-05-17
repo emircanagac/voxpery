@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-manual-${{ github.ref_name }}
+  group: deploy-manual-main
   cancel-in-progress: true
 
 jobs:
@@ -25,21 +25,15 @@ jobs:
           command_timeout: 25m
           script: |
             cd ~/voxpery
-            REF="${{ github.ref_name }}"
-            REF_TYPE="${{ github.ref_type }}"
-            if [ "${REF_TYPE}" = "branch" ]; then
-              git fetch --prune origin "refs/heads/${REF}:refs/remotes/origin/${REF}"
-              git checkout --detach "refs/remotes/origin/${REF}"
-              IMAGE_TAG="latest"
-            else
-              git fetch --force origin "refs/tags/${REF}:refs/tags/${REF}"
-              git checkout --detach "refs/tags/${REF}"
-              IMAGE_TAG="${REF}"
-            fi
+            git fetch --prune origin "+refs/heads/main:refs/remotes/origin/main"
+            git checkout --detach refs/remotes/origin/main
+            IMAGE_TAG="latest"
+            docker compose --profile security config >/dev/null
             export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${IMAGE_TAG}"
             export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${IMAGE_TAG}"
             docker compose --profile security pull server web clamav
             docker compose --profile security up -d --no-build --remove-orphans
             docker image prune -f
             curl -fsS http://127.0.0.1:3001/health >/dev/null
-            echo "Deploy complete: ref=${REF} image_tag=${IMAGE_TAG}"
+            curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
+            echo "Deploy complete: ref=main image_tag=${IMAGE_TAG}"
