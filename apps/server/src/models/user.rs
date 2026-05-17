@@ -4,15 +4,13 @@ use sqlx::FromRow;
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Clone, Serialize, Deserialize, FromRow)]
+#[derive(Clone, FromRow)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
     pub email: String,
     pub email_verified: bool,
-    #[serde(skip_serializing)]
     pub password_hash: String,
-    #[serde(skip_serializing)]
     pub token_version: i64,
     pub avatar_url: Option<String>,
     pub status: String,
@@ -50,7 +48,7 @@ fn redact_email_for_debug(email: &str) -> String {
     format!("{local_prefix}***@{domain}")
 }
 
-/// Public user info (no password hash, no email).
+/// Current authenticated user info. This self-only DTO intentionally includes email.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPublic {
     pub id: Uuid,

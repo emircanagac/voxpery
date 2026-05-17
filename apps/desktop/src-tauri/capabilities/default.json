@@ -23,7 +23,6 @@
                 "process:allow-restart",
                 "updater:default",
                 "secure-storage:default",
-                "opener:allow-open-url",
                 "opener:allow-default-urls",
                 {
                     "identifier": "http:default",
@@ -66,7 +65,6 @@
                 "process:allow-restart",
                 "updater:default",
                 "secure-storage:default",
-                "opener:allow-open-url",
                 "opener:allow-default-urls",
                 {
                     "identifier": "http:default",
