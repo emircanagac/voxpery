@@ -74,6 +74,7 @@ Basic service checks:
 ```bash
 curl -f http://localhost:3001/health
 curl -I http://localhost:${WEB_PORT:-5173}
+curl -f http://localhost:${WEB_PORT:-5173}/healthz
 curl -s http://localhost:3001/api/system/features
 ```
 
@@ -122,6 +123,7 @@ Security defaults in compose:
 
 - `web`, `server`, `postgres`, `redis`, `livekit:7880` bind to `127.0.0.1` only
 - Local compose passes `APP_ENV=development` and builds the web image with `apps/web/nginx.development.conf` so localhost API and LiveKit smoke tests work. Public production images pass `APP_ENV=production` in CI and use `apps/web/nginx.production.conf`, which omits browser loopback `connect-src` allowances.
+- The web image uses unprivileged nginx and listens on container port `8080`; Compose maps it to `127.0.0.1:${WEB_PORT:-5173}`.
 - Public media ports stay open for LiveKit:
   - `7881/tcp` (fallback)
   - `7882/udp`
@@ -155,6 +157,7 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 
 ```bash
 curl -f http://localhost:3001/health
+curl -f http://localhost:${WEB_PORT:-5173}/healthz
 curl -I http://localhost:${WEB_PORT:-5173}
 ```
 

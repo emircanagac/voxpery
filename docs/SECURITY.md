@@ -268,7 +268,7 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-
 
 `'wasm-unsafe-eval'` is required for the RNNoise WebAssembly voice suppression runtime. It is narrower than broad JavaScript `'unsafe-eval'` and should stay in `script-src` for production voice releases.
 
-The production web image passes `APP_ENV=production` and uses `apps/web/nginx.production.conf`, which does not allow browser connections to visitor loopback targets. Local Docker compose passes `APP_ENV=development` by default and uses `apps/web/nginx.development.conf` so `localhost` API and LiveKit smoke tests keep working.
+The production web image passes `APP_ENV=production` and uses `apps/web/nginx.production.conf`, which does not allow browser connections to visitor loopback targets. Local Docker compose passes `APP_ENV=development` by default and uses `apps/web/nginx.development.conf` so `localhost` API and LiveKit smoke tests keep working. The web container runs with the unprivileged nginx image and listens on container port `8080`; Compose still exposes it on `127.0.0.1:${WEB_PORT:-5173}`.
 
 ## Secrets Management
 
@@ -288,7 +288,8 @@ The production web image passes `APP_ENV=production` and uses `apps/web/nginx.pr
 
 - Sensitive fields are not exposed in serialized user output (`password_hash` is skipped).
 - `User` debug output is redacted for sensitive fields (`password_hash`, email, OAuth linkage detail).
-- OAuth failure paths avoid logging raw state/cookie nonce values and third-party token bodies.
+- OAuth failure paths avoid logging raw state/cookie nonce values, PKCE challenges, full email addresses, and third-party token bodies.
+- Third-party service failures log status and safe metadata instead of raw response bodies.
 
 ## Vulnerability Disclosure
 

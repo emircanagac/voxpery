@@ -14,12 +14,12 @@ RUN VITE_API_URL="${VITE_API_URL}" \
     VITE_TURNSTILE_SITE_KEY="${TURNSTILE_SITE_KEY_PUBLIC}" \
     npm run build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
 ARG APP_ENV=development
 COPY nginx.${APP_ENV}.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
