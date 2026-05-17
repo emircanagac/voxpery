@@ -465,6 +465,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         WsEvent::FriendUpdate { user_id: target_user_id } => {
                             *target_user_id == user_id
                         }
+                        WsEvent::DmRead {
+                            user_id: target_user_id,
+                            ..
+                        } => *target_user_id == user_id,
                         WsEvent::PresenceUpdate { user_id: changed_user_id, .. } => {
                             users_share_server_or_are_friends(
                                 &send_state.db,

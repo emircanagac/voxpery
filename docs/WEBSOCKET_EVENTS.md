@@ -121,6 +121,9 @@ Legacy custom signaling event.
 ### Channel/Message
 
 - `NewMessage`
+- `DmRead`
+  - Targeted to the user who read the DM so other open sessions can clear the same unread badge.
+  - Payload includes `channel_id`, `user_id`, and `last_read_message_id`.
 - `MessageUpdated`
 - `MessageDeleted`
 - `Typing`

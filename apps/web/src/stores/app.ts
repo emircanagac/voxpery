@@ -46,6 +46,7 @@ interface AppState {
     setFriends: (friends: Friend[]) => void
     setDmChannels: (channels: DmChannel[]) => void
     dmUnread: Record<string, number>
+    setDmUnreadFromChannels: (channels: DmChannel[]) => void
     incrementDmUnread: (channelId: string) => void
     clearDmUnread: (channelId: string) => void
     serverUnreadByChannel: Record<string, number>
@@ -218,6 +219,32 @@ export const useAppStore = create<AppState>()(
             setFriends: (friends) => set((s) => JSON.stringify(s.friends) === JSON.stringify(friends) ? s : { friends }),
             setDmChannels: (channels) => set((s) => JSON.stringify(s.dmChannels) === JSON.stringify(channels) ? s : { dmChannels: channels }),
             dmUnread: {},
+            setDmUnreadFromChannels: (channels) =>
+                set((s) => {
+                    const next = { ...s.dmUnread }
+                    let changed = false
+
+                    channels.forEach((channel) => {
+                        const unreadCount = Number.isFinite(channel.unread_count)
+                            ? Math.max(0, Math.trunc(channel.unread_count))
+                            : 0
+
+                        if (unreadCount > 0) {
+                            if (next[channel.id] !== unreadCount) {
+                                next[channel.id] = unreadCount
+                                changed = true
+                            }
+                            return
+                        }
+
+                        if (next[channel.id]) {
+                            delete next[channel.id]
+                            changed = true
+                        }
+                    })
+
+                    return changed ? { dmUnread: next } : s
+                }),
             incrementDmUnread: (channelId) =>
                 set((s) => ({ dmUnread: { ...s.dmUnread, [channelId]: (s.dmUnread[channelId] ?? 0) + 1 } })),
             clearDmUnread: (channelId) =>

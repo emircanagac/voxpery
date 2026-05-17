@@ -215,6 +215,7 @@ Notes:
 ## Direct Message Endpoints
 
 - `GET /api/dm/channels`
+  - Returns DM channel metadata including `unread_count`, the server-derived unread count for the current user.
 - `POST /api/dm/channels/:peer_id`
 - `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
 - `GET /api/dm/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`

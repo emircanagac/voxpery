@@ -19,6 +19,12 @@ pub enum WsEvent {
         channel_type: String,
         message: MessageWithAuthor,
     },
+    /// A DM channel was read by one session for the current user.
+    DmRead {
+        channel_id: Uuid,
+        user_id: Uuid,
+        last_read_message_id: Option<Uuid>,
+    },
     /// A message was deleted in a server channel.
     MessageDeleted { channel_id: Uuid, message_id: Uuid },
     /// A message was updated (edited) in a server channel.
