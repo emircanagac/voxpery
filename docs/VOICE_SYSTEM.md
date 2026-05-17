@@ -264,6 +264,8 @@ When debugging a production voice report, capture:
 - Join and leave cues are intentionally different so members can identify someone entering or leaving without watching the channel list.
 - Join uses a short rising three-note motif.
 - Leave uses a lower descending two-note motif.
+- Remote camera and screen-share starts use their own short cues so members can tell when someone begins broadcasting media.
+- Existing remote media does not play a start cue when joining a channel; cues only play for media that starts while the user is already present.
 - Mute, unmute, deafen, and undeafen keep shorter local-only cues.
 
 ### Echo or feedback

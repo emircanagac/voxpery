@@ -70,6 +70,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Voice join succeeds after permission grant.
 - [ ] Active call bar quality indicator shows a colored Wi-Fi icon and current ping while connected, and the visible color matches the visible ping value.
 - [ ] Voice join and leave cues are distinct enough to tell whether a member entered or left the channel.
+- [ ] While already in a voice channel, remote camera and screen-share starts play distinct media cues; stopping camera or screen share stays silent, and joining a channel with existing remote media does not replay old media-start cues.
 - [ ] Reconnecting state shows a clear one-time warning without disconnecting the user from the channel.
 - [ ] Denying desktop microphone permission shows recovery guidance, opens OS privacy settings from Voice & Audio, and succeeds after permission is restored and retried.
 - [ ] Denying desktop camera permission shows OS-specific recovery guidance, opens OS privacy settings when supported, and succeeds after permission is restored and retried.

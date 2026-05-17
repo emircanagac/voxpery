@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { resyncVoiceStateAfterReconnect } from './useLiveKitVoice'
+import {
+  clearRemoteMediaStartCue,
+  remoteMediaStartCueKey,
+  resyncVoiceStateAfterReconnect,
+  shouldPlayRemoteMediaStartCue,
+} from './useLiveKitVoice'
 
 describe('resyncVoiceStateAfterReconnect', () => {
   it('re-sends voice join and control state after WebSocket reconnect', () => {
@@ -83,5 +88,44 @@ describe('resyncVoiceStateAfterReconnect', () => {
     })
 
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('remote media start cues', () => {
+  it('creates stable remote media cue keys', () => {
+    expect(remoteMediaStartCueKey('user-1', 'camera')).toBe('user-1:camera')
+    expect(remoteMediaStartCueKey('user-1', 'screen')).toBe('user-1:screen')
+  })
+
+  it('does not play during initial remote media hydration', () => {
+    const seen = new Set<string>()
+
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', false)).toBe(false)
+    expect(seen.has('user-1:camera')).toBe(true)
+  })
+
+  it('plays once when remote media starts after voice is ready', () => {
+    const seen = new Set<string>()
+
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', true)).toBe(true)
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', true)).toBe(false)
+  })
+
+  it('can play again after the remote media key is cleared', () => {
+    const seen = new Set<string>()
+
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', true)).toBe(true)
+    clearRemoteMediaStartCue(seen, 'user-1', 'camera')
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', true)).toBe(true)
+  })
+
+  it('clears all media cue keys for a peer', () => {
+    const seen = new Set<string>(['user-1:camera', 'user-1:screen', 'user-2:camera'])
+
+    clearRemoteMediaStartCue(seen, 'user-1')
+
+    expect(seen.has('user-1:camera')).toBe(false)
+    expect(seen.has('user-1:screen')).toBe(false)
+    expect(seen.has('user-2:camera')).toBe(true)
   })
 })

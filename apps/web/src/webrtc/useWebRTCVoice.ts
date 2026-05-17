@@ -333,7 +333,15 @@ export function useWebRTCVoice() {
 
   const isSoundEnabled = useCallback(() => localStorage.getItem(SOUND_KEY) !== '0', [])
 
-  type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
+  type VoiceCueKind =
+    | 'join'
+    | 'leave'
+    | 'mute'
+    | 'unmute'
+    | 'deafen'
+    | 'undeafen'
+    | 'camera-start'
+    | 'screen-start'
 
   const playVoiceCue = useCallback((kind: VoiceCueKind) => {
     if (!isSoundEnabled()) return
@@ -407,6 +415,14 @@ export function useWebRTCVoice() {
       case 'undeafen':
         playTone({ from: 250, to: 320, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.02 })
         playTone({ from: 420, to: 590, offsetSec: 0.078, durationSec: 0.095, wave: 'triangle', peak: 0.024 })
+        break
+      case 'camera-start':
+        playTone({ from: 1180, to: 1180, offsetSec: 0, durationSec: 0.052, wave: 'sine', peak: 0.017 })
+        playTone({ from: 820, to: 1040, offsetSec: 0.055, durationSec: 0.075, wave: 'triangle', peak: 0.016 })
+        break
+      case 'screen-start':
+        playTone({ from: 520, to: 520, offsetSec: 0, durationSec: 0.075, wave: 'square', peak: 0.023 })
+        playTone({ from: 410, to: 680, offsetSec: 0.09, durationSec: 0.15, wave: 'triangle', peak: 0.021 })
         break
     }
   }, [isSoundEnabled])
