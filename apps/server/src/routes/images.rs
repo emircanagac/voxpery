@@ -1,8 +1,4 @@
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     extract::{ConnectInfo, Query, State},
@@ -46,25 +42,52 @@ fn client_ip(connect_info: Option<&Extension<ConnectInfo<SocketAddr>>>) -> Strin
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-async fn ensure_resolved_host_is_public(host: &str, port: u16) -> Result<(), AppError> {
-    let addrs = lookup_host((host, port))
-        .await
-        .map_err(|_| AppError::Validation("Image URL host could not be resolved".into()))?;
-
-    let resolved: Vec<IpAddr> = addrs.map(|addr| addr.ip()).collect();
+fn validate_public_resolved_addrs(
+    addrs: impl IntoIterator<Item = SocketAddr>,
+) -> Result<Vec<SocketAddr>, AppError> {
+    let mut seen = HashSet::new();
+    let resolved: Vec<SocketAddr> = addrs
+        .into_iter()
+        .filter(|addr| seen.insert(*addr))
+        .collect();
     if resolved.is_empty() {
         return Err(AppError::Validation(
             "Image URL host could not be resolved".into(),
         ));
     }
 
-    if resolved.iter().any(is_private_or_local_ip) {
+    if resolved
+        .iter()
+        .map(SocketAddr::ip)
+        .any(|ip| is_private_or_local_ip(&ip))
+    {
         return Err(AppError::Validation(
             "Image URL cannot resolve to local or private network addresses".into(),
         ));
     }
 
-    Ok(())
+    Ok(resolved)
+}
+
+async fn resolve_public_host_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>, AppError> {
+    let addrs = lookup_host((host, port))
+        .await
+        .map_err(|_| AppError::Validation("Image URL host could not be resolved".into()))?;
+
+    validate_public_resolved_addrs(addrs)
+}
+
+fn build_pinned_image_proxy_client(
+    host: &str,
+    resolved_addrs: &[SocketAddr],
+) -> Result<reqwest::Client, AppError> {
+    reqwest::Client::builder()
+        .redirect(Policy::none())
+        .timeout(Duration::from_secs(6))
+        .no_proxy()
+        .resolve_to_addrs(host, resolved_addrs)
+        .build()
+        .map_err(|e| AppError::Internal(format!("Image proxy client build failed: {e}")))
 }
 
 async fn proxy_avatar(
@@ -107,13 +130,9 @@ async fn proxy_remote_image_with_label(
         .host_str()
         .ok_or_else(|| AppError::Validation(format!("{label} URL must include a host")))?;
     let port = url.port_or_known_default().unwrap_or(443);
-    ensure_resolved_host_is_public(host, port).await?;
+    let resolved_addrs = resolve_public_host_addrs(host, port).await?;
 
-    let client = reqwest::Client::builder()
-        .redirect(Policy::none())
-        .timeout(Duration::from_secs(6))
-        .build()
-        .map_err(|e| AppError::Internal(format!("Avatar proxy client build failed: {e}")))?;
+    let client = build_pinned_image_proxy_client(host, &resolved_addrs)?;
 
     let upstream = client
         .get(url)
@@ -179,9 +198,34 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_private_dns_resolution() {
-        let err = ensure_resolved_host_is_public("localhost", 443)
+        let err = resolve_public_host_addrs("localhost", 443)
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_mixed_private_and_public_resolved_addrs() {
+        let addrs = [
+            SocketAddr::from(([93, 184, 216, 34], 443)),
+            SocketAddr::from(([127, 0, 0, 1], 443)),
+        ];
+
+        let err = validate_public_resolved_addrs(addrs).unwrap_err();
+        assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    #[test]
+    fn keeps_unique_public_resolved_addrs() {
+        let addr = SocketAddr::from(([93, 184, 216, 34], 443));
+        let resolved = validate_public_resolved_addrs([addr, addr]).unwrap();
+        assert_eq!(resolved, vec![addr]);
+    }
+
+    #[test]
+    fn builds_proxy_client_with_pinned_public_addrs() {
+        let addrs = [SocketAddr::from(([93, 184, 216, 34], 443))];
+        let client = build_pinned_image_proxy_client("example.com", &addrs);
+        assert!(client.is_ok());
     }
 }
