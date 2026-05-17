@@ -41,21 +41,42 @@ pub fn content_preview(content: &str) -> (String, bool) {
 }
 
 fn has_link(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    lower.contains("http://")
-        || lower.contains("https://")
-        || lower.contains("www.")
-        || lower.contains(".com")
-        || lower.contains(".net")
-        || lower.contains(".org")
+    content.contains("http://")
+        || content.contains("https://")
+        || content.contains("www.")
+        || content.contains(".com")
+        || content.contains(".net")
+        || content.contains(".org")
 }
 
 fn has_invite_link(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    lower.contains("discord.gg/")
-        || lower.contains("discord.com/invite/")
-        || lower.contains("discordapp.com/invite/")
-        || lower.contains("/invite/")
+    content.contains("discord.gg/")
+        || content.contains("discord.com/invite/")
+        || content.contains("discordapp.com/invite/")
+        || content.contains("/invite/")
+}
+
+fn is_automod_ignored_char(ch: char) -> bool {
+    ch.is_control()
+        || matches!(
+            ch,
+            '\u{00AD}'
+                | '\u{034F}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+        )
+}
+
+fn normalize_automod_text(input: &str) -> String {
+    input
+        .chars()
+        .filter(|ch| !is_automod_ignored_char(*ch))
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn is_mention_boundary_char(ch: Option<char>) -> bool {
@@ -93,16 +114,15 @@ pub fn mention_count(content: &str) -> usize {
 }
 
 fn evaluate_rule(rule: &AutoModRule, content: &str) -> Option<AutoModMatch> {
+    let normalized_content = normalize_automod_text(content);
     match rule.trigger_type.as_str() {
         "blocked_keyword" => {
             let pattern = rule.pattern.as_deref()?.trim();
             if pattern.is_empty() {
                 return None;
             }
-            if content
-                .to_ascii_lowercase()
-                .contains(&pattern.to_ascii_lowercase())
-            {
+            let normalized_pattern = normalize_automod_text(pattern);
+            if !normalized_pattern.is_empty() && normalized_content.contains(&normalized_pattern) {
                 Some(AutoModMatch {
                     rule_id: rule.id,
                     rule_name: rule.name.clone(),
@@ -113,13 +133,13 @@ fn evaluate_rule(rule: &AutoModRule, content: &str) -> Option<AutoModMatch> {
                 None
             }
         }
-        "invite_filter" if has_invite_link(content) => Some(AutoModMatch {
+        "invite_filter" if has_invite_link(&normalized_content) => Some(AutoModMatch {
             rule_id: rule.id,
             rule_name: rule.name.clone(),
             trigger_type: rule.trigger_type.clone(),
             matched_value: Some("invite_link".into()),
         }),
-        "link_filter" if has_link(content) => Some(AutoModMatch {
+        "link_filter" if has_link(&normalized_content) => Some(AutoModMatch {
             rule_id: rule.id,
             rule_name: rule.name.clone(),
             trigger_type: rule.trigger_type.clone(),
@@ -127,7 +147,7 @@ fn evaluate_rule(rule: &AutoModRule, content: &str) -> Option<AutoModMatch> {
         }),
         "mention_spam" => {
             let limit = rule.mention_limit.unwrap_or(5).max(1) as usize;
-            let mentions = mention_count(content);
+            let mentions = mention_count(&normalized_content);
             if mentions >= limit {
                 Some(AutoModMatch {
                     rule_id: rule.id,
@@ -213,9 +233,53 @@ pub async fn log_blocked_message(
 mod tests {
     use super::*;
 
+    fn blocked_keyword_rule(pattern: &str) -> AutoModRule {
+        AutoModRule {
+            id: Uuid::new_v4(),
+            server_id: Uuid::new_v4(),
+            name: "Blocked keyword".into(),
+            trigger_type: "blocked_keyword".into(),
+            pattern: Some(pattern.into()),
+            mention_limit: None,
+            enabled: true,
+            exempt_role_ids: vec![],
+            exempt_channel_ids: vec![],
+            created_by: None,
+            updated_by: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
     #[test]
     fn mention_count_ignores_email_like_text() {
         assert_eq!(mention_count("hello @one @two test@example.com"), 2);
+    }
+
+    #[test]
+    fn blocked_keyword_matches_zero_width_bypass() {
+        let rule = blocked_keyword_rule("badword");
+        assert!(evaluate_rule(&rule, "ba\u{200B}dword").is_some());
+    }
+
+    #[test]
+    fn blocked_keyword_matches_rtl_override_bypass() {
+        let rule = blocked_keyword_rule("badword");
+        assert!(evaluate_rule(&rule, "bad\u{202E}word").is_some());
+    }
+
+    #[test]
+    fn invite_filter_matches_zero_width_bypass() {
+        let mut rule = blocked_keyword_rule("");
+        rule.trigger_type = "invite_filter".into();
+        assert!(evaluate_rule(&rule, "discord.\u{200B}gg/example").is_some());
+    }
+
+    #[test]
+    fn link_filter_matches_zero_width_bypass() {
+        let mut rule = blocked_keyword_rule("");
+        rule.trigger_type = "link_filter".into();
+        assert!(evaluate_rule(&rule, "https://exa\u{200B}mple.com").is_some());
     }
 
     #[test]
@@ -226,4 +290,3 @@ mod tests {
         assert!(truncated);
     }
 }
-

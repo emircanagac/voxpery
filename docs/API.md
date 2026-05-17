@@ -187,9 +187,10 @@ Notes:
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
 - `PATCH /api/messages/item/:message_id` (author only)
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
-- Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast.
+- Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast. Keyword, link, invite, and mention-spam checks normalize invisible Unicode format/control characters before matching.
 - Active member timeouts block server-channel sends/edits and new reactions before persistence or broadcast.
 - Server-level raid protection records join bursts, new-account join bursts, message bursts, and invite spikes in moderation activity/audit logs; message and invite bursts can return `429`.
+- User and message reports are rate limited per reporter/server, deduplicated while an open report for the same target exists, and moderation report listing returns the most recent 200 entries.
 
 ### Pins
 
@@ -261,6 +262,7 @@ Current key limits (Redis-backed):
 - Friend request: 5/min per user
 - DM channel create: 5/min per user
 - Message send: `MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`
+- Report submit: 5/min per reporter/server
 - WS connect: 3/10s per user
 
 ## Error Shape

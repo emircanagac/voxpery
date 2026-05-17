@@ -42,8 +42,9 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Mobile server chat shows one visible message after send, including after the API response and WebSocket echo both arrive.
 - [ ] Mobile Social/Friends list scrolls when the visible friend or request list exceeds the viewport.
 - [ ] Safety moderation view shows open reports, active timeouts, and recent raid events.
+- [ ] Repeated user/message report submissions for the same target do not create duplicate open reports, and rapid report spam returns `429`.
 - [ ] Server Settings opens and remains scrollable on desktop; mobile still shows the desktop-only guidance instead of a broken settings modal.
-- [ ] AutoMod rule create/edit/enable/disable/delete works and blocked messages do not persist or broadcast.
+- [ ] AutoMod rule create/edit/enable/disable/delete works and blocked messages do not persist or broadcast, including blocked keywords split with invisible zero-width/bidi characters.
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
