@@ -199,7 +199,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 
 - User-supplied external avatar URLs are rendered through `GET /api/images/avatar?url=...` so viewers do not request third-party avatar hosts directly.
 - User-controlled remote server icons and inline GIF/sticker previews are rendered through `GET /api/images/remote?url=...`.
-- The proxy accepts only `https://` image URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, disables redirects, and rate-limits proxy requests.
+- The proxy accepts only `https://` image URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, pins the outbound request to the validated public IP addresses to prevent DNS rebinding, disables redirects, and rate-limits proxy requests.
 - Responses must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, are capped at 3 MB, and are returned with cache headers plus `X-Content-Type-Options: nosniff`.
 - `data:image/*` profile avatars and server icons are still accepted for uploaded profile photos/icons, but SVG data URLs are rejected and stored data URLs are capped at 1 MB.
 

@@ -22,6 +22,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 - [ ] Relevant `CodeQL` analyzers are green or did not run because no matching files changed.
 - [ ] `Dependency Security Audit` is reviewed; unresolved upstream-blocked advisories have an explicit release decision recorded.
+- [ ] Remote avatar/server icon/inline media proxy rejects localhost/private targets and still loads normal public HTTPS images.
 - [ ] Manual `Release Smoke` workflow completed successfully against the release candidate API.
 - [ ] `Release Smoke` ran with strict security headers enabled for production candidates.
 
