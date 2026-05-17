@@ -132,6 +132,7 @@ export interface DmChannel {
     peer_avatar_url: string | null
     peer_status: string
     last_message_at: string | null
+    unread_count: number
 }
 
 export interface DmReadState {

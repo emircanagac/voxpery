@@ -33,6 +33,7 @@ pub struct DmChannelInfo {
     pub peer_avatar_url: Option<String>,
     pub peer_status: String,
     pub last_message_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub unread_count: i64,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -242,7 +243,16 @@ async fn list_dm_channels(
                     WHERE m.channel_id = c.id
                     ORDER BY m.created_at DESC
                     LIMIT 1
-                  ) as last_message_at
+                  ) as last_message_at,
+                  (
+                    SELECT COUNT(*)
+                    FROM dm_messages m
+                    LEFT JOIN dm_channel_reads r
+                      ON r.channel_id = c.id AND r.user_id = $1
+                    WHERE m.channel_id = c.id
+                      AND m.user_id <> $1
+                      AND (r.read_at IS NULL OR m.created_at > r.read_at)
+                  ) as unread_count
            FROM dm_channels c
            INNER JOIN dm_channel_members self_m
              ON self_m.channel_id = c.id AND self_m.user_id = $1
@@ -478,6 +488,7 @@ async fn get_dm_messages(
     hydrate_dm_attachments(&state, &mut result).await?;
     if let Some(last) = result.last() {
         mark_dm_read(&state, channel_id, claims.sub, Some(last.id)).await?;
+        publish_dm_read(&state, channel_id, claims.sub, Some(last.id)).await;
     }
     Ok(Json(result))
 }
@@ -551,6 +562,7 @@ async fn send_dm_message(
         .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
         .await?;
     mark_dm_read(&state, channel_id, claims.sub, Some(message.id)).await?;
+    publish_dm_read(&state, channel_id, claims.sub, Some(message.id)).await;
     let event = WsEvent::NewMessage {
         channel_id,
         channel_type: "dm".to_string(),
@@ -989,4 +1001,22 @@ async fn mark_dm_read(
     .execute(&state.db)
     .await?;
     Ok(())
+}
+
+async fn publish_dm_read(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    last_read_message_id: Option<Uuid>,
+) {
+    crate::ws::publish_user_event(
+        state,
+        user_id,
+        WsEvent::DmRead {
+            channel_id,
+            user_id,
+            last_read_message_id,
+        },
+    )
+    .await;
 }

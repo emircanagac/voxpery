@@ -142,6 +142,7 @@ Uniqueness (case-insensitive):
 ### `dm_channel_reads`
 
 - `channel_id`, `user_id`, `last_read_message_id`, `read_at`
+- Used by `GET /api/dm/channels` to derive per-user `unread_count`, and by `DmRead` WebSocket events to synchronize unread badges across sessions.
 
 ### `dm_channel_pins`
 

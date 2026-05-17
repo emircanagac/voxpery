@@ -116,6 +116,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     dmChannels: storeDmChannels,
     setFriends: setStoreFriends,
     setDmChannels: setStoreDmChannels,
+    setDmUnreadFromChannels,
     mobileSidebarPanel,
     setMobileSidebarPanel,
   } = useAppStore(
@@ -134,6 +135,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       dmChannels: s.dmChannels,
       setFriends: s.setFriends,
       setDmChannels: s.setDmChannels,
+      setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       mobileSidebarPanel: s.mobileSidebarPanel,
       setMobileSidebarPanel: s.setMobileSidebarPanel,
     }))
@@ -244,12 +246,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setIncomingRequestCount(req.incoming.length)
       setOutgoingRequests(req.outgoing)
       setStoreDmChannels(dms)
+      setDmUnreadFromChannels(dms)
       setDmChannelIds(dms.map((d) => d.id))
     } finally {
       setServersLoading(false)
       setSocialBootstrapLoading(false)
     }
-  }, [setDmChannelIds, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, userId])
+  }, [setDmChannelIds, setDmUnreadFromChannels, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, userId])
 
   useEffect(() => {
     try {

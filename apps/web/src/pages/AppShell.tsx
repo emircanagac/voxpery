@@ -44,6 +44,7 @@ export default function AppShell() {
     dmChannels,
     setDmChannelIds,
     setDmChannels,
+    setDmUnreadFromChannels,
     setFriends,
     activeDmChannelId,
     setActiveServer,
@@ -62,6 +63,7 @@ export default function AppShell() {
       dmChannels: s.dmChannels,
       setDmChannelIds: s.setDmChannelIds,
       setDmChannels: s.setDmChannels,
+      setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       setFriends: s.setFriends,
       activeDmChannelId: s.activeDmChannelId,
       setActiveServer: s.setActiveServer,
@@ -225,6 +227,7 @@ export default function AppShell() {
         ])
         setDmChannelIds(channels.map((c) => c.id))
         setDmChannels(channels)
+        setDmUnreadFromChannels(channels)
         setFriends(friendList)
       } catch {
         // ignore transient failures
@@ -233,7 +236,7 @@ export default function AppShell() {
     syncSocial()
     const id = window.setInterval(syncSocial, 2000)
     return () => window.clearInterval(id)
-  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, token, userId])
+  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, token, userId])
 
   useEffect(() => {
     if (!isConnected || dmChannelIds.length === 0) return
@@ -356,6 +359,12 @@ export default function AppShell() {
             })
           )
         }
+        if (e?.type === 'DmRead') {
+          const payload = e.data as { channel_id?: string; user_id?: string }
+          if (payload?.user_id === userId && payload.channel_id) {
+            clearDmUnread(payload.channel_id)
+          }
+        }
         if (e?.type === 'NewMessage') {
           const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { author?: { user_id?: string; username?: string } } }
           const channelId = payload?.channel_id
@@ -375,6 +384,7 @@ export default function AppShell() {
                 dmIds = latest.map((c) => c.id)
                 setDmChannels(latest)
                 setDmChannelIds(dmIds)
+                setDmUnreadFromChannels(latest)
                 channel = latest.find((c) => c.id === channelId)
               } catch {
                 // ignore refresh failure
@@ -440,7 +450,7 @@ export default function AppShell() {
       }
     })
     return () => unsub()
-  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, token, userId])
+  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, token, userId])
   const activeChannel = useMemo(() => channels.find((c) => c.id === activeChannelId), [channels, activeChannelId])
   // Prefer the voice channel the user is viewing so switching channels leaves current and joins the new one.
   const selectedVoiceChannelId =
