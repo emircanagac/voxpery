@@ -23,6 +23,7 @@ import {
 } from './voiceInputProfile'
 
 type PeerId = string
+type RemoteMediaStartCueKind = 'camera' | 'screen'
 
 type VoiceControlState = {
   muted?: boolean
@@ -53,6 +54,35 @@ export function resyncVoiceStateAfterReconnect({
     screen_sharing: !!control?.screenSharing,
     camera_on: !!control?.cameraOn,
   })
+}
+
+export function remoteMediaStartCueKey(peerId: string, kind: RemoteMediaStartCueKind): string {
+  return `${peerId}:${kind}`
+}
+
+export function shouldPlayRemoteMediaStartCue(
+  seenKeys: Set<string>,
+  peerId: string,
+  kind: RemoteMediaStartCueKind,
+  cueReady: boolean,
+): boolean {
+  const key = remoteMediaStartCueKey(peerId, kind)
+  if (seenKeys.has(key)) return false
+  seenKeys.add(key)
+  return cueReady
+}
+
+export function clearRemoteMediaStartCue(
+  seenKeys: Set<string>,
+  peerId: string,
+  kind?: RemoteMediaStartCueKind,
+): void {
+  if (kind) {
+    seenKeys.delete(remoteMediaStartCueKey(peerId, kind))
+    return
+  }
+  seenKeys.delete(remoteMediaStartCueKey(peerId, 'camera'))
+  seenKeys.delete(remoteMediaStartCueKey(peerId, 'screen'))
 }
 
 export interface UseLiveKitVoiceState {
@@ -100,6 +130,8 @@ export function useLiveKitVoice() {
 
   const remoteStreamsRef = useRef<Map<PeerId, MediaStream>>(new Map())
   const remoteMonitorCleanupsRef = useRef<Map<PeerId, () => void>>(new Map())
+  const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
+  const remoteMediaStartCueReadyRef = useRef(false)
   const joinedChannelIdRef = useRef<string | null>(null)
   const desiredMicMutedRef = useRef(false)
   const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
@@ -310,6 +342,7 @@ export function useLiveKitVoice() {
   }, [rebuildPublishedMicrophoneTrack])
 
   const closePeer = useCallback((peerId: PeerId) => {
+    clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId)
     remoteMonitorCleanupsRef.current.get(peerId)?.()
     remoteMonitorCleanupsRef.current.delete(peerId)
     const current = remoteStreamsRef.current.get(peerId)
@@ -347,6 +380,28 @@ export function useLiveKitVoice() {
     store.setVoiceCamera(participant.identity, hasCamera)
     store.setVoiceControl(participant.identity, !!current?.muted, !!current?.deafened, hasScreenShare)
   }, [])
+
+  const rememberExistingRemoteMedia = useCallback((participant: RemoteParticipant) => {
+    participant.trackPublications.forEach((publication) => {
+      if (publication.source === Track.Source.Camera) {
+        remoteMediaStartCueKeysRef.current.add(remoteMediaStartCueKey(participant.identity, 'camera'))
+      }
+      if (publication.source === Track.Source.ScreenShare) {
+        remoteMediaStartCueKeysRef.current.add(remoteMediaStartCueKey(participant.identity, 'screen'))
+      }
+    })
+  }, [])
+
+  const playRemoteMediaStartCue = useCallback((participant: RemoteParticipant, kind: RemoteMediaStartCueKind) => {
+    const shouldPlay = shouldPlayRemoteMediaStartCue(
+      remoteMediaStartCueKeysRef.current,
+      participant.identity,
+      kind,
+      remoteMediaStartCueReadyRef.current,
+    )
+    if (!shouldPlay) return
+    playVoiceCue(kind === 'camera' ? 'camera-start' : 'screen-start')
+  }, [playVoiceCue])
 
   const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
     if (!isConnected) throw new Error('WebSocket is not connected')
@@ -412,6 +467,8 @@ export function useLiveKitVoice() {
         },
       })
       roomRef.current = room
+      remoteMediaStartCueKeysRef.current.clear()
+      remoteMediaStartCueReadyRef.current = false
 
       const iceServers: RTCIceServer[] = [
         { urls: ['stun:stun.l.google.com:19302'] },
@@ -446,16 +503,23 @@ export function useLiveKitVoice() {
           if (pub.source === Track.Source.ScreenShare) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.add(mediaTrack.id)
+            playRemoteMediaStartCue(participant, 'screen')
           } else if (pub.source === Track.Source.ScreenShareAudio) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShareAudio', { value: true, writable: true, configurable: true })
           } else if (pub.source === Track.Source.Camera) {
             Object.defineProperty(mediaTrack, '__voxpery_isCamera', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.delete(mediaTrack.id)
+            playRemoteMediaStartCue(participant, 'camera')
           }
 
           mediaTrack.onmute = () => { syncParticipantMediaState(participant); bumpRemote() }
           mediaTrack.onunmute = () => { syncParticipantMediaState(participant); bumpRemote() }
-          mediaTrack.onended = () => { syncParticipantMediaState(participant); bumpRemote() }
+          mediaTrack.onended = () => {
+            if (pub.source === Track.Source.Camera) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'camera')
+            if (pub.source === Track.Source.ScreenShare) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'screen')
+            syncParticipantMediaState(participant)
+            bumpRemote()
+          }
 
           if (!combined.getTracks().some((t) => t.id === mediaTrack.id)) {
             combined.addTrack(mediaTrack)
@@ -486,6 +550,8 @@ export function useLiveKitVoice() {
             stream.removeTrack(existing)
             remoteScreenTrackIdsRef.current.delete(existing.id)
           }
+          if (_pub.source === Track.Source.Camera) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'camera')
+          if (_pub.source === Track.Source.ScreenShare) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'screen')
           if (stream.getTracks().length === 0) closePeer(peerId)
           else bumpRemote()
 
@@ -540,12 +606,14 @@ export function useLiveKitVoice() {
       await Promise.race([connectPromise, timeoutPromise])
 
       room.remoteParticipants.forEach((participant) => {
+        rememberExistingRemoteMedia(participant)
         participant.trackPublications.forEach((publication) => {
           if (!publication.isSubscribed) publication.setSubscribed(true)
         })
         syncParticipantMediaState(participant)
       })
       updateRoomStats()
+      remoteMediaStartCueReadyRef.current = true
 
       // Publish the track directly to LiveKit.
       const pub = await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
@@ -573,13 +641,15 @@ export function useLiveKitVoice() {
     } catch (e: unknown) {
       const msg = (e as Error)?.message ?? 'Failed to join voice'
       setLastError(msg)
+      remoteMediaStartCueReadyRef.current = false
+      remoteMediaStartCueKeysRef.current.clear()
       if (!micPublished) cleanupLocalMedia()
       throw e
     } finally {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playVoiceCue, refreshLocalStreams, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, token, updateRoomStats, userId, voiceMode])
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
     isJoiningRef.current = false
@@ -587,6 +657,8 @@ export function useLiveKitVoice() {
     setLastError(null)
     send('LeaveVoice', null)
     joinedChannelIdRef.current = null
+    remoteMediaStartCueReadyRef.current = false
+    remoteMediaStartCueKeysRef.current.clear()
     setJoinedChannelId(null)
     useAppStore.getState().setJoinedVoiceChannelId(null)
     if (userId) useAppStore.getState().setVoiceCamera(userId, false)

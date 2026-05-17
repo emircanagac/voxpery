@@ -120,7 +120,15 @@ function isLikelySpeechFrame(
         && (!aggressiveIsolation || !noiseDominant)
 }
 
-export type VoiceCueKind = 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen'
+export type VoiceCueKind =
+    | 'join'
+    | 'leave'
+    | 'mute'
+    | 'unmute'
+    | 'deafen'
+    | 'undeafen'
+    | 'camera-start'
+    | 'screen-start'
 
 interface LiveSuppressionConfig {
     aggressiveIsolation: boolean
@@ -294,6 +302,18 @@ export function useAudioEngine() {
                 playCueStack(ctx, [
                     { from: 270, to: 340, durationSec: 0.08, peak: 0.018, type: 'sine', overtoneGain: 0.08, filterHz: 1400, q: 0.8 },
                     { from: 430, to: 640, offsetSec: 0.065, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.2, filterHz: 2400, q: 0.9 },
+                ])
+                break
+            case 'camera-start':
+                playCueStack(ctx, [
+                    { from: 1180, to: 1180, durationSec: 0.052, peak: 0.017, type: 'sine', overtoneGain: 0.04, filterHz: 3400, q: 0.65 },
+                    { from: 820, to: 1040, offsetSec: 0.055, durationSec: 0.075, peak: 0.016, type: 'triangle', overtoneGain: 0.07, filterHz: 2900, q: 0.75 },
+                ])
+                break
+            case 'screen-start':
+                playCueStack(ctx, [
+                    { from: 520, to: 520, durationSec: 0.075, peak: 0.023, type: 'square', overtoneGain: 0.04, filterHz: 1700, q: 0.8 },
+                    { from: 410, to: 680, offsetSec: 0.09, durationSec: 0.15, peak: 0.021, type: 'triangle', overtoneGain: 0.14, filterHz: 2300, q: 0.72 },
                 ])
                 break
         }
