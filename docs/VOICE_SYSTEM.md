@@ -35,6 +35,13 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 5. Frontend publishes mic track -> LiveKit forwards to all room participants
 6. Frontend subscribes to all remote tracks automatically
 
+### Server-side Voice Revocation
+
+- LiveKit tokens are only minted after the backend verifies `VIEW_SERVER` and `CONNECT_VOICE`.
+- If a member is kicked, banned, disconnected by a moderator, or loses active voice permissions through role/channel overrides, the backend clears the runtime voice session and asks LiveKit to remove that participant from the room.
+- This server-side removal is required because a modified client could ignore WebSocket leave events while keeping an already-established LiveKit media connection alive.
+- If LiveKit is unavailable during revocation, Voxpery still clears local voice state and logs the LiveKit removal failure for operators.
+
 ### Room Events
 
 - `TrackSubscribed`: Remote peer published audio/video -> add to `remoteStreams`

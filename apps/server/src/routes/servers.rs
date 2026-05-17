@@ -29,6 +29,7 @@ use crate::{
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
+        voice_revoke,
     },
     ws::WsEvent,
     AppState,
@@ -1033,6 +1034,15 @@ async fn update_role(
         .tx
         .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
 
+    if permissions_opt.is_some() {
+        voice_revoke::revoke_invalid_voice_sessions_for_server(
+            &state,
+            server_id,
+            "role permissions updated",
+        )
+        .await?;
+    }
+
     Ok(Json(role))
 }
 
@@ -1086,6 +1096,9 @@ async fn delete_role(
     let _ = state
         .tx
         .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+
+    voice_revoke::revoke_invalid_voice_sessions_for_server(&state, server_id, "role deleted")
+        .await?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -1775,6 +1788,13 @@ async fn update_member_roles(
     )
     .await;
 
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "member roles updated",
+    )
+    .await?;
+
     Ok(Json(
         serde_json::json!({ "message": "Member roles updated" }),
     ))
@@ -1856,6 +1876,13 @@ async fn update_member_role(
         },
     )
     .await;
+
+    voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "member role updated",
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({ "message": "Role updated" })))
 }
@@ -1973,6 +2000,13 @@ async fn ban_member(
 
     if removed_member {
         crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+        voice_revoke::revoke_user_voice_access_for_server(
+            &state,
+            server_id,
+            user_id,
+            "member banned",
+        )
+        .await?;
     }
 
     Ok(Json(serde_json::json!({
@@ -2666,6 +2700,8 @@ async fn kick_member(
     .await?;
 
     crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+    voice_revoke::revoke_user_voice_access_for_server(&state, server_id, user_id, "member kicked")
+        .await?;
 
     Ok(Json(serde_json::json!({ "message": "Member kicked" })))
 }

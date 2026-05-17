@@ -34,6 +34,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
+- [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share also mutes only the screen-share audio while normal microphone audio continues.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
