@@ -675,8 +675,9 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let outsider_uid = Uuid::new_v4();
     let outsider_email = format!("onboarding-outsider-{outsider_uid}@example.com");
     let outsider_username = format!("onboarding_outsider_{}", outsider_uid.as_u128() % 1_000_000);
+    let outsider_password = format!("onboarding-credential-{}", Uuid::new_v4().as_simple());
     let (outsider_token, _) =
-        register_user(&mut app, &outsider_email, &outsider_username, "password123").await;
+        register_user(&mut app, &outsider_email, &outsider_username, &outsider_password).await;
     let outsider_auth = format!("Bearer {outsider_token}");
     let req = Request::builder()
         .uri(format!("/api/servers/{server_id}/onboarding"))
