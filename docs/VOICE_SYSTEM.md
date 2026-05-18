@@ -179,28 +179,30 @@ Speaker
 
 | Preset        | Resolution | FPS | Bitrate (Mbps) | Use Case         |
 |---------------|------------|-----|----------------|------------------|
-| 720p 30fps    | 1280x720   | 30  | 2.5            | Default          |
-| 720p 60fps    | 1280x720   | 60  | 4.0            | Gaming           |
-| 1080p 30fps   | 1920x1080  | 30  | 5.0            | Presentations    |
-| 1080p 60fps   | 1920x1080  | 60  | 8.0            | High-motion video|
+| Auto          | 1080p      | 30/60 | 5-9          | Picks by shared surface |
+| Presentation  | 1080p      | 30  | 5.0            | Slides, docs, IDEs |
+| Video         | 1080p      | 60  | 7.0            | Browser tabs and video |
+| Gaming        | 1080p      | 60  | 9.0            | Full-screen motion |
 
 ### Implementation
 
 ```typescript
 const stream = await navigator.mediaDevices.getDisplayMedia({
-  video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60 } },
+  video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
   audio: true  // Screen share audio (e.g., YouTube video)
 })
 await room.localParticipant.publishTrack(videoTrack, {
   source: Track.Source.ScreenShare,
-  videoEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+  screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 60 },
   simulcast: false  // Full quality, no layering
 })
 ```
 
 ### Content Hints
 
-- **Screen share video**: `contentHint = 'detail'` (preserves text sharpness)
+- **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
+- **Presentation/window share**: `contentHint = 'detail'` at 1080p30 to preserve text sharpness while limiting traffic.
+- **Browser tab/video and monitor/gaming share**: `contentHint = 'motion'` at 1080p60 for smoother motion.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 
 ### Remote Viewing Controls

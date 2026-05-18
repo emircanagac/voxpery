@@ -22,9 +22,9 @@ type ScreenShareProfile = {
 }
 
 const PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenShareProfile> = {
-    presentation: { resolution: '1080p', framerate: 30, bitrate: 6_000_000, contentHint: 'detail' },
-    video: { resolution: '1080p', framerate: 60, bitrate: 10_000_000, contentHint: 'motion' },
-    gaming: { resolution: '1080p', framerate: 60, bitrate: 12_000_000, contentHint: 'motion' },
+    presentation: { resolution: '1080p', framerate: 30, bitrate: 5_000_000, contentHint: 'detail' },
+    video: { resolution: '1080p', framerate: 60, bitrate: 7_000_000, contentHint: 'motion' },
+    gaming: { resolution: '1080p', framerate: 60, bitrate: 9_000_000, contentHint: 'motion' },
 }
 
 export function useLocalMedia() {
@@ -53,9 +53,8 @@ export function useLocalMedia() {
         return PRESET_PROFILE.presentation
     }, [resolveQualityMode])
 
-    const getScreenShareConstraints = useCallback((): DisplayMediaStreamOptions['video'] => {
-        const profile = resolveScreenShareProfile()
-        const base = { frameRate: { ideal: profile.framerate } as MediaTrackConstraintSet['frameRate'] }
+    const toScreenShareConstraints = useCallback((profile: ScreenShareProfile): MediaTrackConstraints => {
+        const base = { frameRate: { ideal: profile.framerate, max: profile.framerate } as MediaTrackConstraintSet['frameRate'] }
         switch (profile.resolution) {
             case '1080p':
                 return { ...base, width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 } }
@@ -63,7 +62,26 @@ export function useLocalMedia() {
             default:
                 return { ...base, width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 } }
         }
-    }, [resolveScreenShareProfile])
+    }, [])
+
+    const getScreenShareConstraints = useCallback((): DisplayMediaStreamOptions['video'] => {
+        const mode = resolveQualityMode()
+        const profile = mode === 'auto' ? PRESET_PROFILE.video : resolveScreenShareProfile()
+        return toScreenShareConstraints(profile)
+    }, [resolveQualityMode, resolveScreenShareProfile, toScreenShareConstraints])
+
+    const applyScreenShareTrackProfile = useCallback(async (videoTrack: MediaStreamTrack | undefined) => {
+        if (!videoTrack) return
+        const profile = resolveScreenShareProfile(videoTrack.getSettings?.().displaySurface)
+        if ('contentHint' in videoTrack) {
+            try { videoTrack.contentHint = profile.contentHint } catch { /* ignore */ }
+        }
+        try {
+            await videoTrack.applyConstraints(toScreenShareConstraints(profile))
+        } catch {
+            // Browsers may refuse post-selection display constraints; publish encoding still caps bandwidth/FPS.
+        }
+    }, [resolveScreenShareProfile, toScreenShareConstraints])
 
     // Apply browser-level mic constraints.
     // Keep browser noise suppression in sync with user setting as a safe fallback
@@ -176,9 +194,10 @@ export function useLocalMedia() {
             video: videoConstraints,
             audio: true,
         })
+        await applyScreenShareTrackProfile(stream.getVideoTracks()[0])
         cachedScreenStreamRef.current = stream
         return stream
-    }, [getScreenShareConstraints])
+    }, [applyScreenShareTrackProfile, getScreenShareConstraints])
 
     /** Returns LiveKit-compatible videoEncoding and content hint based on quality mode. */
     const getScreenShareEncoding = useCallback((videoTrack?: MediaStreamTrack): {
