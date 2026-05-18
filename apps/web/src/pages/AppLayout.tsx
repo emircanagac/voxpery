@@ -911,6 +911,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const current = messagesByChannelRef.current[channelId] ?? []
         const oldestId = current[0]?.id
         if (!oldestId) return
+        const scrollEl = messagesScrollRef.current
+        const previousScrollHeight = scrollEl?.scrollHeight ?? 0
+        const previousScrollTop = scrollEl?.scrollTop ?? 0
         setLoadingOlder(true)
         try {
             const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
@@ -920,11 +923,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             if (activeChannelIdRef.current !== channelId) return
             setMessages(merged)
             if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
-            const scrollEl = messagesScrollRef.current
             if (scrollEl && rows.length > 0) {
-                const estimateRowHeight = 64
+                const restoreAnchor = () => {
+                    scrollEl.scrollTop = previousScrollTop + Math.max(0, scrollEl.scrollHeight - previousScrollHeight)
+                }
                 requestAnimationFrame(() => {
-                    scrollEl.scrollTop += rows.length * estimateRowHeight
+                    restoreAnchor()
+                    requestAnimationFrame(restoreAnchor)
                 })
             }
         } catch (e) {
