@@ -20,7 +20,7 @@
       <img src="apps/web/src/assets/voxpery-desktop.png" alt="Voxpery desktop voice channel interface" height="320" />
     </td>
     <td width="22%" align="center" valign="bottom">
-      <img src="apps/web/src/assets/voxpery-mobile.png" alt="Voxpery mobile voice channel interface" height="320" />
+      <img src="apps/web/src/assets/voxpery-mobile.png" alt="Voxpery mobile voice channel interface" height="312" />
     </td>
   </tr>
 </table>
