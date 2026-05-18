@@ -66,15 +66,25 @@ Voxpery follows Semantic Versioning:
 
 ### Release Checklist
 
-1. Ensure required PR gates are green on the release branch/tag.
-2. Run the manual `Release Smoke` workflow against the release candidate API.
-3. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
-4. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of release.
-5. Validate critical paths: auth, messaging+websocket, voice join/leave.
-6. Update docs for behavior changes.
-7. Update changelog entry.
-8. Create Git tag (for example `v0.1.5`).
-9. Publish GitHub Release notes.
+1. Prepare the candidate from updated `main` and keep the final release commit SHA recorded.
+2. Update docs for behavior changes and update the changelog entry before creating the tag.
+3. Ensure required PR gates are green on the release branch and no security monitoring gate is ignored without a recorded decision.
+4. Run the manual `Release Smoke` workflow against the release candidate API and record the workflow run URL in [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md).
+5. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
+6. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of the release.
+7. Validate critical paths: auth, messaging+websocket, voice join/leave.
+8. Create and push the Git tag (for example `v0.1.5`) from the exact signed-off commit.
+9. Confirm tag-triggered release jobs, Docker publish jobs, and desktop artifact jobs ran against that exact tag/ref.
+10. Verify release assets and updater metadata before publishing or announcing the release.
+11. Publish GitHub Release notes only after artifacts, signatures, and smoke sign-off are complete.
+
+### Release Workflow Rules
+
+- Prefer tag-driven releases: push the `v*` tag from the signed-off commit and let tag-triggered CI/release jobs build the immutable candidate.
+- If a GitHub Release is created manually and workflows do not run, do not announce it as ready. Run the appropriate manual workflow against the exact tag/ref or recreate the tag/release intentionally.
+- Manual desktop release workflow runs must use the exact release tag/ref, set `smoke_checklist_confirmed=yes`, and use `platform=all` for production releases unless the release is explicitly a single-platform hotfix/test.
+- Keep the release draft until `latest.json`, installer assets, signature files, and release notes all point to the same version and tag.
+- Record the workflow run URLs and GO/NO-GO decision in the release checklist so rollback and audit history are clear.
 
 ### Changelog Sections
 
