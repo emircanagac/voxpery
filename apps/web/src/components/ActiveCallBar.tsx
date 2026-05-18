@@ -52,10 +52,10 @@ function readScreenShareQuality(): ScreenShareQuality {
 }
 
 function screenShareQualitySummary(mode: ScreenShareQuality) {
-  if (mode === 'presentation') return '1080p30 · 6 Mbps · detail'
-  if (mode === 'video') return '1080p60 · 10 Mbps · motion'
-  if (mode === 'gaming') return '1080p60 · 12 Mbps · high motion'
-  return 'Auto picks profile by share source.'
+  if (mode === 'presentation') return '1080p30 · 5 Mbps · detail'
+  if (mode === 'video') return '1080p60 · 7 Mbps · motion'
+  if (mode === 'gaming') return '1080p60 · 9 Mbps · high motion'
+  return 'Auto picks 30/60fps by share source.'
 }
 
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
