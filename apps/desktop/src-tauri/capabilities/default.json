@@ -24,6 +24,7 @@
                 "updater:default",
                 "secure-storage:default",
                 "opener:allow-default-urls",
+                "opener:allow-open-url",
                 {
                     "identifier": "http:default",
                     "allow": [
@@ -66,6 +67,7 @@
                 "updater:default",
                 "secure-storage:default",
                 "opener:allow-default-urls",
+                "opener:allow-open-url",
                 {
                     "identifier": "http:default",
                     "allow": [

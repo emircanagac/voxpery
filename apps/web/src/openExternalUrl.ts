@@ -9,12 +9,8 @@ export async function openExternalUrl(url: string): Promise<void> {
     return
   }
   if (isTauri()) {
-    try {
-      const { openUrl } = await import('@tauri-apps/plugin-opener')
-      await openUrl(trimmed)
-    } catch {
-      window.open(trimmed, '_blank', 'noopener,noreferrer')
-    }
+    const { openUrl } = await import('@tauri-apps/plugin-opener')
+    await openUrl(trimmed)
   } else {
     window.open(trimmed, '_blank', 'noopener,noreferrer')
   }

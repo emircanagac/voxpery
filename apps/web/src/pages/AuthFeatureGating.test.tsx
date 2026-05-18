@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactElement } from 'react'
 import LoginPage from './LoginPage'
@@ -8,13 +8,22 @@ import ForgotPasswordPage from './ForgotPasswordPage'
 import ResetPasswordPage from './ResetPasswordPage'
 import { useFeatureStore } from '../stores/features'
 import type { SystemFeatures } from '../api'
+import { openExternalUrl } from '../openExternalUrl'
 
+vi.mock('../openExternalUrl', () => ({
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
+}))
 const disabledFeatures: SystemFeatures = {
   google_oauth_enabled: false,
   email_delivery_enabled: false,
   email_verification_enabled: false,
   email_verification_required: false,
   password_reset_enabled: false,
+}
+
+const enabledGoogleFeatures: SystemFeatures = {
+  ...disabledFeatures,
+  google_oauth_enabled: true,
 }
 
 function renderWithFeatures(ui: ReactElement, features: SystemFeatures = disabledFeatures) {
@@ -24,6 +33,9 @@ function renderWithFeatures(ui: ReactElement, features: SystemFeatures = disable
 
 afterEach(() => {
   useFeatureStore.setState({ features: null, loading: false, error: null })
+  window.localStorage.clear()
+  delete (window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__
+  vi.mocked(openExternalUrl).mockClear()
 })
 
 describe('auth feature gating', () => {
@@ -40,6 +52,42 @@ describe('auth feature gating', () => {
 
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign Up' })).toBeInTheDocument()
+  })
+
+  it('does not expose a PKCE-less desktop Google OAuth URL on login', async () => {
+    ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    renderWithFeatures(<LoginPage />, enabledGoogleFeatures)
+
+    const googleLink = screen.getByRole('link', { name: /continue with google/i })
+    expect(googleLink).toHaveAttribute('href', '#')
+
+    fireEvent.click(googleLink)
+
+    await waitFor(() => {
+      expect(openExternalUrl).toHaveBeenCalledTimes(1)
+    })
+    const openedUrl = vi.mocked(openExternalUrl).mock.calls[0]?.[0] ?? ''
+    expect(openedUrl).toContain('/api/auth/google?')
+    expect(openedUrl).toContain('origin=voxpery%3A%2F%2Fauth')
+    expect(openedUrl).toContain('code_challenge=')
+  })
+
+  it('does not expose a PKCE-less desktop Google OAuth URL on register', async () => {
+    ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    renderWithFeatures(<RegisterPage />, enabledGoogleFeatures)
+
+    const googleLink = screen.getByRole('link', { name: /continue with google/i })
+    expect(googleLink).toHaveAttribute('href', '#')
+
+    fireEvent.click(googleLink)
+
+    await waitFor(() => {
+      expect(openExternalUrl).toHaveBeenCalledTimes(1)
+    })
+    const openedUrl = vi.mocked(openExternalUrl).mock.calls[0]?.[0] ?? ''
+    expect(openedUrl).toContain('/api/auth/google?')
+    expect(openedUrl).toContain('origin=voxpery%3A%2F%2Fauth')
+    expect(openedUrl).toContain('code_challenge=')
   })
 
   it('shows a disabled password reset message instead of the request form', () => {

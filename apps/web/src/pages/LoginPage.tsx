@@ -54,6 +54,7 @@ export default function LoginPage() {
     const navigate = useNavigate()
     const googleOAuthEnabled = features?.google_oauth_enabled === true
     const passwordResetEnabled = features?.password_reset_enabled === true
+    const googleAuthHref = isTauri() ? '#' : getGoogleAuthUrl(redirectTo)
 
     const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
         if (!googleOAuthEnabled) {
@@ -63,8 +64,13 @@ export default function LoginPage() {
         }
         if (isTauri()) {
             e.preventDefault()
-            const url = await getDesktopGoogleAuthUrl(redirectTo)
-            await openExternalUrl(url)
+            setError('')
+            try {
+                const url = await getDesktopGoogleAuthUrl(redirectTo)
+                await openExternalUrl(url)
+            } catch {
+                setError('Could not open Google sign-in in your browser. Try again or use email/password.')
+            }
         }
     }
 
@@ -146,7 +152,7 @@ export default function LoginPage() {
                         </div>
 
                         <a
-                            href={getGoogleAuthUrl(redirectTo)}
+                            href={googleAuthHref}
                             className="auth-btn-google"
                             onClick={handleGoogleLogin}
                         >
