@@ -2,6 +2,16 @@
 
 Authentication, authorization, CORS policies, and security best practices.
 
+## User Trust Notes
+
+These notes are written for users who want a short answer before reading the full technical details:
+
+- Voxpery is open source and self-hostable; the hosted service and self-hosted deployments use the same public codebase.
+- Google OAuth is used only for sign-in. Voxpery never receives or stores a Google password.
+- Hosted Voxpery has no ads or analytics by default.
+- Users can export account data and permanently delete their account from settings.
+- Attachments are not exposed as public permanent files; access is scoped by signed URLs and viewer authorization.
+
 ## Authentication
 
 ### JWT (JSON Web Token)

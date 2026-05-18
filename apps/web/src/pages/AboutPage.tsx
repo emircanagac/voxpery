@@ -79,7 +79,7 @@ export default function AboutPage() {
   const primaryDownloadUrl = detectedDownload ?? releaseUrl
   const primaryDownloadLabel = platform === 'unknown' ? 'Download desktop app' : `Download for ${PLATFORM_LABELS[platform]}`
   const appEntryRoute = isAuthenticated ? ROUTES.home : ROUTES.login
-  const appEntryLabel = isAuthenticated ? 'Open Voxpery app' : 'Open Voxpery in browser'
+  const appEntryLabel = 'Open in browser'
   const releaseMeta = [releaseTag, releaseDate].filter(Boolean).join(' • ')
 
   return (
@@ -107,7 +107,7 @@ export default function AboutPage() {
 
         <div className="about-topbar-actions">
           <Link to={appEntryRoute} className="about-btn about-btn--login">
-            {isAuthenticated ? 'Open app' : 'Login'}
+            {isAuthenticated ? 'Go to app' : 'Login'}
           </Link>
         </div>
       </header>
@@ -144,6 +144,10 @@ export default function AboutPage() {
               <img src={productPreviewUrl} alt="Voxpery voice channel interface" />
             </figure>
           </div>
+
+          <p className="about-trust-note">
+            Open source, self-hostable, and no ads or analytics.
+          </p>
 
         </section>
       </main>

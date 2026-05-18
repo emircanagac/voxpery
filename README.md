@@ -33,6 +33,16 @@
 
 Voxpery is for communities that want real-time chat and voice without giving up code transparency or data ownership. Use the hosted app on **voxpery.com**, or deploy the same stack yourself.
 
+## Can I Trust Voxpery?
+
+Voxpery is open source, so the hosted app and self-hosted version are built from public, reviewable code. You can inspect how authentication, attachments, voice, moderation, and data export/delete work instead of relying on a closed client.
+
+- **Google sign-in does not give Voxpery your Google password.** Google OAuth only confirms your identity and returns the account information needed to sign you in.
+- **No ads or analytics by default.** Voxpery is not built around tracking users or selling attention.
+- **Self-hostable by design.** Communities that want full control can run the same stack on their own server.
+- **Data controls are built in.** Users can export their account data and permanently delete their account.
+- **Attachments are scoped.** Uploaded files use signed access and server/DM viewer authorization instead of public permanent links.
+
 ## Honest Comparison
 
 | Feature | Voxpery | Discord | Slack | Mattermost |
