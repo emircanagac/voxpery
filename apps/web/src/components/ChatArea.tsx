@@ -1534,7 +1534,7 @@ export default function ChatArea({
                                         data-index={virtualRow.index}
                                         ref={rowVirtualizer.measureElement}
                                         className="virtual-list-item"
-                                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                                        style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                     >
                                         <div className="typing-indicator">{typingIndicatorLabel}</div>
                                     </div>
@@ -1586,7 +1586,7 @@ export default function ChatArea({
                                     data-index={virtualRow.index}
                                     ref={rowVirtualizer.measureElement}
                                     className={`virtual-list-item ${virtualRow.index === 0 ? 'virtual-list-item-first' : ''}`}
-                                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                                    style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                 >
                                     {showDayDivider && (
                                         <div className="message-day-divider" aria-label={`Messages from ${formatDayDivider(msg.created_at)}`}>
