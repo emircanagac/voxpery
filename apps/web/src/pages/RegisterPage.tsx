@@ -44,6 +44,7 @@ export default function RegisterPage() {
     const features = useFeatureStore((s) => s.features)
     const navigate = useNavigate()
     const googleOAuthEnabled = features?.google_oauth_enabled === true
+    const googleAuthHref = isTauri() ? '#' : getGoogleAuthUrl(redirectTo)
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
@@ -55,8 +56,13 @@ export default function RegisterPage() {
         }
         if (isTauri()) {
             e.preventDefault()
-            const url = await getDesktopGoogleAuthUrl(redirectTo)
-            await openExternalUrl(url)
+            setError('')
+            try {
+                const url = await getDesktopGoogleAuthUrl(redirectTo)
+                await openExternalUrl(url)
+            } catch {
+                setError('Could not open Google sign-in in your browser. Try again or use email/password.')
+            }
         }
     }
 
@@ -195,7 +201,7 @@ export default function RegisterPage() {
                         </div>
 
                         <a
-                            href={getGoogleAuthUrl(redirectTo)}
+                            href={googleAuthHref}
                             className="auth-btn-google"
                             onClick={handleGoogleLogin}
                         >
