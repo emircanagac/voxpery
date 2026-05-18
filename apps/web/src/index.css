@@ -4457,6 +4457,7 @@ body {
 /* Message */
 .message {
   display: flex;
+  align-items: flex-start;
   gap: 16px;
   padding: 4px 16px;
   border-radius: var(--border-radius-sm);
@@ -4488,6 +4489,7 @@ body {
 }
 
 .message-avatar {
+  flex: 0 0 40px;
   width: 40px;
   height: 40px;
   border-radius: var(--border-radius-full);
@@ -4497,8 +4499,8 @@ body {
   justify-content: center;
   font-weight: 700;
   font-size: 15px;
+  line-height: 40px;
   color: white;
-  flex-shrink: 0;
   margin-top: 2px;
   overflow: hidden;
 }
@@ -4537,15 +4539,18 @@ body {
 
 .message-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  min-height: 20px;
   margin-bottom: 2px;
+  line-height: 20px;
 }
 
 .message-author {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 14px;
+  line-height: 20px;
 }
 
 .message-author.owner {
@@ -4559,11 +4564,13 @@ body {
 
 .message-timestamp {
   font-size: 11px;
+  line-height: 20px;
   color: var(--text-muted);
 }
 
 .message-edited {
   font-size: 10px;
+  line-height: 20px;
   color: var(--text-muted);
   margin-left: 4px;
   font-style: italic;
@@ -4826,7 +4833,7 @@ body {
 .message-text {
   color: var(--text-secondary);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 20px;
   word-break: break-word;
   white-space: pre-wrap;
 }
@@ -13637,9 +13644,11 @@ textarea {
   }
 
   .message-avatar {
+    flex-basis: 36px;
     width: 36px;
     height: 36px;
     font-size: 13px;
+    line-height: 36px;
   }
 
   .message-content {
@@ -13651,12 +13660,15 @@ textarea {
     justify-content: flex-start;
     flex-wrap: wrap;
     gap: 2px 6px;
+    min-height: 18px;
+    line-height: 18px;
     margin-bottom: 1px;
     padding-right: 108px;
   }
 
   .message-author {
     font-size: 13px;
+    line-height: 18px;
     flex: 0 1 auto;
     min-width: 0;
     max-width: 100%;
@@ -13667,6 +13679,7 @@ textarea {
 
   .message-timestamp {
     font-size: 10px;
+    line-height: 18px;
     margin-left: 0;
     flex-shrink: 0;
     text-align: left;
@@ -13675,6 +13688,7 @@ textarea {
   }
 
   .message-edited {
+    line-height: 18px;
     margin-left: 0;
   }
 
