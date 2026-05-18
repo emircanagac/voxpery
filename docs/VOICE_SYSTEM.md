@@ -288,3 +288,9 @@ When debugging a production voice report, capture:
 - **Bandwidth**: ~50 kbps per audio stream (Opus codec)
 - **CPU**: Minimal (SFU does forwarding, not transcoding)
 - **Scalability**: Tested up to 20 concurrent users per room on 2-core VPS
+
+## Release Validation
+
+Run `docs/VOICE_RELEASE_SMOKE_TEST.md` for every release candidate that changes voice, LiveKit/WebRTC, camera, screen sharing, audio settings, service worker caching, desktop runtime, or build output.
+
+Run `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` in addition when a release changes suppression, CSP, service workers, build output, or production deployment config. The suppression smoke test is intentionally stricter because RNNoise readiness and production CSP parity are release-critical for voice quality.

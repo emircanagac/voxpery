@@ -5,26 +5,55 @@ import {
     getStoredVoiceInputDeviceId,
 } from '../../voiceDevices'
 
-const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
+export const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const DEFAULT_INPUT_VOLUME = 80
 
-type ScreenShareResolution = '720p' | '1080p'
-type ScreenShareFramerate = 30 | 60
-type ScreenShareQuality = 'auto' | 'presentation' | 'video' | 'gaming'
+export type ScreenShareResolution = '720p' | '1080p'
+export type ScreenShareFramerate = 30 | 60
+export type ScreenShareQuality = 'auto' | 'presentation' | 'video' | 'gaming'
 
-type ScreenShareProfile = {
+export type ScreenShareProfile = {
     resolution: ScreenShareResolution
     framerate: ScreenShareFramerate
     bitrate: number
     contentHint: 'detail' | 'motion'
 }
 
-const PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenShareProfile> = {
+export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenShareProfile> = {
     presentation: { resolution: '1080p', framerate: 30, bitrate: 5_000_000, contentHint: 'detail' },
     video: { resolution: '1080p', framerate: 60, bitrate: 7_000_000, contentHint: 'motion' },
     gaming: { resolution: '1080p', framerate: 60, bitrate: 9_000_000, contentHint: 'motion' },
+}
+
+export function normalizeScreenShareQuality(value: string | null | undefined): ScreenShareQuality {
+    if (value === 'presentation' || value === 'video' || value === 'gaming') return value
+    return 'auto'
+}
+
+export function resolveScreenShareProfileForMode(
+    mode: ScreenShareQuality,
+    displaySurface?: string,
+): ScreenShareProfile {
+    if (mode === 'presentation' || mode === 'video' || mode === 'gaming') {
+        return SCREEN_SHARE_PRESET_PROFILE[mode]
+    }
+
+    if (displaySurface === 'monitor') return SCREEN_SHARE_PRESET_PROFILE.gaming
+    if (displaySurface === 'browser') return SCREEN_SHARE_PRESET_PROFILE.video
+    return SCREEN_SHARE_PRESET_PROFILE.presentation
+}
+
+export function toScreenShareConstraintsForProfile(profile: ScreenShareProfile): MediaTrackConstraints {
+    const base = { frameRate: { ideal: profile.framerate, max: profile.framerate } as MediaTrackConstraintSet['frameRate'] }
+    switch (profile.resolution) {
+        case '1080p':
+            return { ...base, width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 } }
+        case '720p':
+        default:
+            return { ...base, width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 } }
+    }
 }
 
 export function useLocalMedia() {
@@ -38,35 +67,20 @@ export function useLocalMedia() {
             try { localStorage.setItem(SCREEN_SHARE_QUALITY_KEY, 'auto') } catch { /* ignore */ }
             return 'auto'
         }
-        if (raw === 'presentation' || raw === 'video' || raw === 'gaming') return raw
-        return 'auto'
+        return normalizeScreenShareQuality(raw)
     }, [])
 
     const resolveScreenShareProfile = useCallback((displaySurface?: string): ScreenShareProfile => {
-        const mode = resolveQualityMode()
-        if (mode === 'presentation' || mode === 'video' || mode === 'gaming') {
-            return PRESET_PROFILE[mode]
-        }
-
-        if (displaySurface === 'monitor') return PRESET_PROFILE.gaming
-        if (displaySurface === 'browser') return PRESET_PROFILE.video
-        return PRESET_PROFILE.presentation
+        return resolveScreenShareProfileForMode(resolveQualityMode(), displaySurface)
     }, [resolveQualityMode])
 
     const toScreenShareConstraints = useCallback((profile: ScreenShareProfile): MediaTrackConstraints => {
-        const base = { frameRate: { ideal: profile.framerate, max: profile.framerate } as MediaTrackConstraintSet['frameRate'] }
-        switch (profile.resolution) {
-            case '1080p':
-                return { ...base, width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 } }
-            case '720p':
-            default:
-                return { ...base, width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 } }
-        }
+        return toScreenShareConstraintsForProfile(profile)
     }, [])
 
     const getScreenShareConstraints = useCallback((): DisplayMediaStreamOptions['video'] => {
         const mode = resolveQualityMode()
-        const profile = mode === 'auto' ? PRESET_PROFILE.video : resolveScreenShareProfile()
+        const profile = mode === 'auto' ? SCREEN_SHARE_PRESET_PROFILE.video : resolveScreenShareProfile()
         return toScreenShareConstraints(profile)
     }, [resolveQualityMode, resolveScreenShareProfile, toScreenShareConstraints])
 

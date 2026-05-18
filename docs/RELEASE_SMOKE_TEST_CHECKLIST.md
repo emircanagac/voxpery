@@ -2,7 +2,7 @@
 
 Use this checklist for every production release candidate before tag/publish.
 
-For releases that touch voice, WebRTC, LiveKit, service workers, build output, or audio settings, also complete `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
+For releases that touch voice, WebRTC, LiveKit, service workers, build output, or audio settings, also complete `docs/VOICE_RELEASE_SMOKE_TEST.md`. If the release touches noise suppression, CSP, service workers, build output, or production deployment config, also complete `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
 
 ## Release Candidate Info
 
@@ -35,6 +35,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
 - [ ] Voice join/leave works.
+- [ ] `docs/VOICE_RELEASE_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior when the release touches voice, LiveKit/WebRTC, camera, screen share, audio settings, service worker caching, desktop runtime, or build output.
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share also mutes only the screen-share audio while normal microphone audio continues.
@@ -85,7 +86,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Production web CSP includes `script-src 'wasm-unsafe-eval'` so RNNoise WebAssembly can compile under strict headers.
 - [ ] Production web CSP `connect-src` does not include `localhost` or `127.0.0.1` loopback targets.
 - [ ] During the real production voice call, after enabling `localStorage.setItem("voxperyVoiceDiagnostics", "1")` and reloading, DevTools `window.__VOXPERY_VOICE_DIAGNOSTICS__` reports `rnnoiseStatus: "ready"` and `aggressiveIsolation: true` when suppression is on.
-- [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior.
+- [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` when suppression, CSP, service workers, build output, or production deployment config changed.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 
 ## 5) Final Sign-off
