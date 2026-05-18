@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-19
+
+### Changed
+- Improved screen share quality defaults and release smoke coverage for production voice calls.
+- Refined release quality, desktop updater artifact verification, and smoke-test sign-off documentation.
+- Simplified chat attachment image previews so web and desktop use the same in-app modal behavior.
+- Updated desktop icon assets for better taskbar and installer scaling.
+
+### Fixed
+- Fixed desktop Google OAuth login return handling.
+- Fixed chat scroll position when loading older messages.
+- Fixed chat media rendering stability and message row alignment.
+- Fixed a test security fixture to avoid static credential-like sample data.
+
+### Chores
+- Updated non-breaking Rust and web dependencies.
+
+## [0.1.11] - 2026-05-18
+
+### Added
+- Distinct in-call audio cues when remote users start camera or screen share.
+- Unread message count synchronization for direct messages.
+
+### Changed
+- Improved deployment workflow behavior so manual deploys target updated `main`.
+
+### Fixed
+- Fixed remote media start cue behavior for camera and screen share starts.
+- Fixed LiveKit voice access revocation for channel and role permission changes.
+
+### Security
+- Hardened image proxy SSRF protections.
+- Hardened AutoMod normalization and report abuse/rate-limit handling.
+- Hardened desktop capabilities, JWT/token checks, OAuth warning logs, and web container least-privilege behavior.
+
 ## [0.1.10] - 2026-05-16
 
 ### Added

@@ -8,9 +8,13 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 - Version:
 - Commit SHA:
+- Git ref / tag:
+- Release type: `web-only` / `desktop` / `voice` / `security` / `hotfix`
 - Tester:
 - Date (UTC):
 - Environment:
+- Release Smoke workflow run URL:
+- Desktop artifact workflow run URL, if applicable:
 
 ## 1) Required PR Gates (must be green)
 
@@ -25,7 +29,9 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Web container health responds through the host mapping (`curl -f http://localhost:${WEB_PORT:-5173}/healthz`) while the container uses unprivileged nginx on internal port `8080`.
 - [ ] Remote avatar/server icon/inline media proxy rejects localhost/private targets and still loads normal public HTTPS images.
 - [ ] Manual `Release Smoke` workflow completed successfully against the release candidate API.
+- [ ] Manual `Release Smoke` workflow run URL is recorded in Release Candidate Info.
 - [ ] `Release Smoke` ran with strict security headers enabled for production candidates.
+- [ ] CI/release workflows ran against the exact release commit SHA or tag recorded above.
 
 ## 3) Web Smoke Tests (mandatory)
 
@@ -67,6 +73,11 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.
 - [ ] Session is restored after OAuth callback (user ends in authenticated app state).
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
+- [ ] Desktop release workflow ran against the exact release tag/ref, with `smoke_checklist_confirmed=yes`.
+- [ ] Production desktop releases used `platform=all`; single-platform workflow runs are recorded as test/hotfix-only.
+- [ ] GitHub Release assets include `latest.json`, installer artifacts for the intended platforms, and matching `.sig` files for updater assets.
+- [ ] `latest.json` version matches the release tag and desktop app version.
+- [ ] `latest.json` URLs point to assets on the same GitHub Release, not a draft-only, private, or unrelated artifact URL.
 - [ ] Updater check shows a clear no-update state when no newer version is available.
 - [ ] Updater check shows the available version when a newer signed release is available.
 - [ ] Update availability appears as one calm toast plus a compact install pill; settings still provides manual check/install.
@@ -94,7 +105,9 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Changelog updated (`docs/CHANGELOG.md`).
 - [ ] Deployment notes updated if needed (`docs/DEPLOYMENT.md`).
 - [ ] Release notes draft prepared.
+- [ ] Release notes mention validation scope and any intentionally skipped checks.
 - [ ] Previous stable desktop installer artifacts remain available for manual rollback.
+- [ ] If the decision is `NO-GO`, rollback or draft-release handling is documented before announcement.
 - [ ] Approved to tag and publish.
 
 ## Sign-off

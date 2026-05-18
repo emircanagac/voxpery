@@ -49,7 +49,20 @@ Mandatory conditions when updater artifacts are enabled:
 
 This policy is enforced in release preflight validation.
 
-## 4) Manual QA Gate (required)
+## 4) Updater Artifact Verification (required)
+
+Before publishing or announcing a desktop release:
+
+- `latest.json` must be uploaded to the same GitHub Release as the installer artifacts.
+- The `latest.json` version must match the Git tag and desktop app version.
+- Every updater asset referenced by `latest.json` must have a matching `.sig` file.
+- Artifact URLs in `latest.json` must point to release assets for the same version, not draft-only, private, temporary, or older release URLs.
+- The updater public key injected into `apps/desktop/src-tauri/tauri.conf.json` must match the private key used to sign the release artifacts.
+- Manual `Release desktop` workflow runs must target the exact release tag/ref and use `smoke_checklist_confirmed=yes`.
+- Production desktop releases should build all supported platforms. Single-platform manual runs are acceptable for test or explicit hotfix scopes only and must be noted in the release checklist.
+- If a GitHub Release exists but the desktop workflow did not run or did not attach updater metadata, keep the release as draft until the workflow is rerun against the correct tag/ref.
+
+## 5) Manual QA Gate (required)
 
 Before publishing a desktop release:
 
@@ -65,7 +78,7 @@ Before publishing a desktop release:
 7. Confirm Windows startup launch stays in the tray until the user opens Voxpery from the tray, and tray Show opens a maximized window.
 8. Confirm installer/update preparation closes tray/minimize state cleanly before install.
 
-## 5) Rollback Expectations
+## 6) Rollback Expectations
 
 Voxpery desktop rollback is manual and release-artifact based:
 
@@ -74,7 +87,7 @@ Voxpery desktop rollback is manual and release-artifact based:
 - Publish or re-promote the previous stable release metadata if updater clients must move back to a known-good version.
 - Document the rollback decision and affected version in release notes or the incident record.
 
-## 6) Recommended Repository Secrets
+## 7) Recommended Repository Secrets
 
 - `VITE_API_URL` (required for desktop release build)
 - `VITE_TURNSTILE_SITE_KEY` (required as a repository variable or secret for desktop release builds)
