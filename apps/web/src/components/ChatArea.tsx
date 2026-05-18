@@ -101,7 +101,6 @@ function AttachmentImagePreviewModal({
         >
             <div className="chat-image-preview-modal">
                 <div className="chat-image-preview-toolbar">
-                    <span className="chat-image-preview-title">{title}</span>
                     <button
                         type="button"
                         className="chat-image-preview-close"
@@ -228,6 +227,8 @@ function estimateMessageRowHeight(messages: UiMessage[], index: number, firstUnr
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
     const token = useAuthStore((s) => s.token)
     const [previewOpen, setPreviewOpen] = useState(false)
+    const fallbackInFlightRef = useRef(false)
+    const fallbackObjectUrlRef = useRef<string | null>(null)
     const isImage = isImageAttachment(attachment)
     const [resolution, setResolution] = useState(() => ({
         sourceUrl: attachment.url,
@@ -249,7 +250,6 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         let objectUrl: string | null = null
 
         resolveAttachmentUrl(attachment.url, token ?? null, {
-            forceAuthenticatedFetch: isImage,
             fallbackMimeType: attachment.type,
         })
             .then((nextUrl) => {
@@ -282,15 +282,87 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         }
     }, [attachment.type, attachment.url, isImage, token])
 
+    useEffect(() => {
+        return () => {
+            if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current)
+        }
+    }, [])
+
+    useEffect(() => {
+        fallbackInFlightRef.current = false
+        if (fallbackObjectUrlRef.current) {
+            URL.revokeObjectURL(fallbackObjectUrlRef.current)
+            fallbackObjectUrlRef.current = null
+        }
+    }, [attachment.url])
+
     if (isImage) {
         const alt = attachment.name || `Attachment ${index + 1}`
         const handleImageLoadError = () => {
+            const shouldTryAuthenticatedFallback =
+                !currentResolution.triedDirectFallback &&
+                !currentResolution.resolvedUrl.startsWith('blob:') &&
+                !fallbackInFlightRef.current
+
+            if (shouldTryAuthenticatedFallback) {
+                fallbackInFlightRef.current = true
+                setResolution((current) => {
+                    if (current.sourceUrl !== attachment.url) return current
+                    return {
+                        ...current,
+                        triedDirectFallback: true,
+                    }
+                })
+                void resolveAttachmentUrl(attachment.url, token ?? null, {
+                    forceAuthenticatedFetch: true,
+                    fallbackMimeType: attachment.type,
+                })
+                    .then((nextUrl) => {
+                        if (nextUrl.startsWith('blob:')) {
+                            if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current)
+                            fallbackObjectUrlRef.current = nextUrl
+                        }
+                        setResolution((current) => {
+                            if (current.sourceUrl !== attachment.url) {
+                                if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
+                                if (fallbackObjectUrlRef.current === nextUrl) fallbackObjectUrlRef.current = null
+                                return current
+                            }
+                            if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
+                            return {
+                                sourceUrl: attachment.url,
+                                resolvedUrl: nextUrl,
+                                loadFailed: false,
+                                triedDirectFallback: true,
+                            }
+                        })
+                    })
+                    .catch(() => {
+                        setResolution((current) => {
+                            if (current.sourceUrl !== attachment.url) return current
+                            if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
+                            if (fallbackObjectUrlRef.current === current.resolvedUrl) fallbackObjectUrlRef.current = null
+                            return {
+                                ...current,
+                                loadFailed: true,
+                                triedDirectFallback: true,
+                            }
+                        })
+                    })
+                    .finally(() => {
+                        fallbackInFlightRef.current = false
+                    })
+                return
+            }
+
             setResolution((current) => {
                 if (current.sourceUrl !== attachment.url) return current
                 if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
+                if (fallbackObjectUrlRef.current === current.resolvedUrl) fallbackObjectUrlRef.current = null
                 return {
                     ...current,
                     loadFailed: true,
+                    triedDirectFallback: true,
                 }
             })
         }
