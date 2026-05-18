@@ -17,10 +17,10 @@
 <table>
   <tr>
     <td width="78%" align="center" valign="bottom">
-      <img src="apps/web/src/assets/voxpery-desktop.png" alt="Voxpery desktop voice channel interface" height="360" />
+      <img src="apps/web/src/assets/voxpery-desktop.png" alt="Voxpery desktop voice channel interface" height="320" />
     </td>
     <td width="22%" align="center" valign="bottom">
-      <img src="apps/web/src/assets/voxpery-mobile.png" alt="Voxpery mobile voice channel interface" height="360" />
+      <img src="apps/web/src/assets/voxpery-mobile.png" alt="Voxpery mobile voice channel interface" height="320" />
     </td>
   </tr>
 </table>
