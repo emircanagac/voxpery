@@ -520,6 +520,8 @@ export default function ChatArea({
     const chatAreaRef = useRef<HTMLDivElement | null>(null)
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
+    const currentChatChannelId = activeChannel?.id ?? null
+    const currentChatChannelIdRef = useRef<string | null>(currentChatChannelId)
     const setMessagesScrollRef = useCallback(
         (el: HTMLDivElement | null) => {
             (messagesScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
@@ -530,6 +532,8 @@ export default function ChatArea({
     const shouldAutoScrollRef = useRef(true)
     const pendingSubmitAutoScrollRef = useRef(false)
     const lastBottomAnchoredChannelIdRef = useRef<string | null>(null)
+    const pendingLatestAnchorChannelIdRef = useRef<string | null>(null)
+    const latestAnchorCleanupRef = useRef<(() => void) | null>(null)
     const preservingOlderMessagesRef = useRef(false)
     const olderMessagesAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
     const prevViewActiveRef = useRef(isViewActive)
@@ -621,6 +625,10 @@ export default function ChatArea({
         overscan: 8,
     })
 
+    useLayoutEffect(() => {
+        currentChatChannelIdRef.current = currentChatChannelId
+    }, [currentChatChannelId])
+
     const restoreOlderMessagesAnchor = useCallback(() => {
         const el = messagesScrollRef.current
         const anchor = olderMessagesAnchorRef.current
@@ -632,7 +640,8 @@ export default function ChatArea({
 
     /* Jump to bottom before paint when opening/switching chats so the user does
        not see a visible "top -> bottom" scroll animation on first render. */
-    const snapToBottom = useCallback(() => {
+    const snapToBottom = useCallback((expectedChannelId?: string | null) => {
+        if (expectedChannelId && currentChatChannelIdRef.current !== expectedChannelId) return false
         if (preservingOlderMessagesRef.current) return false
         const el = messagesScrollRef.current
         if (!el || el.clientHeight <= 0) return false
@@ -644,6 +653,7 @@ export default function ChatArea({
             rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
         }
         requestAnimationFrame(() => {
+            if (expectedChannelId && currentChatChannelIdRef.current !== expectedChannelId) return
             const latest = messagesScrollRef.current
             if (!latest || latest.clientHeight <= 0) return
             latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
@@ -654,7 +664,50 @@ export default function ChatArea({
         return true
     }, [rowVirtualizer, virtualCount])
 
+    const scheduleLatestAnchor = useCallback((channelId: string) => {
+        latestAnchorCleanupRef.current?.()
+        pendingLatestAnchorChannelIdRef.current = channelId
+        let cancelled = false
+        const rafIds: number[] = []
+        const timeoutIds: number[] = []
+        const snapIfCurrent = () => {
+            if (cancelled) return
+            if (currentChatChannelIdRef.current !== channelId) return
+            if (pendingLatestAnchorChannelIdRef.current !== channelId) return
+            shouldAutoScrollRef.current = true
+            setShowJumpToLatest(false)
+            snapToBottom(channelId)
+        }
+        const queueRaf = (remaining: number) => {
+            const id = window.requestAnimationFrame(() => {
+                snapIfCurrent()
+                if (remaining > 0) queueRaf(remaining - 1)
+            })
+            rafIds.push(id)
+        }
+        snapIfCurrent()
+        queueRaf(5)
+        for (const delay of [48, 120, 260, 520]) {
+            timeoutIds.push(window.setTimeout(snapIfCurrent, delay))
+        }
+        timeoutIds.push(window.setTimeout(() => {
+            if (!cancelled && pendingLatestAnchorChannelIdRef.current === channelId) {
+                pendingLatestAnchorChannelIdRef.current = null
+            }
+        }, 760))
+        latestAnchorCleanupRef.current = () => {
+            cancelled = true
+            for (const id of rafIds) window.cancelAnimationFrame(id)
+            for (const id of timeoutIds) window.clearTimeout(id)
+        }
+    }, [snapToBottom])
+
     const syncAutoScrollState = useCallback(() => {
+        if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id) {
+            shouldAutoScrollRef.current = true
+            setShowJumpToLatest(false)
+            return
+        }
         if (preservingOlderMessagesRef.current) {
             shouldAutoScrollRef.current = false
             setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
@@ -667,7 +720,7 @@ export default function ChatArea({
         shouldAutoScrollRef.current = isNearBottom
         const nextShowJump = !isNearBottom && messages.length > 0
         setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
-    }, [messages.length])
+    }, [activeChannel?.id, messages.length])
 
     /* When switching channel/DM, aggressively re-anchor to the latest visible
        content so returning to a previously read chat does not keep an older
@@ -681,28 +734,21 @@ export default function ChatArea({
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
         shouldAutoScrollRef.current = true
-        snapToBottom()
-        requestAnimationFrame(() => {
-            snapToBottom()
-            requestAnimationFrame(() => {
-                snapToBottom()
-            })
-        })
-        const timeoutId = window.setTimeout(() => {
-            snapToBottom()
-        }, 48)
+        scheduleLatestAnchor(channelId)
         return () => {
-            window.clearTimeout(timeoutId)
+            latestAnchorCleanupRef.current?.()
         }
-    }, [activeChannel?.id, snapToBottom])
+    }, [activeChannel?.id, scheduleLatestAnchor])
 
     /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
        from Messages view). useLayoutEffect keeps the first painted frame already
        anchored to the latest message. */
     useLayoutEffect(() => {
         if (messages.length === 0) return
-        if (!shouldAutoScrollRef.current) return
-        snapToBottom()
+        const pendingLatest = !!activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id
+        if (!pendingLatest && !shouldAutoScrollRef.current) return
+        shouldAutoScrollRef.current = true
+        snapToBottom(pendingLatest ? activeChannel.id : undefined)
     }, [activeChannel?.id, messages.length, unreadDividerCount, snapToBottom])
 
     /* If user sends while reading older messages, force snap to newest after the new row mounts. */
@@ -1016,6 +1062,12 @@ export default function ChatArea({
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
     }, [activeChannel?.id])
+
+    useEffect(() => {
+        return () => {
+            latestAnchorCleanupRef.current?.()
+        }
+    }, [])
 
     useLayoutEffect(() => {
         syncAutoScrollState()
@@ -1608,6 +1660,8 @@ export default function ChatArea({
                                         scrollHeight: el.scrollHeight,
                                     }
                                 }
+                                latestAnchorCleanupRef.current?.()
+                                pendingLatestAnchorChannelIdRef.current = null
                                 preservingOlderMessagesRef.current = true
                                 shouldAutoScrollRef.current = false
                                 setShowJumpToLatest(true)
