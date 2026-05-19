@@ -44,7 +44,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] `docs/VOICE_RELEASE_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior when the release touches voice, LiveKit/WebRTC, camera, screen share, audio settings, service worker caching, desktop runtime, or build output.
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
-- [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share also mutes only the screen-share audio while normal microphone audio continues.
+- [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share or changing screen-share volume affects only screen-share audio while normal microphone audio continues.
 - [ ] Screen share quality presets match the UI summary: Presentation uses 1080p30, Video/Gaming use 1080p60, and Auto selects the profile by shared surface without excessive bandwidth.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.

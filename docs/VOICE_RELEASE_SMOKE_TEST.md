@@ -47,6 +47,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Sharing screen audio does not play a duplicate start cue.
 - [ ] User B hides the screen share; the screen tile collapses and only screen-share audio is muted.
 - [ ] User A's normal microphone audio continues while the screen share is hidden.
+- [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
 - [ ] User B shows the screen share again and audio behavior returns with the visible media.
 - [ ] User A stops screen share; User B does not hear a stop cue.
 

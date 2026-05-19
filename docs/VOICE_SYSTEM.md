@@ -168,7 +168,7 @@ AudioContext analyser (speaking indicator)
 Speaker
 ```
 
-- **Output volume**: Global 1-100% + per-peer 0-200%
+- **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-200%
 - **Amplification >100%**: Routed through WebAudio GainNode (gain > 1.0)
 - **Deafen**: Sets `audio.muted = true` on all remote elements
 - **Stop watching screen**: Hiding a remote screen share removes its screen-share audio track from playback while keeping the peer's normal microphone audio active.
@@ -211,6 +211,7 @@ await room.localParticipant.publishTrack(videoTrack, {
 - Hidden media stays as a compact placeholder with a `Show` action so the user can resume watching.
 - Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
 - Hiding a screen share also mutes that screen-share audio track; the participant's microphone audio continues normally.
+- The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
 
 ## Camera
 
