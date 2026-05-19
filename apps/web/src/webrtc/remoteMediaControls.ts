@@ -22,3 +22,22 @@ export function createRemoteAudioPlaybackStream(stream: MediaStream, includeScre
   const tracks = getRemoteAudioPlaybackTracks(stream, includeScreenShareAudio)
   return new MediaStream(tracks)
 }
+
+export function getRemoteMicrophoneAudioTracks(stream: MediaStream): MediaStreamTrack[] {
+  return stream
+    .getAudioTracks()
+    .filter((track) => !isScreenShareAudioTrack(track))
+}
+
+export function getRemoteScreenShareAudioTracks(stream: MediaStream): MediaStreamTrack[] {
+  return stream
+    .getAudioTracks()
+    .filter((track) => isScreenShareAudioTrack(track))
+}
+
+export function createRemoteAudioKindPlaybackStream(stream: MediaStream, kind: 'mic' | 'screen'): MediaStream {
+  const tracks = kind === 'screen'
+    ? getRemoteScreenShareAudioTracks(stream)
+    : getRemoteMicrophoneAudioTracks(stream)
+  return new MediaStream(tracks)
+}
