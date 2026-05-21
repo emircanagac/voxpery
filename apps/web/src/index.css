@@ -8375,7 +8375,9 @@ a.community-open-btn:hover {
 }
 
 .screen-share-preview:hover .screen-share-controls-bar,
-.screen-share-preview:fullscreen:hover .screen-share-controls-bar {
+.screen-share-preview:focus-within .screen-share-controls-bar,
+.screen-share-preview:fullscreen:hover .screen-share-controls-bar,
+.screen-share-preview:fullscreen:focus-within .screen-share-controls-bar {
   opacity: 1;
   pointer-events: auto;
 }
@@ -8531,7 +8533,9 @@ a.community-open-btn:hover {
 }
 
 .screen-share-preview:hover .screen-share-info-overlay,
-.screen-share-preview:fullscreen:hover .screen-share-info-overlay {
+.screen-share-preview:focus-within .screen-share-info-overlay,
+.screen-share-preview:fullscreen:hover .screen-share-info-overlay,
+.screen-share-preview:fullscreen:focus-within .screen-share-info-overlay {
   opacity: 1;
 }
 
@@ -8543,6 +8547,25 @@ a.community-open-btn:hover {
 .screen-share-preview.is-mouse-idle .screen-share-info-overlay {
   opacity: 0 !important;
   pointer-events: none !important;
+}
+
+@media (hover: none) {
+  .screen-share-preview .screen-share-controls-bar,
+  .screen-share-preview:fullscreen .screen-share-controls-bar,
+  .screen-share-preview.is-mouse-idle .screen-share-controls-bar {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  .screen-share-preview .screen-share-info-overlay,
+  .screen-share-preview:fullscreen .screen-share-info-overlay,
+  .screen-share-preview.is-mouse-idle .screen-share-info-overlay {
+    opacity: 1 !important;
+  }
+
+  .screen-share-preview.is-mouse-idle {
+    cursor: auto;
+  }
 }
 
 .voice-stage-tile {
