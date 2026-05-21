@@ -13,18 +13,38 @@ const DEFAULT_INPUT_VOLUME = 80
 export type ScreenShareResolution = '720p' | '1080p'
 export type ScreenShareFramerate = 30 | 60
 export type ScreenShareQuality = 'auto' | 'presentation' | 'video' | 'gaming'
+export type ScreenShareDegradationPreference = 'maintain-resolution' | 'maintain-framerate'
 
 export type ScreenShareProfile = {
     resolution: ScreenShareResolution
     framerate: ScreenShareFramerate
     bitrate: number
     contentHint: 'detail' | 'motion'
+    degradationPreference: ScreenShareDegradationPreference
 }
 
 export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenShareProfile> = {
-    presentation: { resolution: '1080p', framerate: 30, bitrate: 5_000_000, contentHint: 'detail' },
-    video: { resolution: '1080p', framerate: 60, bitrate: 7_000_000, contentHint: 'motion' },
-    gaming: { resolution: '1080p', framerate: 60, bitrate: 9_000_000, contentHint: 'motion' },
+    presentation: {
+        resolution: '1080p',
+        framerate: 30,
+        bitrate: 5_000_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+    },
+    video: {
+        resolution: '1080p',
+        framerate: 60,
+        bitrate: 7_000_000,
+        contentHint: 'motion',
+        degradationPreference: 'maintain-framerate',
+    },
+    gaming: {
+        resolution: '1080p',
+        framerate: 60,
+        bitrate: 9_000_000,
+        contentHint: 'motion',
+        degradationPreference: 'maintain-framerate',
+    },
 }
 
 export function normalizeScreenShareQuality(value: string | null | undefined): ScreenShareQuality {
@@ -218,6 +238,7 @@ export function useLocalMedia() {
         maxBitrate: number
         maxFramerate: number
         contentHint: 'detail' | 'motion'
+        degradationPreference: ScreenShareDegradationPreference
     } => {
         const displaySurface = videoTrack?.getSettings?.().displaySurface
         const profile = resolveScreenShareProfile(displaySurface)
@@ -225,6 +246,7 @@ export function useLocalMedia() {
             maxBitrate: profile.bitrate,
             maxFramerate: profile.framerate,
             contentHint: profile.contentHint,
+            degradationPreference: profile.degradationPreference,
         }
     }, [resolveScreenShareProfile])
 

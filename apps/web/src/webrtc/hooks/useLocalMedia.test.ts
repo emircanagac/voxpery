@@ -22,18 +22,21 @@ describe('screen share quality profiles', () => {
       framerate: 30,
       bitrate: 5_000_000,
       contentHint: 'detail',
+      degradationPreference: 'maintain-resolution',
     })
     expect(resolveScreenShareProfileForMode('video')).toEqual({
       resolution: '1080p',
       framerate: 60,
       bitrate: 7_000_000,
       contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
     })
     expect(resolveScreenShareProfileForMode('gaming')).toEqual({
       resolution: '1080p',
       framerate: 60,
       bitrate: 9_000_000,
       contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
     })
   })
 

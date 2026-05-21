@@ -201,8 +201,8 @@ await room.localParticipant.publishTrack(videoTrack, {
 ### Content Hints
 
 - **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
-- **Presentation/window share**: `contentHint = 'detail'` at 1080p30 to preserve text sharpness while limiting traffic.
-- **Browser tab/video and monitor/gaming share**: `contentHint = 'motion'` at 1080p60 for smoother motion.
+- **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
+- **Browser tab/video and monitor/gaming share**: `contentHint = 'motion'` at 1080p60 and `maintain-framerate` degradation so motion streams trade resolution before they stall on dropped frames.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 
 ### Remote Viewing Controls
