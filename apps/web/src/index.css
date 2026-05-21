@@ -4681,7 +4681,8 @@ body {
   position: relative;
 }
 
-.message:hover .message-inline-actions {
+.message:hover .message-inline-actions,
+.message:focus-within .message-inline-actions {
   opacity: 1;
 }
 
@@ -13705,6 +13706,7 @@ textarea {
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transform: none;
+    opacity: 1;
   }
 
   .message.message-compact .message-inline-actions {
