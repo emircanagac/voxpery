@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-05-21
+
+### Changed
+- Improved screen share capture profiles and high-motion playback preference for smoother production sharing.
+- Separated screen share audio handling from microphone audio controls in voice calls.
+- Refreshed the README app preview asset so desktop and mobile screenshots render as one consistent composition.
+
+### Fixed
+- Fixed channel switching scroll anchoring so chat navigation stays on the latest messages more reliably.
+- Improved mobile screen share preview controls and remote media interaction polish.
+
+### Tests
+- Added regression coverage for core chat switching, inline message actions, voice call controls, remote media visibility, and screen share tuning behavior.
+
 ## [0.1.12] - 2026-05-19
 
 ### Changed
