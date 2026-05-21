@@ -15,6 +15,8 @@ describe('auth store persistence', () => {
     useAuthStore.getState().setAuth('secret-jwt-token', {
       id: 'u1',
       username: 'tester',
+      email: 'tester@example.test',
+      email_verified: true,
       status: 'online',
       dm_privacy: 'friends',
     })
