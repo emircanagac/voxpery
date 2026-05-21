@@ -732,6 +732,7 @@ export function useLiveKitVoice() {
         screenShareEncoding: screenVideo
           ? { maxBitrate: screenVideo.maxBitrate, maxFramerate: screenVideo.maxFramerate }
           : undefined,
+        degradationPreference: screenVideo?.degradationPreference,
         simulcast: false,  // Screen share: full quality, no simulcast layers
       })
     }
