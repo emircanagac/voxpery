@@ -162,12 +162,12 @@ describe('ActiveCallBar regressions', () => {
 
     fireEvent.click(screen.getByTitle('Stop watching screen'))
 
-    expect(screen.getByText('Screen share hidden')).toBeInTheDocument()
+    expect(screen.getByText('Screen share hidden')).not.toBeNull()
     expect(screen.getAllByText('admin')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: /show/i }))
 
-    expect(screen.getByTitle('Stop watching screen')).toBeInTheDocument()
+    expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
   })
 

@@ -34,6 +34,7 @@ const channel = (id: string, name: string): Channel =>
 
 const message = (id: string, content: string, createdAtMinute: number) => ({
   id,
+  channel_id: 'general',
   content,
   created_at: `2026-05-21T10:${createdAtMinute.toString().padStart(2, '0')}:00.000Z`,
   author: {
