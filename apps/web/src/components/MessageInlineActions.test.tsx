@@ -46,10 +46,10 @@ describe('MessageInlineActions', () => {
       />
     )
 
-    expect(screen.getByRole('button', { name: 'Reply' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Report' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reply' })).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Report' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
   })
 
   it('keeps the toolbar visible while its reaction picker is open', () => {
@@ -64,6 +64,6 @@ describe('MessageInlineActions', () => {
       />
     )
 
-    expect(container.querySelector('.message-inline-actions')).toHaveClass('is-visible')
+    expect(container.querySelector('.message-inline-actions')?.classList.contains('is-visible')).toBe(true)
   })
 })
