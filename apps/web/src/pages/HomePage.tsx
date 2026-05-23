@@ -34,20 +34,18 @@ import { type SocialView, getPersistedSocialView, setPersistedSocialView } from 
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { createReplyContentSnippet } from '../replyPreview'
 import { ROUTES } from '../routes'
-
-type FriendsFilter = 'all' | 'online' | 'requests'
+import {
+  type FriendsFilter,
+  getVisibleFriendsForFilter,
+  normalizePresence,
+  upsertDmChannel,
+} from '../friendsList'
 
 const HIDDEN_DM_PEERS_KEY = 'voxpery-hidden-dm-peers'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.includes('No access') || msg.includes('403') || msg.includes('Forbidden')
-}
-
-function normalizePresence(status?: string | null): 'online' | 'dnd' | 'offline' {
-  const normalized = (status ?? 'offline').toLowerCase()
-  if (normalized === 'online' || normalized === 'dnd') return normalized
-  return 'offline'
 }
 
 function presenceLabel(status?: string | null): string {
@@ -164,6 +162,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
   const [removingFriend, setRemovingFriend] = useState(false)
+  const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const dmChannels = useMemo(
@@ -295,8 +294,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [navigate, pushToast, setActiveServer, setServers, token, voxperyServer])
 
-  const onlineFriends = friends.filter((f) => f.status !== 'offline')
-  const visibleFriends = friendsFilter === 'online' ? onlineFriends : friends
+  const onlineFriends = useMemo(() => getVisibleFriendsForFilter(friends, 'online'), [friends])
+  const visibleFriends = useMemo(
+    () => (friendsFilter === 'requests' ? [] : getVisibleFriendsForFilter(friends, friendsFilter)),
+    [friends, friendsFilter],
+  )
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
     if (!user) return
     const requestId = ++dmMessagesRequestRef.current
@@ -548,20 +550,41 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     return () => unsub()
   }, [refreshServersAndFriends, subscribe, userId])
 
-  const openMessageForFriend = async (friendId: string) => {
-    if (!user) return
-    const channel = await dmApi.getOrCreateChannel(friendId, token)
-    setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
-    setView('dm')
-    setPersistedSocialView('dm')
-    setActiveDmChannelId(channel.id)
-    clearDmUnread(channel.id)
-    const prev = useAppStore.getState().dmChannels
-    if (!prev.some((c) => c.id === channel.id)) {
-      setStoreDmChannels([channel, ...prev])
+  const openMessageForFriend = useCallback(async (friendId: string) => {
+    if (!user || openingDmPeerId) return
+    setOpeningDmPeerId(friendId)
+    try {
+      const channel = await dmApi.getOrCreateChannel(friendId, token)
+      const nextChannels = upsertDmChannel(useAppStore.getState().dmChannels, channel)
+
+      setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
+      setStoreDmChannels(nextChannels)
+      setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
+      setActiveDmChannelId(channel.id)
+      clearDmUnread(channel.id)
+      setView('dm')
+      setPersistedSocialView('dm')
+      navigate(ROUTES.dm)
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'DM failed',
+        message: err instanceof Error ? err.message : 'Could not open direct message.',
+      })
+    } finally {
+      setOpeningDmPeerId(null)
     }
-    navigate(ROUTES.dm)
-  }
+  }, [
+    clearDmUnread,
+    navigate,
+    openingDmPeerId,
+    pushToast,
+    setActiveDmChannelId,
+    setDmChannelIds,
+    setStoreDmChannels,
+    token,
+    user,
+  ])
 
   const sendFriendRequest = async () => {
     if (!user || !addFriendUsername.trim()) return
@@ -1007,7 +1030,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   onClick={() => setFriendsFilter('online')}
                 >
                   <Activity size={14} />
-                  Online
+                  <span className="home-chip-label">Online</span>
                 </button>
                 <button
                   type="button"
@@ -1015,7 +1038,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   onClick={() => setFriendsFilter('all')}
                 >
                   <Users size={14} />
-                  All
+                  <span className="home-chip-label">All</span>
                 </button>
                 <button
                   type="button"
@@ -1023,7 +1046,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   onClick={() => setFriendsFilter('requests')}
                 >
                   <MessageSquarePlus size={14} />
-                  Requests
+                  <span className="home-chip-label">Requests</span>
                   {incomingRequests.length > 0 && (
                     <span className="home-chip-badge">{formatBadgeCount(incomingRequests.length)}</span>
                   )}
@@ -1143,29 +1166,38 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     return (
                       <div
                         key={friend.id}
-                        className="home-member-row is-clickable"
-                        onClick={() => openMessageForFriend(friend.id)}
+                        className={`home-member-row is-clickable ${openingDmPeerId === friend.id ? 'is-loading' : ''}`}
+                        aria-disabled={openingDmPeerId === friend.id}
                       >
-                        <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
-                          {friend.avatar_url ? (
-                            <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
-                          ) : (
-                            friend.username.charAt(0).toUpperCase()
-                          )}
-                        </div>
-                        <div className="home-member-meta">
-                          <div>{friend.username}</div>
-                          <span>
-                            <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
-                              <span className="home-presence-pill-dot" aria-hidden />
-                              {presenceLabel(friend.status)}
+                        <button
+                          type="button"
+                          className="home-member-main"
+                          aria-label={`Message ${friend.username}`}
+                          disabled={openingDmPeerId === friend.id}
+                          onClick={() => void openMessageForFriend(friend.id)}
+                        >
+                          <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
+                            {friend.avatar_url ? (
+                              <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
+                            ) : (
+                              friend.username.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div className="home-member-meta">
+                            <div>{friend.username}</div>
+                            <span>
+                              <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
+                                <span className="home-presence-pill-dot" aria-hidden />
+                                {presenceLabel(friend.status)}
+                              </span>
                             </span>
-                          </span>
-                        </div>
+                          </div>
+                        </button>
                         <button
                           type="button"
                           className="home-member-action home-member-action--trailing danger"
                           title="Remove friend"
+                          disabled={openingDmPeerId === friend.id}
                           onClick={(e) => {
                             e.stopPropagation()
                             setRemoveFriendTarget(friend)
