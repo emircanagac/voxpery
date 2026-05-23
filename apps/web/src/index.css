@@ -6936,7 +6936,7 @@ body {
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.2;
   transition: all 0.2s ease;
   cursor: pointer;
   justify-content: center;
@@ -6961,7 +6961,7 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font: inherit;
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .home-chip-badge {
@@ -6994,6 +6994,28 @@ body {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.02);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.home-friends-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
+  padding-bottom: 16px;
+}
+
+.home-friends-scroll--requests {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.home-friends-scroll--requests .home-list-group + .home-list-group {
+  margin-top: 0;
 }
 
 .home-list-group+.home-list-group {
@@ -7513,6 +7535,10 @@ body {
 /* Requests tab: Add Friend card */
 .home-requests-add-card {
   margin-bottom: 20px;
+}
+
+.home-friends-scroll--requests .home-requests-add-card {
+  margin-bottom: 0;
 }
 
 .home-requests-add-card .home-list-title {
