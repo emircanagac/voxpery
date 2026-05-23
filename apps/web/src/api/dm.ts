@@ -63,6 +63,12 @@ export const dmApi = {
     readState: (channelId: string, token: AuthToken) =>
         apiFetch<DmReadState>(`/api/dm/channels/${channelId}/read-state`, { token }),
 
+    markRead: (channelId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/dm/channels/${channelId}/read`, {
+            method: 'POST',
+            token,
+        }),
+
     listPins: (channelId: string, token: AuthToken) =>
         apiFetch<MessageWithAuthor[]>(`/api/dm/channels/${channelId}/pins`, { token }),
 

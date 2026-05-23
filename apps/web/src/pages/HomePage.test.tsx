@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => ({
   listDmChannels: vi.fn(),
   getOrCreateDmChannel: vi.fn(),
   listDmMessages: vi.fn(),
+  markDmRead: vi.fn(),
   listDmPins: vi.fn(),
   createWebSocket: vi.fn(),
 }))
@@ -36,6 +37,7 @@ vi.mock('../api', () => ({
     listChannels: apiMocks.listDmChannels,
     getOrCreateChannel: apiMocks.getOrCreateDmChannel,
     listMessages: apiMocks.listDmMessages,
+    markRead: apiMocks.markDmRead,
     listPins: apiMocks.listDmPins,
     searchMessages: vi.fn(),
     sendMessage: vi.fn(),
@@ -131,6 +133,7 @@ describe('HomePage friends list', () => {
     apiMocks.listFriendRequests.mockResolvedValue({ incoming: [], outgoing: [] })
     apiMocks.listDmChannels.mockResolvedValue([])
     apiMocks.listDmMessages.mockResolvedValue([])
+    apiMocks.markDmRead.mockResolvedValue(undefined)
     apiMocks.listDmPins.mockResolvedValue([])
   })
 
@@ -162,6 +165,25 @@ describe('HomePage friends list', () => {
         title: 'DM failed',
         message: 'Could not create DM',
       })
+    })
+  })
+
+  it('refreshes the active DM when returning from another app area', async () => {
+    const channel = dmChannel('dm-cilo')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      dmUnread: { [channel.id]: 1 },
+    })
+    apiMocks.listDmMessages.mockResolvedValue([])
+
+    renderHomePage()
+
+    await waitFor(() => {
+      expect(apiMocks.listDmMessages).toHaveBeenCalledWith(channel.id, null)
+      expect(useAppStore.getState().dmUnread[channel.id]).toBe(0)
     })
   })
 

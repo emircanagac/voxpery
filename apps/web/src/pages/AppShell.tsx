@@ -440,6 +440,12 @@ export default function AppShell() {
                   title: incomingMessage?.author?.username ?? channel.peer_username,
                   body: 'sent you a direct message',
                   tag: `dm:${channel.id}`,
+                  onClick: () => {
+                    setPersistedSocialView('dm')
+                    setActiveDmChannelId(channel.id)
+                    clearDmUnread(channel.id)
+                    navigate(ROUTES.dm)
+                  },
                 })
               }
             }
