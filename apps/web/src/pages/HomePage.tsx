@@ -143,6 +143,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
 
   const [view, setView] = useState<SocialView>('friends')
+  const isDmConversationVisible = isMessagesView && location.pathname === ROUTES.dm && view === 'dm'
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
   const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(true)
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
@@ -224,9 +225,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [dmDraftAttachments, setDmDraftAttachments] = useState<DraftAttachmentItem[]>([])
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
+  const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
+  useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
 
   // Use user so web works: on web token is null, auth is via httpOnly cookie.
   const refreshServersAndFriends = useCallback(async () => {
@@ -331,9 +334,20 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   }, [token, user, setActiveDmChannelId, setView])
 
   useEffect(() => {
-    if (!user || !activeDmChannelId) return
+    if (!user || !activeDmChannelId) {
+      setDmUnreadDividerCount(0)
+      return
+    }
+    if (!isDmConversationVisible) {
+      setDmUnreadDividerCount(0)
+      return
+    }
+
+    const unreadCount = useAppStore.getState().dmUnread[activeDmChannelId] ?? 0
+    setDmUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
+    clearDmUnread(activeDmChannelId)
     void refreshActiveDmConversation(activeDmChannelId)
-  }, [activeDmChannelId, refreshActiveDmConversation, user])
+  }, [activeDmChannelId, clearDmUnread, isDmConversationVisible, refreshActiveDmConversation, user])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) return
@@ -464,18 +478,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       ; (document.activeElement as HTMLElement | null)?.blur()
   }, [view])
 
-  /* Mark DM as read whenever the conversation is visible (fixes badge when landing on / with same DM still in state) */
-  useEffect(() => {
-    if (view === 'dm' && activeDmChannelId) {
-      const unreadCount = useAppStore.getState().dmUnread[activeDmChannelId] ?? 0
-      setDmUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
-      clearDmUnread(activeDmChannelId)
-      return
-    }
-
-    setDmUnreadDividerCount(0)
-  }, [view, activeDmChannelId, clearDmUnread, location.pathname])
-
   useEffect(() => {
     if (!isConnected || dmChannels.length === 0) return
     const ids = dmChannels.map((c) => c.id)
@@ -514,9 +516,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         dmMessagesByChannelRef.current[channelId] = next
         return next
       })
+      if (isDmConversationVisibleRef.current) {
+        clearDmUnread(channelId)
+        void dmApi.markRead(channelId, token).catch(() => {
+          // Best-effort read sync; the next conversation refresh will reconcile.
+        })
+      }
     })
     return () => unsub()
-  }, [subscribe, user?.id])
+  }, [clearDmUnread, subscribe, token, user?.id])
 
   // Keep friends list and DM channel peer status in sync with PresenceUpdate (online/offline)
   useEffect(() => {

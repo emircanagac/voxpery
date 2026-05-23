@@ -192,6 +192,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
         .route("/channels/{channel_id}/read-state", get(get_dm_read_state))
+        .route("/channels/{channel_id}/read", post(mark_dm_channel_read))
         .route(
             "/channels/{channel_id}/pins",
             get(list_dm_pins).post(pin_dm_message),
@@ -628,6 +629,29 @@ async fn get_dm_read_state(
     Ok(Json(DmReadState {
         peer_last_read_message_id: peer_last,
     }))
+}
+
+async fn mark_dm_channel_read(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+    let last_message_id = sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"SELECT id
+           FROM dm_messages
+           WHERE channel_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(channel_id)
+    .fetch_optional(&state.db)
+    .await?
+    .flatten();
+
+    mark_dm_read(&state, channel_id, claims.sub, last_message_id).await?;
+    publish_dm_read(&state, channel_id, claims.sub, last_message_id).await;
+    Ok(Json(serde_json::json!({ "message": "DM marked read" })))
 }
 
 async fn search_dm_messages(

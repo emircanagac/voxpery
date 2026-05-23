@@ -226,6 +226,8 @@ Notes:
 - `PATCH /api/dm/messages/item/:message_id`
 - `DELETE /api/dm/messages/item/:message_id`
 - `GET /api/dm/channels/:channel_id/read-state`
+- `POST /api/dm/channels/:channel_id/read`
+  - Marks the current user's DM read state through the latest message in the channel and emits a `DmRead` WebSocket event for the user's other sessions.
 - `GET /api/dm/channels/:channel_id/pins`
 - `POST /api/dm/channels/:channel_id/pins`
 - `DELETE /api/dm/channels/:channel_id/pins/:message_id`
