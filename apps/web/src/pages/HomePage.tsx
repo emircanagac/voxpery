@@ -1061,7 +1061,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 </button>
               </div>
               {friendsFilter === 'requests' ? (
-                <>
+                <div className="home-friends-scroll home-friends-scroll--requests">
                   <div className="home-list-group home-requests-add-card">
                     <div className="home-list-title">Add a Friend</div>
                     <div className="home-add-row">
@@ -1127,97 +1127,99 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                       ))
                     )}
                   </div>
-                </>
-              ) : (
-              <div className="home-list-group">
-                <div className="home-list-title">
-                  {friendsFilter === 'online'
-                    ? `Online Friends — ${onlineFriends.length}`
-                    : `All Friends — ${friends.length}`}
                 </div>
-                {socialBootstrapLoading ? (
-                  <div className="home-list-skeleton" aria-hidden="true">
-                    <div className="home-list-skeleton-row" />
-                    <div className="home-list-skeleton-row" />
-                    <div className="home-list-skeleton-row" />
-                  </div>
-                ) : visibleFriends.length === 0 ? (
-                  friends.length === 0 ? (
-                    <OnboardingCard
-                      title="Start your social graph"
-                      description="Add a friend or jump into the official Voxpery community so you have someone to message right away."
-                      actions={[
-                        {
-                          label: 'Add a friend',
-                          onClick: () => setFriendsFilter('requests'),
-                          icon: <MessageSquarePlus size={14} />,
-                        },
-                        {
-                          label: voxperyServer ? 'Open community' : 'Join community',
-                          onClick: () => {
-                            void openOfficialCommunity()
-                          },
-                          variant: 'secondary',
-                          icon: <Compass size={14} />,
-                        },
-                      ]}
-                    />
-                  ) : (
-                    <div className="home-empty-row">
+              ) : (
+                <div className="home-friends-scroll">
+                  <div className="home-list-group">
+                    <div className="home-list-title">
                       {friendsFilter === 'online'
-                        ? "No one's online right now."
-                        : 'No friends found for this view.'}
+                        ? `Online Friends — ${onlineFriends.length}`
+                        : `All Friends — ${friends.length}`}
                     </div>
-                  )
-                ) : (
-                  visibleFriends.map((friend) => {
-                    return (
-                      <div
-                        key={friend.id}
-                        className={`home-member-row is-clickable ${openingDmPeerId === friend.id ? 'is-loading' : ''}`}
-                        aria-disabled={openingDmPeerId === friend.id}
-                      >
-                        <button
-                          type="button"
-                          className="home-member-main"
-                          aria-label={`Message ${friend.username}`}
-                          disabled={openingDmPeerId === friend.id}
-                          onClick={() => void openMessageForFriend(friend.id)}
-                        >
-                          <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
-                            {friend.avatar_url ? (
-                              <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
-                            ) : (
-                              friend.username.charAt(0).toUpperCase()
-                            )}
-                          </div>
-                          <div className="home-member-meta">
-                            <div>{friend.username}</div>
-                            <span>
-                              <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
-                                <span className="home-presence-pill-dot" aria-hidden />
-                                {presenceLabel(friend.status)}
-                              </span>
-                            </span>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          className="home-member-action home-member-action--trailing danger"
-                          title="Remove friend"
-                          disabled={openingDmPeerId === friend.id}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setRemoveFriendTarget(friend)
-                          }}
-                        >
-                          <UserMinus size={15} />
-                        </button>
+                    {socialBootstrapLoading ? (
+                      <div className="home-list-skeleton" aria-hidden="true">
+                        <div className="home-list-skeleton-row" />
+                        <div className="home-list-skeleton-row" />
+                        <div className="home-list-skeleton-row" />
                       </div>
-                    )
-                  })
-                )}
-              </div>
+                    ) : visibleFriends.length === 0 ? (
+                      friends.length === 0 ? (
+                        <OnboardingCard
+                          title="Start your social graph"
+                          description="Add a friend or jump into the official Voxpery community so you have someone to message right away."
+                          actions={[
+                            {
+                              label: 'Add a friend',
+                              onClick: () => setFriendsFilter('requests'),
+                              icon: <MessageSquarePlus size={14} />,
+                            },
+                            {
+                              label: voxperyServer ? 'Open community' : 'Join community',
+                              onClick: () => {
+                                void openOfficialCommunity()
+                              },
+                              variant: 'secondary',
+                              icon: <Compass size={14} />,
+                            },
+                          ]}
+                        />
+                      ) : (
+                        <div className="home-empty-row">
+                          {friendsFilter === 'online'
+                            ? "No one's online right now."
+                            : 'No friends found for this view.'}
+                        </div>
+                      )
+                    ) : (
+                      visibleFriends.map((friend) => {
+                        return (
+                          <div
+                            key={friend.id}
+                            className={`home-member-row is-clickable ${openingDmPeerId === friend.id ? 'is-loading' : ''}`}
+                            aria-disabled={openingDmPeerId === friend.id}
+                          >
+                            <button
+                              type="button"
+                              className="home-member-main"
+                              aria-label={`Message ${friend.username}`}
+                              disabled={openingDmPeerId === friend.id}
+                              onClick={() => void openMessageForFriend(friend.id)}
+                            >
+                              <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
+                                {friend.avatar_url ? (
+                                  <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
+                                ) : (
+                                  friend.username.charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div className="home-member-meta">
+                                <div>{friend.username}</div>
+                                <span>
+                                  <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
+                                    <span className="home-presence-pill-dot" aria-hidden />
+                                    {presenceLabel(friend.status)}
+                                  </span>
+                                </span>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              className="home-member-action home-member-action--trailing danger"
+                              title="Remove friend"
+                              disabled={openingDmPeerId === friend.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setRemoveFriendTarget(friend)
+                              }}
+                            >
+                              <UserMinus size={15} />
+                            </button>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
               )}
             </>
           )}
