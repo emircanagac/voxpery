@@ -6933,8 +6933,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   transition: all 0.2s ease;
   cursor: pointer;
   justify-content: center;
@@ -6951,6 +6953,15 @@ body {
   background: rgba(59, 130, 246, 0.15);
   border-color: rgba(59, 130, 246, 0.4);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1) inset;
+}
+
+.home-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  line-height: 1;
 }
 
 .home-chip-badge {
@@ -7186,6 +7197,35 @@ body {
 
 .home-member-row.is-clickable:hover {
   background: rgba(59, 130, 246, 0.06);
+}
+
+.home-member-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.home-member-main:disabled {
+  cursor: wait;
+}
+
+.home-member-main:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.65);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.home-member-row.is-loading {
+  opacity: 0.72;
 }
 
 .home-member-avatar {

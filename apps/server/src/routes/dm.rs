@@ -417,7 +417,16 @@ async fn get_or_create_dm_channel(
                     WHERE m.channel_id = c.id
                     ORDER BY m.created_at DESC
                     LIMIT 1
-                  ) as last_message_at
+                  ) as last_message_at,
+                  (
+                    SELECT COUNT(*)
+                    FROM dm_messages m
+                    LEFT JOIN dm_channel_reads r
+                      ON r.channel_id = c.id AND r.user_id = $1
+                    WHERE m.channel_id = c.id
+                      AND m.user_id <> $1
+                      AND (r.read_at IS NULL OR m.created_at > r.read_at)
+                  ) as unread_count
            FROM dm_channels c
            INNER JOIN dm_channel_members peer_m
              ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
