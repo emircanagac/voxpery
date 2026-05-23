@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Channel } from '../api'
 import ChatArea from './ChatArea'
 
@@ -77,7 +77,12 @@ function renderChatArea(overrides?: Partial<React.ComponentProps<typeof ChatArea
 
 describe('ChatArea regressions', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     scrollToIndex.mockClear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('re-anchors switched channels to their latest rendered message', async () => {
@@ -109,9 +114,9 @@ describe('ChatArea regressions', () => {
     })
   })
 
-  it('keeps older-message pagination out of the latest-message snap path', async () => {
+  it('auto-loads older messages near the top without snapping to latest', async () => {
     const onLoadOlder = vi.fn()
-    const { rerender } = renderChatArea({
+    const { container, rerender } = renderChatArea({
       hasMoreOlder: true,
       onLoadOlder,
     })
@@ -121,7 +126,9 @@ describe('ChatArea regressions', () => {
     })
 
     scrollToIndex.mockClear()
-    fireEvent.click(screen.getByRole('button', { name: 'Load older messages' }))
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    scroller.scrollTop = 72
+    fireEvent.scroll(scroller)
 
     expect(onLoadOlder).toHaveBeenCalledOnce()
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
@@ -152,6 +159,177 @@ describe('ChatArea regressions', () => {
       expect(screen.getByText('prepended')).toBeInTheDocument()
     })
     expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
+  })
+
+  it('cancels pending latest anchoring when the user manually scrolls after a channel switch', () => {
+    vi.useFakeTimers()
+    const { container, rerender, unmount } = renderChatArea()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('off-topic', 'off-topic')}
+        messages={[message('message-3', 'older', 2), message('message-4', 'newest', 3)]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    scroller.scrollTop = 240
+    fireEvent.wheel(scroller, { deltaY: -80 })
+    fireEvent.scroll(scroller)
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    unmount()
+    vi.useRealTimers()
+  })
+
+  it('keeps a switched channel pending until its messages arrive', () => {
+    vi.useFakeTimers()
+    const { rerender, unmount } = renderChatArea()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('off-topic', 'off-topic')}
+        messages={[]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    act(() => {
+      vi.advanceTimersByTime(1200)
+    })
+
+    scrollToIndex.mockClear()
+    rerender(
+      <ChatArea
+        activeChannel={channel('off-topic', 'off-topic')}
+        messages={[message('message-3', 'older', 2), message('message-4', 'newest', 3)]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    unmount()
+    vi.useRealTimers()
+  })
+
+  it('keeps channel-switch latest anchoring through passive scroll events from list changes', () => {
+    vi.useFakeTimers()
+    const { container, rerender, unmount } = renderChatArea()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    scroller.scrollTop = 240
+    fireEvent.wheel(scroller, { deltaY: -80 })
+    fireEvent.scroll(scroller)
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('off-topic', 'off-topic')}
+        messages={[]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    scroller.scrollTop = 120
+    fireEvent.scroll(scroller)
+
+    scrollToIndex.mockClear()
+    rerender(
+      <ChatArea
+        activeChannel={channel('off-topic', 'off-topic')}
+        messages={[message('message-3', 'older', 2), message('message-4', 'newest', 3)]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    unmount()
+    vi.useRealTimers()
+  })
+
+  it('does not re-lock to latest when the user scrolls slightly upward near the bottom', () => {
+    const { container, rerender } = renderChatArea()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    scroller.scrollTop = 1060
+    fireEvent.wheel(scroller, { deltaY: -24 })
+    fireEvent.scroll(scroller)
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={[
+          message('message-1', 'hello', 0),
+          message('message-2', 'latest', 1),
+          message('message-3', 'new arrival', 2),
+        ]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
+    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
   it('renders inline stickers and GIFs as chat media instead of text links', () => {

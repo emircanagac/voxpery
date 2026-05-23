@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -28,6 +28,7 @@ type MentionUser = {
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const BOTTOM_LOCK_THRESHOLD_PX = 120
+const TOP_AUTO_LOAD_THRESHOLD_PX = 96
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 const ESTIMATED_GROUPED_MESSAGE_ROW_PX = 24
 const ESTIMATED_MESSAGE_GROUP_ROW_PX = 52
@@ -534,8 +535,19 @@ export default function ChatArea({
     const lastBottomAnchoredChannelIdRef = useRef<string | null>(null)
     const pendingLatestAnchorChannelIdRef = useRef<string | null>(null)
     const latestAnchorCleanupRef = useRef<(() => void) | null>(null)
+    const programmaticScrollRef = useRef(0)
+    const userReadingHistoryRef = useRef(false)
+    const lastKnownScrollTopRef = useRef(0)
+    const touchStartYRef = useRef<number | null>(null)
     const preservingOlderMessagesRef = useRef(false)
-    const olderMessagesAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+    const olderLoadRequestedRef = useRef(false)
+    const olderMessagesAnchorRef = useRef<{
+        scrollTop: number
+        scrollHeight: number
+        messageId?: string
+        messageIndex?: number
+        offsetTop?: number
+    } | null>(null)
     const prevViewActiveRef = useRef(isViewActive)
     const [showJumpToLatest, setShowJumpToLatest] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -614,6 +626,40 @@ export default function ChatArea({
 
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
 
+    const isNearBottom = useCallback((el: HTMLDivElement) => {
+        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        return distanceToBottom < BOTTOM_LOCK_THRESHOLD_PX
+    }, [])
+
+    const isAtBottom = useCallback((el: HTMLDivElement) => {
+        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        return distanceToBottom <= 4
+    }, [])
+
+    const runProgrammaticScroll = useCallback((fn: () => void) => {
+        programmaticScrollRef.current += 1
+        try {
+            fn()
+        } finally {
+            window.requestAnimationFrame(() => {
+                programmaticScrollRef.current = Math.max(0, programmaticScrollRef.current - 1)
+            })
+        }
+    }, [])
+
+    const cancelLatestAnchor = useCallback(() => {
+        latestAnchorCleanupRef.current?.()
+        latestAnchorCleanupRef.current = null
+        pendingLatestAnchorChannelIdRef.current = null
+    }, [])
+
+    const markUserReadingHistory = useCallback(() => {
+        cancelLatestAnchor()
+        userReadingHistoryRef.current = true
+        shouldAutoScrollRef.current = false
+        setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
+    }, [cancelLatestAnchor, messages.length])
+
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
         getScrollElement: () => messagesScrollRef.current,
@@ -633,10 +679,72 @@ export default function ChatArea({
         const el = messagesScrollRef.current
         const anchor = olderMessagesAnchorRef.current
         if (!el || !anchor) return
+        if (anchor.messageId && typeof anchor.offsetTop === 'number') {
+            const anchorIndex = messages.findIndex((message) => message.id === anchor.messageId)
+            const anchoredMessage = Array
+                .from(el.querySelectorAll<HTMLElement>('[data-message-id]'))
+                .find((item) => item.dataset.messageId === anchor.messageId)
+            if (!anchoredMessage && anchorIndex >= 0) {
+                runProgrammaticScroll(() => {
+                    rowVirtualizer.scrollToIndex(anchorIndex, { align: 'start' })
+                    el.scrollTop = Math.max(0, el.scrollTop - Math.max(0, anchor.offsetTop ?? 0))
+                    lastKnownScrollTopRef.current = el.scrollTop
+                })
+                shouldAutoScrollRef.current = false
+                setShowJumpToLatest(true)
+                return
+            }
+            if (anchoredMessage) {
+                const currentOffsetTop = anchoredMessage.getBoundingClientRect().top - el.getBoundingClientRect().top
+                const delta = currentOffsetTop - anchor.offsetTop
+                if (Math.abs(delta) > 1) {
+                    runProgrammaticScroll(() => {
+                        el.scrollTop += delta
+                        lastKnownScrollTopRef.current = el.scrollTop
+                    })
+                }
+                shouldAutoScrollRef.current = false
+                setShowJumpToLatest(true)
+                return
+            }
+        }
         el.scrollTop = anchor.scrollTop + Math.max(0, el.scrollHeight - anchor.scrollHeight)
         shouldAutoScrollRef.current = false
         setShowJumpToLatest(true)
+    }, [messages, rowVirtualizer, runProgrammaticScroll])
+
+    const captureOlderMessagesAnchor = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el) return null
+        const scrollerRect = el.getBoundingClientRect()
+        const messageItems = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]'))
+        const firstVisibleItem = messageItems
+            .map((item) => ({ item, rect: item.getBoundingClientRect() }))
+            .filter(({ rect }) => rect.bottom > scrollerRect.top && rect.top < scrollerRect.bottom)
+            .sort((a, b) => Math.abs(a.rect.top - scrollerRect.top) - Math.abs(b.rect.top - scrollerRect.top))[0]?.item
+        const messageId = firstVisibleItem?.dataset.messageId
+        const messageIndex = Number(firstVisibleItem?.dataset.index)
+        return {
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            messageId,
+            messageIndex: Number.isFinite(messageIndex) ? messageIndex : undefined,
+            offsetTop: firstVisibleItem ? firstVisibleItem.getBoundingClientRect().top - scrollerRect.top : undefined,
+        }
     }, [])
+
+    const startOlderMessagesLoad = useCallback(() => {
+        if (!hasMoreOlder || loadingOlder || olderLoadRequestedRef.current) return
+        if (!onLoadOlder || messages.length === 0) return
+        olderLoadRequestedRef.current = true
+        olderMessagesAnchorRef.current = captureOlderMessagesAnchor()
+        cancelLatestAnchor()
+        userReadingHistoryRef.current = true
+        preservingOlderMessagesRef.current = true
+        shouldAutoScrollRef.current = false
+        setShowJumpToLatest(true)
+        onLoadOlder()
+    }, [cancelLatestAnchor, captureOlderMessagesAnchor, hasMoreOlder, loadingOlder, messages.length, onLoadOlder])
 
     /* Jump to bottom before paint when opening/switching chats so the user does
        not see a visible "top -> bottom" scroll animation on first render. */
@@ -645,27 +753,43 @@ export default function ChatArea({
         if (preservingOlderMessagesRef.current) return false
         const el = messagesScrollRef.current
         if (!el || el.clientHeight <= 0) return false
-        shouldAutoScrollRef.current = true
-        setShowJumpToLatest(false)
-        const lastIndex = virtualCount - 1
-        el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
-        if (lastIndex >= 0) {
-            rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
-        }
-        requestAnimationFrame(() => {
-            if (expectedChannelId && currentChatChannelIdRef.current !== expectedChannelId) return
-            const latest = messagesScrollRef.current
-            if (!latest || latest.clientHeight <= 0) return
-            latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
+        let snapped = false
+        runProgrammaticScroll(() => {
+            userReadingHistoryRef.current = false
+            shouldAutoScrollRef.current = true
+            setShowJumpToLatest(false)
+            const lastIndex = virtualCount - 1
+            el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+            lastKnownScrollTopRef.current = el.scrollTop
             if (lastIndex >= 0) {
                 rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
             }
+            snapped = true
         })
-        return true
-    }, [rowVirtualizer, virtualCount])
+        requestAnimationFrame(() => {
+            if (expectedChannelId && currentChatChannelIdRef.current !== expectedChannelId) return
+            if (expectedChannelId && pendingLatestAnchorChannelIdRef.current !== expectedChannelId) return
+            const latest = messagesScrollRef.current
+            if (!latest || latest.clientHeight <= 0) return
+            runProgrammaticScroll(() => {
+                userReadingHistoryRef.current = false
+                shouldAutoScrollRef.current = true
+                setShowJumpToLatest(false)
+                latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
+                lastKnownScrollTopRef.current = latest.scrollTop
+                const lastIndex = virtualCount - 1
+                if (lastIndex >= 0) {
+                    rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' })
+                }
+            })
+        })
+        return snapped
+    }, [rowVirtualizer, runProgrammaticScroll, virtualCount])
+    const snapToBottomRef = useRef(snapToBottom)
+    snapToBottomRef.current = snapToBottom
 
     const scheduleLatestAnchor = useCallback((channelId: string) => {
-        latestAnchorCleanupRef.current?.()
+        cancelLatestAnchor()
         pendingLatestAnchorChannelIdRef.current = channelId
         let cancelled = false
         const rafIds: number[] = []
@@ -676,7 +800,7 @@ export default function ChatArea({
             if (pendingLatestAnchorChannelIdRef.current !== channelId) return
             shouldAutoScrollRef.current = true
             setShowJumpToLatest(false)
-            snapToBottom(channelId)
+            snapToBottomRef.current(channelId)
         }
         const queueRaf = (remaining: number) => {
             const id = window.requestAnimationFrame(() => {
@@ -690,17 +814,12 @@ export default function ChatArea({
         for (const delay of [48, 120, 260, 520]) {
             timeoutIds.push(window.setTimeout(snapIfCurrent, delay))
         }
-        timeoutIds.push(window.setTimeout(() => {
-            if (!cancelled && pendingLatestAnchorChannelIdRef.current === channelId) {
-                pendingLatestAnchorChannelIdRef.current = null
-            }
-        }, 760))
         latestAnchorCleanupRef.current = () => {
             cancelled = true
             for (const id of rafIds) window.cancelAnimationFrame(id)
             for (const id of timeoutIds) window.clearTimeout(id)
         }
-    }, [snapToBottom])
+    }, [cancelLatestAnchor])
 
     const syncAutoScrollState = useCallback(() => {
         if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id) {
@@ -715,12 +834,61 @@ export default function ChatArea({
         }
         const el = messagesScrollRef.current
         if (!el) return
-        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        const isNearBottom = distanceToBottom < BOTTOM_LOCK_THRESHOLD_PX
-        shouldAutoScrollRef.current = isNearBottom
-        const nextShowJump = !isNearBottom && messages.length > 0
+        if (userReadingHistoryRef.current) {
+            if (isAtBottom(el)) {
+                userReadingHistoryRef.current = false
+                shouldAutoScrollRef.current = true
+                setShowJumpToLatest(false)
+                return
+            }
+            shouldAutoScrollRef.current = false
+            setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
+            return
+        }
+        const nearBottom = isNearBottom(el)
+        shouldAutoScrollRef.current = nearBottom
+        const nextShowJump = !nearBottom && messages.length > 0
         setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
-    }, [activeChannel?.id, messages.length])
+    }, [activeChannel?.id, isAtBottom, isNearBottom, messages.length])
+
+    const handleMessagesScroll = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (el && programmaticScrollRef.current === 0) {
+            if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id) {
+                lastKnownScrollTopRef.current = el.scrollTop
+                syncAutoScrollState()
+                return
+            }
+            const previousScrollTop = lastKnownScrollTopRef.current
+            if (el.scrollTop < previousScrollTop - 1) {
+                markUserReadingHistory()
+            }
+            lastKnownScrollTopRef.current = el.scrollTop
+        }
+        if (el && el.scrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX) {
+            startOlderMessagesLoad()
+        }
+        syncAutoScrollState()
+    }, [activeChannel?.id, markUserReadingHistory, startOlderMessagesLoad, syncAutoScrollState])
+
+    const handleWheelScrollIntent = useCallback((event: WheelEvent<HTMLDivElement>) => {
+        if (event.deltaY < 0) {
+            markUserReadingHistory()
+        }
+    }, [markUserReadingHistory])
+
+    const handleTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
+        touchStartYRef.current = event.touches[0]?.clientY ?? null
+    }, [])
+
+    const handleTouchMoveScrollIntent = useCallback((event: TouchEvent<HTMLDivElement>) => {
+        const startY = touchStartYRef.current
+        const nextY = event.touches[0]?.clientY ?? null
+        if (startY != null && nextY != null && nextY > startY + 2) {
+            markUserReadingHistory()
+        }
+        touchStartYRef.current = nextY
+    }, [markUserReadingHistory])
 
     /* When switching channel/DM, aggressively re-anchor to the latest visible
        content so returning to a previously read chat does not keep an older
@@ -731,14 +899,16 @@ export default function ChatArea({
         if (lastBottomAnchoredChannelIdRef.current === channelId) return
         lastBottomAnchoredChannelIdRef.current = channelId
         if (!channelId) return
+        userReadingHistoryRef.current = false
+        lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
         shouldAutoScrollRef.current = true
         scheduleLatestAnchor(channelId)
         return () => {
-            latestAnchorCleanupRef.current?.()
+            cancelLatestAnchor()
         }
-    }, [activeChannel?.id, scheduleLatestAnchor])
+    }, [activeChannel?.id, cancelLatestAnchor, scheduleLatestAnchor])
 
     /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
        from Messages view). useLayoutEffect keeps the first painted frame already
@@ -783,6 +953,11 @@ export default function ChatArea({
             })
         })
     }, [loadingOlder, messages.length, restoreOlderMessagesAnchor])
+
+    useEffect(() => {
+        if (loadingOlder) return
+        olderLoadRequestedRef.current = false
+    }, [activeChannel?.id, loadingOlder, messages.length])
 
     useEffect(() => {
         const spacer = virtualListSpacerRef.current
@@ -976,6 +1151,7 @@ export default function ChatArea({
         const hasText = messageInput.trim().length > 0
         const hasAttachments = draftAttachments.length > 0
         if (!hasForcedContent && !hasText && !hasAttachments) return
+        userReadingHistoryRef.current = false
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
         pendingSubmitAutoScrollRef.current = true
@@ -1059,15 +1235,16 @@ export default function ChatArea({
         setEmojiOpen(false)
         setReactionPickerMessageId(null)
         setShowJumpToLatest(false)
+        userReadingHistoryRef.current = false
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
     }, [activeChannel?.id])
 
     useEffect(() => {
         return () => {
-            latestAnchorCleanupRef.current?.()
+            cancelLatestAnchor()
         }
-    }, [])
+    }, [cancelLatestAnchor])
 
     useLayoutEffect(() => {
         syncAutoScrollState()
@@ -1642,34 +1819,14 @@ export default function ChatArea({
             <div
                 className="chat-messages chat-messages-virtual"
                 ref={setMessagesScrollRef}
-                onScroll={() => {
-                    syncAutoScrollState()
-                }}
+                onWheel={handleWheelScrollIntent}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMoveScrollIntent}
+                onScroll={handleMessagesScroll}
             >
                 {hasMoreOlder && messages.length > 0 && (
-                    <div className="chat-load-older">
-                        <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={loadingOlder}
-                            onClick={() => {
-                                const el = messagesScrollRef.current
-                                if (el) {
-                                    olderMessagesAnchorRef.current = {
-                                        scrollTop: el.scrollTop,
-                                        scrollHeight: el.scrollHeight,
-                                    }
-                                }
-                                latestAnchorCleanupRef.current?.()
-                                pendingLatestAnchorChannelIdRef.current = null
-                                preservingOlderMessagesRef.current = true
-                                shouldAutoScrollRef.current = false
-                                setShowJumpToLatest(true)
-                                onLoadOlder?.()
-                            }}
-                        >
-                            {loadingOlder ? 'Loading…' : 'Load older messages'}
-                        </button>
+                    <div className="chat-load-older" aria-live="polite">
+                        {loadingOlder ? 'Loading older messages…' : 'Scroll up for older messages'}
                     </div>
                 )}
                 {loading ? (
@@ -1765,6 +1922,7 @@ export default function ChatArea({
                                 <div
                                     key={msg.id}
                                     data-index={virtualRow.index}
+                                    data-message-id={msg.id}
                                     ref={rowVirtualizer.measureElement}
                                     className={`virtual-list-item ${virtualRow.index === 0 ? 'virtual-list-item-first' : ''}`}
                                     style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
@@ -1894,6 +2052,7 @@ export default function ChatArea({
                         type="button"
                         className="chat-jump-to-latest"
                         onClick={() => {
+                            userReadingHistoryRef.current = false
                             preservingOlderMessagesRef.current = false
                             olderMessagesAnchorRef.current = null
                             snapToBottom()
