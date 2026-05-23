@@ -7352,6 +7352,14 @@ body {
   color: #94a3b8;
 }
 
+.home-member-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .home-member-action {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
@@ -7366,13 +7374,23 @@ body {
   cursor: pointer;
 }
 
+.home-member-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.home-member-action:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.65);
+  outline-offset: 2px;
+}
+
 .home-member-action:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.home-member-action--trailing {
-  margin-left: auto;
+.home-member-action--message:hover {
+  color: var(--text-primary);
 }
 
 .home-member-action.danger {
