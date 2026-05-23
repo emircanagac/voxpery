@@ -152,6 +152,20 @@ describe('HomePage friends list', () => {
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
   })
 
+  it('opens a DM from the friend action button', async () => {
+    apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
+
+    renderHomePage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open DM with cilo' }))
+
+    await waitFor(() => {
+      expect(apiMocks.getOrCreateDmChannel).toHaveBeenCalledWith('friend-cilo', null)
+      expect(useAppStore.getState().activeDmChannelId).toBe('dm-cilo')
+    })
+    expect(screen.getByTestId('dm-chat')).not.toBeNull()
+  })
+
   it('shows a toast when opening a DM fails', async () => {
     apiMocks.getOrCreateDmChannel.mockRejectedValue(new Error('Could not create DM'))
 

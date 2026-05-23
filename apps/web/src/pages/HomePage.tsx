@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -1202,18 +1202,33 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                                 </span>
                               </div>
                             </button>
-                            <button
-                              type="button"
-                              className="home-member-action home-member-action--trailing danger"
-                              title="Remove friend"
-                              disabled={openingDmPeerId === friend.id}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setRemoveFriendTarget(friend)
-                              }}
-                            >
-                              <UserMinus size={15} />
-                            </button>
+                            <div className="home-member-actions">
+                              <button
+                                type="button"
+                                className="home-member-action home-member-action--message"
+                                title="Send message"
+                                aria-label={`Open DM with ${friend.username}`}
+                                disabled={openingDmPeerId === friend.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void openMessageForFriend(friend.id)
+                                }}
+                              >
+                                <MessageCircle size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                className="home-member-action danger"
+                                title="Remove friend"
+                                disabled={openingDmPeerId === friend.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setRemoveFriendTarget(friend)
+                                }}
+                              >
+                                <UserMinus size={15} />
+                              </button>
+                            </div>
                           </div>
                         )
                       })
