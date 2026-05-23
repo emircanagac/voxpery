@@ -7003,7 +7003,6 @@ body {
 
 .home-friends-scroll {
   flex: 1 1 auto;
-  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
@@ -7013,7 +7012,7 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgba(122, 170, 231, 0.36) transparent;
   padding-right: 2px;
-  padding-bottom: 16px;
+  padding-bottom: calc(16px + 80px);
 }
 
 .home-friends-scroll::-webkit-scrollbar {
@@ -13313,6 +13312,11 @@ textarea {
     min-height: max-content;
     overflow: visible;
     padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .home-friends-scroll {
+    padding-bottom: 16px;
+    scrollbar-gutter: auto;
   }
 
   .home-main-dm .social-content-dm {
