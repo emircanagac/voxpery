@@ -2235,6 +2235,7 @@ body {
   line-height: 1.25;
   display: -webkit-box;
   -webkit-box-orient: vertical;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
@@ -6753,6 +6754,10 @@ body {
   padding: 16px;
 }
 
+.home-main .social-content:not(.social-content-dm) {
+  overflow: hidden;
+}
+
 /* DM view: fill height so conversation + input extend to bottom (like server chat) */
 .social-content-dm {
   overflow: hidden;
@@ -6998,14 +7003,30 @@ body {
 
 .home-friends-scroll {
   flex: 1 1 auto;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(122, 170, 231, 0.36) transparent;
   padding-right: 2px;
   padding-bottom: 16px;
+}
+
+.home-friends-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.home-friends-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(122, 170, 231, 0.32);
+}
+
+.home-friends-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 170, 231, 0.48);
 }
 
 .home-friends-scroll--requests {
