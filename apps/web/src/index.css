@@ -7028,6 +7028,10 @@ body {
   background: rgba(122, 170, 231, 0.48);
 }
 
+.home-friends-scroll>.home-list-group {
+  flex: 0 0 auto;
+}
+
 .home-friends-scroll--requests {
   display: flex;
   flex-direction: column;

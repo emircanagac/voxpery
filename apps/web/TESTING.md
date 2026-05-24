@@ -22,9 +22,20 @@ E2E (Playwright):
 
 ```bash
 npm run test:e2e
+npm run test:e2e:ui-smoke
 npm run test:e2e:ui
 npm run test:e2e:headed
 ```
+
+Mocked core UI smoke:
+
+```bash
+npm run test:e2e:ui-smoke
+```
+
+This Playwright suite runs against the real Vite UI with mocked API and WebSocket
+responses, so it does not require a backend. Use it as the fast PR guard for
+Friends, Requests, DM, and responsive shell regressions.
 
 ## Backend (`apps/server`)
 
