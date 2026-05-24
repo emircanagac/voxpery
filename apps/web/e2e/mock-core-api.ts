@@ -25,6 +25,7 @@ export interface MockCoreState {
   channelsByServerId: Record<string, Channel[]>
   membersByServerId: Record<string, MemberInfo[]>
   messagesByChannelId: Record<string, MessageWithAuthor[]>
+  pinnedMessageIdsByChannelId: Record<string, string[]>
 }
 
 const DEFAULT_FEATURES: SystemFeatures = {
@@ -181,6 +182,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     channelsByServerId: {},
     membersByServerId: {},
     messagesByChannelId: {},
+    pinnedMessageIdsByChannelId: {},
     ...overrides,
   }
 }
@@ -349,6 +351,33 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  if (pathname === '/api/channels' && method === 'POST') {
+    const body = request.postDataJSON() as {
+      server_id?: string
+      name?: string
+      description?: string
+      channel_type?: 'text' | 'voice'
+      category?: string
+    }
+    const serverId = body.server_id ?? state.servers[0]?.id ?? 'server-core'
+    const existing = state.channelsByServerId[serverId] ?? []
+    const name = body.name?.trim() || 'new-channel'
+    const channel: Channel = {
+      id: `${serverId}-${slugifyChannelName(name)}-${Date.now()}`,
+      server_id: serverId,
+      name,
+      description: body.description?.trim() || null,
+      channel_type: body.channel_type === 'voice' ? 'voice' : 'text',
+      category: body.category?.trim() || 'GENERAL',
+      position: existing.length,
+      my_permissions: ALL_PERMISSIONS,
+    }
+    state.channelsByServerId[serverId] = [...existing, channel]
+    state.messagesByChannelId[channel.id] = state.messagesByChannelId[channel.id] ?? []
+    await json(route, channel)
+    return
+  }
+
   if (pathname === '/api/webrtc/turn-credentials' && method === 'GET') {
     await json(route, { urls: [] })
     return
@@ -495,18 +524,95 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   const serverPinsMatch = pathname.match(/^\/api\/messages\/([^/]+)\/pins$/)
   if (serverPinsMatch && method === 'GET') {
-    await json(route, [])
+    const channelId = serverPinsMatch[1]
+    const pinnedIds = new Set(state.pinnedMessageIdsByChannelId[channelId] ?? [])
+    const pins = (state.messagesByChannelId[channelId] ?? []).filter((message) => pinnedIds.has(message.id))
+    await json(route, pins)
     return
   }
 
   if (serverPinsMatch && method === 'POST') {
-    await json(route, buildServerMessage(serverPinsMatch[1], 'Pinned smoke message'))
+    const channelId = serverPinsMatch[1]
+    const body = request.postDataJSON() as { message_id?: string }
+    const messageId = body.message_id ?? ''
+    const message = findServerMessage(state, messageId)
+    if (!message) {
+      await json(route, { error: 'Message not found' }, 404)
+      return
+    }
+    const currentPins = state.pinnedMessageIdsByChannelId[channelId] ?? []
+    state.pinnedMessageIdsByChannelId[channelId] = Array.from(new Set([...currentPins, messageId]))
+    await json(route, message)
     return
   }
 
   const serverPinDeleteMatch = pathname.match(/^\/api\/messages\/([^/]+)\/pins\/([^/]+)$/)
   if (serverPinDeleteMatch && method === 'DELETE') {
+    const channelId = serverPinDeleteMatch[1]
+    const messageId = serverPinDeleteMatch[2]
+    state.pinnedMessageIdsByChannelId[channelId] = (state.pinnedMessageIdsByChannelId[channelId] ?? [])
+      .filter((id) => id !== messageId)
     await json(route, {})
+    return
+  }
+
+  const messageReactionMatch = pathname.match(/^\/api\/messages\/item\/([^/]+)\/reactions$/)
+  if (messageReactionMatch && (method === 'POST' || method === 'DELETE')) {
+    const messageId = messageReactionMatch[1]
+    const message = findServerMessage(state, messageId)
+    if (!message) {
+      await json(route, { error: 'Message not found' }, 404)
+      return
+    }
+    const emoji = method === 'POST'
+      ? ((request.postDataJSON() as { emoji?: string }).emoji ?? '')
+      : (url.searchParams.get('emoji') ?? '')
+    const existingReactions = message.reactions ?? []
+    if (method === 'POST') {
+      const current = existingReactions.find((reaction) => reaction.emoji === emoji)
+      message.reactions = current
+        ? existingReactions.map((reaction) =>
+          reaction.emoji === emoji
+            ? { ...reaction, count: Math.max(reaction.count, 0) + (reaction.reacted ? 0 : 1), reacted: true }
+            : reaction,
+        )
+        : [...existingReactions, { emoji, count: 1, reacted: true }]
+    } else {
+      message.reactions = existingReactions
+        .map((reaction) =>
+          reaction.emoji === emoji
+            ? { ...reaction, count: Math.max(reaction.count - (reaction.reacted ? 1 : 0), 0), reacted: false }
+            : reaction,
+        )
+        .filter((reaction) => reaction.count > 0)
+    }
+    await json(route, message)
+    return
+  }
+
+  const messageItemMatch = pathname.match(/^\/api\/messages\/item\/([^/]+)$/)
+  if (messageItemMatch && method === 'PATCH') {
+    const messageId = messageItemMatch[1]
+    const message = findServerMessage(state, messageId)
+    if (!message) {
+      await json(route, { error: 'Message not found' }, 404)
+      return
+    }
+    const body = request.postDataJSON() as { content?: string }
+    message.content = body.content ?? message.content
+    message.edited_at = new Date().toISOString()
+    await json(route, message)
+    return
+  }
+
+  if (messageItemMatch && method === 'DELETE') {
+    const messageId = messageItemMatch[1]
+    for (const [channelId, messages] of Object.entries(state.messagesByChannelId)) {
+      state.messagesByChannelId[channelId] = messages.filter((message) => message.id !== messageId)
+      state.pinnedMessageIdsByChannelId[channelId] = (state.pinnedMessageIdsByChannelId[channelId] ?? [])
+        .filter((id) => id !== messageId)
+    }
+    await json(route, { message: 'deleted', id: messageId })
     return
   }
 
@@ -583,6 +689,23 @@ function createServerMessage(
       role_color: '#93c5fd',
     },
   }
+}
+
+function slugifyChannelName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'channel'
+}
+
+function findServerMessage(state: MockCoreState, messageId: string): MessageWithAuthor | null {
+  for (const messages of Object.values(state.messagesByChannelId)) {
+    const message = messages.find((entry) => entry.id === messageId)
+    if (message) return message
+  }
+  return null
 }
 
 async function json(route: Route, body: unknown, status = 200) {
