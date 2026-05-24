@@ -1,8 +1,10 @@
 import type { Page, Route } from '@playwright/test'
 import type {
+  Channel,
   DmChannel,
   Friend,
   FriendRequest,
+  MemberInfo,
   MessageWithAuthor,
   Server,
   SystemFeatures,
@@ -10,6 +12,7 @@ import type {
 } from '../src/api'
 
 const AUTH_STORAGE_KEY = 'voxpery-auth'
+const ALL_PERMISSIONS = (1 << 13) - 1
 
 export interface MockCoreState {
   user: UserPublic
@@ -19,6 +22,9 @@ export interface MockCoreState {
   dmChannels: DmChannel[]
   dmMessagesByChannelId: Record<string, MessageWithAuthor[]>
   servers: Server[]
+  channelsByServerId: Record<string, Channel[]>
+  membersByServerId: Record<string, MemberInfo[]>
+  messagesByChannelId: Record<string, MessageWithAuthor[]>
 }
 
 const DEFAULT_FEATURES: SystemFeatures = {
@@ -57,6 +63,99 @@ export function buildRequests(count: number, direction: 'incoming' | 'outgoing')
   })
 }
 
+export function buildCoreServer(overrides: Partial<Server> = {}): Server {
+  return {
+    id: 'server-core',
+    name: 'Core Guild',
+    icon_url: undefined,
+    description: 'Mocked community for core UI smoke tests.',
+    owner_id: 'user-local',
+    invite_code: 'core-guild',
+    ...overrides,
+  }
+}
+
+export function buildCoreChannels(serverId = 'server-core'): Channel[] {
+  return [
+    {
+      id: `${serverId}-general`,
+      server_id: serverId,
+      name: 'general',
+      description: 'General chat for the core smoke fixture.',
+      channel_type: 'text',
+      category: 'GENERAL',
+      position: 0,
+      my_permissions: ALL_PERMISSIONS,
+    },
+    {
+      id: `${serverId}-announcements`,
+      server_id: serverId,
+      name: 'announcements',
+      description: 'Read updates before chatting.',
+      channel_type: 'text',
+      category: 'GENERAL',
+      position: 1,
+      my_permissions: ALL_PERMISSIONS,
+    },
+    {
+      id: `${serverId}-voice`,
+      server_id: serverId,
+      name: 'Voice Lounge',
+      description: 'Voice room used by the smoke fixture.',
+      channel_type: 'voice',
+      category: 'VOICE',
+      position: 2,
+      my_permissions: ALL_PERMISSIONS,
+    },
+  ]
+}
+
+export function buildCoreMembers(): MemberInfo[] {
+  return [
+    {
+      user_id: 'user-local',
+      username: 'localuser',
+      avatar_url: null,
+      role: 'owner',
+      status: 'online',
+      role_color: '#93c5fd',
+      roles: ['owner'],
+    },
+    {
+      user_id: 'friend-01',
+      username: 'Friend 01',
+      avatar_url: null,
+      role: 'member',
+      status: 'online',
+      role_color: null,
+      roles: [],
+    },
+  ]
+}
+
+export function buildServerMessage(
+  channelId: string,
+  content: string,
+  overrides: Partial<MessageWithAuthor> = {},
+): MessageWithAuthor {
+  return {
+    id: `message-${channelId}-${Math.random().toString(36).slice(2, 8)}`,
+    channel_id: channelId,
+    content,
+    attachments: [],
+    reactions: [],
+    edited_at: null,
+    created_at: new Date(Date.UTC(2026, 0, 15, 10, 0, 0)).toISOString(),
+    author: {
+      user_id: 'friend-01',
+      username: 'Friend 01',
+      avatar_url: undefined,
+      role_color: null,
+    },
+    ...overrides,
+  }
+}
+
 export function createMockCoreState(overrides: Partial<MockCoreState> = {}): MockCoreState {
   const user: UserPublic = {
     id: 'user-local',
@@ -79,6 +178,9 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     dmChannels: [],
     dmMessagesByChannelId: {},
     servers: [],
+    channelsByServerId: {},
+    membersByServerId: {},
+    messagesByChannelId: {},
     ...overrides,
   }
 }
@@ -95,6 +197,44 @@ export async function installMockCoreApi(page: Page, state: MockCoreState = crea
       )
       window.localStorage.removeItem('voxpery-hidden-dm-peers')
       window.sessionStorage.clear()
+
+      const permissionStatus = {
+        state: 'granted',
+        onchange: null,
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent() { return true },
+      }
+      Object.defineProperty(navigator, 'permissions', {
+        configurable: true,
+        value: {
+          query: async () => permissionStatus,
+        },
+      })
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          enumerateDevices: async () => [
+            {
+              deviceId: 'mock-microphone',
+              groupId: 'mock-audio',
+              kind: 'audioinput',
+              label: 'Mock Microphone',
+            },
+            {
+              deviceId: 'mock-speaker',
+              groupId: 'mock-audio',
+              kind: 'audiooutput',
+              label: 'Mock Speaker',
+            },
+          ],
+          getUserMedia: async () => {
+            throw new DOMException('Mock microphone unavailable in smoke tests.', 'NotAllowedError')
+          },
+          addEventListener() {},
+          removeEventListener() {},
+        },
+      })
 
       class MockWebSocket extends EventTarget {
         static CONNECTING = 0
@@ -165,6 +305,63 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (pathname === '/api/servers' && method === 'GET') {
     await json(route, state.servers)
+    return
+  }
+
+  const serverDetailMatch = pathname.match(/^\/api\/servers\/([^/]+)$/)
+  if (serverDetailMatch && method === 'GET') {
+    const serverId = serverDetailMatch[1]
+    const server = state.servers.find((item) => item.id === serverId)
+    if (!server) {
+      await json(route, { error: 'Server not found' }, 404)
+      return
+    }
+    await json(route, {
+      ...server,
+      my_permissions: ALL_PERMISSIONS,
+      members: state.membersByServerId[serverId] ?? buildCoreMembers(),
+    })
+    return
+  }
+
+  const serverChannelsMatch = pathname.match(/^\/api\/servers\/([^/]+)\/channels$/)
+  if (serverChannelsMatch && method === 'GET') {
+    await json(route, state.channelsByServerId[serverChannelsMatch[1]] ?? [])
+    return
+  }
+
+  const channelMembersMatch = pathname.match(/^\/api\/servers\/([^/]+)\/channels\/([^/]+)\/members$/)
+  if (channelMembersMatch && method === 'GET') {
+    await json(route, state.membersByServerId[channelMembersMatch[1]] ?? buildCoreMembers())
+    return
+  }
+
+  const categoriesMatch = pathname.match(/^\/api\/channels\/server\/([^/]+)\/categories$/)
+  if (categoriesMatch && method === 'GET') {
+    const categories = Array.from(
+      new Set(
+        (state.channelsByServerId[categoriesMatch[1]] ?? [])
+          .map((channel) => channel.category?.trim())
+          .filter((category): category is string => !!category),
+      ),
+    ).map((name) => ({ name }))
+    await json(route, categories)
+    return
+  }
+
+  if (pathname === '/api/webrtc/turn-credentials' && method === 'GET') {
+    await json(route, { urls: [] })
+    return
+  }
+
+  if (pathname === '/api/webrtc/livekit-token' && method === 'GET') {
+    const channelId = url.searchParams.get('channel_id') ?? 'mock-channel'
+    await json(route, {
+      ws_url: 'wss://livekit.invalid',
+      token: `mock-livekit-token-${channelId}`,
+      room: `mock-room-${channelId}`,
+      identity: state.user.id,
+    })
     return
   }
 
@@ -287,6 +484,50 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  const serverMessageSearchMatch = pathname.match(/^\/api\/messages\/([^/]+)\/search$/)
+  if (serverMessageSearchMatch && method === 'GET') {
+    const channelId = serverMessageSearchMatch[1]
+    const query = (url.searchParams.get('q') ?? '').trim().toLowerCase()
+    const rows = state.messagesByChannelId[channelId] ?? []
+    await json(route, query ? rows.filter((message) => message.content.toLowerCase().includes(query)) : rows)
+    return
+  }
+
+  const serverPinsMatch = pathname.match(/^\/api\/messages\/([^/]+)\/pins$/)
+  if (serverPinsMatch && method === 'GET') {
+    await json(route, [])
+    return
+  }
+
+  if (serverPinsMatch && method === 'POST') {
+    await json(route, buildServerMessage(serverPinsMatch[1], 'Pinned smoke message'))
+    return
+  }
+
+  const serverPinDeleteMatch = pathname.match(/^\/api\/messages\/([^/]+)\/pins\/([^/]+)$/)
+  if (serverPinDeleteMatch && method === 'DELETE') {
+    await json(route, {})
+    return
+  }
+
+  const serverMessagesMatch = pathname.match(/^\/api\/messages\/([^/]+)$/)
+  if (serverMessagesMatch && method === 'GET') {
+    await json(route, state.messagesByChannelId[serverMessagesMatch[1]] ?? [])
+    return
+  }
+
+  if (serverMessagesMatch && method === 'POST') {
+    const channelId = serverMessagesMatch[1]
+    const body = request.postDataJSON() as { content?: string; attachments?: unknown[] }
+    const message = createServerMessage(state, channelId, body.content ?? '', body.attachments ?? [])
+    state.messagesByChannelId[channelId] = [
+      ...(state.messagesByChannelId[channelId] ?? []),
+      message,
+    ]
+    await json(route, message)
+    return
+  }
+
   await json(route, { error: `Unhandled mocked endpoint: ${method} ${pathname}` }, 404)
 }
 
@@ -317,6 +558,29 @@ function createDmMessage(
       username: state.user.username,
       avatar_url: state.user.avatar_url,
       role_color: null,
+    },
+  }
+}
+
+function createServerMessage(
+  state: MockCoreState,
+  channelId: string,
+  content: string,
+  attachments: unknown[],
+): MessageWithAuthor {
+  return {
+    id: `message-${channelId}-${Date.now()}`,
+    channel_id: channelId,
+    content,
+    attachments: attachments as MessageWithAuthor['attachments'],
+    reactions: [],
+    edited_at: null,
+    created_at: new Date().toISOString(),
+    author: {
+      user_id: state.user.id,
+      username: state.user.username,
+      avatar_url: state.user.avatar_url,
+      role_color: '#93c5fd',
     },
   }
 }
