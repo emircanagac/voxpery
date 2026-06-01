@@ -1274,18 +1274,20 @@ async fn friend_dm_channel_open_returns_channel_info() {
     let suffix = Uuid::new_v4().simple().to_string();
     let alice_username = format!("alice{}", &suffix[..8]);
     let bob_username = format!("bob{}", &suffix[8..16]);
+    let alice_credential = format!("{}-{}", alice_username, Uuid::new_v4().simple());
+    let bob_credential = format!("{}-{}", bob_username, Uuid::new_v4().simple());
     let (alice_token, _) = register_user(
         &mut app,
         &format!("{alice_username}@example.com"),
         &alice_username,
-        "password123",
+        &alice_credential,
     )
     .await;
     let (bob_token, bob_id) = register_user(
         &mut app,
         &format!("{bob_username}@example.com"),
         &bob_username,
-        "password123",
+        &bob_credential,
     )
     .await;
 
