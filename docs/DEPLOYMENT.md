@@ -183,14 +183,18 @@ You can prebuild and push images, then let Compose pull them during deploy inste
 
 Recommended tagging strategy:
 
-- `latest` for rolling production deploys
-- `sha-<commit>` when you want to pin an exact build
+- `sha-<commit>` for every main-branch image build
+- `vX.Y.Z` for release tag builds
+
+Do not use `latest` for production deploys. Production should deploy an exact
+image tag so the running image can be tied back to a commit or release tag and
+rolled back safely.
 
 Example:
 
 ```bash
 docker build -t <dockerhub-user>/voxpery-server:<tag> ./apps/server
-docker build -t <dockerhub-user>/voxpery-web:<tag> ./apps/web
+docker build --build-arg VITE_APP_VERSION=<tag> -t <dockerhub-user>/voxpery-web:<tag> ./apps/web
 docker push <dockerhub-user>/voxpery-server:<tag>
 docker push <dockerhub-user>/voxpery-web:<tag>
 ```
@@ -202,12 +206,33 @@ VOXPERY_SERVER_IMAGE=<dockerhub-user>/voxpery-server:<tag>
 VOXPERY_WEB_IMAGE=<dockerhub-user>/voxpery-web:<tag>
 ```
 
-Current production deploy workflow can then use:
+Production deploys should pull the exact image tag selected for the release:
 
 ```bash
+export VOXPERY_SERVER_IMAGE=voxpery/voxpery-server:<tag>
+export VOXPERY_WEB_IMAGE=voxpery/voxpery-web:<tag>
 docker compose pull server web
 docker compose up -d --no-build --remove-orphans
 ```
+
+The bundled manual deploy workflow uses a deploy channel:
+
+- `latest-release` (default): finds the newest `v*` tag, checks out that tag,
+  and deploys the matching `vX.Y.Z` image tag.
+- `main-candidate`: checks out `main` (or the optional `git_ref`) and deploys
+  the matching `sha-<commit>` image tag for pre-release verification.
+- `custom`: requires both `git_ref` and `image_tag` for explicit rollback or
+  advanced operations.
+
+All channels refuse the Docker `latest` tag. The default `latest-release`
+channel keeps manual deploys close to one-click while still pinning production
+to a concrete release version.
+
+CI-built web images embed the resolved deploy tag as `VITE_APP_VERSION` and show
+it beside the `Beta` badge in the top bar. This should match the selected server
+and web image tag (`vX.Y.Z` for stable releases or `sha-<commit>` for main
+candidates). For manual image builds, pass `--build-arg VITE_APP_VERSION=<tag>`
+to keep the visible badge aligned with the image tag.
 
 ## 8) Backups
 

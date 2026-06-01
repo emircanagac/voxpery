@@ -377,6 +377,25 @@ body {
   box-shadow: 0 0 0 3px rgba(156, 194, 255, 0.22), 0 0 8px rgba(156, 194, 255, 0.3);
 }
 
+.shell-brand-version {
+  display: inline-flex;
+  align-items: center;
+  max-width: 112px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 171, 255, 0.22);
+  background: rgba(79, 127, 216, 0.12);
+  color: #dce8ff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
 .shell-brand-logo {
   display: block;
   object-fit: contain;
@@ -12597,7 +12616,8 @@ textarea {
     display: none;
   }
 
-  .shell-brand-beta {
+  .shell-brand-beta,
+  .shell-brand-version {
     display: none;
   }
 

@@ -145,10 +145,31 @@ jobs:
         id: tags
         shell: bash
         run: |
+          short_sha="${GITHUB_SHA::12}"
+          sha_tag="sha-${short_sha}"
+
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "primary_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            {
+              echo "display_tag=${GITHUB_REF_NAME}"
+              echo "backend_tags<<EOF"
+              echo "voxpery/voxpery-server:${GITHUB_REF_NAME}"
+              echo "voxpery/voxpery-server:${sha_tag}"
+              echo "EOF"
+              echo "frontend_tags<<EOF"
+              echo "voxpery/voxpery-web:${GITHUB_REF_NAME}"
+              echo "voxpery/voxpery-web:${sha_tag}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "primary_tag=latest" >> "$GITHUB_OUTPUT"
+            {
+              echo "display_tag=${sha_tag}"
+              echo "backend_tags<<EOF"
+              echo "voxpery/voxpery-server:${sha_tag}"
+              echo "EOF"
+              echo "frontend_tags<<EOF"
+              echo "voxpery/voxpery-web:${sha_tag}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push backend
@@ -158,7 +179,7 @@ jobs:
           context: ./apps/server
           file: ./apps/server/Dockerfile
           push: true
-          tags: voxpery/voxpery-server:${{ steps.tags.outputs.primary_tag }}
+          tags: ${{ steps.tags.outputs.backend_tags }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
@@ -169,10 +190,11 @@ jobs:
           context: ./apps/web
           file: ./apps/web/Dockerfile
           push: true
-          tags: voxpery/voxpery-web:${{ steps.tags.outputs.primary_tag }}
+          tags: ${{ steps.tags.outputs.frontend_tags }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             TURNSTILE_SITE_KEY_PUBLIC=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+            VITE_APP_VERSION=${{ steps.tags.outputs.display_tag }}
             APP_ENV=production
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}

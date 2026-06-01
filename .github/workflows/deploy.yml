@@ -2,6 +2,24 @@ name: Manual Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      release_channel:
+        description: 'What to deploy: latest release tag, current main candidate, or custom tag/ref'
+        required: true
+        default: latest-release
+        type: choice
+        options:
+          - latest-release
+          - main-candidate
+          - custom
+      image_tag:
+        description: 'Custom mode only: immutable Docker image tag, for example sha-abc123def456 or v0.2.0'
+        required: false
+        type: string
+      git_ref:
+        description: 'Custom mode only: Git ref to checkout on the server for compose/deployment files'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -18,16 +36,85 @@ jobs:
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          DEPLOY_RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          DEPLOY_IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_GIT_REF: ${{ inputs.git_ref }}
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_RELEASE_CHANNEL,DEPLOY_IMAGE_TAG,DEPLOY_GIT_REF
           command_timeout: 25m
           script: |
             cd ~/voxpery
-            git fetch --prune origin "+refs/heads/main:refs/remotes/origin/main"
-            git checkout --detach refs/remotes/origin/main
-            IMAGE_TAG="latest"
+            RELEASE_CHANNEL="${DEPLOY_RELEASE_CHANNEL:-latest-release}"
+            IMAGE_TAG="${DEPLOY_IMAGE_TAG}"
+            GIT_REF="${DEPLOY_GIT_REF}"
+
+            git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"
+
+            case "${RELEASE_CHANNEL}" in
+              latest-release)
+                GIT_REF="$(git for-each-ref refs/tags/v* --sort=-v:refname --format='%(refname:short)' | head -n 1)"
+                if [ -z "${GIT_REF}" ]; then
+                  echo "Refusing deploy: no v* release tags were found."
+                  exit 1
+                fi
+                IMAGE_TAG="${GIT_REF}"
+                ;;
+              main-candidate)
+                GIT_REF="${GIT_REF:-main}"
+                if git rev-parse --verify --quiet "refs/remotes/origin/${GIT_REF}" >/dev/null; then
+                  resolved_commit="$(git rev-parse "refs/remotes/origin/${GIT_REF}")"
+                else
+                  resolved_commit="$(git rev-parse "${GIT_REF}")"
+                fi
+                short_commit="$(printf '%s' "${resolved_commit}" | cut -c1-12)"
+                IMAGE_TAG="sha-${short_commit}"
+                ;;
+              custom)
+                if [ -z "${IMAGE_TAG}" ] || [ -z "${GIT_REF}" ]; then
+                  echo "Refusing deploy: custom mode requires both image_tag and git_ref."
+                  exit 1
+                fi
+                ;;
+              *)
+                echo "Refusing deploy: unsupported release_channel '${RELEASE_CHANNEL}'."
+                exit 1
+                ;;
+            esac
+
+            if [ -z "${IMAGE_TAG}" ] || [ "${IMAGE_TAG}" = "latest" ]; then
+              echo "Refusing deploy: image_tag must be an immutable tag, not '${IMAGE_TAG:-empty}'."
+              exit 1
+            fi
+
+            case "${IMAGE_TAG}" in
+              *[!A-Za-z0-9_.-]*)
+                echo "Refusing deploy: image_tag contains unsupported characters."
+                exit 1
+                ;;
+            esac
+
+            if [ -z "${GIT_REF}" ]; then
+              echo "Refusing deploy: git_ref is required."
+              exit 1
+            fi
+
+            case "${GIT_REF}" in
+              -*|*..*|*~*|*^*|*:*|*\\*|*[!A-Za-z0-9_./-]*)
+                echo "Refusing deploy: git_ref contains unsupported characters."
+                exit 1
+                ;;
+            esac
+
+            if git rev-parse --verify --quiet "refs/remotes/origin/${GIT_REF}" >/dev/null; then
+              git checkout --detach "refs/remotes/origin/${GIT_REF}"
+            else
+              git checkout --detach "${GIT_REF}"
+            fi
+
             docker compose --profile security config >/dev/null
             export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${IMAGE_TAG}"
             export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${IMAGE_TAG}"
@@ -36,4 +123,4 @@ jobs:
             docker image prune -f
             curl -fsS http://127.0.0.1:3001/health >/dev/null
             curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
-            echo "Deploy complete: ref=main image_tag=${IMAGE_TAG}"
+            echo "Deploy complete: release_channel=${RELEASE_CHANNEL} git_ref=${GIT_REF} commit=$(git rev-parse HEAD) image_tag=${IMAGE_TAG}"

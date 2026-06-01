@@ -9,9 +9,11 @@ COPY . .
 
 ARG VITE_API_URL=http://localhost:3001
 ARG TURNSTILE_SITE_KEY_PUBLIC=
+ARG VITE_APP_VERSION=
 
 RUN VITE_API_URL="${VITE_API_URL}" \
     VITE_TURNSTILE_SITE_KEY="${TURNSTILE_SITE_KEY_PUBLIC}" \
+    VITE_APP_VERSION="${VITE_APP_VERSION}" \
     npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
