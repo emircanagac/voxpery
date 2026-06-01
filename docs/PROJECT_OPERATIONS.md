@@ -62,7 +62,7 @@ Voxpery follows Semantic Versioning:
 - **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, and `Checks / Frontend`. Keep these fast and deterministic so branch protection can require them on every PR.
 - **Security monitoring gates**: CodeQL and dependency security audit workflows run on PRs, schedules, or manually. Review their output before release; an upstream-blocked advisory needs an explicit release decision rather than being silently ignored.
 - **Release smoke gates**: run the manual `Release Smoke` workflow against the release candidate API before tagging or publishing. Use strict security headers for production candidates and enable browser E2E only when the candidate environment is ready for it.
-- **Publish jobs**: Docker publish, tag release, desktop release, and manual smoke jobs must not be configured as required PR checks because they are intentionally skipped or manually triggered on PRs. Docker publish jobs must produce immutable `sha-<commit>` tags for main-branch builds and version tags for `v*` releases; production deploys must resolve to an exact image tag rather than Docker `latest`.
+- **Publish jobs**: Docker publish, tag release, desktop release, and manual smoke jobs must not be configured as required PR checks because they are intentionally skipped or manually triggered on PRs. Docker publish runs automatically for `v*` tag pushes and can be triggered manually for pre-release main candidates. Docker publish jobs must produce immutable `sha-<commit>` tags for manually published main-candidate builds and version tags for `v*` releases; production deploys must resolve to an exact image tag rather than Docker `latest`.
 
 ### Release Checklist
 
@@ -82,8 +82,8 @@ Voxpery follows Semantic Versioning:
 ### Release Workflow Rules
 
 - Prefer tag-driven releases: push the `v*` tag from the signed-off commit and let tag-triggered CI/release jobs build the immutable candidate.
-- Main-branch Docker images are commit-tagged as `sha-<commit>` and release Docker images are tagged with both `vX.Y.Z` and `sha-<commit>`. The web image embeds the selected deploy tag in the top-bar version badge. Do not rely on `latest` for production deploys.
-- Manual production deploys should use the default `latest-release` channel for normal stable releases, `main-candidate` for pre-release verification, and `custom` only for explicit rollback or advanced operations. Each channel resolves to a concrete image tag before deploying.
+- Release Docker images are tagged with both `vX.Y.Z` and `sha-<commit>`. Manually published main-candidate Docker images are commit-tagged as `sha-<commit>`. The web image embeds the selected deploy tag in the top-bar version badge. Do not rely on `latest` for production deploys.
+- Manual production deploys should use the default `latest-release` channel for normal stable releases, `main-candidate` for pre-release verification after manually publishing the candidate image, and `custom` only for explicit rollback or advanced operations. Each channel resolves to a concrete image tag before deploying.
 - If a GitHub Release is created manually and workflows do not run, do not announce it as ready. Run the appropriate manual workflow against the exact tag/ref or recreate the tag/release intentionally.
 - Manual desktop release workflow runs must use the exact release tag/ref, set `smoke_checklist_confirmed=yes`, and use `platform=all` for production releases unless the release is explicitly a single-platform hotfix/test.
 - Keep the release draft until `latest.json`, installer assets, signature files, and release notes all point to the same version and tag.
