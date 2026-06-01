@@ -29,6 +29,7 @@ import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 
 const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const APP_VERSION = (import.meta.env.VITE_APP_VERSION ?? '').trim()
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -582,6 +583,11 @@ export default function AppShell() {
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
             <span className="shell-brand-beta" title="Preview build">Beta</span>
+            {APP_VERSION && (
+              <span className="shell-brand-version" title={`Running build ${APP_VERSION}`}>
+                {APP_VERSION}
+              </span>
+            )}
           </button>
         </div>
         <div className="shell-topbar-right">
