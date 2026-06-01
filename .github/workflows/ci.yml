@@ -66,7 +66,7 @@ jobs:
   frontend:
     name: Checks / Frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,6 +90,23 @@ jobs:
       - name: Test
         working-directory: apps/web
         run: npm run test:run
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Core UI smoke
+        working-directory: apps/web
+        run: npm run test:e2e:ui-smoke
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-core-ui-smoke-playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Build
         working-directory: apps/web
