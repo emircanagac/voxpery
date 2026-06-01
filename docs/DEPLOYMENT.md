@@ -183,8 +183,8 @@ You can prebuild and push images, then let Compose pull them during deploy inste
 
 Recommended tagging strategy:
 
-- `sha-<commit>` for every main-branch image build
 - `vX.Y.Z` for release tag builds
+- `sha-<commit>` for manually published main-candidate builds
 
 Do not use `latest` for production deploys. Production should deploy an exact
 image tag so the running image can be tied back to a commit or release tag and
@@ -220,7 +220,9 @@ The bundled manual deploy workflow uses a deploy channel:
 - `latest-release` (default): finds the newest `v*` tag, checks out that tag,
   and deploys the matching `vX.Y.Z` image tag.
 - `main-candidate`: checks out `main` (or the optional `git_ref`) and deploys
-  the matching `sha-<commit>` image tag for pre-release verification.
+  the matching `sha-<commit>` image tag for pre-release verification. Run the
+  `CI` workflow manually on the selected ref first so Docker Hub has that
+  candidate image.
 - `custom`: requires both `git_ref` and `image_tag` for explicit rollback or
   advanced operations.
 
@@ -228,11 +230,18 @@ All channels refuse the Docker `latest` tag. The default `latest-release`
 channel keeps manual deploys close to one-click while still pinning production
 to a concrete release version.
 
+Docker images are published automatically only for `v*` tag pushes. Main-branch
+pushes run validation but do not push Docker images, keeping Docker Hub focused
+on stable releases. When you need a pre-release `main-candidate` deploy, run the
+`CI` workflow manually for the target branch or ref; it will publish the matching
+`sha-<commit>` server and web images.
+
 CI-built web images embed the resolved deploy tag as `VITE_APP_VERSION` and show
 it beside the `Beta` badge in the top bar. This should match the selected server
-and web image tag (`vX.Y.Z` for stable releases or `sha-<commit>` for main
-candidates). For manual image builds, pass `--build-arg VITE_APP_VERSION=<tag>`
-to keep the visible badge aligned with the image tag.
+and web image tag (`vX.Y.Z` for stable releases or `sha-<commit>` for manually
+published main candidates). For manual image builds, pass
+`--build-arg VITE_APP_VERSION=<tag>` to keep the visible badge aligned with the
+image tag.
 
 ## 8) Backups
 
