@@ -35,7 +35,8 @@ npm run test:e2e:ui-smoke
 
 This Playwright suite runs against the real Vite UI with mocked API and WebSocket
 responses, so it does not require a backend. Use it as the fast PR guard for
-Friends, Requests, DM, and responsive shell regressions.
+Friends, Requests, DM, server chat, channel creation, quick switcher, message
+actions, voice settings, voice error recovery, and responsive shell regressions.
 
 ## Backend (`apps/server`)
 
@@ -72,10 +73,10 @@ Current workflows:
 - `.github/workflows/ci.yml`
   - Secret scan
   - Backend check/tests
-  - Frontend lint/build
+  - Frontend lint/unit tests/core UI smoke/build
 - `.github/workflows/dependency-security.yml`
   - Rust and npm dependency audits
 
 ---
 
-Last verified against code on 2026-03-14.
+Last verified against code on 2026-06-01.
