@@ -353,11 +353,12 @@ body {
   cursor: pointer;
 }
 
-.shell-brand-beta {
+.shell-brand-release {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 20px;
+  max-width: 164px;
   padding: 0 9px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -366,31 +367,31 @@ body {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.shell-brand-beta::before {
+.shell-brand-release::before {
   content: '';
   width: 6px;
   height: 6px;
+  flex: 0 0 6px;
   border-radius: 999px;
   background: #9cc2ff;
   box-shadow: 0 0 0 3px rgba(156, 194, 255, 0.22), 0 0 8px rgba(156, 194, 255, 0.3);
 }
 
-.shell-brand-version {
+.shell-brand-release-separator {
+  color: rgba(200, 212, 238, 0.52);
+}
+
+.shell-brand-release-version {
   display: inline-flex;
   align-items: center;
-  max-width: 112px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(124, 171, 255, 0.22);
-  background: rgba(79, 127, 216, 0.12);
+  min-width: 0;
+  max-width: 92px;
   color: #dce8ff;
-  font-size: 11px;
   font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
@@ -12616,8 +12617,7 @@ textarea {
     display: none;
   }
 
-  .shell-brand-beta,
-  .shell-brand-version {
+  .shell-brand-release {
     display: none;
   }
 

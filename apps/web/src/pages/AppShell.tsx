@@ -22,14 +22,16 @@ import {
   checkForUpdates,
   DESKTOP_UPDATE_STATUS_EVENT,
   downloadAndInstallUpdate,
+  getDesktopAppVersion,
   type DesktopUpdateStatusDetail,
   type UpdateResult,
 } from '../updater'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
+import { formatAppVersionBadge } from '../appVersion'
 
 const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION ?? '').trim()
+const BUILD_APP_VERSION = formatAppVersionBadge(import.meta.env.VITE_APP_VERSION)
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -91,6 +93,23 @@ export default function AppShell() {
   const previousUnreadCountRef = useRef(0)
   const desktopUnreadInitializedRef = useRef(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
+  const appVersionBadge = BUILD_APP_VERSION ?? desktopAppVersion
+
+  useEffect(() => {
+    if (BUILD_APP_VERSION || !isTauri()) return
+    let cancelled = false
+
+    void getDesktopAppVersion().then((version) => {
+      if (!cancelled) {
+        setDesktopAppVersion(formatAppVersionBadge(version))
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!userId) return
@@ -582,12 +601,18 @@ export default function AppShell() {
           <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
             <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
-            <span className="shell-brand-beta" title="Preview build">Beta</span>
-            {APP_VERSION && (
-              <span className="shell-brand-version" title={`Running build ${APP_VERSION}`}>
-                {APP_VERSION}
-              </span>
-            )}
+            <span
+              className="shell-brand-release"
+              title={appVersionBadge ? `Beta channel, running build ${appVersionBadge}` : 'Beta channel'}
+            >
+              <span>Beta</span>
+              {appVersionBadge && (
+                <>
+                  <span className="shell-brand-release-separator" aria-hidden="true">·</span>
+                  <span className="shell-brand-release-version">{appVersionBadge}</span>
+                </>
+              )}
+            </span>
           </button>
         </div>
         <div className="shell-topbar-right">
