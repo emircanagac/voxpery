@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-01
+
+### Added
+- Added a friend DM action button in the friends list for quicker direct-message access.
+- Added mocked core UI smoke and component regression coverage for the main social, chat, voice, and media surfaces.
+
+### Changed
+- Improved friends-list scrolling, tab layouts, and bottom-dock spacing behavior.
+- Switched Docker publishing toward immutable release tags, with manual candidate images still available before a release tag is cut.
+- Prepared the web, server, and desktop package metadata for the `v0.2.0` release.
+- Updated non-breaking web, server, and desktop dependencies.
+
+### Fixed
+- Fixed chat scroll anchoring regressions around message loading and channel navigation.
+- Fixed direct-message opening, sorting, notification read-state, and mark-as-read behavior.
+- Resolved security alerts from an unused server npm manifest and credential-like integration-test fixtures.
+
+### Tests
+- Added CI coverage for core UI smoke flows on pull requests.
+
 ## [0.1.13] - 2026-05-21
 
 ### Changed
