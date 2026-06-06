@@ -19,6 +19,7 @@ FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --uid 10001 voxpery
