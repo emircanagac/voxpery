@@ -4,7 +4,7 @@
 # Set repo secret VITE_API_URL and repo variable or secret VITE_TURNSTILE_SITE_KEY
 # so the desktop app points to your API and can render production CAPTCHA.
 
-name: Release desktop
+name: Release / Desktop
 
 on:
   workflow_dispatch:

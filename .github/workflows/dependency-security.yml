@@ -1,4 +1,4 @@
-name: Dependency Security
+name: Security / Dependency Audit
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ env:
 
 jobs:
   security-deps:
-    name: Dependency Security Audit
+    name: Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
