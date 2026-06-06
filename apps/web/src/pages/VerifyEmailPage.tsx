@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
@@ -12,6 +12,8 @@ export default function VerifyEmailPage() {
   const setAuth = useAuthStore((s) => s.setAuth)
   const setUser = useAuthStore((s) => s.setUser)
   const verifyToken = useMemo(() => new URLSearchParams(location.search).get('token')?.trim() ?? '', [location.search])
+  const authRef = useRef({ token, user })
+  const submittedVerificationTokensRef = useRef(new Set<string>())
   const [verificationState, setVerificationState] = useState<{
     verifyToken: string
     status: 'success' | 'error'
@@ -24,18 +26,25 @@ export default function VerifyEmailPage() {
     : activeVerificationState?.message ?? 'Verifying your email address...'
 
   useEffect(() => {
+    authRef.current = { token, user }
+  }, [token, user])
+
+  useEffect(() => {
     if (!verifyToken) return
+    if (submittedVerificationTokensRef.current.has(verifyToken)) return
+    submittedVerificationTokensRef.current.add(verifyToken)
 
     let cancelled = false
     let redirectTimeout: number | null = null
-    authApi.confirmEmailVerification(token ?? null, verifyToken)
+    const { token: currentToken, user: currentUser } = authRef.current
+    authApi.confirmEmailVerification(currentToken ?? null, verifyToken)
       .then(async (result) => {
         if (cancelled) return
-        if (user) {
+        if (currentUser) {
           try {
-            const freshUser = await authApi.getMe(token ?? null)
+            const freshUser = await authApi.getMe(currentToken ?? null)
             if (cancelled) return
-            if (token) setAuth(token, freshUser)
+            if (currentToken) setAuth(currentToken, freshUser)
             else setUser(freshUser)
           } catch {
             // Keep success UX even if session refresh fails transiently.
@@ -47,11 +56,47 @@ export default function VerifyEmailPage() {
           message: result.message || 'Your email address has been verified.',
         })
         redirectTimeout = window.setTimeout(() => {
-          navigate(token && user ? ROUTES.home : ROUTES.login, { replace: true })
+          navigate(currentToken && currentUser ? ROUTES.home : ROUTES.login, { replace: true })
         }, 1200)
       })
       .catch((err: unknown) => {
         if (cancelled) return
+        if (currentUser) {
+          authApi.getMe(currentToken ?? null)
+            .then((freshUser) => {
+              if (cancelled) return
+              if (currentToken) setAuth(currentToken, freshUser)
+              else setUser(freshUser)
+
+              if (freshUser.email_verified) {
+                setVerificationState({
+                  verifyToken,
+                  status: 'success',
+                  message: 'Your email address has already been verified.',
+                })
+                redirectTimeout = window.setTimeout(() => {
+                  navigate(ROUTES.home, { replace: true })
+                }, 1200)
+                return
+              }
+
+              setVerificationState({
+                verifyToken,
+                status: 'error',
+                message: getAuthErrorMessage(err).message || 'Could not verify this email address.',
+              })
+            })
+            .catch(() => {
+              if (cancelled) return
+              setVerificationState({
+                verifyToken,
+                status: 'error',
+                message: getAuthErrorMessage(err).message || 'Could not verify this email address.',
+              })
+            })
+          return
+        }
+
         setVerificationState({
           verifyToken,
           status: 'error',
@@ -63,7 +108,7 @@ export default function VerifyEmailPage() {
       cancelled = true
       if (redirectTimeout != null) window.clearTimeout(redirectTimeout)
     }
-  }, [navigate, setAuth, setUser, token, user, verifyToken])
+  }, [navigate, setAuth, setUser, verifyToken])
 
   return (
     <main className="auth-page">
