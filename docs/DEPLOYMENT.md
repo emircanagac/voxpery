@@ -54,6 +54,7 @@ Optional integrations note:
 - Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
 - Password reset and email verification depend on email delivery.
 - Set `FRONTEND_URL` to the public web origin, for example `https://voxpery.com`, so email links do not depend on `CORS_ORIGINS` ordering.
+- The official server image prefers IPv4 for outbound SMTP resolution. This avoids IPv6-only DNS answers causing `Network is unreachable` on hosts or Docker networks without IPv6 routing.
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
 - Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
 - `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.
