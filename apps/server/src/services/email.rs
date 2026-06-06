@@ -7,12 +7,20 @@ use lettre::transport::smtp::{
     extension::ClientId,
 };
 use std::{
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     time::Duration,
 };
 
 const SMTP_SUBMISSION_PORT: u16 = 587;
 const SMTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn resolve_ipv4_smtp_addr(smtp_host: &str, port: u16) -> Result<SocketAddr, AppError> {
+    (smtp_host, port)
+        .to_socket_addrs()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve SMTP host: {}", e)))?
+        .find(|addr| addr.is_ipv4())
+        .ok_or_else(|| AppError::Internal("SMTP host did not resolve to an IPv4 address".into()))
+}
 
 async fn send_html_email(
     to_email: &str,
@@ -53,9 +61,10 @@ async fn send_message_via_smtp(
     let hello_name = ClientId::default();
     let tls_parameters = TlsParameters::new(smtp_host.to_string())
         .map_err(|e| AppError::Internal(format!("Failed to configure SMTP TLS: {}", e)))?;
+    let smtp_addr = resolve_ipv4_smtp_addr(smtp_host, SMTP_SUBMISSION_PORT)?;
 
     let mut conn = AsyncSmtpConnection::connect_tokio1(
-        (smtp_host, SMTP_SUBMISSION_PORT),
+        smtp_addr,
         Some(SMTP_CONNECT_TIMEOUT),
         &hello_name,
         None,
@@ -144,4 +153,24 @@ pub async fn send_email_verification_email(
         smtp_pass,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_ipv4_smtp_addr;
+
+    #[test]
+    fn resolve_ipv4_smtp_addr_accepts_ipv4_literal() {
+        let addr = resolve_ipv4_smtp_addr("127.0.0.1", 587).expect("IPv4 literal should resolve");
+
+        assert!(addr.is_ipv4());
+        assert_eq!(addr.port(), 587);
+    }
+
+    #[test]
+    fn resolve_ipv4_smtp_addr_rejects_ipv6_only_literal() {
+        let err = resolve_ipv4_smtp_addr("::1", 587).expect_err("IPv6-only literal should fail");
+
+        assert!(err.to_string().contains("IPv4"));
+    }
 }
