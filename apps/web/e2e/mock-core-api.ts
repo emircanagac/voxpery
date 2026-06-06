@@ -11,6 +11,7 @@ import type {
   RaidEventEntry,
   Server,
   ServerBanEntry,
+  ServerInvitePreview,
   ServerOnboardingGuide,
   ServerReportEntry,
   ServerRole,
@@ -33,6 +34,7 @@ export interface MockCoreState {
   dmChannels: DmChannel[]
   dmMessagesByChannelId: Record<string, MessageWithAuthor[]>
   servers: Server[]
+  inviteServersByCode: Record<string, Server>
   serverPermissionsByServerId: Record<string, number>
   channelsByServerId: Record<string, Channel[]>
   membersByServerId: Record<string, MemberInfo[]>
@@ -48,6 +50,8 @@ export interface MockCoreState {
   messagesByChannelId: Record<string, MessageWithAuthor[]>
   pinnedMessageIdsByChannelId: Record<string, string[]>
   serverUpdateCount: number
+  serverJoinCount: number
+  joinedInviteCodes: string[]
   onboardingUpdateCount: number
   emailVerificationRequestCount: number
   emailVerificationConfirmCountByToken: Record<string, number>
@@ -107,6 +111,17 @@ export function buildCoreServer(overrides: Partial<Server> = {}): Server {
     owner_id: 'user-local',
     invite_code: 'core-guild',
     ...overrides,
+  }
+}
+
+export function buildInvitePreview(server: Server, memberCount = 8): ServerInvitePreview {
+  return {
+    id: server.id,
+    name: server.name,
+    icon_url: server.icon_url,
+    description: server.description,
+    invite_code: server.invite_code,
+    member_count: memberCount,
   }
 }
 
@@ -312,6 +327,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     dmChannels: [],
     dmMessagesByChannelId: {},
     servers: [],
+    inviteServersByCode: {},
     serverPermissionsByServerId: {},
     channelsByServerId: {},
     membersByServerId: {},
@@ -327,6 +343,8 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     messagesByChannelId: {},
     pinnedMessageIdsByChannelId: {},
     serverUpdateCount: 0,
+    serverJoinCount: 0,
+    joinedInviteCodes: [],
     onboardingUpdateCount: 0,
     emailVerificationRequestCount: 0,
     emailVerificationConfirmCountByToken: {},
@@ -584,6 +602,37 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (pathname === '/api/servers' && method === 'GET') {
     await json(route, state.servers)
+    return
+  }
+
+  const invitePreviewMatch = pathname.match(/^\/api\/servers\/invite\/([^/]+)$/)
+  if (invitePreviewMatch && method === 'GET') {
+    const inviteCode = decodeURIComponent(invitePreviewMatch[1] ?? '')
+    const server = findInviteServer(state, inviteCode)
+    if (!server) {
+      await json(route, { error: 'Invalid invite code' }, 404)
+      return
+    }
+    await json(route, buildInvitePreview(server, (state.membersByServerId[server.id] ?? buildCoreMembers()).length))
+    return
+  }
+
+  if (pathname === '/api/servers/join' && method === 'POST') {
+    const body = parseJsonBody<{ invite_code?: string }>(request)
+    const inviteCode = body.invite_code?.trim() ?? ''
+    const server = findInviteServer(state, inviteCode)
+    if (!server) {
+      await json(route, { error: 'Invalid invite code' }, 404)
+      return
+    }
+    if (!state.servers.some((item) => item.id === server.id)) {
+      state.servers = [...state.servers, server]
+    }
+    state.channelsByServerId[server.id] = state.channelsByServerId[server.id] ?? buildCoreChannels(server.id)
+    state.membersByServerId[server.id] = state.membersByServerId[server.id] ?? buildCoreMembers()
+    state.serverJoinCount += 1
+    state.joinedInviteCodes = [...state.joinedInviteCodes, inviteCode]
+    await json(route, server)
     return
   }
 
@@ -1209,6 +1258,12 @@ function findServerMessage(state: MockCoreState, messageId: string): MessageWith
     if (message) return message
   }
   return null
+}
+
+function findInviteServer(state: MockCoreState, inviteCode: string): Server | null {
+  return state.inviteServersByCode[inviteCode]
+    ?? state.servers.find((server) => server.invite_code === inviteCode)
+    ?? null
 }
 
 function getServerRoles(state: MockCoreState, serverId: string): ServerRole[] {
