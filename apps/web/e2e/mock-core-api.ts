@@ -4,9 +4,18 @@ import type {
   DmChannel,
   Friend,
   FriendRequest,
+  AuditLogEntry,
+  AutoModRule,
   MemberInfo,
   MessageWithAuthor,
+  RaidEventEntry,
   Server,
+  ServerBanEntry,
+  ServerOnboardingGuide,
+  ServerReportEntry,
+  ServerRole,
+  ServerRule,
+  ServerTimeoutEntry,
   SystemFeatures,
   UserPublic,
 } from '../src/api'
@@ -27,8 +36,19 @@ export interface MockCoreState {
   serverPermissionsByServerId: Record<string, number>
   channelsByServerId: Record<string, Channel[]>
   membersByServerId: Record<string, MemberInfo[]>
+  serverRolesByServerId: Record<string, ServerRole[]>
+  serverRulesByServerId: Record<string, ServerRule[]>
+  onboardingGuideByServerId: Record<string, ServerOnboardingGuide>
+  auditLogByServerId: Record<string, AuditLogEntry[]>
+  reportEntriesByServerId: Record<string, ServerReportEntry[]>
+  banEntriesByServerId: Record<string, ServerBanEntry[]>
+  timeoutEntriesByServerId: Record<string, ServerTimeoutEntry[]>
+  raidEventEntriesByServerId: Record<string, RaidEventEntry[]>
+  autoModRulesByServerId: Record<string, AutoModRule[]>
   messagesByChannelId: Record<string, MessageWithAuthor[]>
   pinnedMessageIdsByChannelId: Record<string, string[]>
+  serverUpdateCount: number
+  onboardingUpdateCount: number
   emailVerificationRequestCount: number
   emailVerificationConfirmCountByToken: Record<string, number>
   emailVerificationRequestDelayMs: number
@@ -148,6 +168,103 @@ export function buildCoreMembers(): MemberInfo[] {
   ]
 }
 
+export function buildCoreRoles(): ServerRole[] {
+  return [
+    {
+      id: 'role-everyone',
+      name: 'everyone',
+      color: null,
+      position: 0,
+      permissions: ALL_PERMISSIONS,
+    },
+    {
+      id: 'role-mod',
+      name: 'Moderator',
+      color: '#8fb4ff',
+      position: 1,
+      permissions: ALL_PERMISSIONS,
+    },
+  ]
+}
+
+export function buildCoreRules(serverId = 'server-core'): ServerRule[] {
+  return [
+    {
+      id: 'rule-01',
+      server_id: serverId,
+      rule_text: 'Be respectful to other members.',
+      position: 0,
+      created_at: new Date(Date.UTC(2026, 0, 2)).toISOString(),
+    },
+  ]
+}
+
+export function buildCoreOnboardingGuide(serverId = 'server-core'): ServerOnboardingGuide {
+  return {
+    server_id: serverId,
+    enabled: true,
+    title: 'Welcome to Core Guild',
+    body: 'Pick a channel and say hello.',
+    recommended_channel_ids: [`${serverId}-general`],
+    starter_tasks: ['Introduce yourself'],
+    updated_at: new Date(Date.UTC(2026, 0, 3)).toISOString(),
+  }
+}
+
+export function buildCoreAuditLog(serverId = 'server-core'): AuditLogEntry[] {
+  return [
+    {
+      id: 'audit-01',
+      at: new Date(Date.UTC(2026, 0, 4, 10)).toISOString(),
+      actor_id: 'user-local',
+      server_id: serverId,
+      action: 'server_update',
+      resource_type: 'server',
+      resource_id: serverId,
+      details: { name: 'Core Guild' },
+      actor_username: 'localuser',
+      resource_username: null,
+    },
+  ]
+}
+
+export function buildCoreReports(serverId = 'server-core'): ServerReportEntry[] {
+  return [
+    {
+      id: 'report-01',
+      server_id: serverId,
+      reporter_user_id: 'user-local',
+      reporter_username: 'localuser',
+      reported_user_id: 'friend-01',
+      reported_username: 'Friend 01',
+      channel_id: `${serverId}-general`,
+      channel_name: 'general',
+      message_id: 'reported-message-01',
+      message_excerpt: 'Suspicious message excerpt',
+      reason: 'spam',
+      details: 'Mock report details',
+      status: 'open',
+      created_at: new Date(Date.UTC(2026, 0, 5, 10)).toISOString(),
+      resolved_at: null,
+      resolved_by: null,
+      resolved_by_username: null,
+    },
+  ]
+}
+
+export function buildCoreBans(): ServerBanEntry[] {
+  return [
+    {
+      user_id: 'banned-user-01',
+      banned_by: 'user-local',
+      reason: 'Mock ban reason',
+      created_at: new Date(Date.UTC(2026, 0, 6, 10)).toISOString(),
+      username: 'Banned User',
+      banned_by_username: 'localuser',
+    },
+  ]
+}
+
 export function buildServerMessage(
   channelId: string,
   content: string,
@@ -198,8 +315,19 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     serverPermissionsByServerId: {},
     channelsByServerId: {},
     membersByServerId: {},
+    serverRolesByServerId: {},
+    serverRulesByServerId: {},
+    onboardingGuideByServerId: {},
+    auditLogByServerId: {},
+    reportEntriesByServerId: {},
+    banEntriesByServerId: {},
+    timeoutEntriesByServerId: {},
+    raidEventEntriesByServerId: {},
+    autoModRulesByServerId: {},
     messagesByChannelId: {},
     pinnedMessageIdsByChannelId: {},
+    serverUpdateCount: 0,
+    onboardingUpdateCount: 0,
     emailVerificationRequestCount: 0,
     emailVerificationConfirmCountByToken: {},
     emailVerificationRequestDelayMs: 0,
@@ -475,6 +603,26 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  if (serverDetailMatch && method === 'PATCH') {
+    const serverId = serverDetailMatch[1]
+    const body = parseJsonBody<{ name?: string; description?: string; icon_url?: string; clear_icon?: boolean }>(request)
+    const current = state.servers.find((item) => item.id === serverId)
+    if (!current) {
+      await json(route, { error: 'Server not found' }, 404)
+      return
+    }
+    const updated: Server = {
+      ...current,
+      name: body.name?.trim() || current.name,
+      description: body.description ?? current.description,
+      icon_url: body.clear_icon ? undefined : (body.icon_url ?? current.icon_url),
+    }
+    state.servers = state.servers.map((server) => (server.id === serverId ? updated : server))
+    state.serverUpdateCount += 1
+    await json(route, updated)
+    return
+  }
+
   const serverChannelsMatch = pathname.match(/^\/api\/servers\/([^/]+)\/channels$/)
   if (serverChannelsMatch && method === 'GET') {
     await json(route, state.channelsByServerId[serverChannelsMatch[1]] ?? [])
@@ -529,6 +677,212 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (pathname === '/api/webrtc/turn-credentials' && method === 'GET') {
     await json(route, { urls: [] })
+    return
+  }
+
+  const rolesMatch = pathname.match(/^\/api\/servers\/([^/]+)\/roles$/)
+  if (rolesMatch && method === 'GET') {
+    await json(route, getServerRoles(state, rolesMatch[1]))
+    return
+  }
+
+  if (rolesMatch && method === 'POST') {
+    const serverId = rolesMatch[1]
+    const body = parseJsonBody<{ name?: string; permissions?: number; color?: string | null }>(request)
+    const current = getServerRoles(state, serverId)
+    const role: ServerRole = {
+      id: `role-${Date.now()}`,
+      name: body.name?.trim() || 'New role',
+      color: body.color ?? null,
+      permissions: typeof body.permissions === 'number' ? body.permissions : 0,
+      position: current.length,
+    }
+    state.serverRolesByServerId[serverId] = [...current, role]
+    await json(route, role)
+    return
+  }
+
+  const roleReorderMatch = pathname.match(/^\/api\/servers\/([^/]+)\/roles\/reorder$/)
+  if (roleReorderMatch && method === 'PATCH') {
+    const serverId = roleReorderMatch[1]
+    const body = parseJsonBody<{ role_ids?: string[] }>(request)
+    const order = body.role_ids ?? []
+    const roles = getServerRoles(state, serverId)
+    state.serverRolesByServerId[serverId] = [...roles].sort((a, b) => {
+      const ai = order.indexOf(a.id)
+      const bi = order.indexOf(b.id)
+      return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi)
+    }).map((role, index) => ({ ...role, position: index }))
+    await json(route, {})
+    return
+  }
+
+  const roleItemMatch = pathname.match(/^\/api\/servers\/([^/]+)\/roles\/([^/]+)$/)
+  if (roleItemMatch && method === 'PATCH') {
+    const serverId = roleItemMatch[1]
+    const roleId = roleItemMatch[2]
+    const body = parseJsonBody<{ name?: string; permissions?: number; color?: string | null }>(request)
+    const roles = getServerRoles(state, serverId)
+    const updated = roles.map((role) => role.id === roleId
+      ? {
+        ...role,
+        name: body.name?.trim() || role.name,
+        permissions: typeof body.permissions === 'number' ? body.permissions : role.permissions,
+        color: body.color === '' ? null : (body.color ?? role.color),
+      }
+      : role)
+    state.serverRolesByServerId[serverId] = updated
+    await json(route, updated.find((role) => role.id === roleId) ?? null)
+    return
+  }
+
+  if (roleItemMatch && method === 'DELETE') {
+    const serverId = roleItemMatch[1]
+    const roleId = roleItemMatch[2]
+    state.serverRolesByServerId[serverId] = getServerRoles(state, serverId).filter((role) => role.id !== roleId)
+    await json(route, {})
+    return
+  }
+
+  const rulesMatch = pathname.match(/^\/api\/servers\/([^/]+)\/rules$/)
+  if (rulesMatch && method === 'GET') {
+    await json(route, getServerRules(state, rulesMatch[1]))
+    return
+  }
+
+  if (rulesMatch && method === 'POST') {
+    const serverId = rulesMatch[1]
+    const body = parseJsonBody<{ rule_text?: string }>(request)
+    const current = getServerRules(state, serverId)
+    const rule: ServerRule = {
+      id: `rule-${Date.now()}`,
+      server_id: serverId,
+      rule_text: body.rule_text?.trim() || 'New rule',
+      position: current.length,
+      created_at: new Date().toISOString(),
+    }
+    state.serverRulesByServerId[serverId] = [...current, rule]
+    await json(route, rule)
+    return
+  }
+
+  const ruleItemMatch = pathname.match(/^\/api\/servers\/([^/]+)\/rules\/([^/]+)$/)
+  if (ruleItemMatch && method === 'PATCH') {
+    const serverId = ruleItemMatch[1]
+    const ruleId = ruleItemMatch[2]
+    const body = parseJsonBody<{ rule_text?: string; position?: number }>(request)
+    const updated = getServerRules(state, serverId).map((rule) => rule.id === ruleId
+      ? {
+        ...rule,
+        rule_text: body.rule_text?.trim() || rule.rule_text,
+        position: typeof body.position === 'number' ? body.position : rule.position,
+      }
+      : rule)
+    state.serverRulesByServerId[serverId] = updated
+    await json(route, updated.find((rule) => rule.id === ruleId) ?? null)
+    return
+  }
+
+  if (ruleItemMatch && method === 'DELETE') {
+    const serverId = ruleItemMatch[1]
+    const ruleId = ruleItemMatch[2]
+    state.serverRulesByServerId[serverId] = getServerRules(state, serverId).filter((rule) => rule.id !== ruleId)
+    await json(route, {})
+    return
+  }
+
+  const onboardingMatch = pathname.match(/^\/api\/servers\/([^/]+)\/onboarding$/)
+  if (onboardingMatch && method === 'GET') {
+    await json(route, getOnboardingGuide(state, onboardingMatch[1]))
+    return
+  }
+
+  if (onboardingMatch && method === 'PATCH') {
+    const serverId = onboardingMatch[1]
+    const body = parseJsonBody<{
+      enabled?: boolean
+      title?: string
+      body?: string
+      recommended_channel_ids?: string[]
+      starter_tasks?: string[]
+    }>(request)
+    const current = getOnboardingGuide(state, serverId)
+    const guide: ServerOnboardingGuide = {
+      ...current,
+      enabled: body.enabled ?? current.enabled,
+      title: body.title ?? current.title,
+      body: body.body ?? current.body,
+      recommended_channel_ids: body.recommended_channel_ids ?? current.recommended_channel_ids,
+      starter_tasks: body.starter_tasks ?? current.starter_tasks,
+      updated_at: new Date().toISOString(),
+    }
+    state.onboardingGuideByServerId[serverId] = guide
+    state.onboardingUpdateCount += 1
+    await json(route, guide)
+    return
+  }
+
+  const auditMatch = pathname.match(/^\/api\/servers\/([^/]+)\/audit-log$/)
+  if (auditMatch && method === 'GET') {
+    await json(route, state.auditLogByServerId[auditMatch[1]] ?? buildCoreAuditLog(auditMatch[1]))
+    return
+  }
+
+  const reportsMatch = pathname.match(/^\/api\/servers\/([^/]+)\/reports$/)
+  if (reportsMatch && method === 'GET') {
+    await json(route, state.reportEntriesByServerId[reportsMatch[1]] ?? buildCoreReports(reportsMatch[1]))
+    return
+  }
+
+  const resolveReportMatch = pathname.match(/^\/api\/servers\/([^/]+)\/reports\/([^/]+)\/resolve$/)
+  if (resolveReportMatch && method === 'POST') {
+    const serverId = resolveReportMatch[1]
+    const reportId = resolveReportMatch[2]
+    state.reportEntriesByServerId[serverId] = (state.reportEntriesByServerId[serverId] ?? buildCoreReports(serverId))
+      .map((report) => report.id === reportId
+        ? {
+          ...report,
+          status: 'resolved',
+          resolved_at: new Date().toISOString(),
+          resolved_by: state.user.id,
+          resolved_by_username: state.user.username,
+        }
+        : report)
+    await json(route, {})
+    return
+  }
+
+  const timeoutsMatch = pathname.match(/^\/api\/servers\/([^/]+)\/timeouts$/)
+  if (timeoutsMatch && method === 'GET') {
+    await json(route, state.timeoutEntriesByServerId[timeoutsMatch[1]] ?? [])
+    return
+  }
+
+  const raidEventsMatch = pathname.match(/^\/api\/servers\/([^/]+)\/raid-events$/)
+  if (raidEventsMatch && method === 'GET') {
+    await json(route, state.raidEventEntriesByServerId[raidEventsMatch[1]] ?? [])
+    return
+  }
+
+  const bansMatch = pathname.match(/^\/api\/servers\/([^/]+)\/bans$/)
+  if (bansMatch && method === 'GET') {
+    await json(route, state.banEntriesByServerId[bansMatch[1]] ?? buildCoreBans())
+    return
+  }
+
+  const unbanMatch = pathname.match(/^\/api\/servers\/([^/]+)\/bans\/([^/]+)$/)
+  if (unbanMatch && method === 'DELETE') {
+    const serverId = unbanMatch[1]
+    const userId = unbanMatch[2]
+    state.banEntriesByServerId[serverId] = (state.banEntriesByServerId[serverId] ?? buildCoreBans())
+      .filter((ban) => ban.user_id !== userId)
+    await json(route, {})
+    return
+  }
+
+  const autoModMatch = pathname.match(/^\/api\/servers\/([^/]+)\/automod-rules$/)
+  if (autoModMatch && method === 'GET') {
+    await json(route, state.autoModRulesByServerId[autoModMatch[1]] ?? [])
     return
   }
 
@@ -855,6 +1209,27 @@ function findServerMessage(state: MockCoreState, messageId: string): MessageWith
     if (message) return message
   }
   return null
+}
+
+function getServerRoles(state: MockCoreState, serverId: string): ServerRole[] {
+  if (!state.serverRolesByServerId[serverId]) {
+    state.serverRolesByServerId[serverId] = buildCoreRoles()
+  }
+  return state.serverRolesByServerId[serverId]
+}
+
+function getServerRules(state: MockCoreState, serverId: string): ServerRule[] {
+  if (!state.serverRulesByServerId[serverId]) {
+    state.serverRulesByServerId[serverId] = buildCoreRules(serverId)
+  }
+  return state.serverRulesByServerId[serverId]
+}
+
+function getOnboardingGuide(state: MockCoreState, serverId: string): ServerOnboardingGuide {
+  if (!state.onboardingGuideByServerId[serverId]) {
+    state.onboardingGuideByServerId[serverId] = buildCoreOnboardingGuide(serverId)
+  }
+  return state.onboardingGuideByServerId[serverId]
 }
 
 function parseJsonBody<T extends Record<string, unknown>>(request: Request): Partial<T> {
