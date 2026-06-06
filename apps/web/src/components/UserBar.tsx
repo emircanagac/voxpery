@@ -164,6 +164,14 @@ function isValidEmailAddress(value: string) {
   return trimmed.length <= 255 && atIndex > 0 && atIndex < trimmed.length - 1
 }
 
+function getEmailVerificationErrorMessage(err: unknown) {
+  const message = getAuthErrorMessage(err).message
+  if (!message || message === 'Internal server error') {
+    return 'Email delivery is temporarily unavailable. Please try again later.'
+  }
+  return message
+}
+
 export default function UserBar() {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
   const features = useFeatureStore((s) => s.features)
@@ -1145,7 +1153,7 @@ export default function UserBar() {
           : `We sent a verification link to ${trimmed}.`,
       })
     } catch (err: unknown) {
-      setEmailError(getAuthErrorMessage(err).message || 'Could not update your email address.')
+      setEmailError(getEmailVerificationErrorMessage(err))
       setEmailSaving(false)
     }
   }
@@ -1166,7 +1174,7 @@ export default function UserBar() {
       pushToast({
         level: 'error',
         title: 'Verification email failed',
-        message: getAuthErrorMessage(err).message || 'Could not send a verification email.',
+        message: getEmailVerificationErrorMessage(err),
       })
     } finally {
       setEmailVerificationSending(false)
