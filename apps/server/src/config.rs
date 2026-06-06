@@ -41,6 +41,8 @@ pub struct Config {
     /// Google OAuth: client ID and secret. If both set, "Sign in with Google" is enabled.
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
+    /// Public web app URL used for user-facing email links.
+    pub frontend_url: Option<String>,
     /// Public base URL of this API (for OAuth redirect_uri). e.g. http://localhost:3001 or https://api.voxpery.com
     pub public_api_url: Option<String>,
     /// Cloudflare Turnstile Secret Key for CAPTCHA validation
@@ -207,6 +209,10 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET")
                 .ok()
+                .filter(|s| !s.is_empty()),
+            frontend_url: std::env::var("FRONTEND_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty()),
             public_api_url: std::env::var("PUBLIC_API_URL")
                 .ok()

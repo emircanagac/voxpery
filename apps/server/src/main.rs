@@ -114,6 +114,7 @@ async fn main() {
         google_client_id: config.google_client_id.clone(),
         google_client_secret: config.google_client_secret.clone(),
         google_oauth_enabled: config.google_oauth_enabled(),
+        frontend_url: config.frontend_url.clone(),
         public_api_url: config.public_api_url.clone(),
         turnstile_secret_key: config.turnstile_secret_key.clone(),
         smtp_host: config.smtp_host.clone(),

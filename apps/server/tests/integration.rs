@@ -107,6 +107,7 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         google_client_id: None,
         google_client_secret: None,
         google_oauth_enabled: false,
+        frontend_url: None,
         public_api_url: None,
         turnstile_secret_key: None,
         smtp_host: None,
