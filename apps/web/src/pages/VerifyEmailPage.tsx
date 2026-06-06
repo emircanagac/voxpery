@@ -13,7 +13,7 @@ export default function VerifyEmailPage() {
   const setUser = useAuthStore((s) => s.setUser)
   const verifyToken = useMemo(() => new URLSearchParams(location.search).get('token')?.trim() ?? '', [location.search])
   const authRef = useRef({ token, user })
-  const submittedVerificationTokensRef = useRef(new Set<string>())
+  const verificationRequestsRef = useRef(new Map<string, ReturnType<typeof authApi.confirmEmailVerification>>())
   const [verificationState, setVerificationState] = useState<{
     verifyToken: string
     status: 'success' | 'error'
@@ -31,13 +31,17 @@ export default function VerifyEmailPage() {
 
   useEffect(() => {
     if (!verifyToken) return
-    if (submittedVerificationTokensRef.current.has(verifyToken)) return
-    submittedVerificationTokensRef.current.add(verifyToken)
 
     let cancelled = false
     let redirectTimeout: number | null = null
     const { token: currentToken, user: currentUser } = authRef.current
-    authApi.confirmEmailVerification(currentToken ?? null, verifyToken)
+    let verificationRequest = verificationRequestsRef.current.get(verifyToken)
+    if (!verificationRequest) {
+      verificationRequest = authApi.confirmEmailVerification(currentToken ?? null, verifyToken)
+      verificationRequestsRef.current.set(verifyToken, verificationRequest)
+    }
+
+    verificationRequest
       .then(async (result) => {
         if (cancelled) return
         if (currentUser) {
@@ -65,10 +69,10 @@ export default function VerifyEmailPage() {
           authApi.getMe(currentToken ?? null)
             .then((freshUser) => {
               if (cancelled) return
-              if (currentToken) setAuth(currentToken, freshUser)
-              else setUser(freshUser)
+            if (currentToken) setAuth(currentToken, freshUser)
+            else setUser(freshUser)
 
-              if (freshUser.email_verified) {
+            if (freshUser.email_verified) {
                 setVerificationState({
                   verifyToken,
                   status: 'success',

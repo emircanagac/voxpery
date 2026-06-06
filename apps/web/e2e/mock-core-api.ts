@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import type { Page, Request, Route } from '@playwright/test'
 import type {
   Channel,
   DmChannel,
@@ -15,7 +15,9 @@ const AUTH_STORAGE_KEY = 'voxpery-auth'
 const ALL_PERMISSIONS = (1 << 13) - 1
 
 export interface MockCoreState {
+  authenticated: boolean
   user: UserPublic
+  features: SystemFeatures
   friends: Friend[]
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
@@ -26,6 +28,13 @@ export interface MockCoreState {
   membersByServerId: Record<string, MemberInfo[]>
   messagesByChannelId: Record<string, MessageWithAuthor[]>
   pinnedMessageIdsByChannelId: Record<string, string[]>
+  emailVerificationRequestCount: number
+  emailVerificationConfirmCountByToken: Record<string, number>
+  emailVerificationRequestDelayMs: number
+  validEmailVerificationTokens: string[]
+  forgotPasswordRequestCount: number
+  resetPasswordRequestCount: number
+  validPasswordResetTokens: string[]
 }
 
 const DEFAULT_FEATURES: SystemFeatures = {
@@ -172,7 +181,9 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
   }
 
   return {
+    authenticated: true,
     user,
+    features: DEFAULT_FEATURES,
     friends: buildFriends(24),
     incomingRequests: buildRequests(10, 'incoming'),
     outgoingRequests: buildRequests(8, 'outgoing'),
@@ -183,20 +194,31 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     membersByServerId: {},
     messagesByChannelId: {},
     pinnedMessageIdsByChannelId: {},
+    emailVerificationRequestCount: 0,
+    emailVerificationConfirmCountByToken: {},
+    emailVerificationRequestDelayMs: 0,
+    validEmailVerificationTokens: ['valid-email-token'],
+    forgotPasswordRequestCount: 0,
+    resetPasswordRequestCount: 0,
+    validPasswordResetTokens: ['valid-reset-token'],
     ...overrides,
   }
 }
 
 export async function installMockCoreApi(page: Page, state: MockCoreState = createMockCoreState()) {
   await page.addInitScript(
-    ({ authStorageKey, user }) => {
-      window.localStorage.setItem(
-        authStorageKey,
-        JSON.stringify({
-          state: { token: null, user },
-          version: 2,
-        }),
-      )
+    ({ authStorageKey, authenticated, user }) => {
+      if (authenticated) {
+        window.localStorage.setItem(
+          authStorageKey,
+          JSON.stringify({
+            state: { token: null, user },
+            version: 2,
+          }),
+        )
+      } else {
+        window.localStorage.removeItem(authStorageKey)
+      }
       window.localStorage.removeItem('voxpery-hidden-dm-peers')
       window.sessionStorage.clear()
 
@@ -276,7 +298,7 @@ export async function installMockCoreApi(page: Page, state: MockCoreState = crea
         value: MockWebSocket,
       })
     },
-    { authStorageKey: AUTH_STORAGE_KEY, user: state.user },
+    { authStorageKey: AUTH_STORAGE_KEY, authenticated: state.authenticated, user: state.user },
   )
 
   await page.route('http://localhost:3001/**', async (route) => {
@@ -296,12 +318,69 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   }
 
   if (pathname === '/api/system/features' && method === 'GET') {
-    await json(route, DEFAULT_FEATURES)
+    await json(route, state.features)
     return
   }
 
   if (pathname === '/api/auth/me' && method === 'GET') {
+    if (!state.authenticated) {
+      await json(route, { error: 'Authentication required' }, 401)
+      return
+    }
     await json(route, state.user)
+    return
+  }
+
+  if (pathname === '/api/auth/forgot-password' && method === 'POST') {
+    state.forgotPasswordRequestCount += 1
+    await json(route, { message: 'If that email exists, a reset link has been sent.' })
+    return
+  }
+
+  if (pathname === '/api/auth/reset-password' && method === 'POST') {
+    state.resetPasswordRequestCount += 1
+    const body = parseJsonBody<{ token?: string; new_password?: string }>(request)
+    if (!body.token || !state.validPasswordResetTokens.includes(body.token)) {
+      await json(route, { error: 'Invalid password reset token' }, 400)
+      return
+    }
+    await json(route, { message: 'Password reset successful. You can now sign in.' })
+    return
+  }
+
+  if (pathname === '/api/auth/email/request-verification' && method === 'POST') {
+    state.emailVerificationRequestCount += 1
+    if (state.emailVerificationRequestDelayMs > 0) {
+      await delay(state.emailVerificationRequestDelayMs)
+    }
+    const body = parseJsonBody<{ email?: string }>(request)
+    if (body.email?.trim()) {
+      state.user = {
+        ...state.user,
+        email: body.email.trim().toLowerCase(),
+        email_verified: false,
+      }
+    }
+    await json(route, state.user)
+    return
+  }
+
+  if (pathname === '/api/auth/email/confirm' && method === 'POST') {
+    const body = parseJsonBody<{ token?: string }>(request)
+    const token = body.token?.trim() ?? ''
+    state.emailVerificationConfirmCountByToken[token] =
+      (state.emailVerificationConfirmCountByToken[token] ?? 0) + 1
+
+    if (!state.validEmailVerificationTokens.includes(token)) {
+      await json(route, { error: 'Invalid email verification token' }, 400)
+      return
+    }
+
+    state.user = {
+      ...state.user,
+      email_verified: true,
+    }
+    await json(route, { message: 'Your email address has been verified.' })
     return
   }
 
@@ -352,13 +431,13 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   }
 
   if (pathname === '/api/channels' && method === 'POST') {
-    const body = request.postDataJSON() as {
+    const body = parseJsonBody<{
       server_id?: string
       name?: string
       description?: string
       channel_type?: 'text' | 'voice'
       category?: string
-    }
+    }>(request)
     const serverId = body.server_id ?? state.servers[0]?.id ?? 'server-core'
     const existing = state.channelsByServerId[serverId] ?? []
     const name = body.name?.trim() || 'new-channel'
@@ -408,7 +487,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   }
 
   if (pathname === '/api/friends/requests' && method === 'POST') {
-    const body = request.postDataJSON() as { username?: string }
+    const body = parseJsonBody<{ username?: string }>(request)
     const next = buildRequests(1, 'outgoing')[0]
     state.outgoingRequests = [
       { ...next, id: `outgoing-request-${Date.now()}`, receiver_username: body.username ?? 'New Friend' },
@@ -503,7 +582,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (dmMessagesMatch && method === 'POST') {
     const channelId = dmMessagesMatch[1]
-    const body = request.postDataJSON() as { content?: string; attachments?: unknown[] }
+    const body = parseJsonBody<{ content?: string; attachments?: unknown[] }>(request)
     const message = createDmMessage(state, channelId, body.content ?? '', body.attachments ?? [])
     state.dmMessagesByChannelId[channelId] = [
       ...(state.dmMessagesByChannelId[channelId] ?? []),
@@ -533,7 +612,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (serverPinsMatch && method === 'POST') {
     const channelId = serverPinsMatch[1]
-    const body = request.postDataJSON() as { message_id?: string }
+    const body = parseJsonBody<{ message_id?: string }>(request)
     const messageId = body.message_id ?? ''
     const message = findServerMessage(state, messageId)
     if (!message) {
@@ -565,7 +644,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       return
     }
     const emoji = method === 'POST'
-      ? ((request.postDataJSON() as { emoji?: string }).emoji ?? '')
+      ? (parseJsonBody<{ emoji?: string }>(request).emoji ?? '')
       : (url.searchParams.get('emoji') ?? '')
     const existingReactions = message.reactions ?? []
     if (method === 'POST') {
@@ -598,7 +677,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       await json(route, { error: 'Message not found' }, 404)
       return
     }
-    const body = request.postDataJSON() as { content?: string }
+    const body = parseJsonBody<{ content?: string }>(request)
     message.content = body.content ?? message.content
     message.edited_at = new Date().toISOString()
     await json(route, message)
@@ -624,7 +703,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   if (serverMessagesMatch && method === 'POST') {
     const channelId = serverMessagesMatch[1]
-    const body = request.postDataJSON() as { content?: string; attachments?: unknown[] }
+    const body = parseJsonBody<{ content?: string; attachments?: unknown[] }>(request)
     const message = createServerMessage(state, channelId, body.content ?? '', body.attachments ?? [])
     state.messagesByChannelId[channelId] = [
       ...(state.messagesByChannelId[channelId] ?? []),
@@ -708,10 +787,24 @@ function findServerMessage(state: MockCoreState, messageId: string): MessageWith
   return null
 }
 
+function parseJsonBody<T extends Record<string, unknown>>(request: Request): Partial<T> {
+  const raw = request.postData()
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw) as Partial<T>
+  } catch {
+    return {}
+  }
+}
+
 async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
     contentType: 'application/json',
     body: JSON.stringify(body),
   })
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
