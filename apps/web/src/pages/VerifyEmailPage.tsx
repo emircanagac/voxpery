@@ -61,6 +61,42 @@ export default function VerifyEmailPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return
+        if (currentUser) {
+          authApi.getMe(currentToken ?? null)
+            .then((freshUser) => {
+              if (cancelled) return
+              if (currentToken) setAuth(currentToken, freshUser)
+              else setUser(freshUser)
+
+              if (freshUser.email_verified) {
+                setVerificationState({
+                  verifyToken,
+                  status: 'success',
+                  message: 'Your email address has already been verified.',
+                })
+                redirectTimeout = window.setTimeout(() => {
+                  navigate(ROUTES.home, { replace: true })
+                }, 1200)
+                return
+              }
+
+              setVerificationState({
+                verifyToken,
+                status: 'error',
+                message: getAuthErrorMessage(err).message || 'Could not verify this email address.',
+              })
+            })
+            .catch(() => {
+              if (cancelled) return
+              setVerificationState({
+                verifyToken,
+                status: 'error',
+                message: getAuthErrorMessage(err).message || 'Could not verify this email address.',
+              })
+            })
+          return
+        }
+
         setVerificationState({
           verifyToken,
           status: 'error',
