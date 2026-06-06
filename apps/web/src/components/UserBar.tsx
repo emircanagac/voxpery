@@ -249,6 +249,7 @@ export default function UserBar() {
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailEdit, setEmailEdit] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
+  const [emailVerificationSending, setEmailVerificationSending] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
   const statusMenuRef = useRef<HTMLDivElement>(null)
   const deviceMenuRef = useRef<HTMLDivElement>(null)
@@ -1149,6 +1150,29 @@ export default function UserBar() {
     }
   }
 
+  const resendEmailVerification = async () => {
+    if (emailVerificationSending) return
+    setEmailVerificationSending(true)
+    try {
+      const updated = await requestEmailVerification()
+      pushToast({
+        level: 'info',
+        title: updated?.email_verified ? 'Email already verified' : 'Verification email sent',
+        message: updated?.email_verified
+          ? 'Your email address is already verified.'
+          : `We sent a verification link to ${updated?.email ?? user?.email}.`,
+      })
+    } catch (err: unknown) {
+      pushToast({
+        level: 'error',
+        title: 'Verification email failed',
+        message: getAuthErrorMessage(err).message || 'Could not send a verification email.',
+      })
+    } finally {
+      setEmailVerificationSending(false)
+    }
+  }
+
   const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
   const currentInputDevice = inputDevices.find((device) => device.id === selectedInputDeviceId) ?? DEFAULT_INPUT_DEVICE_OPTION
   const currentOutputDevice = outputDevices.find((device) => device.id === selectedOutputDeviceId) ?? DEFAULT_OUTPUT_DEVICE_OPTION
@@ -1875,26 +1899,11 @@ export default function UserBar() {
                       <button
                         type="button"
                         className="user-toggle account-action-btn"
-                        onClick={async () => {
-                          try {
-                            const updated = await requestEmailVerification()
-                            pushToast({
-                              level: 'info',
-                              title: updated?.email_verified ? 'Email already verified' : 'Verification email sent',
-                              message: updated?.email_verified
-                                ? 'Your email address is already verified.'
-                                : `We sent a verification link to ${updated?.email ?? user?.email}.`,
-                            })
-                          } catch (err: unknown) {
-                            pushToast({
-                              level: 'error',
-                              title: 'Verification email failed',
-                              message: getAuthErrorMessage(err).message || 'Could not send a verification email.',
-                            })
-                          }
-                        }}
+                        onClick={resendEmailVerification}
+                        disabled={emailVerificationSending}
+                        aria-busy={emailVerificationSending}
                       >
-                        Verify
+                        {emailVerificationSending ? 'Sending...' : 'Verify'}
                       </button>
                     )}
                     {emailVerificationEnabled && (
