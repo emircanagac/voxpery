@@ -1,7 +1,18 @@
 use crate::errors::AppError;
+use lettre::Message;
 use lettre::message::header::ContentType;
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::transport::smtp::{
+    authentication::{Credentials, DEFAULT_MECHANISMS},
+    client::{AsyncSmtpConnection, TlsParameters},
+    extension::ClientId,
+};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    time::Duration,
+};
+
+const SMTP_SUBMISSION_PORT: u16 = 587;
+const SMTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 async fn send_html_email(
     to_email: &str,
@@ -27,18 +38,48 @@ async fn send_html_email(
         .body(html_body)
         .map_err(|e| AppError::Internal(format!("Failed to build email: {}", e)))?;
 
+    send_message_via_smtp(smtp_host, smtp_user, smtp_pass, email).await?;
+
+    Ok(())
+}
+
+async fn send_message_via_smtp(
+    smtp_host: &str,
+    smtp_user: &str,
+    smtp_pass: &str,
+    email: Message,
+) -> Result<(), AppError> {
     let creds = Credentials::new(smtp_user.to_string(), smtp_pass.to_string());
+    let hello_name = ClientId::default();
+    let tls_parameters = TlsParameters::new(smtp_host.to_string())
+        .map_err(|e| AppError::Internal(format!("Failed to configure SMTP TLS: {}", e)))?;
 
-    let mailer: AsyncSmtpTransport<Tokio1Executor> =
-        AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
-            .map_err(|e| AppError::Internal(format!("Failed to configure SMTP transport: {}", e)))?
-            .credentials(creds)
-            .build();
+    let mut conn = AsyncSmtpConnection::connect_tokio1(
+        (smtp_host, SMTP_SUBMISSION_PORT),
+        Some(SMTP_CONNECT_TIMEOUT),
+        &hello_name,
+        None,
+        Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+    )
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to connect to SMTP server: {}", e)))?;
 
-    mailer
-        .send(email)
+    conn.starttls(tls_parameters, &hello_name)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start SMTP TLS: {}", e)))?;
+
+    conn.auth(DEFAULT_MECHANISMS, &creds)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to authenticate with SMTP: {}", e)))?;
+
+    let raw = email.formatted();
+    conn.send(email.envelope(), &raw)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
+
+    if let Err(err) = conn.quit().await {
+        tracing::warn!("Failed to close SMTP connection cleanly: {}", err);
+    }
 
     Ok(())
 }
