@@ -46,6 +46,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Password reset request + reset flow works.
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
+- [ ] Invite links show the target server, enforce community rules acknowledgement when rules exist, and join into the expected server.
 - [ ] Voice join/leave works.
 - [ ] `docs/VOICE_RELEASE_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior when the release touches voice, LiveKit/WebRTC, camera, screen share, audio settings, service worker caching, desktop runtime, or build output.
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
@@ -66,6 +67,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 - [ ] Uploaded chat image attachments render inline after channel/server navigation and open only in the in-app preview modal on web and desktop, with no external tab/browser navigation.
+- [ ] Automated core UI smoke includes invite/join, server settings, social/friend, auth/account, release/settings, permission, and desktop-runtime regressions.
 
 ## 4) Desktop Smoke Tests (mandatory)
 
@@ -87,6 +89,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Updater check shows a clear no-update state when no newer version is available.
 - [ ] Updater check shows the available version when a newer signed release is available.
 - [ ] Update availability appears as one calm toast plus a compact install pill; settings still provides manual check/install.
+- [ ] Desktop settings still exposes app updates, launch-on-startup, and tray-on-close controls when the web shell runs inside Tauri.
 - [ ] Updater install path prepares the desktop runtime before install/relaunch.
 - [ ] Failed updater check/install shows recoverable UI and does not leave settings stuck.
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.

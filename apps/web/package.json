@@ -17,7 +17,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui-smoke": "playwright test e2e/core-ui-smoke.spec.ts e2e/auth-core-regressions.spec.ts e2e/channel-permission-core-regressions.spec.ts e2e/release-settings-core-regressions.spec.ts e2e/social-friend-core-regressions.spec.ts e2e/server-settings-core-regressions.spec.ts --project=chromium",
+    "test:e2e:ui-smoke": "playwright test e2e/core-ui-smoke.spec.ts e2e/auth-core-regressions.spec.ts e2e/channel-permission-core-regressions.spec.ts e2e/release-settings-core-regressions.spec.ts e2e/social-friend-core-regressions.spec.ts e2e/server-settings-core-regressions.spec.ts e2e/invite-desktop-core-regressions.spec.ts --project=chromium",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
