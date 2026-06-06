@@ -58,7 +58,7 @@ Before publishing or announcing a desktop release:
 - Every updater asset referenced by `latest.json` must have a matching `.sig` file.
 - Artifact URLs in `latest.json` must point to release assets for the same version, not draft-only, private, temporary, or older release URLs.
 - The updater public key injected into `apps/desktop/src-tauri/tauri.conf.json` must match the private key used to sign the release artifacts.
-- Manual `Release desktop` workflow runs must target the exact release tag/ref and use `smoke_checklist_confirmed=yes`.
+- Manual `Release / Desktop` workflow runs must target the exact release tag/ref and use `smoke_checklist_confirmed=yes`.
 - Production desktop releases should build all supported platforms. Single-platform manual runs are acceptable for test or explicit hotfix scopes only and must be noted in the release checklist.
 - If a GitHub Release exists but the desktop workflow did not run or did not attach updater metadata, keep the release as draft until the workflow is rerun against the correct tag/ref.
 

@@ -61,7 +61,7 @@ Voxpery follows Semantic Versioning:
 
 - **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, and `Checks / Frontend`. Keep these fast and deterministic so branch protection can require them on every PR.
 - **Security monitoring gates**: CodeQL and dependency security audit workflows run on PRs, schedules, or manually. Review their output before release; an upstream-blocked advisory needs an explicit release decision rather than being silently ignored.
-- **Release smoke gates**: run the manual `Release Smoke` workflow against the release candidate API before tagging or publishing. Use strict security headers for production candidates and enable browser E2E only when the candidate environment is ready for it.
+- **Release smoke gates**: run the manual `Release / Smoke` workflow against the release candidate API before tagging or publishing. Use strict security headers for production candidates and enable browser E2E only when the candidate environment is ready for it.
 - **Publish jobs**: Docker publish, tag release, desktop release, and manual smoke jobs must not be configured as required PR checks because they are intentionally skipped or manually triggered on PRs. Docker publish runs automatically for `v*` tag pushes; the manual deploy workflow builds and publishes immutable `sha-<commit>` images before deploying a `main-candidate`. Docker publish jobs must produce immutable `sha-<commit>` tags for manually deployed main-candidate builds and version tags for `v*` releases; production deploys must resolve to an exact image tag rather than Docker `latest`.
 
 ### Release Checklist
@@ -69,7 +69,7 @@ Voxpery follows Semantic Versioning:
 1. Prepare the candidate from updated `main` and keep the final release commit SHA recorded.
 2. Update docs for behavior changes and update the changelog entry before creating the tag.
 3. Ensure required PR gates are green on the release branch and no security monitoring gate is ignored without a recorded decision.
-4. Run the manual `Release Smoke` workflow against the release candidate API and record the workflow run URL in [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md).
+4. Run the manual `Release / Smoke` workflow against the release candidate API and record the workflow run URL in [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md).
 5. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
 6. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of the release.
 7. Validate critical paths: auth, messaging+websocket, voice join/leave.
