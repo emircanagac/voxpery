@@ -1091,10 +1091,20 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         <div key={r.id} className="home-request-row">
                           <span>{r.requester_username}</span>
                           <div className="home-request-actions">
-                            <button type="button" className="home-request-btn accept" onClick={() => acceptRequest(r.id)}>
+                            <button
+                              type="button"
+                              className="home-request-btn accept"
+                              aria-label={`Accept friend request from ${r.requester_username}`}
+                              onClick={() => acceptRequest(r.id)}
+                            >
                               <Check size={14} />
                             </button>
-                            <button type="button" className="home-request-btn reject" onClick={() => rejectRequest(r.id)}>
+                            <button
+                              type="button"
+                              className="home-request-btn reject"
+                              aria-label={`Reject friend request from ${r.requester_username}`}
+                              onClick={() => rejectRequest(r.id)}
+                            >
                               <X size={14} />
                             </button>
                           </div>
@@ -1220,6 +1230,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                                 type="button"
                                 className="home-member-action danger"
                                 title="Remove friend"
+                                aria-label={`Remove ${friend.username} as friend`}
                                 disabled={openingDmPeerId === friend.id}
                                 onClick={(e) => {
                                   e.stopPropagation()
