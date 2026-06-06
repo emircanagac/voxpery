@@ -31,6 +31,7 @@ Edit `.env` and set strong production values at minimum:
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
 - `VITE_API_URL` (public backend URL used by frontend build)
+- `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)
 
 LiveKit note:
@@ -52,6 +53,7 @@ Optional integrations note:
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
 - Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
 - Password reset and email verification depend on email delivery.
+- Set `FRONTEND_URL` to the public web origin, for example `https://voxpery.com`, so email links do not depend on `CORS_ORIGINS` ordering.
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
 - Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
 - `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.

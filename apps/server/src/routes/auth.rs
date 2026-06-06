@@ -338,10 +338,16 @@ fn is_valid_email(email: &str) -> bool {
 }
 
 fn frontend_base_url(state: &AppState) -> String {
+    if let Some(frontend_url) = state.frontend_url.as_deref() {
+        return frontend_url.trim_end_matches('/').to_string();
+    }
+
     state
         .cors_origins
-        .first()
+        .iter()
+        .find(|origin| origin.starts_with("http://") || origin.starts_with("https://"))
         .cloned()
+        .map(|origin| origin.trim_end_matches('/').to_string())
         .unwrap_or_else(|| "http://localhost:5173".to_string())
 }
 
@@ -2217,27 +2223,33 @@ async fn request_email_verification(
         return Ok(Json(UserPublic::from(user)));
     };
 
-    if let (Some(host), Some(smtp_user), Some(smtp_pass)) =
+    let (Some(host), Some(smtp_user), Some(smtp_pass)) =
         (&state.smtp_host, &state.smtp_user, &state.smtp_password)
-    {
-        let verify_link = format!(
-            "{}/verify-email?token={}",
-            frontend_base_url(&state).trim_end_matches('/'),
-            token_plain
-        );
-        if let Err(e) = crate::services::email::send_email_verification_email(
-            &updated.email,
-            &verify_link,
-            host,
-            smtp_user,
-            smtp_pass,
-        )
-        .await
-        {
-            tracing::error!("Failed to send email verification email: {}", e);
-        }
-    } else {
+    else {
         tracing::warn!("SMTP is not configured! Email verification email not sent.");
+        return Err(feature_disabled(
+            "Email verification is disabled because email delivery is not configured",
+        ));
+    };
+
+    let verify_link = format!("{}/verify-email?token={}", frontend_base_url(&state), token_plain);
+    if let Err(e) = crate::services::email::send_email_verification_email(
+        &updated.email,
+        &verify_link,
+        host,
+        smtp_user,
+        smtp_pass,
+    )
+    .await
+    {
+        tracing::error!("Failed to send email verification email: {}", e);
+        let _ = sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+            .bind(claims.sub)
+            .execute(&state.db)
+            .await;
+        return Err(AppError::Internal(
+            "Email verification delivery failed".into(),
+        ));
     }
 
     Ok(Json(UserPublic::from(updated)))
@@ -2897,12 +2909,7 @@ async fn forgot_password(
     if let (Some(host), Some(smtp_user), Some(smtp_pass)) =
         (&state.smtp_host, &state.smtp_user, &state.smtp_password)
     {
-        let frontend_url = state
-            .cors_origins
-            .first()
-            .cloned()
-            .unwrap_or_else(|| frontend_base_url(&state));
-        let frontend_url = frontend_url.trim_end_matches('/');
+        let frontend_url = frontend_base_url(&state);
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token_plain);
 
         if let Err(e) = crate::services::email::send_password_reset_email(
