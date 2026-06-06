@@ -5,7 +5,7 @@ Local setup, scripts, and CI behavior for current codebase.
 ## Prerequisites
 
 - Rust (stable)
-- Node.js `>=20.19.0`
+- Node.js `>=24.0.0`
 - Docker (Postgres, Redis, LiveKit)
 
 ## Quick Start

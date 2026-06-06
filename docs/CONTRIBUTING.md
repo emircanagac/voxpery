@@ -5,7 +5,7 @@ Thanks for helping improve Voxpery.
 ## Prerequisites
 
 - Rust (stable)
-- Node.js `>=20.19.0`
+- Node.js `>=24.0.0`
 - Docker
 
 ## Local Setup
