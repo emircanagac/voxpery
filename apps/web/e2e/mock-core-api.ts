@@ -24,6 +24,7 @@ export interface MockCoreState {
   dmChannels: DmChannel[]
   dmMessagesByChannelId: Record<string, MessageWithAuthor[]>
   servers: Server[]
+  serverPermissionsByServerId: Record<string, number>
   channelsByServerId: Record<string, Channel[]>
   membersByServerId: Record<string, MemberInfo[]>
   messagesByChannelId: Record<string, MessageWithAuthor[]>
@@ -190,6 +191,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     dmChannels: [],
     dmMessagesByChannelId: {},
     servers: [],
+    serverPermissionsByServerId: {},
     channelsByServerId: {},
     membersByServerId: {},
     messagesByChannelId: {},
@@ -399,7 +401,7 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     }
     await json(route, {
       ...server,
-      my_permissions: ALL_PERMISSIONS,
+      my_permissions: state.serverPermissionsByServerId[serverId] ?? ALL_PERMISSIONS,
       members: state.membersByServerId[serverId] ?? buildCoreMembers(),
     })
     return
