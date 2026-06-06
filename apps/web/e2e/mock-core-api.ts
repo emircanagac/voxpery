@@ -36,6 +36,10 @@ export interface MockCoreState {
   forgotPasswordRequestCount: number
   resetPasswordRequestCount: number
   validPasswordResetTokens: string[]
+  dataExportRequestCount: number
+  changePasswordRequestCount: number
+  deleteAccountRequestCount: number
+  lastDeleteAccountConfirm: string | null
 }
 
 const DEFAULT_FEATURES: SystemFeatures = {
@@ -203,6 +207,10 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     forgotPasswordRequestCount: 0,
     resetPasswordRequestCount: 0,
     validPasswordResetTokens: ['valid-reset-token'],
+    dataExportRequestCount: 0,
+    changePasswordRequestCount: 0,
+    deleteAccountRequestCount: 0,
+    lastDeleteAccountConfirm: null,
     ...overrides,
   }
 }
@@ -330,6 +338,66 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       return
     }
     await json(route, state.user)
+    return
+  }
+
+  if (pathname === '/api/auth/data-export' && method === 'GET') {
+    state.dataExportRequestCount += 1
+    await json(route, {
+      export: {
+        format: 'voxpery-data-export-v1',
+        generated_at: new Date(Date.UTC(2026, 0, 15, 12, 0, 0)).toISOString(),
+        description: 'Mocked Playwright data export.',
+        privacy_notes: ['No internal tokens are included.'],
+        limits: {
+          server_messages: 'mocked',
+          direct_messages: 'mocked',
+        },
+      },
+      account: {
+        username: state.user.username,
+        email: state.user.email ?? '',
+        status: state.user.status ?? 'online',
+        dm_privacy: state.user.dm_privacy ?? 'friends',
+        created_at: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+        google_connected: !!state.user.google_connected,
+      },
+      profile: {
+        has_avatar: !!state.user.avatar_url,
+      },
+      servers: [],
+      relationships: {
+        friends: state.friends,
+        friend_requests: [],
+      },
+      messages: {
+        server: [],
+        direct: [],
+      },
+    })
+    return
+  }
+
+  if (pathname === '/api/auth/change-password' && method === 'POST') {
+    state.changePasswordRequestCount += 1
+    await json(route, { message: 'Password changed successfully.' })
+    return
+  }
+
+  if (pathname === '/api/auth/account' && method === 'DELETE') {
+    state.deleteAccountRequestCount += 1
+    const body = parseJsonBody<{ confirm?: string }>(request)
+    state.lastDeleteAccountConfirm = body.confirm ?? null
+    if (body.confirm !== 'DELETE') {
+      await json(route, { error: 'Invalid confirmation text' }, 400)
+      return
+    }
+    await json(route, { message: 'Account deleted.' })
+    return
+  }
+
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    await json(route, {})
     return
   }
 
