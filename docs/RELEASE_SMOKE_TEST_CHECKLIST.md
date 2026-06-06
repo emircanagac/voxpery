@@ -35,7 +35,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] `Release Smoke` ran with strict security headers enabled for production candidates.
 - [ ] CI/release workflows ran against the exact release commit SHA or tag recorded above.
 - [ ] Docker images were built with an immutable `sha-<commit>` or `vX.Y.Z` tag, and production deploy did not use `latest`.
-- [ ] For `main-candidate` deploys, the manual `CI` workflow published Docker images for the exact candidate ref before deploy.
+- [ ] For `main-candidate` deploys, the manual deploy workflow built and published Docker images for the exact candidate ref before starting deploy.
 - [ ] Manual deploy workflow resolved the expected deploy channel and exact Docker image tag recorded in Release Candidate Info.
 - [ ] Production top bar shows the expected `Beta` version badge tag (`vX.Y.Z` or `sha-<commit>`).
 

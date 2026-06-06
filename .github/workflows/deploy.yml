@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_channel:
-        description: 'What to deploy: latest release tag, current main candidate, or custom tag/ref'
+        description: 'What to deploy: latest release tag, build+deploy a main candidate, or custom tag/ref'
         required: true
         default: latest-release
         type: choice
@@ -29,17 +29,170 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare:
+    name: Resolve Deploy Target
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_channel: ${{ steps.target.outputs.release_channel }}
+      git_ref: ${{ steps.target.outputs.git_ref }}
+      image_tag: ${{ steps.target.outputs.image_tag }}
+      build_candidate: ${{ steps.target.outputs.build_candidate }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_CHANNEL="${{ inputs.release_channel }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          GIT_REF="${{ inputs.git_ref }}"
+          BUILD_CANDIDATE="false"
+
+          git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"
+
+          case "${RELEASE_CHANNEL}" in
+            latest-release)
+              GIT_REF="$(git for-each-ref refs/tags/v* --sort=-v:refname --format='%(refname:short)' | head -n 1)"
+              if [ -z "${GIT_REF}" ]; then
+                echo "Refusing deploy: no v* release tags were found."
+                exit 1
+              fi
+              IMAGE_TAG="${GIT_REF}"
+              ;;
+            main-candidate)
+              requested_ref="${GIT_REF:-main}"
+              if git rev-parse --verify --quiet "refs/remotes/origin/${requested_ref}" >/dev/null; then
+                resolved_commit="$(git rev-parse "refs/remotes/origin/${requested_ref}")"
+              else
+                resolved_commit="$(git rev-parse "${requested_ref}")"
+              fi
+              short_commit="$(printf '%s' "${resolved_commit}" | cut -c1-12)"
+              GIT_REF="${resolved_commit}"
+              IMAGE_TAG="sha-${short_commit}"
+              BUILD_CANDIDATE="true"
+              ;;
+            custom)
+              if [ -z "${IMAGE_TAG}" ] || [ -z "${GIT_REF}" ]; then
+                echo "Refusing deploy: custom mode requires both image_tag and git_ref."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Refusing deploy: unsupported release_channel '${RELEASE_CHANNEL}'."
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${IMAGE_TAG}" ] || [ "${IMAGE_TAG}" = "latest" ]; then
+            echo "Refusing deploy: image_tag must be an immutable tag, not '${IMAGE_TAG:-empty}'."
+            exit 1
+          fi
+
+          case "${IMAGE_TAG}" in
+            *[!A-Za-z0-9_.-]*)
+              echo "Refusing deploy: image_tag contains unsupported characters."
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${GIT_REF}" ]; then
+            echo "Refusing deploy: git_ref is required."
+            exit 1
+          fi
+
+          case "${GIT_REF}" in
+            -*|*..*|*~*|*^*|*:*|*\\*|*[!A-Za-z0-9_./-]*)
+              echo "Refusing deploy: git_ref contains unsupported characters."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "release_channel=${RELEASE_CHANNEL}"
+            echo "git_ref=${GIT_REF}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "build_candidate=${BUILD_CANDIDATE}"
+          } >> "$GITHUB_OUTPUT"
+
+  publish_candidate:
+    name: ${{ matrix.component == 'backend' && 'Publish Candidate / Docker Backend' || 'Publish Candidate / Docker Frontend' }}
+    needs: prepare
+    if: needs.prepare.outputs.build_candidate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - backend
+          - frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.git_ref }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend
+        if: matrix.component == 'backend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/server
+          file: ./apps/server/Dockerfile
+          push: true
+          tags: voxpery/voxpery-server:${{ needs.prepare.outputs.image_tag }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Build and push frontend
+        if: matrix.component == 'frontend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/web
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: voxpery/voxpery-web:${{ needs.prepare.outputs.image_tag }}
+          build-args: |
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            TURNSTILE_SITE_KEY_PUBLIC=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+            VITE_APP_VERSION=${{ needs.prepare.outputs.image_tag }}
+            APP_ENV=production
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
   deploy:
     name: Deploy to Production
+    needs:
+      - prepare
+      - publish_candidate
+    if: >-
+      always()
+      && needs.prepare.result == 'success'
+      && (needs.publish_candidate.result == 'success' || needs.publish_candidate.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.5
         env:
-          DEPLOY_RELEASE_CHANNEL: ${{ inputs.release_channel }}
-          DEPLOY_IMAGE_TAG: ${{ inputs.image_tag }}
-          DEPLOY_GIT_REF: ${{ inputs.git_ref }}
+          DEPLOY_RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
+          DEPLOY_IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+          DEPLOY_GIT_REF: ${{ needs.prepare.outputs.git_ref }}
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
