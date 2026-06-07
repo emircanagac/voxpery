@@ -8250,7 +8250,7 @@ a.community-open-btn:hover {
   max-height: 220px;
   height: auto;
   object-fit: cover;
-  background: #0b0d14;
+  background: transparent;
 }
 
 .dm-seen {
