@@ -85,6 +85,9 @@ Required diagnostic fields:
 
 - `rnnoiseStatus` is `ready` when suppression is on.
 - `noiseSuppressionEnabled` is `true`.
+- `speakingPreset` is `normal` for the `Balanced` run and `noisy` for the `Noisy room` run.
+- `speakingThreshold` is `42` for the `Balanced` run and `60` for the `Noisy room` run.
+- `speakingThresholdDb` is `-58` for the `Balanced` run and `-40` for the `Noisy room` run.
 - `suppressionTuning` is `balanced` for the `Balanced` run.
 - `suppressionTuning` is `high` for the `Noisy room` run.
 - `aggressiveIsolation` is `true` for noisy-room isolation.

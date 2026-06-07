@@ -95,6 +95,9 @@ describe('voiceDiagnostics', () => {
       rnnoiseStatus: 'ready',
       noiseSuppressionEnabled: true,
       voiceInputProfile: 'custom',
+      speakingPreset: 'noisy',
+      speakingThreshold: 60,
+      speakingThresholdDb: -40,
       suppressionTuning: 'high',
       aggressiveIsolation: true,
     })
@@ -103,6 +106,9 @@ describe('voiceDiagnostics', () => {
       rnnoiseStatus: 'ready',
       noiseSuppressionEnabled: true,
       voiceInputProfile: 'custom',
+      speakingPreset: 'noisy',
+      speakingThreshold: 60,
+      speakingThresholdDb: -40,
       suppressionTuning: 'high',
       aggressiveIsolation: true,
     })

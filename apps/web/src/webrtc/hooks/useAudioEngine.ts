@@ -2,6 +2,10 @@ import { useCallback, useRef } from 'react'
 import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
 import { getOrCreateAudioContext, playCueStack } from '../../audioCues'
 import {
+    getSliderFromStorage,
+    getStoredSpeakingPreset,
+} from '../sensitivityThreshold'
+import {
     getStoredVoiceInputProfile,
     getStoredVoiceSuppressionTuning,
     shouldUseAggressiveVoiceIsolation,
@@ -21,6 +25,10 @@ function pickSuppressionValue<T>(
     values: { off: T; balanced: T; high: T },
 ): T {
     return values[tuning]
+}
+
+function thresholdDbFromSlider(slider: number): number {
+    return Math.max(-100, Math.min(0, Math.round(slider - 100)))
 }
 
 function getBandAverageDb(
@@ -153,12 +161,17 @@ function buildSuppressionConfig(
     noiseSuppressionEnabled: boolean,
 ): LiveSuppressionConfig {
     const profile = getStoredVoiceInputProfile()
+    const speakingPreset = getStoredSpeakingPreset()
+    const speakingThreshold = getSliderFromStorage()
     const aggressiveIsolation = shouldUseAggressiveVoiceIsolation(profile, noiseSuppressionEnabled)
     const suppressionTuning = getStoredVoiceSuppressionTuning(noiseSuppressionEnabled)
 
     updateVoiceDiagnostics({
         noiseSuppressionEnabled,
         voiceInputProfile: profile,
+        speakingPreset,
+        speakingThreshold,
+        speakingThresholdDb: thresholdDbFromSlider(speakingThreshold),
         suppressionTuning,
         aggressiveIsolation,
     })
