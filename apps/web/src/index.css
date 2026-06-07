@@ -5434,6 +5434,7 @@ body {
 
 .chat-inline-gif-link {
   display: inline-flex;
+  width: min(320px, 100%);
   border-radius: 10px;
   overflow: hidden;
   border: none;
@@ -5445,12 +5446,15 @@ body {
 
 .chat-inline-gif {
   width: 100%;
+  aspect-ratio: 16 / 9;
   max-height: 220px;
+  height: auto;
   object-fit: cover;
   display: block;
 }
 
 .chat-inline-sticker-link {
+  width: 120px;
   max-width: 120px;
   border: none;
   border-radius: 0;
@@ -5461,7 +5465,9 @@ body {
 
 .chat-inline-sticker {
   width: 100%;
+  aspect-ratio: 1;
   max-height: 120px;
+  height: auto;
   object-fit: contain;
   display: block;
   filter: drop-shadow(0 8px 18px rgba(7, 11, 24, 0.18));
@@ -8238,8 +8244,11 @@ a.community-open-btn:hover {
 
 .chat-image-attachment {
   display: block;
+  width: min(320px, 52vw);
+  aspect-ratio: 16 / 9;
   max-width: min(320px, 52vw);
   max-height: 220px;
+  height: auto;
   object-fit: cover;
   background: #0b0d14;
 }

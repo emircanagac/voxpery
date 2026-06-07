@@ -381,8 +381,35 @@ describe('ChatArea regressions', () => {
     })
 
     expect(screen.getByAltText('Sticker preview')).toHaveAttribute('src')
+    expect(screen.getByAltText('Sticker preview')).toHaveAttribute('loading', 'eager')
+    expect(screen.getByAltText('Sticker preview')).toHaveAttribute('width', '120')
     expect(screen.getByAltText('GIF preview')).toHaveAttribute('src')
+    expect(screen.getByAltText('GIF preview')).toHaveAttribute('loading', 'eager')
+    expect(screen.getByAltText('GIF preview')).toHaveAttribute('width', '320')
     expect(container.querySelector(`a[href="${stickerUrl}"]`)).toBeNull()
     expect(container.querySelector(`a[href="${gifUrl}"]`)).toBeNull()
+  })
+
+  it('renders image attachments with stable eager preview sizing', () => {
+    renderChatArea({
+      messages: [
+        {
+          ...message('message-image', 'screenshot', 0),
+          attachments: [
+            {
+              url: 'https://cdn.example.test/screenshot.png',
+              type: 'image/png',
+              name: 'screenshot.png',
+            },
+          ],
+        },
+      ],
+    })
+
+    const preview = screen.getByAltText('screenshot.png')
+    expect(preview).toHaveAttribute('loading', 'eager')
+    expect(preview).toHaveAttribute('decoding', 'async')
+    expect(preview).toHaveAttribute('width', '320')
+    expect(preview).toHaveAttribute('height', '180')
   })
 })
