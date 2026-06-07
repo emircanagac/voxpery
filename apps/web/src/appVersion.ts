@@ -6,5 +6,10 @@ export function formatAppVersionBadge(rawVersion: string | null | undefined): st
     return `v${version}`
   }
 
+  const shortSha = version.match(/^sha-([0-9a-f]{7})[0-9a-f]+$/i)
+  if (shortSha?.[1]) {
+    return `sha-${shortSha[1]}`
+  }
+
   return version
 }
