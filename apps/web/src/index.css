@@ -4367,6 +4367,25 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(122, 170, 231, 0.36) transparent;
+}
+
+.chat-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(122, 170, 231, 0.32);
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 170, 231, 0.48);
 }
 
 /* Virtual list updates transform on scroll (scroll-linked). Firefox warns; containment limits scope. */
@@ -4385,6 +4404,7 @@ body {
 .virtual-list-spacer {
   position: relative;
   width: 100%;
+  overflow-anchor: none;
 }
 
 .virtual-list-item {
@@ -4395,6 +4415,7 @@ body {
   min-width: 0;
   padding-bottom: 1px;
   box-sizing: border-box;
+  overflow-anchor: none;
 }
 
 .virtual-list-item-first .message-day-divider {
