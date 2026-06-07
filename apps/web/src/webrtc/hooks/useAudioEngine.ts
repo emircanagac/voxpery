@@ -11,7 +11,15 @@ import {
     shouldUseAggressiveVoiceIsolation,
     type VoiceSuppressionTuning,
 } from '../voiceInputProfile'
-import { updateVoiceDiagnostics } from '../voiceDiagnostics'
+import { buildMicProcessingConstraints } from '../../voiceDevices'
+import {
+    linearToDbDiagnostic,
+    roundVoiceDiagnosticNumber,
+    toVoiceAudioContextDiagnostics,
+    toVoiceProcessingConstraintsDiagnostics,
+    toVoiceTrackSettingsDiagnostics,
+    updateVoiceDiagnostics,
+} from '../voiceDiagnostics'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -167,6 +175,7 @@ function buildSuppressionConfig(
     const suppressionTuning = getStoredVoiceSuppressionTuning(noiseSuppressionEnabled)
 
     updateVoiceDiagnostics({
+        benchmarkSchemaVersion: 1,
         noiseSuppressionEnabled,
         voiceInputProfile: profile,
         speakingPreset,
@@ -365,6 +374,16 @@ export function useAudioEngine() {
             await ctx.resume()
         }
 
+        updateVoiceDiagnostics({
+            benchmarkSchemaVersion: 1,
+            captureConstraints: toVoiceProcessingConstraintsDiagnostics(
+                buildMicProcessingConstraints(noiseSuppressionEnabled),
+            ),
+            rawMicTrackSettings: toVoiceTrackSettingsDiagnostics(rawTrack.getSettings?.()),
+            audioContext: toVoiceAudioContextDiagnostics(ctx),
+            inputVolume: roundVoiceDiagnosticNumber(volumeFactor, 2),
+        })
+
         const source = ctx.createMediaStreamSource(sourceStream)
         const suppressionConfig = buildSuppressionConfig(noiseSuppressionEnabled)
         const { aggressiveIsolation, suppressionTuning } = suppressionConfig
@@ -437,12 +456,17 @@ export function useAudioEngine() {
         const processedTrack = destination.stream.getAudioTracks()[0]
         if (!processedTrack) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
 
+        updateVoiceDiagnostics({
+            processedMicTrackSettings: toVoiceTrackSettingsDiagnostics(processedTrack.getSettings?.()),
+        })
+
         inputGainNodeRef.current = volumeGainNode
         const analyserBuffer = new Float32Array(Math.max(128, refinementAnalyser.frequencyBinCount, refinementAnalyser.fftSize))
         const frequencyBuffer = new Float32Array(Math.max(32, refinementAnalyser.frequencyBinCount))
         let rafId: number | null = null
         let currentFloorGain = 1
         let currentIsolationGain = 1
+        let lastProcessingDiagnosticsAt = 0
 
         const cancelGate = () => {
             if (rafId != null) {
@@ -549,6 +573,7 @@ export function useAudioEngine() {
                 const liveSuppressionConfig = liveSuppressionConfigRef.current ?? suppressionConfig
                 let targetGain = 1
                 let targetIsolationGain = 1
+                let likelySpeech = false
 
                 if (refinementEnabled) {
                     if (rms <= liveSuppressionConfig.lowFloorThr) {
@@ -567,7 +592,7 @@ export function useAudioEngine() {
                         liveSuppressionConfig.openFloorThr,
                         liveSuppressionConfig.aggressiveIsolation,
                     )
-                    const likelySpeech = isLikelySpeechFrame(
+                    likelySpeech = isLikelySpeechFrame(
                         frequencyBuffer,
                         ctx.sampleRate,
                         refinementAnalyser.fftSize,
@@ -597,6 +622,18 @@ export function useAudioEngine() {
                     ctx.currentTime,
                     targetIsolationGain > currentIsolationGain ? 0.03 : 0.06,
                 )
+                const nowMs = Date.now()
+                if (nowMs - lastProcessingDiagnosticsAt >= 750) {
+                    lastProcessingDiagnosticsAt = nowMs
+                    updateVoiceDiagnostics({
+                        liveProcessing: {
+                            rmsDb: linearToDbDiagnostic(rms),
+                            floorGain: roundVoiceDiagnosticNumber(currentFloorGain, 3),
+                            isolationGain: roundVoiceDiagnosticNumber(currentIsolationGain, 3),
+                            likelySpeech,
+                        },
+                    })
+                }
             } catch {
                 // ignore
             }

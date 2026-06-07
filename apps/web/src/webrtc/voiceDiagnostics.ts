@@ -1,6 +1,69 @@
 export type RnnoiseRuntimeStatus = 'disabled' | 'loading' | 'ready' | 'failed'
 
+export interface VoiceTrackSettingsDiagnostics {
+  sampleRate?: number
+  sampleSize?: number
+  channelCount?: number
+  latency?: number
+  echoCancellation?: boolean
+  noiseSuppression?: boolean
+  autoGainControl?: boolean
+}
+
+export interface VoiceProcessingConstraintsDiagnostics {
+  echoCancellation?: boolean
+  noiseSuppression?: boolean
+  autoGainControl?: boolean
+}
+
+export interface VoiceAudioContextDiagnostics {
+  sampleRate?: number
+  state?: string
+  baseLatency?: number
+  outputLatency?: number
+}
+
+export interface VoiceLiveProcessingDiagnostics {
+  rmsDb?: number
+  floorGain?: number
+  isolationGain?: number
+  likelySpeech?: boolean
+}
+
+export interface VoiceActivityDiagnostics {
+  mode?: 'voice_activity' | 'push_to_talk'
+  gateOpen?: boolean
+  speaking?: boolean
+  rmsDb?: number
+  smoothedRmsDb?: number
+  onThresholdDb?: number
+  offThresholdDb?: number
+  openFrames?: number
+  belowFrames?: number
+}
+
+export interface VoiceNetworkDiagnosticsSnapshot {
+  pingMs?: number | null
+  wsPingMs?: number | null
+  rtcPingMs?: number | null
+  packetLossPct?: number | null
+  jitterMs?: number | null
+  pingJitterMs?: number | null
+  pingSource?: 'rtc' | 'ws' | null
+}
+
+export interface VoiceLivekitDiagnostics {
+  roomState?: string
+  participants?: number
+  remoteStreams?: number
+  adaptiveStream?: boolean
+  dynacast?: boolean
+  microphonePublished?: boolean
+  microphoneSource?: 'processed-webaudio'
+}
+
 export interface VoiceRuntimeDiagnostics {
+  benchmarkSchemaVersion?: number
   rnnoiseStatus?: RnnoiseRuntimeStatus
   rnnoiseError?: string
   rnnoiseWorkletUrl?: string
@@ -11,6 +74,15 @@ export interface VoiceRuntimeDiagnostics {
   speakingThresholdDb?: number
   suppressionTuning?: string
   aggressiveIsolation?: boolean
+  inputVolume?: number
+  captureConstraints?: VoiceProcessingConstraintsDiagnostics
+  rawMicTrackSettings?: VoiceTrackSettingsDiagnostics
+  processedMicTrackSettings?: VoiceTrackSettingsDiagnostics
+  audioContext?: VoiceAudioContextDiagnostics
+  liveProcessing?: VoiceLiveProcessingDiagnostics
+  voiceActivity?: VoiceActivityDiagnostics
+  network?: VoiceNetworkDiagnosticsSnapshot
+  livekit?: VoiceLivekitDiagnostics
   updatedAt?: string
 }
 
@@ -54,6 +126,61 @@ export function getVoiceDiagnosticsSnapshot(): VoiceRuntimeDiagnostics | null {
 
 export function formatVoiceDiagnosticsSnapshot(snapshot: VoiceRuntimeDiagnostics): string {
   return JSON.stringify(snapshot, null, 2)
+}
+
+function pickFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function pickBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+export function roundVoiceDiagnosticNumber(value: number, decimals = 1): number {
+  if (!Number.isFinite(value)) return 0
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
+
+export function linearToDbDiagnostic(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return -100
+  return Math.max(-100, roundVoiceDiagnosticNumber(20 * Math.log10(value), 1))
+}
+
+export function toVoiceTrackSettingsDiagnostics(
+  settings: MediaTrackSettings | null | undefined,
+): VoiceTrackSettingsDiagnostics | undefined {
+  if (!settings) return undefined
+  const settingsWithLatency = settings as MediaTrackSettings & { latency?: number }
+  return {
+    sampleRate: pickFiniteNumber(settings.sampleRate),
+    sampleSize: pickFiniteNumber(settings.sampleSize),
+    channelCount: pickFiniteNumber(settings.channelCount),
+    latency: pickFiniteNumber(settingsWithLatency.latency),
+    echoCancellation: pickBoolean(settings.echoCancellation),
+    noiseSuppression: pickBoolean(settings.noiseSuppression),
+    autoGainControl: pickBoolean(settings.autoGainControl),
+  }
+}
+
+export function toVoiceProcessingConstraintsDiagnostics(
+  constraints: MediaTrackConstraints,
+): VoiceProcessingConstraintsDiagnostics {
+  return {
+    echoCancellation: pickBoolean(constraints.echoCancellation),
+    noiseSuppression: pickBoolean(constraints.noiseSuppression),
+    autoGainControl: pickBoolean(constraints.autoGainControl),
+  }
+}
+
+export function toVoiceAudioContextDiagnostics(ctx: AudioContext): VoiceAudioContextDiagnostics {
+  const ctxWithOutputLatency = ctx as AudioContext & { outputLatency?: number }
+  return {
+    sampleRate: pickFiniteNumber(ctx.sampleRate),
+    state: ctx.state,
+    baseLatency: pickFiniteNumber(ctx.baseLatency),
+    outputLatency: pickFiniteNumber(ctxWithOutputLatency.outputLatency),
+  }
 }
 
 export type VoiceQualityLevel = 'unknown' | 'good' | 'fair' | 'poor'

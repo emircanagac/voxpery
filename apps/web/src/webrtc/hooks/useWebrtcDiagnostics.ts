@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Room } from 'livekit-client'
+import { updateVoiceDiagnostics } from '../voiceDiagnostics'
 
 const PING_WINDOW_SIZE = 7
 const RTC_BURST_SAMPLE_COUNT = 6
@@ -380,6 +381,17 @@ export function useWebrtcDiagnostics(options: {
     useEffect(() => {
         if (!joinedChannelId) {
             selectedPingSourceRef.current = null
+            updateVoiceDiagnostics({
+                network: {
+                    pingMs: null,
+                    wsPingMs: null,
+                    rtcPingMs: null,
+                    packetLossPct: null,
+                    jitterMs: null,
+                    pingJitterMs: null,
+                    pingSource: null,
+                },
+            })
             return
         }
 
@@ -414,6 +426,21 @@ export function useWebrtcDiagnostics(options: {
         setPingJitterMs(nextSource === 'rtc' ? rtcPingJitterMsRef.current : wsPingJitterMsRef.current)
         selectedPingSourceRef.current = nextSource
     }, [joinedChannelId, roomState, rtcPingMs, wsPingMs])
+
+    useEffect(() => {
+        if (!joinedChannelId) return
+        updateVoiceDiagnostics({
+            network: {
+                pingMs,
+                wsPingMs,
+                rtcPingMs,
+                packetLossPct,
+                jitterMs,
+                pingJitterMs,
+                pingSource: selectedPingSourceRef.current,
+            },
+        })
+    }, [joinedChannelId, jitterMs, packetLossPct, pingJitterMs, pingMs, rtcPingMs, wsPingMs])
 
     const hasActiveVoice = !!joinedChannelId
     const hasDisplaySource = hasActiveVoice && (rtcPingMs != null || wsPingMs != null)

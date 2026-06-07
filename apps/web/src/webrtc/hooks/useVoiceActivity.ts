@@ -4,6 +4,7 @@ import { useAppStore } from '../../stores/app'
 import { getThresholdsFromStorage } from '../sensitivityThreshold'
 import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../voiceInputProfile'
 import { evaluateVoiceGateFrame } from '../voiceGate'
+import { linearToDbDiagnostic, updateVoiceDiagnostics } from '../voiceDiagnostics'
 
 const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
@@ -32,7 +33,7 @@ export function useVoiceActivity(options: {
     const monitorSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
     const monitorAnalyserRef = useRef<AnalyserNode | null>(null)
 
-    const getVoiceModeSettings = useCallback(() => {
+    const getVoiceModeSettings = useCallback((): { mode: VoiceMode; key: string } => {
         const modeRaw = localStorage.getItem(VOICE_MODE_KEY)
         const mode = modeRaw === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
         const keyRaw = localStorage.getItem(PTT_KEY_KEY)
@@ -204,6 +205,7 @@ export function useVoiceActivity(options: {
         let monAboveCount = 0
         let monBelowCount = 0
         let smoothRms = 0
+        let lastVoiceActivityDiagnosticsAt = 0
         // Hold after going quiet so short pauses inside one sentence do not drop the ring.
         // Keep release fairly short so keyboard clicks do not hold the gate open.
         useAppStore.getState().setVoiceSpeaking(useAppStore.getState().voiceSpeakingUserIds, false)
@@ -240,7 +242,8 @@ export function useVoiceActivity(options: {
                     monAboveCount = decision.openFrames
                     monBelowCount = decision.belowFrames
                     smoothRms = decision.smoothedRms
-                    if (decision.speaking !== monLastSpeaking) {
+                    const speakingChanged = decision.speaking !== monLastSpeaking
+                    if (speakingChanged) {
                         monLastSpeaking = decision.speaking
                         voiceActivitySpeakingRef.current = decision.speaking
                         applyVoiceActivityGate(decision.speaking)
@@ -249,6 +252,23 @@ export function useVoiceActivity(options: {
                             decision.speaking,
                         )
                     }
+                    const nowMs = Date.now()
+                    if (nowMs - lastVoiceActivityDiagnosticsAt >= 750 || speakingChanged) {
+                        lastVoiceActivityDiagnosticsAt = nowMs
+                        updateVoiceDiagnostics({
+                            voiceActivity: {
+                                mode: getVoiceModeSettings().mode,
+                                gateOpen: gateOpenRef.current,
+                                speaking: decision.speaking,
+                                rmsDb: linearToDbDiagnostic(rms),
+                                smoothedRmsDb: linearToDbDiagnostic(decision.smoothedRms),
+                                onThresholdDb: linearToDbDiagnostic(onThr),
+                                offThresholdDb: linearToDbDiagnostic(offThr),
+                                openFrames: decision.openFrames,
+                                belowFrames: decision.belowFrames,
+                            },
+                        })
+                    }
                 }
             } catch {
                 // ignore
@@ -256,7 +276,7 @@ export function useVoiceActivity(options: {
             inlineMonitorIntervalRef.current = requestAnimationFrame(tick)
         }
         inlineMonitorIntervalRef.current = requestAnimationFrame(tick)
-    }, [applyVoiceActivityGate, cleanupMonitorNodes, getAudioContext, localStream, resetVoiceActivityGate])
+    }, [applyVoiceActivityGate, cleanupMonitorNodes, getAudioContext, getVoiceModeSettings, localStream, resetVoiceActivityGate])
 
     useEffect(() => {
         if (!joinedChannelId) return
