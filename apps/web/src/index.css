@@ -348,6 +348,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
@@ -360,6 +362,7 @@ body {
   height: 20px;
   max-width: 164px;
   padding: 0 9px;
+  overflow: hidden;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
@@ -369,6 +372,10 @@ body {
   letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
+}
+
+.shell-brand-release > span:first-child {
+  flex: 0 0 auto;
 }
 
 .shell-brand-release::before {
@@ -382,6 +389,7 @@ body {
 }
 
 .shell-brand-release-separator {
+  flex: 0 0 auto;
   color: rgba(200, 212, 238, 0.52);
 }
 

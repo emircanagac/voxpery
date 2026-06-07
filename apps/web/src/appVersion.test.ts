@@ -9,7 +9,12 @@ describe('formatAppVersionBadge', () => {
 
   it('keeps explicit release and candidate tags unchanged', () => {
     expect(formatAppVersionBadge('v0.2.0')).toBe('v0.2.0')
-    expect(formatAppVersionBadge('sha-8da8941dbb1a')).toBe('sha-8da8941dbb1a')
+    expect(formatAppVersionBadge('sha-8da8941')).toBe('sha-8da8941')
+  })
+
+  it('shortens long immutable sha tags for the topbar badge', () => {
+    expect(formatAppVersionBadge('sha-8da8941dbb1a')).toBe('sha-8da8941')
+    expect(formatAppVersionBadge('sha-F49AA10BEF')).toBe('sha-F49AA10')
   })
 
   it('hides empty versions', () => {
