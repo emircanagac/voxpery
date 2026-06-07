@@ -197,6 +197,45 @@ function estimateAttachmentHeight(attachments?: Attachment[]) {
     return ESTIMATED_ATTACHMENT_ROW_PX * Math.ceil(attachments.length / 2)
 }
 
+type AttachmentResolutionState = {
+    sourceUrl: string
+    resolvedUrl: string
+    loadFailed: boolean
+    triedDirectFallback: boolean
+}
+
+const MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES = 160
+const attachmentResolutionCache = new Map<string, AttachmentResolutionState>()
+
+function defaultAttachmentResolution(sourceUrl: string): AttachmentResolutionState {
+    return {
+        sourceUrl,
+        resolvedUrl: sourceUrl,
+        loadFailed: false,
+        triedDirectFallback: false,
+    }
+}
+
+function getAttachmentResolutionCacheKey(attachment: Attachment, token: string | null) {
+    return [attachment.url, attachment.type ?? '', token ?? 'cookie-auth'].join('\n')
+}
+
+function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentResolutionState) {
+    const previous = attachmentResolutionCache.get(cacheKey)
+    if (previous?.resolvedUrl.startsWith('blob:') && previous.resolvedUrl !== resolution.resolvedUrl) {
+        URL.revokeObjectURL(previous.resolvedUrl)
+    }
+    attachmentResolutionCache.delete(cacheKey)
+    attachmentResolutionCache.set(cacheKey, resolution)
+    while (attachmentResolutionCache.size > MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES) {
+        const oldestKey = attachmentResolutionCache.keys().next().value
+        if (!oldestKey) break
+        const oldest = attachmentResolutionCache.get(oldestKey)
+        if (oldest?.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(oldest.resolvedUrl)
+        attachmentResolutionCache.delete(oldestKey)
+    }
+}
+
 /** Parses "> @username: quote\n\nreply" into { replyUsername, replyQuote, replyBody } or null. */
 function parseReplyContent(content: string): { replyUsername: string; replyQuote: string; replyBody: string } | null {
     if (!content.startsWith('> @')) return null
@@ -229,26 +268,24 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     const token = useAuthStore((s) => s.token)
     const [previewOpen, setPreviewOpen] = useState(false)
     const fallbackInFlightRef = useRef(false)
-    const fallbackObjectUrlRef = useRef<string | null>(null)
     const isImage = isImageAttachment(attachment)
-    const [resolution, setResolution] = useState(() => ({
-        sourceUrl: attachment.url,
-        resolvedUrl: attachment.url,
-        loadFailed: false,
-        triedDirectFallback: false,
-    }))
+    const cacheKey = getAttachmentResolutionCacheKey(attachment, token ?? null)
+    const [resolution, setResolution] = useState<AttachmentResolutionState>(() => (
+        attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url)
+    ))
     const currentResolution = resolution.sourceUrl === attachment.url
         ? resolution
-        : {
-            sourceUrl: attachment.url,
-            resolvedUrl: attachment.url,
-            loadFailed: false,
-            triedDirectFallback: false,
-        }
+        : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url)
 
     useEffect(() => {
         let cancelled = false
-        let objectUrl: string | null = null
+        const cached = attachmentResolutionCache.get(cacheKey)
+        if (cached) {
+            setResolution(cached)
+            return () => {
+                cancelled = true
+            }
+        }
 
         resolveAttachmentUrl(attachment.url, token ?? null, {
             fallbackMimeType: attachment.type,
@@ -258,43 +295,35 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
                     return
                 }
-                if (nextUrl.startsWith('blob:')) objectUrl = nextUrl
-                setResolution({
+                const nextResolution = {
                     sourceUrl: attachment.url,
                     resolvedUrl: nextUrl,
                     loadFailed: false,
                     triedDirectFallback: false,
-                })
+                }
+                rememberAttachmentResolution(cacheKey, nextResolution)
+                setResolution(nextResolution)
             })
             .catch(() => {
                 if (!cancelled) {
-                    setResolution({
+                    const nextResolution = {
                         sourceUrl: attachment.url,
                         resolvedUrl: attachment.url,
                         loadFailed: isImage,
                         triedDirectFallback: true,
-                    })
+                    }
+                    rememberAttachmentResolution(cacheKey, nextResolution)
+                    setResolution(nextResolution)
                 }
             })
 
         return () => {
             cancelled = true
-            if (objectUrl) URL.revokeObjectURL(objectUrl)
         }
-    }, [attachment.type, attachment.url, isImage, token])
-
-    useEffect(() => {
-        return () => {
-            if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current)
-        }
-    }, [])
+    }, [attachment.type, attachment.url, cacheKey, isImage, token])
 
     useEffect(() => {
         fallbackInFlightRef.current = false
-        if (fallbackObjectUrlRef.current) {
-            URL.revokeObjectURL(fallbackObjectUrlRef.current)
-            fallbackObjectUrlRef.current = null
-        }
     }, [attachment.url])
 
     if (isImage) {
@@ -319,35 +348,31 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     fallbackMimeType: attachment.type,
                 })
                     .then((nextUrl) => {
-                        if (nextUrl.startsWith('blob:')) {
-                            if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current)
-                            fallbackObjectUrlRef.current = nextUrl
-                        }
                         setResolution((current) => {
                             if (current.sourceUrl !== attachment.url) {
                                 if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
-                                if (fallbackObjectUrlRef.current === nextUrl) fallbackObjectUrlRef.current = null
                                 return current
                             }
-                            if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
-                            return {
+                            const nextResolution = {
                                 sourceUrl: attachment.url,
                                 resolvedUrl: nextUrl,
                                 loadFailed: false,
                                 triedDirectFallback: true,
                             }
+                            rememberAttachmentResolution(cacheKey, nextResolution)
+                            return nextResolution
                         })
                     })
                     .catch(() => {
                         setResolution((current) => {
                             if (current.sourceUrl !== attachment.url) return current
-                            if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
-                            if (fallbackObjectUrlRef.current === current.resolvedUrl) fallbackObjectUrlRef.current = null
-                            return {
+                            const nextResolution = {
                                 ...current,
                                 loadFailed: true,
                                 triedDirectFallback: true,
                             }
+                            rememberAttachmentResolution(cacheKey, nextResolution)
+                            return nextResolution
                         })
                     })
                     .finally(() => {
@@ -358,13 +383,13 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
 
             setResolution((current) => {
                 if (current.sourceUrl !== attachment.url) return current
-                if (current.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(current.resolvedUrl)
-                if (fallbackObjectUrlRef.current === current.resolvedUrl) fallbackObjectUrlRef.current = null
-                return {
+                const nextResolution = {
                     ...current,
                     loadFailed: true,
                     triedDirectFallback: true,
                 }
+                rememberAttachmentResolution(cacheKey, nextResolution)
+                return nextResolution
             })
         }
         if (currentResolution.loadFailed) {
@@ -386,6 +411,10 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                         src={currentResolution.resolvedUrl}
                         alt={alt}
                         className="chat-image-attachment"
+                        loading="eager"
+                        decoding="async"
+                        width={320}
+                        height={180}
                         onError={handleImageLoadError}
                     />
                 </button>
