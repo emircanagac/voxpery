@@ -366,6 +366,39 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
+  it('does not re-lock to latest when scrollbar movement scrolls upward during latest anchoring', () => {
+    const { container, rerender } = renderChatArea()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    scrollToIndex.mockClear()
+
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    scroller.scrollTop = 1060
+    fireEvent.scroll(scroller)
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={[
+          message('message-1', 'hello', 0),
+          message('message-2', 'latest', 1),
+          message('message-3', 'new arrival', 2),
+        ]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+      />
+    )
+
+    expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
+    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+  })
+
   it('renders inline stickers and GIFs as chat media instead of text links', () => {
     const stickerUrl = 'https://media.example.test/sticker.png'
     const gifUrl = 'https://media.example.test/reaction.gif'

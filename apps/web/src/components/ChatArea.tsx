@@ -900,12 +900,22 @@ export default function ChatArea({
             const previousScrollTop = lastKnownScrollTopRef.current
             const currentScrollTop = el.scrollTop
             const hasRecentUserScrollIntent = Date.now() <= userScrollIntentUntilRef.current
-            const isUserInitiatedScroll = programmaticScrollRef.current === 0 || hasRecentUserScrollIntent
             const movedUp = currentScrollTop < previousScrollTop - 1
+            const pendingLatestForActiveChannel =
+                !!activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id
+            const likelyScrollbarDragUp =
+                movedUp &&
+                messages.length > 0 &&
+                !preservingOlderMessagesRef.current &&
+                currentScrollTop < Math.max(0, el.scrollHeight - el.clientHeight - 4)
+            const isUserInitiatedScroll =
+                programmaticScrollRef.current === 0 ||
+                hasRecentUserScrollIntent ||
+                (likelyScrollbarDragUp && (!pendingLatestForActiveChannel || currentScrollTop < previousScrollTop - 4))
             if (currentScrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX) {
                 startOlderMessagesLoad()
             }
-            if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id && !isUserInitiatedScroll) {
+            if (pendingLatestForActiveChannel && !isUserInitiatedScroll) {
                 lastKnownScrollTopRef.current = currentScrollTop
                 syncAutoScrollState()
                 return
@@ -916,7 +926,7 @@ export default function ChatArea({
             lastKnownScrollTopRef.current = currentScrollTop
         }
         syncAutoScrollState()
-    }, [activeChannel?.id, markUserReadingHistory, startOlderMessagesLoad, syncAutoScrollState])
+    }, [activeChannel?.id, markUserReadingHistory, messages.length, startOlderMessagesLoad, syncAutoScrollState])
 
     const handleWheelScrollIntent = useCallback((event: WheelEvent<HTMLDivElement>) => {
         noteUserScrollIntent()
