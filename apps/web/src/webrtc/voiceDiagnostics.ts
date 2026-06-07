@@ -6,6 +6,9 @@ export interface VoiceRuntimeDiagnostics {
   rnnoiseWorkletUrl?: string
   noiseSuppressionEnabled?: boolean
   voiceInputProfile?: string
+  speakingPreset?: string
+  speakingThreshold?: number
+  speakingThresholdDb?: number
   suppressionTuning?: string
   aggressiveIsolation?: boolean
   updatedAt?: string
