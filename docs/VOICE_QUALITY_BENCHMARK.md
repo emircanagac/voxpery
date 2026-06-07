@@ -83,7 +83,7 @@ After joining voice, capture:
 window.__VOXPERY_VOICE_DIAGNOSTICS__
 ```
 
-You can also open User Settings -> Voice & Audio and click `Copy diagnostics` to copy the same JSON snapshot into the benchmark notes.
+With diagnostics enabled, you can also open User Settings -> Voice & Audio and click `Copy diagnostics` to copy the same JSON snapshot into the benchmark notes. The diagnostics action is hidden during normal app use.
 
 Required diagnostic fields:
 
