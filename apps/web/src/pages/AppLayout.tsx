@@ -422,7 +422,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
     const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
     const [serverListReady, setServerListReady] = useState(false)
-    const messagesScrollRef = useRef<HTMLDivElement | null>(null)
     const currentServerMember = useMemo(
         () => (user?.id ? members.find((member) => member.user_id === user.id) ?? null : null),
         [members, user?.id],
@@ -911,9 +910,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const current = messagesByChannelRef.current[channelId] ?? []
         const oldestId = current[0]?.id
         if (!oldestId) return
-        const scrollEl = messagesScrollRef.current
-        const previousScrollHeight = scrollEl?.scrollHeight ?? 0
-        const previousScrollTop = scrollEl?.scrollTop ?? 0
         setLoadingOlder(true)
         try {
             const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
@@ -923,15 +919,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             if (activeChannelIdRef.current !== channelId) return
             setMessages(merged)
             if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
-            if (scrollEl && rows.length > 0) {
-                const restoreAnchor = () => {
-                    scrollEl.scrollTop = previousScrollTop + Math.max(0, scrollEl.scrollHeight - previousScrollHeight)
-                }
-                requestAnimationFrame(() => {
-                    restoreAnchor()
-                    requestAnimationFrame(restoreAnchor)
-                })
-            }
         } catch (e) {
             console.error('Load older messages failed', e)
         } finally {
@@ -3003,7 +2990,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 hasMoreOlder={!channelSearch.trim() && olderMessagesReady && hasMoreOlder}
                 loadingOlder={loadingOlder}
                 onLoadOlder={loadOlderMessages}
-                onScrollRefReady={(ref) => { messagesScrollRef.current = ref }}
                 searchQuery={channelSearch}
                 onSearchChange={setChannelSearch}
                 pinnedMessages={channelPins}

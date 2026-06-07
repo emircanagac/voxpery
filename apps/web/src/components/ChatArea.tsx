@@ -536,6 +536,7 @@ export default function ChatArea({
     const pendingLatestAnchorChannelIdRef = useRef<string | null>(null)
     const latestAnchorCleanupRef = useRef<(() => void) | null>(null)
     const programmaticScrollRef = useRef(0)
+    const resizeAutoScrollRafRef = useRef<number | null>(null)
     const userReadingHistoryRef = useRef(false)
     const lastKnownScrollTopRef = useRef(0)
     const touchStartYRef = useRef<number | null>(null)
@@ -642,12 +643,21 @@ export default function ChatArea({
             fn()
         } finally {
             window.requestAnimationFrame(() => {
-                programmaticScrollRef.current = Math.max(0, programmaticScrollRef.current - 1)
+                window.requestAnimationFrame(() => {
+                    programmaticScrollRef.current = Math.max(0, programmaticScrollRef.current - 1)
+                })
             })
         }
     }, [])
 
     const cancelLatestAnchor = useCallback(() => {
+        latestAnchorCleanupRef.current?.()
+        latestAnchorCleanupRef.current = null
+        pendingLatestAnchorChannelIdRef.current = null
+    }, [])
+
+    const completeLatestAnchor = useCallback((channelId?: string | null) => {
+        if (channelId && pendingLatestAnchorChannelIdRef.current !== channelId) return
         latestAnchorCleanupRef.current?.()
         latestAnchorCleanupRef.current = null
         pendingLatestAnchorChannelIdRef.current = null
@@ -708,7 +718,10 @@ export default function ChatArea({
                 return
             }
         }
-        el.scrollTop = anchor.scrollTop + Math.max(0, el.scrollHeight - anchor.scrollHeight)
+        runProgrammaticScroll(() => {
+            el.scrollTop = anchor.scrollTop + Math.max(0, el.scrollHeight - anchor.scrollHeight)
+            lastKnownScrollTopRef.current = el.scrollTop
+        })
         shouldAutoScrollRef.current = false
         setShowJumpToLatest(true)
     }, [messages, rowVirtualizer, runProgrammaticScroll])
@@ -810,8 +823,8 @@ export default function ChatArea({
             rafIds.push(id)
         }
         snapIfCurrent()
-        queueRaf(5)
-        for (const delay of [48, 120, 260, 520]) {
+        queueRaf(2)
+        for (const delay of [96]) {
             timeoutIds.push(window.setTimeout(snapIfCurrent, delay))
         }
         latestAnchorCleanupRef.current = () => {
@@ -890,8 +903,8 @@ export default function ChatArea({
         touchStartYRef.current = nextY
     }, [markUserReadingHistory])
 
-    /* When switching channel/DM, aggressively re-anchor to the latest visible
-       content so returning to a previously read chat does not keep an older
+    /* When switching channel/DM, anchor to the latest visible content so
+       returning to a previously read chat does not keep an older
        scroll position. Do not run this for pagination prepends; loading older
        messages must preserve the user's scroll anchor. */
     useLayoutEffect(() => {
@@ -918,8 +931,16 @@ export default function ChatArea({
         const pendingLatest = !!activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id
         if (!pendingLatest && !shouldAutoScrollRef.current) return
         shouldAutoScrollRef.current = true
-        snapToBottom(pendingLatest ? activeChannel.id : undefined)
-    }, [activeChannel?.id, messages.length, unreadDividerCount, snapToBottom])
+        const snapped = snapToBottom(pendingLatest ? activeChannel.id : undefined)
+        if (pendingLatest && snapped && activeChannel?.id) {
+            const channelId = activeChannel.id
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    completeLatestAnchor(channelId)
+                })
+            })
+        }
+    }, [activeChannel?.id, completeLatestAnchor, messages.length, unreadDividerCount, snapToBottom])
 
     /* If user sends while reading older messages, force snap to newest after the new row mounts. */
     useLayoutEffect(() => {
@@ -964,10 +985,22 @@ export default function ChatArea({
         if (!spacer || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(() => {
             if (!shouldAutoScrollRef.current) return
-            snapToBottom()
+            if (preservingOlderMessagesRef.current) return
+            if (resizeAutoScrollRafRef.current != null) return
+            resizeAutoScrollRafRef.current = window.requestAnimationFrame(() => {
+                resizeAutoScrollRafRef.current = null
+                if (!shouldAutoScrollRef.current || preservingOlderMessagesRef.current) return
+                snapToBottom()
+            })
         })
         observer.observe(spacer)
-        return () => observer.disconnect()
+        return () => {
+            observer.disconnect()
+            if (resizeAutoScrollRafRef.current != null) {
+                window.cancelAnimationFrame(resizeAutoScrollRafRef.current)
+                resizeAutoScrollRafRef.current = null
+            }
+        }
     }, [activeChannel?.id, messages.length, snapToBottom])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
