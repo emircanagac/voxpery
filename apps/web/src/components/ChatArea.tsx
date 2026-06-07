@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, Sticker } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import { resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
@@ -24,6 +24,8 @@ type MentionUser = {
     avatar_url?: string | null
     status?: string | null
 }
+
+type MessagePickerMode = 'emoji' | 'gif' | 'sticker'
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
@@ -684,8 +686,9 @@ export default function ChatArea({
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
     const [clickedLink, setClickedLink] = useState<string | null>(null)
     const [emojiOpen, setEmojiOpen] = useState(false)
+    const [messagePickerMode, setMessagePickerMode] = useState<MessagePickerMode>('emoji')
     const emojiPickerRef = useRef<HTMLDivElement | null>(null)
-    const emojiButtonRef = useRef<HTMLButtonElement | null>(null)
+    const emojiPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
     const messageInputWrapperRef = useRef<HTMLDivElement | null>(null)
     const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
     const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
@@ -1379,6 +1382,13 @@ export default function ChatArea({
         }
     }
 
+    const toggleMessagePicker = (mode: MessagePickerMode, anchor: HTMLButtonElement) => {
+        if (!canSendMessages) return
+        emojiPickerAnchorRef.current = anchor
+        setMessagePickerMode(mode)
+        setEmojiOpen((previousOpen) => !(previousOpen && messagePickerMode === mode))
+    }
+
     useEffect(() => {
         if (!mentionOpen) return
         if (mentionSuggestions.length === 0) {
@@ -1452,7 +1462,7 @@ export default function ChatArea({
     useEffect(() => {
         if (!emojiOpen) return
         const syncPosition = () => {
-            const button = emojiButtonRef.current
+            const button = emojiPickerAnchorRef.current
             if (!button) return
             const chatAreaRect = chatAreaRef.current?.getBoundingClientRect()
             const messageInputRect = messageInputWrapperRef.current?.getBoundingClientRect()
@@ -1491,7 +1501,7 @@ export default function ChatArea({
         }
         const close = (e: MouseEvent) => {
             if (emojiPickerRef.current?.contains(e.target as Node)) return
-            if (emojiButtonRef.current?.contains(e.target as Node)) return
+            if (emojiPickerAnchorRef.current?.contains(e.target as Node)) return
             setEmojiOpen(false)
         }
         const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -1518,7 +1528,7 @@ export default function ChatArea({
             window.removeEventListener('scroll', syncPosition, true)
             resizeObserver?.disconnect()
         }
-    }, [emojiOpen])
+    }, [emojiOpen, messagePickerMode])
 
 
     useEffect(() => {
@@ -2328,7 +2338,7 @@ export default function ChatArea({
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <EmojiPicker onSelect={insertEmoji} />
+                            <EmojiPicker initialMode={messagePickerMode} onSelect={insertEmoji} />
                         </div>,
                         document.body
                     )}
@@ -2355,20 +2365,46 @@ export default function ChatArea({
                     />
                     <div className="message-input-actions" aria-label="Message actions">
                         <button
-                            ref={emojiButtonRef}
                             type="button"
                             className="chat-emoji-btn"
                             disabled={!canSendMessages}
-                            title="Emoji, GIFs, and stickers"
-                            aria-label="Emoji, GIFs, and stickers"
+                            title="Insert emoji"
+                            aria-label="Insert emoji"
                             onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
-                                if (!canSendMessages) return
-                                setEmojiOpen((prev) => !prev)
+                                toggleMessagePicker('emoji', e.currentTarget)
                             }}
                         >
                             <Smile size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className="chat-emoji-btn chat-media-action-btn"
+                            disabled={!canSendMessages}
+                            title="Browse GIFs"
+                            aria-label="Browse GIFs"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                toggleMessagePicker('gif', e.currentTarget)
+                            }}
+                        >
+                            <span className="chat-media-action-label" aria-hidden="true">GIF</span>
+                        </button>
+                        <button
+                            type="button"
+                            className="chat-emoji-btn"
+                            disabled={!canSendMessages}
+                            title="Browse stickers"
+                            aria-label="Browse stickers"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                toggleMessagePicker('sticker', e.currentTarget)
+                            }}
+                        >
+                            <Sticker size={16} />
                         </button>
                         <button
                             type="button"

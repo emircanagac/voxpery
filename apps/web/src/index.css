@@ -5146,10 +5146,28 @@ body {
   cursor: not-allowed;
 }
 
+.chat-media-action-btn {
+  width: 30px;
+}
+
+.chat-media-action-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  border-radius: 4px;
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 .message-input-actions {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 

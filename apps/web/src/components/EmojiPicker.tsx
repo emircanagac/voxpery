@@ -1,5 +1,5 @@
 import { Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   EMOJI_CATEGORIES,
   filterGifOptions,
@@ -14,16 +14,25 @@ type EmojiPickerProps = {
   onSelect: (emoji: string) => void
   compact?: boolean
   reactionMode?: boolean
+  initialMode?: 'emoji' | 'gif' | 'sticker'
 }
 
 export default function EmojiPicker({
   onSelect,
   compact = false,
   reactionMode = false,
+  initialMode = 'emoji',
 }: EmojiPickerProps) {
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState<string>('all')
-  const [mode, setMode] = useState<'emoji' | 'gif' | 'sticker'>('emoji')
+  const [mode, setMode] = useState<'emoji' | 'gif' | 'sticker'>(initialMode)
+
+  useEffect(() => {
+    if (reactionMode) return
+    setMode(initialMode)
+    setQuery('')
+    setActiveCategory('all')
+  }, [initialMode, reactionMode])
 
   const visibleOptions = useMemo(() => {
     if (!reactionMode && mode === 'gif') return []
