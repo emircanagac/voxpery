@@ -216,8 +216,12 @@ Notes:
 ## Direct Message Endpoints
 
 - `GET /api/dm/channels`
-  - Returns DM channel metadata including `unread_count`, the server-derived unread count for the current user.
+  - Returns visible DM channel metadata including `unread_count`, the server-derived unread count for the current user.
+  - Channels hidden by the current user are excluded unless they have unread messages.
 - `POST /api/dm/channels/:peer_id`
+  - Opens or creates a DM channel with the peer and restores it if the current user had hidden it.
+- `POST /api/dm/channels/:channel_id/hide`
+  - Hides the channel from the current user's DM list without deleting messages or hiding it for the peer.
 - `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
 - `GET /api/dm/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
   - `from` filters by message author username.

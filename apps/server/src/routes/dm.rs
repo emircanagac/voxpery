@@ -191,6 +191,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
+        .route("/channels/{channel_id}/hide", post(hide_dm_channel))
         .route("/channels/{channel_id}/read-state", get(get_dm_read_state))
         .route("/channels/{channel_id}/read", post(mark_dm_channel_read))
         .route(
@@ -233,43 +234,47 @@ async fn list_dm_channels(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<DmChannelInfo>>, AppError> {
     let rows = sqlx::query_as::<_, DmChannelInfo>(
-        r#"SELECT c.id,
-                  u.id as peer_id,
-                  u.username as peer_username,
-                  u.avatar_url as peer_avatar_url,
-                  u.status as peer_status,
-                  (
-                    SELECT m.created_at
-                    FROM dm_messages m
-                    WHERE m.channel_id = c.id
-                    ORDER BY m.created_at DESC
-                    LIMIT 1
-                  ) as last_message_at,
-                  (
-                    SELECT COUNT(*)
-                    FROM dm_messages m
-                    LEFT JOIN dm_channel_reads r
-                      ON r.channel_id = c.id AND r.user_id = $1
-                    WHERE m.channel_id = c.id
-                      AND m.user_id <> $1
-                      AND (r.read_at IS NULL OR m.created_at > r.read_at)
-                  ) as unread_count
-           FROM dm_channels c
-           INNER JOIN dm_channel_members self_m
-             ON self_m.channel_id = c.id AND self_m.user_id = $1
-           INNER JOIN dm_channel_members peer_m
-             ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
-           INNER JOIN users u ON u.id = peer_m.user_id
-           ORDER BY COALESCE(
-             (
-               SELECT m.created_at
-               FROM dm_messages m
-               WHERE m.channel_id = c.id
-               ORDER BY m.created_at DESC
-               LIMIT 1
-             ),
-             c.created_at
-           ) DESC"#,
+        r#"WITH channel_rows AS (
+             SELECT c.id,
+                    u.id as peer_id,
+                    u.username as peer_username,
+                    u.avatar_url as peer_avatar_url,
+                    u.status as peer_status,
+                    self_m.hidden_at,
+                    c.created_at,
+                    (
+                      SELECT m.created_at
+                      FROM dm_messages m
+                      WHERE m.channel_id = c.id
+                      ORDER BY m.created_at DESC
+                      LIMIT 1
+                    ) as last_message_at,
+                    (
+                      SELECT COUNT(*)
+                      FROM dm_messages m
+                      LEFT JOIN dm_channel_reads r
+                        ON r.channel_id = c.id AND r.user_id = $1
+                      WHERE m.channel_id = c.id
+                        AND m.user_id <> $1
+                        AND (r.read_at IS NULL OR m.created_at > r.read_at)
+                    ) as unread_count
+             FROM dm_channels c
+             INNER JOIN dm_channel_members self_m
+               ON self_m.channel_id = c.id AND self_m.user_id = $1
+             INNER JOIN dm_channel_members peer_m
+               ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
+             INNER JOIN users u ON u.id = peer_m.user_id
+           )
+           SELECT id,
+                  peer_id,
+                  peer_username,
+                  peer_avatar_url,
+                  peer_status,
+                  last_message_at,
+                  unread_count
+           FROM channel_rows
+           WHERE hidden_at IS NULL OR unread_count > 0
+           ORDER BY COALESCE(last_message_at, created_at) DESC"#,
     )
     .bind(claims.sub)
     .fetch_all(&state.db)
@@ -406,6 +411,14 @@ async fn get_or_create_dm_channel(
         id
     };
 
+    sqlx::query(
+        "UPDATE dm_channel_members SET hidden_at = NULL WHERE channel_id = $1 AND user_id = $2",
+    )
+    .bind(channel_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
+
     let info = sqlx::query_as::<_, DmChannelInfo>(
         r#"SELECT c.id,
                   u.id as peer_id,
@@ -450,6 +463,24 @@ async fn get_or_create_dm_channel(
     };
 
     Ok(Json(info))
+}
+
+async fn hide_dm_channel(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<()>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    sqlx::query(
+        "UPDATE dm_channel_members SET hidden_at = NOW() WHERE channel_id = $1 AND user_id = $2",
+    )
+    .bind(channel_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(()))
 }
 
 async fn get_dm_messages(

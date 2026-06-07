@@ -6903,13 +6903,14 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  padding: 0 4px;
+  padding: 0 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .social-dm-item {
   width: 100%;
-  border: none;
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.018);
   color: inherit;
   display: flex;
   align-items: center;
@@ -6920,12 +6921,18 @@ body {
   cursor: pointer;
 }
 
+.social-dm-item+.social-dm-item {
+  margin-top: 6px;
+}
+
 .social-dm-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .social-dm-item.active {
   background: rgba(233, 69, 96, 0.16);
+  border-color: rgba(233, 69, 96, 0.26);
 }
 
 .social-content {
@@ -7439,6 +7446,16 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.social-dm-actions .home-member-action {
+  background: rgba(255, 255, 255, 0.045);
+  opacity: 0.78;
+}
+
+.social-dm-item:hover .home-member-action,
+.social-dm-item:focus-within .home-member-action {
+  opacity: 1;
 }
 
 .social-dm-unread {

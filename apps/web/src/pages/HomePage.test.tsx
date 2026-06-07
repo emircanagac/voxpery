@@ -20,6 +20,7 @@ const apiMocks = vi.hoisted(() => ({
   removeFriend: vi.fn(),
   listDmChannels: vi.fn(),
   getOrCreateDmChannel: vi.fn(),
+  hideDmChannel: vi.fn(),
   listDmMessages: vi.fn(),
   markDmRead: vi.fn(),
   listDmPins: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('../api', () => ({
   dmApi: {
     listChannels: apiMocks.listDmChannels,
     getOrCreateChannel: apiMocks.getOrCreateDmChannel,
+    hideChannel: apiMocks.hideDmChannel,
     listMessages: apiMocks.listDmMessages,
     markRead: apiMocks.markDmRead,
     listPins: apiMocks.listDmPins,
@@ -135,6 +137,7 @@ describe('HomePage friends list', () => {
     apiMocks.listDmMessages.mockResolvedValue([])
     apiMocks.markDmRead.mockResolvedValue(undefined)
     apiMocks.listDmPins.mockResolvedValue([])
+    apiMocks.hideDmChannel.mockResolvedValue(undefined)
   })
 
   it('opens a DM when a friend row is selected', async () => {
@@ -180,6 +183,22 @@ describe('HomePage friends list', () => {
         message: 'Could not create DM',
       })
     })
+  })
+
+  it('hides a DM conversation from the sidebar', async () => {
+    const channel = dmChannel('dm-cilo')
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+
+    renderHomePage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Hide DM with cilo' }))
+
+    await waitFor(() => {
+      expect(apiMocks.hideDmChannel).toHaveBeenCalledWith(channel.id, null)
+      expect(useAppStore.getState().dmChannels).toEqual([])
+      expect(useAppStore.getState().dmChannelIds).toEqual([])
+    })
+    expect(screen.queryByRole('button', { name: 'Hide DM with cilo' })).toBeNull()
   })
 
   it('refreshes the active DM when returning from another app area', async () => {

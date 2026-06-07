@@ -12,6 +12,12 @@ export const dmApi = {
             token,
         }),
 
+    hideChannel: (channelId: string, token: AuthToken) =>
+        apiFetch<void>(`/api/dm/channels/${channelId}/hide`, {
+            method: 'POST',
+            token,
+        }),
+
     listMessages: (channelId: string, token: AuthToken, before?: string) =>
         apiFetch<MessageWithAuthor[]>(
             `/api/dm/messages/${channelId}${before ? `?before=${before}` : ''}`,
