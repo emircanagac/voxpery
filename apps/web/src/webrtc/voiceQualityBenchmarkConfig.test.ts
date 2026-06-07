@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   offThresholdFromOn,
   onThresholdFromSlider,
@@ -10,12 +10,20 @@ import {
   shouldUseAggressiveVoiceIsolation,
 } from './voiceInputProfile'
 import { evaluateVoiceGateFrame } from './voiceGate'
+import {
+  buildSuppressionConfig,
+  buildSuppressionFilterConfig,
+} from './hooks/useAudioEngine'
 
 const SAMPLE_RATE = 48_000
 const FFT_SIZE = 256
 
 function dbFromSlider(slider: number): number {
   return Math.round(20 * Math.log10(onThresholdFromSlider(slider)))
+}
+
+function dbFromLinear(value: number): number {
+  return Math.round(20 * Math.log10(value))
 }
 
 function buildFrequencyFrame({
@@ -42,6 +50,13 @@ function buildFrequencyFrame({
 }
 
 describe('voice quality benchmark configuration', () => {
+  beforeEach(() => {
+    localStorage.removeItem('voxpery-settings-speaking-preset')
+    localStorage.removeItem('voxpery-settings-speaking-threshold')
+    localStorage.removeItem('voxpery-settings-voice-input-profile')
+    delete window.__VOXPERY_VOICE_DIAGNOSTICS__
+  })
+
   it('keeps the Balanced benchmark preset on the documented -58 dB balanced cleanup path', () => {
     const slider = thresholdByPreset('normal')
     const config = getVoiceInputProfileConfig('isolation')
@@ -66,6 +81,30 @@ describe('voice quality benchmark configuration', () => {
     expect(dbFromSlider(slider)).toBe(-40)
     expect(getVoiceSuppressionTuning('isolation', slider, true)).toBe('high')
     expect(shouldUseAggressiveVoiceIsolation('isolation', true)).toBe(true)
+  })
+
+  it('keeps Balanced cleanup more natural than Noisy room cleanup', () => {
+    const balancedFilters = buildSuppressionFilterConfig(true, 'balanced')
+    const highFilters = buildSuppressionFilterConfig(true, 'high')
+
+    expect(balancedFilters.highPassHz).toBeLessThan(highFilters.highPassHz)
+    expect(balancedFilters.lowPassHz).toBeGreaterThan(highFilters.lowPassHz)
+    expect(balancedFilters.deClickGainDb).toBeGreaterThan(highFilters.deClickGainDb)
+    expect(balancedFilters.compressorThresholdDb).toBeGreaterThan(highFilters.compressorThresholdDb)
+    expect(balancedFilters.compressorRatio).toBeLessThan(highFilters.compressorRatio)
+    expect(balancedFilters.compressorAttackSec).toBeGreaterThan(highFilters.compressorAttackSec)
+    expect(balancedFilters.compressorReleaseSec).toBeGreaterThan(highFilters.compressorReleaseSec)
+
+    localStorage.setItem('voxpery-settings-speaking-preset', 'normal')
+    localStorage.setItem('voxpery-settings-voice-input-profile', 'isolation')
+    const balancedConfig = buildSuppressionConfig(true)
+    localStorage.setItem('voxpery-settings-speaking-preset', 'noisy')
+    const highConfig = buildSuppressionConfig(true)
+
+    expect(dbFromLinear(balancedConfig.lowFloorThr)).toBe(-49)
+    expect(dbFromLinear(balancedConfig.openFloorThr)).toBe(-37)
+    expect(balancedConfig.minFloorGain).toBeGreaterThan(highConfig.minFloorGain)
+    expect(balancedConfig.floorReleaseTime).toBeGreaterThan(highConfig.floorReleaseTime)
   })
 
   it('keeps Studio out of the benchmark isolation path', () => {
