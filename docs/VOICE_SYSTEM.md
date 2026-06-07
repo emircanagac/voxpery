@@ -295,3 +295,5 @@ When debugging a production voice report, capture:
 Run `docs/VOICE_RELEASE_SMOKE_TEST.md` for every release candidate that changes voice, LiveKit/WebRTC, camera, screen sharing, audio settings, service worker caching, desktop runtime, or build output.
 
 Run `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` in addition when a release changes suppression, CSP, service workers, build output, or production deployment config. The suppression smoke test is intentionally stricter because RNNoise readiness and production CSP parity are release-critical for voice quality.
+
+Run `docs/VOICE_QUALITY_BENCHMARK.md` before changing voice codec, bitrate, capture constraints, suppression tuning, VAD/gate thresholds, input gain, or LiveKit publish options. The benchmark compares Voxpery against a reference call such as Discord with the same device, room, and network so voice tuning is based on repeatable observations instead of memory.

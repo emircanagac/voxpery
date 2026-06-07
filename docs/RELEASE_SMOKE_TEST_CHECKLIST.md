@@ -49,6 +49,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Invite links show the target server, enforce community rules acknowledgement when rules exist, and join into the expected server.
 - [ ] Voice join/leave works.
 - [ ] `docs/VOICE_RELEASE_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior when the release touches voice, LiveKit/WebRTC, camera, screen share, audio settings, service worker caching, desktop runtime, or build output.
+- [ ] `docs/VOICE_QUALITY_BENCHMARK.md` completed and recorded as `GO` when the release changes codec, bitrate, capture constraints, suppression tuning, VAD/gate thresholds, input gain, or LiveKit publish options.
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share or changing screen-share volume affects only screen-share audio while normal microphone audio continues.
