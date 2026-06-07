@@ -206,6 +206,7 @@ type AttachmentResolutionState = {
 
 const MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES = 160
 const attachmentResolutionCache = new Map<string, AttachmentResolutionState>()
+const decodedAttachmentImageCache = new Set<string>()
 
 function defaultAttachmentResolution(sourceUrl: string): AttachmentResolutionState {
     return {
@@ -234,6 +235,40 @@ function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentRe
         if (oldest?.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(oldest.resolvedUrl)
         attachmentResolutionCache.delete(oldestKey)
     }
+}
+
+function decodeAttachmentImage(url: string): Promise<void> {
+    if (decodedAttachmentImageCache.has(url)) return Promise.resolve()
+    if (typeof window === 'undefined' || typeof Image === 'undefined') {
+        decodedAttachmentImageCache.add(url)
+        return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+        const image = new Image()
+        image.decoding = 'async'
+        image.onload = () => {
+            decodedAttachmentImageCache.add(url)
+            resolve()
+        }
+        image.onerror = () => reject(new Error('Image decode failed'))
+        image.src = url
+        const decode = image.decode?.()
+        if (decode) {
+            decode
+                .then(() => {
+                    decodedAttachmentImageCache.add(url)
+                    resolve()
+                })
+                .catch(() => {
+                    if (image.complete && image.naturalWidth > 0) {
+                        decodedAttachmentImageCache.add(url)
+                        resolve()
+                        return
+                    }
+                    reject(new Error('Image decode failed'))
+                })
+        }
+    })
 }
 
 /** Parses "> @username: quote\n\nreply" into { replyUsername, replyQuote, replyBody } or null. */
@@ -276,6 +311,9 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     const currentResolution = resolution.sourceUrl === attachment.url
         ? resolution
         : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url)
+    const [imageDecoded, setImageDecoded] = useState(() => (
+        !isImage || decodedAttachmentImageCache.has(currentResolution.resolvedUrl)
+    ))
 
     useEffect(() => {
         let cancelled = false
@@ -325,6 +363,30 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     useEffect(() => {
         fallbackInFlightRef.current = false
     }, [attachment.url])
+
+    useEffect(() => {
+        if (!isImage || currentResolution.loadFailed) {
+            setImageDecoded(false)
+            return
+        }
+        const imageUrl = currentResolution.resolvedUrl
+        if (decodedAttachmentImageCache.has(imageUrl)) {
+            setImageDecoded(true)
+            return
+        }
+        let cancelled = false
+        setImageDecoded(false)
+        decodeAttachmentImage(imageUrl)
+            .then(() => {
+                if (!cancelled) setImageDecoded(true)
+            })
+            .catch(() => {
+                if (!cancelled) setImageDecoded(true)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [currentResolution.loadFailed, currentResolution.resolvedUrl, isImage])
 
     if (isImage) {
         const alt = attachment.name || `Attachment ${index + 1}`
@@ -401,23 +463,33 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         }
         return (
             <>
-                <button
-                    type="button"
-                    className="chat-image-link chat-image-preview-trigger"
-                    onClick={() => setPreviewOpen(true)}
-                    aria-label={`Preview ${alt}`}
-                >
-                    <img
-                        src={currentResolution.resolvedUrl}
-                        alt={alt}
-                        className="chat-image-attachment"
-                        loading="eager"
-                        decoding="async"
-                        width={320}
-                        height={180}
-                        onError={handleImageLoadError}
+                {imageDecoded ? (
+                    <button
+                        type="button"
+                        className="chat-image-link chat-image-preview-trigger"
+                        onClick={() => setPreviewOpen(true)}
+                        aria-label={`Preview ${alt}`}
+                    >
+                        <img
+                            src={currentResolution.resolvedUrl}
+                            alt=""
+                            className="chat-image-attachment"
+                            loading="eager"
+                            decoding="async"
+                            width={320}
+                            height={180}
+                            onLoad={() => {
+                                decodedAttachmentImageCache.add(currentResolution.resolvedUrl)
+                            }}
+                            onError={handleImageLoadError}
+                        />
+                    </button>
+                ) : (
+                    <span
+                        className="chat-image-link chat-image-preview-trigger chat-image-preview-trigger--pending"
+                        aria-hidden="true"
                     />
-                </button>
+                )}
                 {previewOpen && (
                     <AttachmentImagePreviewModal
                         src={currentResolution.resolvedUrl}

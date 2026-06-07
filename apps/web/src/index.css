@@ -8161,6 +8161,18 @@ a.community-open-btn:hover {
   cursor: zoom-in;
 }
 
+.chat-image-preview-trigger--pending {
+  width: min(320px, 52vw);
+  aspect-ratio: 16 / 9;
+  max-width: min(320px, 52vw);
+  max-height: 220px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .chat-image-preview-backdrop {
   position: fixed;
   inset: 0;

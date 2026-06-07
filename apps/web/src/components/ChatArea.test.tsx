@@ -75,6 +75,26 @@ function renderChatArea(overrides?: Partial<React.ComponentProps<typeof ChatArea
   )
 }
 
+function mockDecodedImages() {
+  class MockImage {
+    decoding = 'auto'
+    complete = true
+    naturalWidth = 320
+    onload: ((event: Event) => void) | null = null
+    onerror: ((event: Event) => void) | null = null
+
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.(new Event('load')))
+    }
+
+    decode() {
+      return Promise.resolve()
+    }
+  }
+
+  vi.stubGlobal('Image', MockImage)
+}
+
 describe('ChatArea regressions', () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -83,6 +103,7 @@ describe('ChatArea regressions', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it('re-anchors switched channels to their latest rendered message', async () => {
@@ -423,7 +444,9 @@ describe('ChatArea regressions', () => {
     expect(container.querySelector(`a[href="${gifUrl}"]`)).toBeNull()
   })
 
-  it('renders image attachments with stable eager preview sizing', () => {
+  it('renders image attachments with stable eager preview sizing', async () => {
+    mockDecodedImages()
+
     renderChatArea({
       messages: [
         {
@@ -439,10 +462,13 @@ describe('ChatArea regressions', () => {
       ],
     })
 
-    const preview = screen.getByAltText('screenshot.png')
+    expect(screen.queryByAltText('screenshot.png')).toBeNull()
+    const previewButton = await screen.findByRole('button', { name: 'Preview screenshot.png' })
+    const preview = previewButton.querySelector('img') as HTMLImageElement
     expect(preview).toHaveAttribute('loading', 'eager')
     expect(preview).toHaveAttribute('decoding', 'async')
     expect(preview).toHaveAttribute('width', '320')
     expect(preview).toHaveAttribute('height', '180')
+    expect(preview).toHaveAttribute('alt', '')
   })
 })
