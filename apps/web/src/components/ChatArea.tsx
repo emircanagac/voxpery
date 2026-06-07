@@ -27,8 +27,8 @@ type MentionUser = {
 
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
-const BOTTOM_LOCK_THRESHOLD_PX = 120
 const TOP_AUTO_LOAD_THRESHOLD_PX = 96
+const USER_SCROLL_INTENT_WINDOW_MS = 1200
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 const ESTIMATED_GROUPED_MESSAGE_ROW_PX = 24
 const ESTIMATED_MESSAGE_GROUP_ROW_PX = 52
@@ -538,6 +538,7 @@ export default function ChatArea({
     const programmaticScrollRef = useRef(0)
     const resizeAutoScrollRafRef = useRef<number | null>(null)
     const userReadingHistoryRef = useRef(false)
+    const userScrollIntentUntilRef = useRef(0)
     const lastKnownScrollTopRef = useRef(0)
     const touchStartYRef = useRef<number | null>(null)
     const preservingOlderMessagesRef = useRef(false)
@@ -627,11 +628,6 @@ export default function ChatArea({
 
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
 
-    const isNearBottom = useCallback((el: HTMLDivElement) => {
-        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        return distanceToBottom < BOTTOM_LOCK_THRESHOLD_PX
-    }, [])
-
     const isAtBottom = useCallback((el: HTMLDivElement) => {
         const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
         return distanceToBottom <= 4
@@ -663,12 +659,17 @@ export default function ChatArea({
         pendingLatestAnchorChannelIdRef.current = null
     }, [])
 
+    const noteUserScrollIntent = useCallback(() => {
+        userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS
+    }, [])
+
     const markUserReadingHistory = useCallback(() => {
+        noteUserScrollIntent()
         cancelLatestAnchor()
         userReadingHistoryRef.current = true
         shouldAutoScrollRef.current = false
         setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
-    }, [cancelLatestAnchor, messages.length])
+    }, [cancelLatestAnchor, messages.length, noteUserScrollIntent])
 
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
@@ -858,50 +859,61 @@ export default function ChatArea({
             setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
             return
         }
-        const nearBottom = isNearBottom(el)
-        shouldAutoScrollRef.current = nearBottom
-        const nextShowJump = !nearBottom && messages.length > 0
+        const atBottom = isAtBottom(el)
+        shouldAutoScrollRef.current = atBottom
+        const nextShowJump = !atBottom && messages.length > 0
         setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
-    }, [activeChannel?.id, isAtBottom, isNearBottom, messages.length])
+    }, [activeChannel?.id, isAtBottom, messages.length])
 
     const handleMessagesScroll = useCallback(() => {
         const el = messagesScrollRef.current
-        if (el && programmaticScrollRef.current === 0) {
-            if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id) {
-                lastKnownScrollTopRef.current = el.scrollTop
+        if (el) {
+            const previousScrollTop = lastKnownScrollTopRef.current
+            const currentScrollTop = el.scrollTop
+            const hasRecentUserScrollIntent = Date.now() <= userScrollIntentUntilRef.current
+            const isUserInitiatedScroll = programmaticScrollRef.current === 0 || hasRecentUserScrollIntent
+            const movedUp = currentScrollTop < previousScrollTop - 1
+            if (currentScrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX) {
+                startOlderMessagesLoad()
+            }
+            if (activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id && !isUserInitiatedScroll) {
+                lastKnownScrollTopRef.current = currentScrollTop
                 syncAutoScrollState()
                 return
             }
-            const previousScrollTop = lastKnownScrollTopRef.current
-            if (el.scrollTop < previousScrollTop - 1) {
+            if (movedUp && isUserInitiatedScroll) {
                 markUserReadingHistory()
             }
-            lastKnownScrollTopRef.current = el.scrollTop
-        }
-        if (el && el.scrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX) {
-            startOlderMessagesLoad()
+            lastKnownScrollTopRef.current = currentScrollTop
         }
         syncAutoScrollState()
     }, [activeChannel?.id, markUserReadingHistory, startOlderMessagesLoad, syncAutoScrollState])
 
     const handleWheelScrollIntent = useCallback((event: WheelEvent<HTMLDivElement>) => {
+        noteUserScrollIntent()
         if (event.deltaY < 0) {
             markUserReadingHistory()
         }
-    }, [markUserReadingHistory])
+    }, [markUserReadingHistory, noteUserScrollIntent])
+
+    const handlePointerDownScrollIntent = useCallback(() => {
+        noteUserScrollIntent()
+    }, [noteUserScrollIntent])
 
     const handleTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
+        noteUserScrollIntent()
         touchStartYRef.current = event.touches[0]?.clientY ?? null
-    }, [])
+    }, [noteUserScrollIntent])
 
     const handleTouchMoveScrollIntent = useCallback((event: TouchEvent<HTMLDivElement>) => {
+        noteUserScrollIntent()
         const startY = touchStartYRef.current
         const nextY = event.touches[0]?.clientY ?? null
         if (startY != null && nextY != null && nextY > startY + 2) {
             markUserReadingHistory()
         }
         touchStartYRef.current = nextY
-    }, [markUserReadingHistory])
+    }, [markUserReadingHistory, noteUserScrollIntent])
 
     /* When switching channel/DM, anchor to the latest visible content so
        returning to a previously read chat does not keep an older
@@ -913,6 +925,7 @@ export default function ChatArea({
         lastBottomAnchoredChannelIdRef.current = channelId
         if (!channelId) return
         userReadingHistoryRef.current = false
+        userScrollIntentUntilRef.current = 0
         lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
@@ -985,11 +998,14 @@ export default function ChatArea({
         if (!spacer || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(() => {
             if (!shouldAutoScrollRef.current) return
+            if (userReadingHistoryRef.current) return
             if (preservingOlderMessagesRef.current) return
+            const el = messagesScrollRef.current
+            if (el && Date.now() <= userScrollIntentUntilRef.current && !isAtBottom(el)) return
             if (resizeAutoScrollRafRef.current != null) return
             resizeAutoScrollRafRef.current = window.requestAnimationFrame(() => {
                 resizeAutoScrollRafRef.current = null
-                if (!shouldAutoScrollRef.current || preservingOlderMessagesRef.current) return
+                if (!shouldAutoScrollRef.current || userReadingHistoryRef.current || preservingOlderMessagesRef.current) return
                 snapToBottom()
             })
         })
@@ -1001,7 +1017,7 @@ export default function ChatArea({
                 resizeAutoScrollRafRef.current = null
             }
         }
-    }, [activeChannel?.id, messages.length, snapToBottom])
+    }, [activeChannel?.id, isAtBottom, messages.length, snapToBottom])
 
     /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
     useLayoutEffect(() => {
@@ -1853,6 +1869,7 @@ export default function ChatArea({
                 className="chat-messages chat-messages-virtual"
                 ref={setMessagesScrollRef}
                 onWheel={handleWheelScrollIntent}
+                onPointerDown={handlePointerDownScrollIntent}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMoveScrollIntent}
                 onScroll={handleMessagesScroll}
