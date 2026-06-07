@@ -46,6 +46,16 @@ export function updateVoiceDiagnostics(patch: VoiceRuntimeDiagnostics): void {
   }
 }
 
+export function getVoiceDiagnosticsSnapshot(): VoiceRuntimeDiagnostics | null {
+  if (typeof window === 'undefined') return null
+  const snapshot = window.__VOXPERY_VOICE_DIAGNOSTICS__
+  return snapshot ? { ...snapshot } : null
+}
+
+export function formatVoiceDiagnosticsSnapshot(snapshot: VoiceRuntimeDiagnostics): string {
+  return JSON.stringify(snapshot, null, 2)
+}
+
 export type VoiceQualityLevel = 'unknown' | 'good' | 'fair' | 'poor'
 
 export interface VoiceNetworkMetrics {

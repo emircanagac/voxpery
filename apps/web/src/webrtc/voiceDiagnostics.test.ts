@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   VOICE_DIAGNOSTICS_STORAGE_KEY,
   classifyVoiceError,
+  formatVoiceDiagnosticsSnapshot,
+  getVoiceDiagnosticsSnapshot,
   getVoiceNetworkQuality,
   getVoiceQualityAdvice,
   getVoicePingLevel,
@@ -113,5 +115,29 @@ describe('voiceDiagnostics', () => {
       aggressiveIsolation: true,
     })
     expect(window.__VOXPERY_VOICE_DIAGNOSTICS__?.updatedAt).toEqual(expect.any(String))
+  })
+
+  it('returns a copyable runtime diagnostics snapshot', () => {
+    window.localStorage.setItem(VOICE_DIAGNOSTICS_STORAGE_KEY, '1')
+    updateVoiceDiagnostics({
+      rnnoiseStatus: 'ready',
+      noiseSuppressionEnabled: true,
+      voiceInputProfile: 'isolation',
+      speakingPreset: 'normal',
+      speakingThreshold: 42,
+      speakingThresholdDb: -58,
+      suppressionTuning: 'balanced',
+      aggressiveIsolation: true,
+    })
+
+    const snapshot = getVoiceDiagnosticsSnapshot()
+    expect(snapshot).toMatchObject({
+      rnnoiseStatus: 'ready',
+      speakingPreset: 'normal',
+      speakingThresholdDb: -58,
+      suppressionTuning: 'balanced',
+    })
+    expect(snapshot).not.toBe(window.__VOXPERY_VOICE_DIAGNOSTICS__)
+    expect(formatVoiceDiagnosticsSnapshot(snapshot!)).toContain('"speakingThresholdDb": -58')
   })
 })
