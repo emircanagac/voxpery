@@ -146,7 +146,7 @@ export type VoiceCueKind =
     | 'camera-start'
     | 'screen-start'
 
-interface LiveSuppressionConfig {
+export interface LiveSuppressionConfig {
     aggressiveIsolation: boolean
     suppressionTuning: VoiceSuppressionTuning
     lowFloorThr: number
@@ -165,7 +165,54 @@ interface LiveSuppressionNodes {
     transientCompressor: DynamicsCompressorNode
 }
 
-function buildSuppressionConfig(
+export interface LiveSuppressionFilterConfig {
+    highPassHz: number
+    lowPassHz: number
+    deClickGainDb: number
+    speechPresenceGainDb: number
+    compressorThresholdDb: number
+    compressorKneeDb: number
+    compressorRatio: number
+    compressorAttackSec: number
+    compressorReleaseSec: number
+}
+
+export function buildSuppressionFilterConfig(
+    aggressiveIsolation: boolean,
+    suppressionTuning: VoiceSuppressionTuning,
+): LiveSuppressionFilterConfig {
+    return {
+        highPassHz: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 120, balanced: 145, high: 170 })
+            : pickSuppressionValue(suppressionTuning, { off: 120, balanced: 125, high: 145 }),
+        lowPassHz: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6200, high: 3500 })
+            : pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6200, high: 4400 }),
+        deClickGainDb: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -3.5, high: -10 })
+            : pickSuppressionValue(suppressionTuning, { off: 0, balanced: -1.8, high: -4.2 }),
+        speechPresenceGainDb: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.1, high: 1.9 })
+            : pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.1, high: 1.75 }),
+        compressorThresholdDb: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -34, high: -44 })
+            : pickSuppressionValue(suppressionTuning, { off: -30, balanced: -31, high: -36 }),
+        compressorKneeDb: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 8, high: 5 })
+            : pickSuppressionValue(suppressionTuning, { off: 10, balanced: 10, high: 8 }),
+        compressorRatio: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 4.6, high: 8.2 })
+            : pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 3.8, high: 5.4 }),
+        compressorAttackSec: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0025, high: 0.001 })
+            : pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0024, high: 0.0015 }),
+        compressorReleaseSec: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.072, high: 0.038 })
+            : pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.082, high: 0.065 }),
+    }
+}
+
+export function buildSuppressionConfig(
     noiseSuppressionEnabled: boolean,
 ): LiveSuppressionConfig {
     const profile = getStoredVoiceInputProfile()
@@ -189,19 +236,19 @@ function buildSuppressionConfig(
         aggressiveIsolation,
         suppressionTuning,
         lowFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -44, high: -40 })
+            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -49, high: -40 })
             : pickSuppressionValue(suppressionTuning, { off: -51, balanced: -50, high: -46 })),
         openFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -32, high: -29 })
+            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -37, high: -29 })
             : pickSuppressionValue(suppressionTuning, { off: -40, balanced: -38, high: -34 })),
         minFloorGain: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.025, high: 0.012 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.09, high: 0.012 })
             : pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.1, high: 0.06 }),
         floorReleaseAlpha: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.1, high: 0.12 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.08, high: 0.12 })
             : pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.075, high: 0.09 }),
         floorReleaseTime: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.052, high: 0.046 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.065, high: 0.046 })
             : pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.066, high: 0.055 }),
     }
 }
@@ -213,64 +260,17 @@ function applySuppressionConfig(
     const { ctx, highPassFilter, lowPassFilter, deClickFilter, speechPresenceFilter, transientCompressor } = nodes
     const { aggressiveIsolation, suppressionTuning } = config
     const now = ctx.currentTime
+    const filterConfig = buildSuppressionFilterConfig(aggressiveIsolation, suppressionTuning)
 
-    highPassFilter.frequency.setTargetAtTime(aggressiveIsolation ? 170 : 140, now, 0.03)
-    lowPassFilter.frequency.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 4100, high: 3500 })
-            : pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 5200, high: 4400 }),
-        now,
-        0.03,
-    )
-    deClickFilter.gain.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -8.5, high: -10 })
-            : pickSuppressionValue(suppressionTuning, { off: 0, balanced: -2.75, high: -4.2 }),
-        now,
-        0.03,
-    )
-    speechPresenceFilter.gain.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.6, high: 1.9 })
-            : pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.4, high: 1.75 }),
-        now,
-        0.04,
-    )
-    transientCompressor.threshold.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -40, high: -44 })
-            : pickSuppressionValue(suppressionTuning, { off: -30, balanced: -32, high: -36 }),
-        now,
-        0.03,
-    )
-    transientCompressor.knee.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 6, high: 5 })
-            : pickSuppressionValue(suppressionTuning, { off: 10, balanced: 10, high: 8 }),
-        now,
-        0.03,
-    )
-    transientCompressor.ratio.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 7.2, high: 8.2 })
-            : pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 4.2, high: 5.4 }),
-        now,
-        0.03,
-    )
-    transientCompressor.attack.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0012, high: 0.001 })
-            : pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0018, high: 0.0015 }),
-        now,
-        0.02,
-    )
-    transientCompressor.release.setTargetAtTime(
-        aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.045, high: 0.038 })
-            : pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.08, high: 0.065 }),
-        now,
-        0.03,
-    )
+    highPassFilter.frequency.setTargetAtTime(filterConfig.highPassHz, now, 0.03)
+    lowPassFilter.frequency.setTargetAtTime(filterConfig.lowPassHz, now, 0.03)
+    deClickFilter.gain.setTargetAtTime(filterConfig.deClickGainDb, now, 0.03)
+    speechPresenceFilter.gain.setTargetAtTime(filterConfig.speechPresenceGainDb, now, 0.04)
+    transientCompressor.threshold.setTargetAtTime(filterConfig.compressorThresholdDb, now, 0.03)
+    transientCompressor.knee.setTargetAtTime(filterConfig.compressorKneeDb, now, 0.03)
+    transientCompressor.ratio.setTargetAtTime(filterConfig.compressorRatio, now, 0.03)
+    transientCompressor.attack.setTargetAtTime(filterConfig.compressorAttackSec, now, 0.02)
+    transientCompressor.release.setTargetAtTime(filterConfig.compressorReleaseSec, now, 0.03)
 }
 
 export function useAudioEngine() {

@@ -66,6 +66,8 @@ Record separate scores for:
 - Voxpery `Balanced`, normal room.
 - Voxpery `Noisy room`, noisy room.
 
+`Balanced` is the natural-voice baseline. It should keep more body and upper detail than `Noisy room`, with gentler de-clicking, compression, and floor attenuation. `Noisy room` remains the stronger cleanup mode for keyboard, fan, and room-noise rejection.
+
 ## Runtime Diagnostics
 
 Before the Voxpery run, enable diagnostics on the sender:
