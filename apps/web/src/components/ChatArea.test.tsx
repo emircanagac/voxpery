@@ -420,6 +420,19 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
+  it('exposes separate emoji, GIF, and sticker composer actions', async () => {
+    renderChatArea()
+
+    expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument()
+    const gifButton = screen.getByRole('button', { name: 'Browse GIFs' })
+    expect(gifButton).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Browse stickers' })).toBeInTheDocument()
+
+    fireEvent.click(gifButton)
+
+    expect(await screen.findByPlaceholderText('Search GIFs')).toBeInTheDocument()
+  })
+
   it('renders inline stickers and GIFs as chat media instead of text links', () => {
     const stickerUrl = 'https://media.example.test/sticker.png'
     const gifUrl = 'https://media.example.test/reaction.gif'
