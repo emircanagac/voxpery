@@ -1362,6 +1362,158 @@ async fn friend_dm_channel_open_returns_channel_info() {
 }
 
 #[tokio::test]
+async fn hidden_dm_channel_stays_out_of_channel_list_until_reopened() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let suffix = Uuid::new_v4().simple().to_string();
+    let alice_username = format!("alice{}", &suffix[..8]);
+    let bob_username = format!("bob{}", &suffix[8..16]);
+    let alice_credential = format!("{}-{}", alice_username, Uuid::new_v4().simple());
+    let bob_credential = format!("{}-{}", bob_username, Uuid::new_v4().simple());
+    let (alice_token, _) = register_user(
+        &mut app,
+        &format!("{alice_username}@example.com"),
+        &alice_username,
+        &alice_credential,
+    )
+    .await;
+    let (bob_token, bob_id) = register_user(
+        &mut app,
+        &format!("{bob_username}@example.com"),
+        &bob_username,
+        &bob_credential,
+    )
+    .await;
+
+    let alice_auth = format!("Bearer {alice_token}");
+    let bob_auth = format!("Bearer {bob_token}");
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/friends/requests")
+        .header("Authorization", &alice_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "username": bob_username })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "send friend request failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/friends/requests")
+        .header("Authorization", &bob_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "list friend requests failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let requests: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let request_id = requests["incoming"][0]["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/friends/requests/{request_id}/accept"))
+        .header("Authorization", &bob_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "accept friend request failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/dm/channels/{bob_id}"))
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "open friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let channel_id = channel["id"].as_str().unwrap();
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels.as_array().unwrap().len(), 1);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/dm/channels/{channel_id}/hide"))
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "hide friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels.as_array().unwrap().len(), 0);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/dm/channels/{bob_id}"))
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "reopen hidden friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn strict_username_validation_rejects_invalid_usernames() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

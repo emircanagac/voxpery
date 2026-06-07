@@ -129,7 +129,9 @@ Uniqueness (case-insensitive):
 
 ### `dm_channel_members`
 
-- `channel_id`, `user_id`, `joined_at`
+- `channel_id`, `user_id`, `joined_at`, `hidden_at`
+- `hidden_at` stores whether that specific user has hidden the DM from their sidebar.
+- Hidden DMs remain intact and are shown again when reopened or when unread messages need attention.
 
 ### `dm_messages`
 
@@ -245,6 +247,7 @@ All migrations currently present:
 - `037_member_timeouts_and_raid_events.sql`
 - `038_server_onboarding_guides.sql`
 - `039_default_dm_privacy_everyone.sql`
+- `040_dm_channel_hidden_state.sql`
 
 ## Notes
 

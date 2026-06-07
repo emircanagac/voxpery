@@ -41,8 +41,6 @@ import {
   upsertDmChannel,
 } from '../friendsList'
 
-const HIDDEN_DM_PEERS_KEY = 'voxpery-hidden-dm-peers'
-
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.includes('No access') || msg.includes('403') || msg.includes('Forbidden')
@@ -148,17 +146,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(true)
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
-  const [hiddenDmPeerIds, setHiddenDmPeerIds] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(HIDDEN_DM_PEERS_KEY)
-      if (!raw) return []
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.filter((x): x is string => typeof x === 'string')
-    } catch {
-      return []
-    }
-  })
   const [addFriendUsername, setAddFriendUsername] = useState('')
   const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
@@ -166,13 +153,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
-  const dmChannels = useMemo(
-    () =>
-      storeDmChannels.filter(
-        (channel) => !hiddenDmPeerIds.includes(channel.peer_id) || (dmUnread[channel.id] ?? 0) > 0,
-      ),
-    [dmUnread, hiddenDmPeerIds, storeDmChannels]
-  )
+  const dmChannels = storeDmChannels
 
   // Social paths (/social and /social/dm): restore last social tab and optional deep-linked DM.
   useEffect(() => {
@@ -184,7 +165,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         ? dmChannels.find((c) => c.peer_id === openDmUserId)
         : dmChannels.find((c) => c.peer_username === decodeURIComponent(openDmUserId))
       if (channel) {
-        setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
         setActiveDmChannelId(channel.id)
         setView('dm')
         setPersistedSocialView('dm')
@@ -255,20 +235,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setSocialBootstrapLoading(false)
     }
   }, [setDmChannelIds, setDmUnreadFromChannels, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, userId])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(HIDDEN_DM_PEERS_KEY, JSON.stringify(hiddenDmPeerIds))
-    } catch {
-      // ignore
-    }
-  }, [hiddenDmPeerIds])
-
-  useEffect(() => {
-    if (storeDmChannels.length === 0) return
-    const existingPeerIds = new Set(storeDmChannels.map((c) => c.peer_id))
-    setHiddenDmPeerIds((prev) => prev.filter((id) => existingPeerIds.has(id)))
-  }, [storeDmChannels])
 
   useEffect(() => {
     if (!userId) return
@@ -565,7 +531,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const channel = await dmApi.getOrCreateChannel(friendId, token)
       const nextChannels = upsertDmChannel(useAppStore.getState().dmChannels, channel)
 
-      setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
       setStoreDmChannels(nextChannels)
       setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
       setActiveDmChannelId(channel.id)
@@ -953,7 +918,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               className={`social-dm-item ${view === 'dm' && activeDmChannelId === channel.id ? 'active' : ''}`}
               onClick={(e) => {
                 ; (e.currentTarget as HTMLButtonElement).blur()
-                setHiddenDmPeerIds((prev) => prev.filter((id) => id !== channel.peer_id))
                 setView('dm')
                 setActiveDmChannelId(channel.id)
                 setPersistedSocialView('dm')
@@ -980,33 +944,35 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   className="home-member-action"
                   title="Hide conversation"
                   aria-label={`Hide DM with ${channel.peer_username}`}
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation()
-                    setHiddenDmPeerIds((prev) => {
-                      if (prev.includes(channel.peer_id)) return prev
-                      return [...prev, channel.peer_id]
-                    })
+                    const previousChannels = useAppStore.getState().dmChannels
+                    const nextChannels = previousChannels.filter((dmChannel) => dmChannel.id !== channel.id)
+                    setStoreDmChannels(nextChannels)
+                    setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
                     if (activeDmChannelId === channel.id) {
                       setView('friends')
                       setActiveDmChannelId(null)
                       setPersistedSocialView('friends')
                       navigate(ROUTES.home)
                     }
+                    try {
+                      await dmApi.hideChannel(channel.id, token)
+                    } catch (err) {
+                      setStoreDmChannels(previousChannels)
+                      setDmChannelIds(previousChannels.map((dmChannel) => dmChannel.id))
+                      pushToast({
+                        level: 'error',
+                        title: 'DM hide failed',
+                        message: err instanceof Error ? err.message : 'Could not hide this conversation.',
+                      })
+                    }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
                       e.stopPropagation()
-                      setHiddenDmPeerIds((prev) => {
-                        if (prev.includes(channel.peer_id)) return prev
-                        return [...prev, channel.peer_id]
-                      })
-                      if (activeDmChannelId === channel.id) {
-                        setView('friends')
-                        setActiveDmChannelId(null)
-                        setPersistedSocialView('friends')
-                        navigate(ROUTES.home)
-                      }
+                      e.currentTarget.click()
                     }
                   }}
                 >
