@@ -85,6 +85,7 @@ You can also open User Settings -> Voice & Audio and click `Copy diagnostics` to
 
 Required diagnostic fields:
 
+- `benchmarkSchemaVersion` is `1`.
 - `rnnoiseStatus` is `ready` when suppression is on.
 - `noiseSuppressionEnabled` is `true`.
 - `speakingPreset` is `normal` for the `Balanced` run and `noisy` for the `Noisy room` run.
@@ -93,6 +94,13 @@ Required diagnostic fields:
 - `suppressionTuning` is `balanced` for the `Balanced` run.
 - `suppressionTuning` is `high` for the `Noisy room` run.
 - `aggressiveIsolation` is `true` for noisy-room isolation.
+- `captureConstraints` shows browser echo cancellation, noise suppression, and automatic gain control.
+- `rawMicTrackSettings` and `processedMicTrackSettings` show sanitized audio settings without device ids or labels.
+- `audioContext.sampleRate` confirms the processing graph sample rate.
+- `liveProcessing.rmsDb`, `floorGain`, `isolationGain`, and `likelySpeech` show the current suppression behavior.
+- `voiceActivity` shows gate state, speech state, RMS, thresholds, and frame counters.
+- `network` shows ping, RTC ping, packet loss, jitter, and selected ping source.
+- `livekit` shows room state, participants, remote stream count, and whether the processed microphone track was published.
 
 Also capture the call bar ping color and visible ping.
 

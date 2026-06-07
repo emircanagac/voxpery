@@ -21,6 +21,7 @@ import {
   getStoredVoiceSuppressionTuning,
   shouldRebuildSuppressionPipeline,
 } from './voiceInputProfile'
+import { updateVoiceDiagnostics } from './voiceDiagnostics'
 
 type PeerId = string
 type RemoteMediaStartCueKind = 'camera' | 'screen'
@@ -176,10 +177,27 @@ export function useLiveKitVoice() {
     if (!room) {
       setRoomState('disconnected')
       setParticipantCount(0)
+      updateVoiceDiagnostics({
+        livekit: {
+          roomState: 'disconnected',
+          participants: 0,
+          remoteStreams: 0,
+          microphonePublished: false,
+        },
+      })
       return
     }
-    setRoomState(String(room.state))
-    setParticipantCount(room.numParticipants ?? 0)
+    const nextRoomState = String(room.state)
+    const nextParticipantCount = room.numParticipants ?? 0
+    setRoomState(nextRoomState)
+    setParticipantCount(nextParticipantCount)
+    updateVoiceDiagnostics({
+      livekit: {
+        roomState: nextRoomState,
+        participants: nextParticipantCount,
+        remoteStreams: remoteStreamsRef.current.size,
+      },
+    })
   }, [])
 
   const setLocalMicMuted = useCallback(async (muted: boolean) => {
@@ -466,6 +484,15 @@ export function useLiveKitVoice() {
           videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
         },
       })
+      updateVoiceDiagnostics({
+        livekit: {
+          roomState: 'connecting',
+          adaptiveStream: true,
+          dynacast: true,
+          microphonePublished: false,
+          microphoneSource: 'processed-webaudio',
+        },
+      })
       roomRef.current = room
       remoteMediaStartCueKeysRef.current.clear()
       remoteMediaStartCueReadyRef.current = false
@@ -617,6 +644,17 @@ export function useLiveKitVoice() {
 
       // Publish the track directly to LiveKit.
       const pub = await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
+      updateVoiceDiagnostics({
+        livekit: {
+          roomState: String(room.state),
+          participants: room.numParticipants ?? 0,
+          remoteStreams: remoteStreamsRef.current.size,
+          adaptiveStream: true,
+          dynacast: true,
+          microphonePublished: true,
+          microphoneSource: 'processed-webaudio',
+        },
+      })
 
       micPublished = true
       localAudioTrackRef.current = pub.track as LocalAudioTrack
