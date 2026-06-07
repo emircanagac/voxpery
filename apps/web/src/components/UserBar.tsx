@@ -76,6 +76,7 @@ import {
 import {
   formatVoiceDiagnosticsSnapshot,
   getVoiceDiagnosticsSnapshot,
+  isVoiceDiagnosticsEnabled,
 } from '../webrtc/voiceDiagnostics'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
@@ -1221,6 +1222,7 @@ export default function UserBar() {
     ? desktopMediaPermissionRecoveryMessage('microphone')
     : 'Allow microphone access to unlock full voice controls.'
   const showDesktopMicrophoneRecovery = isTauri() && microphonePermissionState === 'denied'
+  const showVoiceBenchmarkDiagnostics = isVoiceDiagnosticsEnabled()
 
   const voiceDeviceMenu = openDeviceMenu && deviceMenuAnchor && typeof document !== 'undefined'
     ? createPortal(
@@ -1764,19 +1766,21 @@ export default function UserBar() {
                         </button>
                       </div>
                     )}
-                    <div className="user-setting-row user-setting-row--span-two">
-                      <div>
-                        <div className="user-setting-title">Benchmark diagnostics</div>
-                        <div className="user-setting-desc">Copy the active voice diagnostics snapshot for benchmark notes.</div>
+                    {showVoiceBenchmarkDiagnostics && (
+                      <div className="user-setting-row user-setting-row--span-two">
+                        <div>
+                          <div className="user-setting-title">Benchmark diagnostics</div>
+                          <div className="user-setting-desc">Copy the active voice diagnostics snapshot for benchmark notes.</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="user-toggle account-action-btn"
+                          onClick={() => void copyVoiceBenchmarkDiagnostics()}
+                        >
+                          Copy diagnostics
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="user-toggle account-action-btn"
-                        onClick={() => void copyVoiceBenchmarkDiagnostics()}
-                      >
-                        Copy diagnostics
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
               </section>
