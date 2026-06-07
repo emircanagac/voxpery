@@ -81,6 +81,8 @@ After joining voice, capture:
 window.__VOXPERY_VOICE_DIAGNOSTICS__
 ```
 
+You can also open User Settings -> Voice & Audio and click `Copy diagnostics` to copy the same JSON snapshot into the benchmark notes.
+
 Required diagnostic fields:
 
 - `rnnoiseStatus` is `ready` when suppression is on.
