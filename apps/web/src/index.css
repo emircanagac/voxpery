@@ -5087,15 +5087,16 @@ body {
   border-radius: var(--border-radius-md);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  gap: 8px;
+  padding: 0 10px 0 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   transition: border-color var(--transition-fast);
   position: relative;
 }
 
 .message-input-wrapper:focus-within {
-  border-color: rgba(233, 69, 96, 0.55);
-  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.15);
+  border-color: rgba(79, 127, 216, 0.62);
+  box-shadow: 0 0 0 2px rgba(79, 127, 216, 0.16);
 }
 
 .message-input {
@@ -5108,6 +5109,7 @@ body {
   font-size: 14px;
   padding: 12px 0;
   resize: none;
+  min-width: 0;
 }
 
 .message-input::placeholder {
@@ -5132,7 +5134,6 @@ body {
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  margin-right: 4px;
 }
 
 .chat-emoji-btn:hover:not(:disabled) {
@@ -5141,6 +5142,43 @@ body {
 }
 
 .chat-emoji-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.message-input-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.message-send-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.message-send-btn.is-ready {
+  color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.message-send-btn:hover:not(:disabled).is-ready {
+  color: #d7e6ff;
+  background: rgba(79, 127, 216, 0.16);
+  transform: translateY(-1px);
+}
+
+.message-send-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -6942,14 +6980,14 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: var(--border-radius-sm);
   text-align: left;
   cursor: pointer;
 }
 
 .social-dm-item+.social-dm-item {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .social-dm-item:hover {
@@ -6958,8 +6996,9 @@ body {
 }
 
 .social-dm-item.active {
-  background: rgba(233, 69, 96, 0.16);
-  border-color: rgba(233, 69, 96, 0.26);
+  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(143, 171, 222, 0.22);
+  box-shadow: inset 3px 0 0 rgba(79, 127, 216, 0.72);
 }
 
 .social-content {

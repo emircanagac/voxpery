@@ -2318,21 +2318,6 @@ export default function ChatArea({
                             }}
                         />
                     </label>
-                    <button
-                        ref={emojiButtonRef}
-                        type="button"
-                        className="chat-emoji-btn"
-                        disabled={!canSendMessages}
-                        title="Insert emoji"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            if (!canSendMessages) return
-                            setEmojiOpen((prev) => !prev)
-                        }}
-                    >
-                        <Smile size={16} />
-                    </button>
                     {emojiOpen && emojiPickerPosition && createPortal(
                         <div
                             ref={emojiPickerRef}
@@ -2368,19 +2353,37 @@ export default function ChatArea({
                         placeholder={canSendMessages ? (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`) : `You don't have permission to send messages in #${activeChannel.name}`}
                         rows={1}
                     />
-                    <Send
-                        size={18}
-                        style={{
-                            color: !canSendMessages ? 'var(--text-muted)' : (messageInput.trim() || draftAttachments.length > 0) ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            cursor: !canSendMessages ? 'not-allowed' : (messageInput.trim() || draftAttachments.length > 0) ? 'pointer' : 'default',
-                            flexShrink: 0,
-                            opacity: canSendMessages ? 1 : 0.6,
-                        }}
-                        onClick={() => {
-                            if (!canSendMessages) return
-                            submitMessage()
-                        }}
-                    />
+                    <div className="message-input-actions" aria-label="Message actions">
+                        <button
+                            ref={emojiButtonRef}
+                            type="button"
+                            className="chat-emoji-btn"
+                            disabled={!canSendMessages}
+                            title="Emoji, GIFs, and stickers"
+                            aria-label="Emoji, GIFs, and stickers"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                if (!canSendMessages) return
+                                setEmojiOpen((prev) => !prev)
+                            }}
+                        >
+                            <Smile size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className={`message-send-btn ${(messageInput.trim() || draftAttachments.length > 0) ? 'is-ready' : ''}`}
+                            disabled={!canSendMessages}
+                            title="Send message"
+                            aria-label="Send message"
+                            onClick={() => {
+                                if (!canSendMessages) return
+                                submitMessage()
+                            }}
+                        >
+                            <Send size={18} />
+                        </button>
+                    </div>
                 </div>
             </div>
             {reactionPickerMessageId && reactionPickerPosition && onToggleReaction && createPortal(
