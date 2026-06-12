@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownToLine, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '../stores/auth'
@@ -38,7 +38,7 @@ export default function AppShell() {
   const userId = user?.id ?? null
   const myStatus = useAuthStore((s) => s.user?.status)
   const token = useAuthStore((s) => s.token)
-  const { connect, subscribe, send, isConnected } = useSocketStore()
+  const { connect, subscribe, send, isConnected, onReconnect } = useSocketStore()
   const {
     setVoiceState,
     setVoiceControl,
@@ -239,37 +239,43 @@ export default function AppShell() {
     return () => unsubscribe()
   }, [])
 
+  const syncSocial = useCallback(async () => {
+    if (!userId) return
+    try {
+      const [channels, friendList] = await Promise.all([
+        dmApi.listChannels(token),
+        friendApi.list(token),
+      ])
+      setDmChannelIds(channels.map((c) => c.id))
+      setDmChannels(channels)
+      setDmUnreadFromChannels(channels)
+      setFriends(friendList)
+      setSocialDataReady(true)
+    } catch {
+      // ignore transient failures
+    }
+  }, [setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setSocialDataReady, token, userId])
+
   useEffect(() => {
     if (!userId) return
-    const syncSocial = async () => {
-      try {
-        const [channels, friendList] = await Promise.all([
-          dmApi.listChannels(token),
-          friendApi.list(token),
-        ])
-        setDmChannelIds(channels.map((c) => c.id))
-        setDmChannels(channels)
-        setDmUnreadFromChannels(channels)
-        setFriends(friendList)
-        setSocialDataReady(true)
-      } catch {
-        // ignore transient failures
-      }
-    }
     void syncSocial()
     const id = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return
       void syncSocial()
-    }, 15000)
+    }, 60000)
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') void syncSocial()
     }
+    const unsubscribeReconnect = onReconnect(() => {
+      void syncSocial()
+    })
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearInterval(id)
+      unsubscribeReconnect()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setSocialDataReady, token, userId])
+  }, [onReconnect, syncSocial, userId])
 
   useEffect(() => {
     if (!isConnected || dmChannelIds.length === 0) return
@@ -398,6 +404,12 @@ export default function AppShell() {
             clearDmUnread(payload.channel_id)
           }
         }
+        if (e?.type === 'FriendUpdate') {
+          const payload = e.data as { user_id?: string }
+          if (!payload.user_id || payload.user_id === userId) {
+            void syncSocial()
+          }
+        }
         if (e?.type === 'NewMessage') {
           const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { author?: { user_id?: string; username?: string } } }
           const channelId = payload?.channel_id
@@ -489,7 +501,7 @@ export default function AppShell() {
       }
     })
     return () => unsub()
-  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, token, userId])
+  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, syncSocial, token, userId])
   const activeChannel = useMemo(() => channels.find((c) => c.id === activeChannelId), [channels, activeChannelId])
   // Prefer the voice channel the user is viewing so switching channels leaves current and joins the new one.
   const selectedVoiceChannelId =
