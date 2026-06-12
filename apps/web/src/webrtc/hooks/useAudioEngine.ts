@@ -183,31 +183,31 @@ export function buildSuppressionFilterConfig(
 ): LiveSuppressionFilterConfig {
     return {
         highPassHz: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 120, balanced: 145, high: 170 })
+            ? pickSuppressionValue(suppressionTuning, { off: 120, balanced: 135, high: 170 })
             : pickSuppressionValue(suppressionTuning, { off: 120, balanced: 125, high: 145 }),
         lowPassHz: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6200, high: 3500 })
+            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6800, high: 3500 })
             : pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6200, high: 4400 }),
         deClickGainDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -3.5, high: -10 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -2.4, high: -10 })
             : pickSuppressionValue(suppressionTuning, { off: 0, balanced: -1.8, high: -4.2 }),
         speechPresenceGainDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.1, high: 1.9 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 0.9, high: 1.9 })
             : pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.1, high: 1.75 }),
         compressorThresholdDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -34, high: -44 })
+            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -32, high: -44 })
             : pickSuppressionValue(suppressionTuning, { off: -30, balanced: -31, high: -36 }),
         compressorKneeDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 8, high: 5 })
+            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 9, high: 5 })
             : pickSuppressionValue(suppressionTuning, { off: 10, balanced: 10, high: 8 }),
         compressorRatio: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 4.6, high: 8.2 })
+            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 4, high: 8.2 })
             : pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 3.8, high: 5.4 }),
         compressorAttackSec: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0025, high: 0.001 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0028, high: 0.001 })
             : pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0024, high: 0.0015 }),
         compressorReleaseSec: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.072, high: 0.038 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.085, high: 0.038 })
             : pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.082, high: 0.065 }),
     }
 }
@@ -236,19 +236,19 @@ export function buildSuppressionConfig(
         aggressiveIsolation,
         suppressionTuning,
         lowFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -49, high: -40 })
+            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -51, high: -40 })
             : pickSuppressionValue(suppressionTuning, { off: -51, balanced: -50, high: -46 })),
         openFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -37, high: -29 })
+            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -39, high: -29 })
             : pickSuppressionValue(suppressionTuning, { off: -40, balanced: -38, high: -34 })),
         minFloorGain: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.09, high: 0.012 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.12, high: 0.012 })
             : pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.1, high: 0.06 }),
         floorReleaseAlpha: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.08, high: 0.12 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.07, high: 0.12 })
             : pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.075, high: 0.09 }),
         floorReleaseTime: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.065, high: 0.046 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.075, high: 0.046 })
             : pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.066, high: 0.055 }),
     }
 }

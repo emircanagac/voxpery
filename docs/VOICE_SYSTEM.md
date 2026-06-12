@@ -80,7 +80,7 @@ GainNode (input volume)
     |
 VAD gate (optional, voice_activity mode)
     |
-LiveKit LocalAudioTrack
+LiveKit LocalAudioTrack (high-quality mono Opus with DTX + RED)
     |
 Room.localParticipant.publishTrack
 ```
@@ -120,8 +120,12 @@ Room.localParticipant.publishTrack
     - speech-presence shaping
     - compressor strength
     - residual noise floor attenuation
-  - `Balanced` is the recommended default
+  - `Balanced` is the recommended default and keeps a wider speech band with gentler compression/floor attenuation so everyday voices sound more natural
   - `Noisy room` and stricter custom thresholds trend more aggressive for keyboard and room noise
+- **Microphone publish quality**
+  - The processed microphone track is published with LiveKit's high-quality mono Opus preset.
+  - DTX remains enabled to avoid sending unnecessary silence, and RED remains enabled for packet-loss resilience.
+  - Stereo is forced off for microphone audio so bitrate stays focused on voice clarity rather than duplicate channels.
 - **Why RNNoise?**
   - Browser native `noiseSuppression` is too weak for noisy backgrounds
   - Krisp required LiveKit Cloud (self-hosted setups can't use it)
