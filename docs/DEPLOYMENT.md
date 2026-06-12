@@ -252,10 +252,22 @@ image tag.
 ./scripts/ops/db_backup.sh
 ```
 
+Dry-run backup preflight:
+
+```bash
+BACKUP_DRY_RUN=1 ./scripts/ops/db_backup.sh
+```
+
 Restore (explicit confirmation required):
 
 ```bash
 RESTORE_CONFIRM=YES ./scripts/ops/db_restore.sh backups/postgres/<backup-file>.sql.gz
+```
+
+Dry-run restore validation:
+
+```bash
+RESTORE_DRY_RUN=1 ./scripts/ops/db_restore.sh backups/postgres/<backup-file>.sql.gz
 ```
 
 Healthcheck:
