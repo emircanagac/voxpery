@@ -110,8 +110,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setIncomingRequestCount,
     friends: storeFriends,
     dmChannels: storeDmChannels,
+    socialDataReady,
     setFriends: setStoreFriends,
     setDmChannels: setStoreDmChannels,
+    setSocialDataReady,
     setDmUnreadFromChannels,
     mobileSidebarPanel,
     setMobileSidebarPanel,
@@ -129,8 +131,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setIncomingRequestCount: s.setIncomingRequestCount,
       friends: s.friends,
       dmChannels: s.dmChannels,
+      socialDataReady: s.socialDataReady,
       setFriends: s.setFriends,
       setDmChannels: s.setDmChannels,
+      setSocialDataReady: s.setSocialDataReady,
       setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       mobileSidebarPanel: s.mobileSidebarPanel,
       setMobileSidebarPanel: s.setMobileSidebarPanel,
@@ -143,7 +147,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [view, setView] = useState<SocialView>('friends')
   const isDmConversationVisible = isMessagesView && location.pathname === ROUTES.dm && view === 'dm'
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
-  const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(true)
+  const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(() => !useAppStore.getState().socialDataReady)
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
   const [addFriendUsername, setAddFriendUsername] = useState('')
@@ -154,6 +158,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const dmChannels = storeDmChannels
+  const showSocialBootstrapLoading = socialBootstrapLoading && !socialDataReady
 
   // Social paths (/social and /social/dm): restore last social tab and optional deep-linked DM.
   useEffect(() => {
@@ -214,15 +219,23 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   // Use user so web works: on web token is null, auth is via httpOnly cookie.
   const refreshServersAndFriends = useCallback(async () => {
     if (!userId) return
+    const shouldBlockSocialUi = !useAppStore.getState().socialDataReady
+    if (shouldBlockSocialUi) setSocialBootstrapLoading(true)
+
     setServersLoading(true)
+    void serverApi.list(token)
+      .then(setServers)
+      .catch(console.error)
+      .finally(() => {
+        setServersLoading(false)
+      })
+
     try {
-      const [serverList, friendList, req, dms] = await Promise.all([
-        serverApi.list(token),
+      const [friendList, req, dms] = await Promise.all([
         friendApi.list(token),
         friendApi.requests(token),
         dmApi.listChannels(token),
       ])
-      setServers(serverList)
       setStoreFriends(friendList)
       setIncomingRequests(req.incoming)
       setIncomingRequestCount(req.incoming.length)
@@ -230,15 +243,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setStoreDmChannels(dms)
       setDmUnreadFromChannels(dms)
       setDmChannelIds(dms.map((d) => d.id))
+      setSocialDataReady(true)
     } finally {
-      setServersLoading(false)
       setSocialBootstrapLoading(false)
     }
-  }, [setDmChannelIds, setDmUnreadFromChannels, setIncomingRequestCount, setServers, setServersLoading, setStoreFriends, setStoreDmChannels, token, userId])
+  }, [setDmChannelIds, setDmUnreadFromChannels, setIncomingRequestCount, setServers, setServersLoading, setSocialDataReady, setStoreFriends, setStoreDmChannels, token, userId])
 
   useEffect(() => {
     if (!userId) return
-    setSocialBootstrapLoading(true)
+    if (!useAppStore.getState().socialDataReady) setSocialBootstrapLoading(true)
     refreshServersAndFriends().catch(console.error)
   }, [refreshServersAndFriends, userId])
 
@@ -895,7 +908,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         </button>
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">Direct Messages</div>
-        {socialBootstrapLoading ? (
+        {showSocialBootstrapLoading ? (
           <div className="home-sidebar-skeleton" aria-hidden="true">
             <div className="home-sidebar-skeleton-row" />
             <div className="home-sidebar-skeleton-row" />
@@ -1112,7 +1125,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         ? `Online Friends — ${onlineFriends.length}`
                         : `All Friends — ${friends.length}`}
                     </div>
-                    {socialBootstrapLoading ? (
+                    {showSocialBootstrapLoading ? (
                       <div className="home-list-skeleton" aria-hidden="true">
                         <div className="home-list-skeleton-row" />
                         <div className="home-list-skeleton-row" />
@@ -1218,7 +1231,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
           {view === 'dm' && (() => {
             const dmChannel = activeDmChannelId ? storeDmChannels.find((c) => c.id === activeDmChannelId) : null
-            if (socialBootstrapLoading) {
+            if (showSocialBootstrapLoading) {
               return (
                 <div className="home-dm-chat">
                   <div className="home-list-skeleton" aria-hidden="true" style={{ padding: 24 }}>

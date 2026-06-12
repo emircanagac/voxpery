@@ -49,6 +49,7 @@ export default function AppShell() {
     setDmChannels,
     setDmUnreadFromChannels,
     setFriends,
+    setSocialDataReady,
     activeDmChannelId,
     setActiveServer,
     setActiveChannel,
@@ -68,6 +69,7 @@ export default function AppShell() {
       setDmChannels: s.setDmChannels,
       setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       setFriends: s.setFriends,
+      setSocialDataReady: s.setSocialDataReady,
       activeDmChannelId: s.activeDmChannelId,
       setActiveServer: s.setActiveServer,
       setActiveChannel: s.setActiveChannel,
@@ -249,14 +251,25 @@ export default function AppShell() {
         setDmChannels(channels)
         setDmUnreadFromChannels(channels)
         setFriends(friendList)
+        setSocialDataReady(true)
       } catch {
         // ignore transient failures
       }
     }
-    syncSocial()
-    const id = window.setInterval(syncSocial, 2000)
-    return () => window.clearInterval(id)
-  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, token, userId])
+    void syncSocial()
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      void syncSocial()
+    }, 15000)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void syncSocial()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setSocialDataReady, token, userId])
 
   useEffect(() => {
     if (!isConnected || dmChannelIds.length === 0) return
