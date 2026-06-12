@@ -43,8 +43,10 @@ interface AppState {
     // Prefetched for Social (friends + DM channel list) so Social loads instantly
     friends: Friend[]
     dmChannels: DmChannel[]
+    socialDataReady: boolean
     setFriends: (friends: Friend[]) => void
     setDmChannels: (channels: DmChannel[]) => void
+    setSocialDataReady: (ready: boolean) => void
     dmUnread: Record<string, number>
     setDmUnreadFromChannels: (channels: DmChannel[]) => void
     incrementDmUnread: (channelId: string) => void
@@ -216,8 +218,10 @@ export const useAppStore = create<AppState>()(
             setActiveDmChannelId: (id) => set({ activeDmChannelId: id }),
             friends: [],
             dmChannels: [],
+            socialDataReady: false,
             setFriends: (friends) => set((s) => JSON.stringify(s.friends) === JSON.stringify(friends) ? s : { friends }),
             setDmChannels: (channels) => set((s) => JSON.stringify(s.dmChannels) === JSON.stringify(channels) ? s : { dmChannels: channels }),
+            setSocialDataReady: (ready) => set({ socialDataReady: ready }),
             dmUnread: {},
             setDmUnreadFromChannels: (channels) =>
                 set((s) => {
@@ -377,6 +381,7 @@ export const useAppStore = create<AppState>()(
                     activeDmChannelId: null,
                     friends: [],
                     dmChannels: [],
+                    socialDataReady: false,
                     dmUnread: {},
                     serverUnreadByChannel: {},
                     serverMentionsByChannel: {},

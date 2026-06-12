@@ -201,6 +201,30 @@ describe('HomePage friends list', () => {
     expect(screen.queryByRole('button', { name: 'Hide DM with cilo' })).toBeNull()
   })
 
+  it('shows cached social data without waiting for the server list refresh', async () => {
+    const cachedFriend = friend('friend-cached', 'cachedfriend', 'online')
+    const cachedDm = dmChannel('dm-cached', cachedFriend.id, cachedFriend.username)
+    apiMocks.listServers.mockReturnValue(new Promise(() => {}))
+    apiMocks.listFriends.mockResolvedValue([cachedFriend])
+    apiMocks.listDmChannels.mockResolvedValue([cachedDm])
+    useAppStore.setState({
+      friends: [cachedFriend],
+      dmChannels: [cachedDm],
+      dmChannelIds: [cachedDm.id],
+      socialDataReady: true,
+    })
+
+    renderHomePage()
+
+    expect(screen.getByRole('button', { name: 'Message cachedfriend' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide DM with cachedfriend' })).toBeInTheDocument()
+    expect(screen.queryByText('Start your social graph')).toBeNull()
+    await waitFor(() => {
+      expect(apiMocks.listFriends).toHaveBeenCalled()
+      expect(apiMocks.listDmChannels).toHaveBeenCalled()
+    })
+  })
+
   it('refreshes the active DM when returning from another app area', async () => {
     const channel = dmChannel('dm-cilo')
     sessionStorage.setItem('voxpery-social-view', 'dm')
