@@ -157,3 +157,6 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Validate desktop artifacts
+        run: node .github/scripts/validate-desktop-artifacts.mjs

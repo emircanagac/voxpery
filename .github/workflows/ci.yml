@@ -99,6 +99,10 @@ jobs:
         working-directory: apps/web
         run: npm run test:e2e:ui-smoke
 
+      - name: Mobile web smoke
+        working-directory: apps/web
+        run: npm run test:e2e:mobile-smoke
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

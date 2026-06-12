@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const mobileSmokeSpec = /.*mobile-web-smoke\.spec\.ts/
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -19,17 +21,26 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: mobileSmokeSpec,
       use: { ...devices['Desktop Chrome'] },
     },
 
     {
       name: 'firefox',
+      testIgnore: mobileSmokeSpec,
       use: { ...devices['Desktop Firefox'] },
     },
 
     {
       name: 'webkit',
+      testIgnore: mobileSmokeSpec,
       use: { ...devices['Desktop Safari'] },
+    },
+
+    {
+      name: 'mobile-chromium',
+      testMatch: mobileSmokeSpec,
+      use: { ...devices['Pixel 7'] },
     },
   ],
 

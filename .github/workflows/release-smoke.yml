@@ -23,6 +23,7 @@ on:
         options:
           - disabled
           - chromium
+          - mobile
           - all
 
 permissions:
@@ -89,7 +90,7 @@ jobs:
         working-directory: apps/web
         shell: bash
         run: |
-          if [[ "${{ inputs.web_e2e_mode }}" == "chromium" ]]; then
+          if [[ "${{ inputs.web_e2e_mode }}" == "chromium" || "${{ inputs.web_e2e_mode }}" == "mobile" ]]; then
             npx playwright install --with-deps chromium
           else
             npx playwright install --with-deps
@@ -103,6 +104,8 @@ jobs:
         run: |
           if [[ "${{ inputs.web_e2e_mode }}" == "chromium" ]]; then
             npm run test:e2e -- --project=chromium
+          elif [[ "${{ inputs.web_e2e_mode }}" == "mobile" ]]; then
+            npm run test:e2e:mobile-smoke
           else
             npm run test:e2e
           fi
