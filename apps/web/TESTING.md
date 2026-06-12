@@ -23,6 +23,7 @@ E2E (Playwright):
 ```bash
 npm run test:e2e
 npm run test:e2e:ui-smoke
+npm run test:e2e:mobile-smoke
 npm run test:e2e:ui
 npm run test:e2e:headed
 ```
@@ -37,6 +38,17 @@ This Playwright suite runs against the real Vite UI with mocked API and WebSocke
 responses, so it does not require a backend. Use it as the fast PR guard for
 Friends, Requests, DM, server chat, channel creation, quick switcher, message
 actions, voice settings, voice error recovery, and responsive shell regressions.
+
+Mocked mobile web smoke:
+
+```bash
+npm run test:e2e:mobile-smoke
+```
+
+This suite runs the core Social, DM, server chat, mobile composer actions, and
+mobile member sheet flows with the `mobile-chromium` Playwright project. It is
+kept separate from the broader desktop smoke so mobile regressions can be run
+explicitly in CI and release candidate checks without requiring a real phone.
 
 ## Backend (`apps/server`)
 
@@ -73,10 +85,17 @@ Current workflows:
 - `.github/workflows/ci.yml`
   - Secret scan
   - Backend check/tests
-  - Frontend lint/unit tests/core UI smoke/build
+  - Frontend lint/unit tests/core UI smoke/mobile web smoke/build
+- `.github/workflows/release-smoke.yml`
+  - API smoke
+  - Optional web E2E scope: desktop Chromium, mobile Chromium, or all browser projects
+- `.github/workflows/release-desktop.yml`
+  - Desktop release preflight
+  - Tauri build
+  - Platform artifact guard for installer packages, updater metadata, and signatures
 - `.github/workflows/dependency-security.yml`
   - Rust and npm dependency audits
 
 ---
 
-Last verified against code on 2026-06-01.
+Last verified against code on 2026-06-12.

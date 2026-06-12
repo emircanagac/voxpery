@@ -69,6 +69,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 - [ ] Uploaded chat image attachments render inline after channel/server navigation and open only in the in-app preview modal on web and desktop, with no external tab/browser navigation.
 - [ ] Automated core UI smoke includes invite/join, server settings, social/friend, auth/account, release/settings, permission, and desktop-runtime regressions.
+- [ ] Automated mobile web smoke completed for the release candidate or CI run, covering Social, DM, server chat, mobile composer actions, and the mobile member sheet.
 
 ## 4) Desktop Smoke Tests (mandatory)
 
@@ -85,6 +86,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Desktop release workflow ran against the exact release tag/ref, with `smoke_checklist_confirmed=yes`.
 - [ ] Production desktop releases used `platform=all`; single-platform workflow runs are recorded as test/hotfix-only.
 - [ ] GitHub Release assets include `latest.json`, installer artifacts for the intended platforms, and matching `.sig` files for updater assets.
+- [ ] Desktop release workflow artifact validation passed for every built platform.
 - [ ] `latest.json` version matches the release tag and desktop app version.
 - [ ] `latest.json` URLs point to assets on the same GitHub Release, not a draft-only, private, or unrelated artifact URL.
 - [ ] Updater check shows a clear no-update state when no newer version is available.
