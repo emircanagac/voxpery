@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AudioPresets,
   LocalAudioTrack,
   RemoteParticipant,
   Room,
   RoomEvent,
   Track,
+  type TrackPublishOptions,
 } from 'livekit-client'
 import { webrtcApi } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -32,6 +34,16 @@ type VoiceControlState = {
   screenSharing?: boolean
   cameraOn?: boolean
 } | null | undefined
+
+export function getMicrophonePublishOptions(): TrackPublishOptions {
+  return {
+    source: Track.Source.Microphone,
+    audioPreset: AudioPresets.musicHighQuality,
+    dtx: true,
+    red: true,
+    forceStereo: false,
+  }
+}
 
 interface VoiceReconnectResyncOptions {
   channelId: string | null
@@ -320,7 +332,7 @@ export function useLiveKitVoice() {
       await room.localParticipant.unpublishTrack(previousTrack)
       previousTrack.stop()
 
-      const publication = await room.localParticipant.publishTrack(nextTrack, { source: Track.Source.Microphone })
+      const publication = await room.localParticipant.publishTrack(nextTrack, getMicrophonePublishOptions())
       previousGateCancel?.()
       gateCancelRef.current = nextGateCancel
       localAudioTrackRef.current = publication.track as LocalAudioTrack
@@ -479,6 +491,10 @@ export function useLiveKitVoice() {
         adaptiveStream: true,
         dynacast: true,
         publishDefaults: {
+          audioPreset: AudioPresets.musicHighQuality,
+          dtx: true,
+          red: true,
+          forceStereo: false,
           screenShareEncoding: getScreenShareEncoding(),
           screenShareSimulcastLayers: [],
           videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
@@ -643,7 +659,7 @@ export function useLiveKitVoice() {
       remoteMediaStartCueReadyRef.current = true
 
       // Publish the track directly to LiveKit.
-      const pub = await room.localParticipant.publishTrack(publishTrack, { source: Track.Source.Microphone })
+      const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions())
       updateVoiceDiagnostics({
         livekit: {
           roomState: String(room.state),
@@ -653,6 +669,10 @@ export function useLiveKitVoice() {
           dynacast: true,
           microphonePublished: true,
           microphoneSource: 'processed-webaudio',
+          microphoneAudioPreset: 'musicHighQuality',
+          microphoneDtx: true,
+          microphoneRed: true,
+          microphoneForceStereo: false,
         },
       })
 

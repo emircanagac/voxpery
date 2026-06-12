@@ -60,6 +60,10 @@ export interface VoiceLivekitDiagnostics {
   dynacast?: boolean
   microphonePublished?: boolean
   microphoneSource?: 'processed-webaudio'
+  microphoneAudioPreset?: 'musicHighQuality'
+  microphoneDtx?: boolean
+  microphoneRed?: boolean
+  microphoneForceStereo?: boolean
 }
 
 export interface VoiceRuntimeDiagnostics {

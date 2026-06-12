@@ -164,6 +164,14 @@ describe('voiceDiagnostics', () => {
         pingJitterMs: 4,
         pingSource: 'rtc',
       },
+      livekit: {
+        microphonePublished: true,
+        microphoneSource: 'processed-webaudio',
+        microphoneAudioPreset: 'musicHighQuality',
+        microphoneDtx: true,
+        microphoneRed: true,
+        microphoneForceStereo: false,
+      },
     })
 
     const snapshot = getVoiceDiagnosticsSnapshot()
@@ -186,6 +194,14 @@ describe('voiceDiagnostics', () => {
         pingMs: 42,
         rtcPingMs: 42,
         pingSource: 'rtc',
+      },
+      livekit: {
+        microphonePublished: true,
+        microphoneSource: 'processed-webaudio',
+        microphoneAudioPreset: 'musicHighQuality',
+        microphoneDtx: true,
+        microphoneRed: true,
+        microphoneForceStereo: false,
       },
     })
     expect(snapshot).not.toBe(window.__VOXPERY_VOICE_DIAGNOSTICS__)

@@ -87,6 +87,17 @@ describe('voice quality benchmark configuration', () => {
     const balancedFilters = buildSuppressionFilterConfig(true, 'balanced')
     const highFilters = buildSuppressionFilterConfig(true, 'high')
 
+    expect(balancedFilters).toMatchObject({
+      highPassHz: 135,
+      lowPassHz: 6800,
+      deClickGainDb: -2.4,
+      speechPresenceGainDb: 0.9,
+      compressorThresholdDb: -32,
+      compressorKneeDb: 9,
+      compressorRatio: 4,
+      compressorAttackSec: 0.0028,
+      compressorReleaseSec: 0.085,
+    })
     expect(balancedFilters.highPassHz).toBeLessThan(highFilters.highPassHz)
     expect(balancedFilters.lowPassHz).toBeGreaterThan(highFilters.lowPassHz)
     expect(balancedFilters.deClickGainDb).toBeGreaterThan(highFilters.deClickGainDb)
@@ -101,8 +112,11 @@ describe('voice quality benchmark configuration', () => {
     localStorage.setItem('voxpery-settings-speaking-preset', 'noisy')
     const highConfig = buildSuppressionConfig(true)
 
-    expect(dbFromLinear(balancedConfig.lowFloorThr)).toBe(-49)
-    expect(dbFromLinear(balancedConfig.openFloorThr)).toBe(-37)
+    expect(dbFromLinear(balancedConfig.lowFloorThr)).toBe(-51)
+    expect(dbFromLinear(balancedConfig.openFloorThr)).toBe(-39)
+    expect(balancedConfig.minFloorGain).toBe(0.12)
+    expect(balancedConfig.floorReleaseAlpha).toBe(0.07)
+    expect(balancedConfig.floorReleaseTime).toBe(0.075)
     expect(balancedConfig.minFloorGain).toBeGreaterThan(highConfig.minFloorGain)
     expect(balancedConfig.floorReleaseTime).toBeGreaterThan(highConfig.floorReleaseTime)
   })

@@ -102,7 +102,7 @@ Required diagnostic fields:
 - `liveProcessing.rmsDb`, `floorGain`, `isolationGain`, and `likelySpeech` show the current suppression behavior.
 - `voiceActivity` shows gate state, speech state, RMS, thresholds, and frame counters.
 - `network` shows ping, RTC ping, packet loss, jitter, and selected ping source.
-- `livekit` shows room state, participants, remote stream count, and whether the processed microphone track was published.
+- `livekit` shows room state, participants, remote stream count, and whether the processed microphone track was published with `musicHighQuality`, DTX, RED, and mono microphone audio.
 
 Also capture the call bar ping color and visible ping.
 

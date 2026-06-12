@@ -1,10 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
+  getMicrophonePublishOptions,
   remoteMediaStartCueKey,
   resyncVoiceStateAfterReconnect,
   shouldPlayRemoteMediaStartCue,
 } from './useLiveKitVoice'
+import { AudioPresets, Track } from 'livekit-client'
+
+describe('microphone publish options', () => {
+  it('uses a high-quality mono Opus profile with resilience enabled', () => {
+    expect(getMicrophonePublishOptions()).toMatchObject({
+      source: Track.Source.Microphone,
+      audioPreset: AudioPresets.musicHighQuality,
+      dtx: true,
+      red: true,
+      forceStereo: false,
+    })
+  })
+})
 
 describe('resyncVoiceStateAfterReconnect', () => {
   it('re-sends voice join and control state after WebSocket reconnect', () => {
