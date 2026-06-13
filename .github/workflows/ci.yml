@@ -38,6 +38,26 @@ jobs:
             ghcr.io/gitleaks/gitleaks:v8.24.3 \
             git --redact --verbose --exit-code 1
 
+  release_metadata:
+    name: Release / Metadata
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Check release version sync
+        run: node .github/scripts/check-release-version-sync.mjs
+
   backend:
     name: Checks / Backend
     runs-on: ubuntu-latest
@@ -120,6 +140,7 @@ jobs:
     name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
     needs:
       - security
+      - release_metadata
       - backend
       - frontend
     if: >-

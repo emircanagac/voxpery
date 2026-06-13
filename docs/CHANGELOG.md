@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Bumped web, server, and desktop package metadata to `0.2.2`.
+- Added tag-publish metadata guardrails plus release-smoke checks for public health, immutable deploy tags, and deployed web version tags.
 - Documented the release-bump checklist so future public releases keep package metadata, changelog entries, desktop updater metadata, and visible app version tags in sync.
 
 ## [0.2.1] - 2026-06-07

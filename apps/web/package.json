@@ -22,6 +22,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
+    "smoke:release-deploy": "node scripts/release-deploy-smoke.mjs",
     "chaos:reconnect": "node scripts/chaos-reconnect.mjs",
     "regression:multi-user": "node scripts/regression-multi-user.mjs",
     "load:realtime": "node scripts/realtime-load-smoke.mjs",
