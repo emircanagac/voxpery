@@ -54,7 +54,8 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
 const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
-    hash_password("voxpery-login-dummy-password")
+    let dummy_password = Uuid::new_v4().to_string();
+    hash_password(&dummy_password)
         .expect("dummy Argon2 hash should be generated successfully")
 });
 
