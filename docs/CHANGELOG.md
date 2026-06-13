@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-13
+
+### Changed
+- Bumped web, server, and desktop package metadata to `0.2.2`.
+- Documented the release-bump checklist so future public releases keep package metadata, changelog entries, desktop updater metadata, and visible app version tags in sync.
+
+## [0.2.1] - 2026-06-07
+
+### Added
+- Added and expanded voice quality benchmark diagnostics for controlled release validation.
+- Added core UI regression coverage for auth, permissions, social/friend flows, server settings, release/settings, invite, and desktop smoke paths.
+
+### Changed
+- Required Node.js 24 across the web and CI toolchain.
+- Improved manual deploy workflows so main candidates build immutable commit-tagged Docker images before deployment.
+- Tuned balanced voice processing for a more natural default speech profile.
+- Split composer media actions and aligned direct-message sidebar styling with the server-channel selection model.
+
+### Fixed
+- Fixed email verification delivery, duplicate confirmation handling, and consumed-token verified-state rendering.
+- Fixed SMTP delivery reliability by preferring IPv4 and resolving SMTP hosts before sending.
+- Fixed chat scroll anchoring, media placeholder stability, and compact version badge rendering.
+- Persisted hidden direct-message sidebar state and made the social loading path cache-aware/event-driven.
+- Hid voice diagnostics unless explicitly enabled for benchmark/debug work.
+
+### Security
+- Updated dependency security paths for web and desktop, including esbuild and Tauri desktop transitive dependencies.
+- Removed hardcoded crypto-like test fixtures that CodeQL reported.
+
 ## [0.2.0] - 2026-06-01
 
 ### Added
