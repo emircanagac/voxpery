@@ -68,16 +68,17 @@ Voxpery follows Semantic Versioning:
 
 1. Prepare the candidate from updated `main` and keep the final release commit SHA recorded.
 2. Update docs for behavior changes and update the changelog entry before creating the tag.
-3. Ensure required PR gates are green on the release branch and no security monitoring gate is ignored without a recorded decision.
-4. Run the manual `Release / Smoke` workflow against the release candidate API and record the workflow run URL in [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md).
-5. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
-6. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of the release.
-7. Validate critical paths: auth, messaging+websocket, voice join/leave.
-8. Create and push the Git tag (for example `v0.1.5`) from the exact signed-off commit.
-9. Confirm tag-triggered release jobs, Docker publish jobs, and desktop artifact jobs ran against that exact tag/ref.
-10. Record the exact Docker image tag selected for production deploy and verify the manual deploy workflow used that tag.
-11. Verify release assets and updater metadata before publishing or announcing the release.
-12. Publish GitHub Release notes only after artifacts, signatures, and smoke sign-off are complete.
+3. Keep all version-bearing artifacts in sync in the same change: web `package.json` and `package-lock.json`, server `Cargo.toml` and `Cargo.lock` when present, desktop `Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, release/checklist docs that name the version, Docker image tags, the web top-bar version badge, desktop app version, and updater metadata.
+4. Ensure required PR gates are green on the release branch and no security monitoring gate is ignored without a recorded decision.
+5. Run the manual `Release / Smoke` workflow against the release candidate API and record the workflow run URL in [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md).
+6. Complete and sign off [RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md) (required).
+7. Validate [DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md) if desktop artifacts are part of the release.
+8. Validate critical paths: auth, messaging+websocket, voice join/leave.
+9. Create and push the Git tag (for example `v0.1.5`) from the exact signed-off commit.
+10. Confirm tag-triggered release jobs, Docker publish jobs, and desktop artifact jobs ran against that exact tag/ref.
+11. Record the exact Docker image tag selected for production deploy and verify the manual deploy workflow used that tag.
+12. Verify release assets and updater metadata before publishing or announcing the release.
+13. Publish GitHub Release notes only after artifacts, signatures, and smoke sign-off are complete.
 
 ### Release Workflow Rules
 
