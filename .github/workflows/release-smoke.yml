@@ -7,6 +7,18 @@ on:
         description: Release candidate API base URL, for example https://api.example.com
         required: true
         type: string
+      web_url:
+        description: Release candidate web base URL, for example https://voxpery.com
+        required: true
+        type: string
+      expected_version:
+        description: Expected semantic release version, for example 0.2.2 or v0.2.2
+        required: false
+        type: string
+      expected_image_tag:
+        description: Expected immutable Docker image tag, for example v0.2.2 or sha-abc123def456
+        required: false
+        type: string
       require_security_headers:
         description: Fail API smoke when production security headers are missing or invalid
         required: true
@@ -63,6 +75,15 @@ jobs:
           SMOKE_API_URL: ${{ inputs.api_url }}
           SMOKE_REQUIRE_SECURITY_HEADERS: ${{ inputs.require_security_headers == 'yes' && '1' || '0' }}
         run: npm run smoke:e2e
+
+      - name: Run release deploy guardrails
+        working-directory: apps/web
+        env:
+          SMOKE_API_URL: ${{ inputs.api_url }}
+          SMOKE_WEB_URL: ${{ inputs.web_url }}
+          SMOKE_EXPECTED_VERSION: ${{ inputs.expected_version }}
+          SMOKE_EXPECTED_IMAGE_TAG: ${{ inputs.expected_image_tag }}
+        run: npm run smoke:release-deploy
 
   web-e2e:
     name: Release / Web E2E (${{ inputs.web_e2e_mode }})

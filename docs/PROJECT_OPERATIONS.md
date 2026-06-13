@@ -61,7 +61,7 @@ Voxpery follows Semantic Versioning:
 
 - **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, and `Checks / Frontend`. Keep these fast and deterministic so branch protection can require them on every PR.
 - **Security monitoring gates**: CodeQL and dependency security audit workflows run on PRs, schedules, or manually. Review their output before release; an upstream-blocked advisory needs an explicit release decision rather than being silently ignored.
-- **Release smoke gates**: run the manual `Release / Smoke` workflow against the release candidate API before tagging or publishing. Use strict security headers for production candidates and enable browser E2E only when the candidate environment is ready for it.
+- **Release smoke gates**: release metadata sync runs automatically before Docker publishing on `v*` tag builds. The manual `Release / Smoke` workflow can be run against release candidate API and web URLs for post-deploy confidence; it verifies public health endpoints, immutable image-tag format, and the deployed web version tag.
 - **Publish jobs**: Docker publish, tag release, desktop release, and manual smoke jobs must not be configured as required PR checks because they are intentionally skipped or manually triggered on PRs. Docker publish runs automatically for `v*` tag pushes; the manual deploy workflow builds and publishes immutable `sha-<commit>` images before deploying a `main-candidate`. Docker publish jobs must produce immutable `sha-<commit>` tags for manually deployed main-candidate builds and version tags for `v*` releases; production deploys must resolve to an exact image tag rather than Docker `latest`.
 
 ### Release Checklist

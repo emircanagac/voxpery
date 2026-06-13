@@ -11,6 +11,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - Git ref / tag:
 - Deploy channel:
 - Docker image tag:
+- Web URL:
+- API URL:
 - Release type: `web-only` / `desktop` / `voice` / `security` / `hotfix`
 - Tester:
 - Date (UTC):
@@ -31,12 +33,15 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Web container health responds through the host mapping (`curl -f http://localhost:${WEB_PORT:-5173}/healthz`) while the container uses unprivileged nginx on internal port `8080`.
 - [ ] Remote avatar/server icon/inline media proxy rejects localhost/private targets and still loads normal public HTTPS images.
 - [ ] Manual `Release / Smoke` workflow completed successfully against the release candidate API.
+- [ ] Manual `Release / Smoke` workflow completed successfully against the release candidate web URL.
 - [ ] Manual `Release / Smoke` workflow run URL is recorded in Release Candidate Info.
+- [ ] Tag-triggered `Release / Metadata` check passed for web, server, desktop, and changelog version-bearing files before Docker publishing.
 - [ ] `Release / Smoke` ran with strict security headers enabled for production candidates.
 - [ ] CI/release workflows ran against the exact release commit SHA or tag recorded above.
 - [ ] Docker images were built with an immutable `sha-<commit>` or `vX.Y.Z` tag, and production deploy did not use `latest`.
 - [ ] For `main-candidate` deploys, the manual deploy workflow built and published Docker images for the exact candidate ref before starting deploy.
 - [ ] Manual deploy workflow resolved the expected deploy channel and exact Docker image tag recorded in Release Candidate Info.
+- [ ] Release deploy guardrails verified API `/health`, web `/healthz`, immutable image tag format, and the deployed web bundle version tag.
 - [ ] Production top bar shows the expected `Beta` version badge tag (`vX.Y.Z` or `sha-<commit>`).
 
 ## 3) Web Smoke Tests (mandatory)
