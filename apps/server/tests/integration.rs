@@ -31,7 +31,11 @@ fn test_db_url() -> Option<String> {
 }
 
 fn jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| "test-jwt-secret-change-in-production".into())
+    std::env::var("JWT_SECRET").unwrap_or_else(|_| test_credential("jwt").to_string())
+}
+
+fn test_credential(label: &str) -> &'static str {
+    Box::leak(format!("test-credential-{label}-{}", Uuid::new_v4().as_simple()).into_boxed_str())
 }
 
 fn normalize_compose_host(url: String, service_host: &str, fallback_host: &str) -> String {
@@ -102,8 +106,8 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         turn_shared_secret: None,
         turn_credential_ttl_secs: 3600,
         livekit_ws_url: Some("wss://livekit.test.local".to_string()),
-        livekit_api_key: Some("test-livekit-key".to_string()),
-        livekit_api_secret: Some("test-livekit-secret".to_string()),
+        livekit_api_key: Some(test_credential("livekit-api").to_string()),
+        livekit_api_secret: Some(test_credential("livekit-signing").to_string()),
         google_client_id: None,
         google_client_secret: None,
         google_oauth_enabled: false,
@@ -220,6 +224,7 @@ async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() 
     };
     let (mut app, _) = setup_app().await;
     let disabled_reset_password = format!("disabled-reset-{}", Uuid::new_v4());
+    let disabled_token = Uuid::new_v4().to_string();
 
     let disabled_requests = [
         Request::builder()
@@ -258,7 +263,7 @@ async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() 
             .header("content-type", "application/json")
             .body(Body::from(
                 serde_json::to_vec(&json!({
-                    "token": "disabled-token",
+                    "token": &disabled_token,
                     "new_password": disabled_reset_password
                 }))
                 .unwrap(),
@@ -269,7 +274,7 @@ async fn optional_auth_integrations_return_feature_disabled_when_unconfigured() 
             .uri("/api/auth/email/confirm")
             .header("content-type", "application/json")
             .body(Body::from(
-                serde_json::to_vec(&json!({ "token": "disabled-token" })).unwrap(),
+                serde_json::to_vec(&json!({ "token": &disabled_token })).unwrap(),
             ))
             .unwrap(),
     ];
@@ -316,7 +321,7 @@ async fn register_login_me_flow() {
     let uid = Uuid::new_v4();
     let email = format!("test-{}@example.com", uid);
     let username = format!("user_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
 
     // Register
     let register_body = json!({
@@ -379,7 +384,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     let uid = Uuid::new_v4();
     let email = format!("mod-{}@example.com", uid);
     let username = format!("moduser_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
 
     let register_body = json!({
         "email": email,
@@ -494,7 +499,7 @@ async fn create_server_list_servers_get_server() {
     let uid = Uuid::new_v4();
     let email = format!("srv-{}@example.com", uid);
     let username = format!("srvuser_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
 
     let register_body = json!({
         "email": email,
@@ -569,7 +574,7 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let owner_email = format!("onboarding-owner-{owner_uid}@example.com");
     let owner_username = format!("onboarding_owner_{}", owner_uid.as_u128() % 1_000_000);
     let (owner_token, _) =
-        register_user(&mut app, &owner_email, &owner_username, "password123").await;
+        register_user(&mut app, &owner_email, &owner_username, test_credential("default")).await;
     let owner_auth = format!("Bearer {owner_token}");
 
     let req = Request::builder()
@@ -631,7 +636,7 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let member_email = format!("onboarding-member-{member_uid}@example.com");
     let member_username = format!("onboarding_member_{}", member_uid.as_u128() % 1_000_000);
     let (member_token, _) =
-        register_user(&mut app, &member_email, &member_username, "password123").await;
+        register_user(&mut app, &member_email, &member_username, test_credential("default")).await;
     let member_auth = format!("Bearer {member_token}");
 
     let req = Request::builder()
@@ -701,7 +706,7 @@ async fn member_timeout_blocks_and_clear_restores_messages() {
     let owner_email = format!("timeout-owner-{owner_uid}@example.com");
     let owner_username = format!("timeout_owner_{}", owner_uid.as_u128() % 1_000_000);
     let (owner_token, _) =
-        register_user(&mut app, &owner_email, &owner_username, "password123").await;
+        register_user(&mut app, &owner_email, &owner_username, test_credential("default")).await;
     let owner_auth = format!("Bearer {owner_token}");
 
     let req = Request::builder()
@@ -728,7 +733,7 @@ async fn member_timeout_blocks_and_clear_restores_messages() {
     let member_email = format!("timeout-member-{member_uid}@example.com");
     let member_username = format!("timeout_member_{}", member_uid.as_u128() % 1_000_000);
     let (member_token, member_id) =
-        register_user(&mut app, &member_email, &member_username, "password123").await;
+        register_user(&mut app, &member_email, &member_username, test_credential("default")).await;
     let member_auth = format!("Bearer {member_token}");
 
     let req = Request::builder()
@@ -846,7 +851,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     let uid = Uuid::new_v4();
     let email = format!("srvmod-{}@example.com", uid);
     let username = format!("srvmod_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
 
     let register_body = json!({
         "email": email,
@@ -964,7 +969,7 @@ async fn join_server_auto_assigns_everyone_role() {
     let owner_register = json!({
         "email": owner_email,
         "username": owner_username,
-        "password": "password123"
+        "password": test_credential("default")
     });
     let req = Request::builder()
         .method("POST")
@@ -1010,7 +1015,7 @@ async fn join_server_auto_assigns_everyone_role() {
     let member_register = json!({
         "email": member_email,
         "username": member_username,
-        "password": "password123"
+        "password": test_credential("default")
     });
     let req = Request::builder()
         .method("POST")
@@ -1100,7 +1105,7 @@ async fn create_channel_list_channels_send_message_list_messages() {
     let uid = Uuid::new_v4();
     let email = format!("chan-{}@example.com", uid);
     let username = format!("chanuser_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
 
     let register_body = json!({
         "email": email,
@@ -1540,7 +1545,7 @@ async fn strict_username_validation_rejects_invalid_usernames() {
         let register_body = json!({
             "email": email,
             "username": username,
-            "password": "password123"
+            "password": test_credential("default")
         });
         let req = Request::builder()
             .method("POST")
@@ -1579,7 +1584,7 @@ async fn roles_and_channel_overrides_flow() {
     let register_body = json!({
         "email": email,
         "username": username,
-        "password": "password123"
+        "password": test_credential("default")
     });
     let req = Request::builder()
         .method("POST")
@@ -1891,7 +1896,7 @@ async fn role_bits_manage_messages_and_pins_are_enforced() {
         &mut app,
         &format!("owner-role-{}@example.com", owner_uid),
         &format!("owner_role_{}", owner_uid.as_u128() % 1_000_000),
-        "password123",
+        test_credential("default"),
     )
     .await;
     let owner_auth = format!("Bearer {}", owner_token);
@@ -1902,7 +1907,7 @@ async fn role_bits_manage_messages_and_pins_are_enforced() {
         &mut app,
         &format!("mod-role-{}@example.com", mod_uid),
         &format!("mod_role_{}", mod_uid.as_u128() % 1_000_000),
-        "password123",
+        test_credential("default"),
     )
     .await;
     let mod_auth = format!("Bearer {}", mod_token);
@@ -1913,7 +1918,7 @@ async fn role_bits_manage_messages_and_pins_are_enforced() {
         &mut app,
         &format!("user-role-{}@example.com", user_uid),
         &format!("user_role_{}", user_uid.as_u128() % 1_000_000),
-        "password123",
+        test_credential("default"),
     )
     .await;
     let user_auth = format!("Bearer {}", user_token);
@@ -2131,8 +2136,8 @@ async fn password_change_invalidates_old_token() {
     let uid = Uuid::new_v4();
     let email = format!("pwchg-{}@example.com", uid);
     let username = format!("pwchg_{}", uid.as_u128() % 1_000_000);
-    let old_password = "password123";
-    let new_password = "password456";
+    let old_password = test_credential("default");
+    let new_password = test_credential("updated");
 
     let (old_token, _) = register_user(&mut app, &email, &username, old_password).await;
     let old_auth = format!("Bearer {}", old_token);
@@ -2204,7 +2209,7 @@ async fn google_only_user_can_set_password_and_login() {
     let email = format!("oauth-setpw-{}@example.com", uid);
     let username = format!("oauthset_{}", uid.as_u128() % 1_000_000);
     let google_id = format!("google-{}", uid);
-    let new_password = "newpassword123";
+    let new_password = test_credential("set");
 
     sqlx::query(
         r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, created_at, token_version)
@@ -2221,7 +2226,7 @@ async fn google_only_user_can_set_password_and_login() {
     // Password login must fail before set-password.
     let login_before_body = json!({
         "identifier": email,
-        "password": "whatever123"
+        "password": test_credential("unset")
     });
     let req = Request::builder()
         .method("POST")
@@ -2323,8 +2328,8 @@ async fn password_reset_invalidates_old_token() {
     let uid = Uuid::new_v4();
     let email = format!("pwreset-{}@example.com", uid);
     let username = format!("pwreset_{}", uid.as_u128() % 1_000_000);
-    let old_password = "password123";
-    let new_password = "password456";
+    let old_password = test_credential("default");
+    let new_password = test_credential("updated");
 
     let (old_token, user_id) = register_user(&mut app, &email, &username, old_password).await;
     let old_auth = format!("Bearer {}", old_token);
@@ -2417,7 +2422,7 @@ async fn data_export_returns_user_profile_and_messages() {
     let uid = Uuid::new_v4();
     let email = format!("export-{}@example.com", uid);
     let username = format!("export_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (token, user_id) = register_user(&mut app, &email, &username, password).await;
     let auth = format!("Bearer {}", token);
 
@@ -2595,7 +2600,7 @@ async fn account_delete_endpoint_enforces_privacy() {
     let del_uid = Uuid::new_v4();
     let del_email = format!("delete-{}@example.com", del_uid);
     let del_username = format!("delete_{}", del_uid.as_u128() % 1_000_000);
-    let del_password = "password123";
+    let del_password = test_credential("default");
     let (del_token, del_user_id) =
         register_user(&mut app, &del_email, &del_username, del_password).await;
     let del_auth = format!("Bearer {}", del_token);
@@ -2678,7 +2683,7 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
     let uid = Uuid::new_v4();
     let email = format!("upload-{}@example.com", uid);
     let username = format!("upload_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (token, user_id) = register_user(&mut app, &email, &username, password).await;
     let auth = format!("Bearer {}", token);
 
@@ -2806,7 +2811,7 @@ async fn websocket_rejects_query_token_but_accepts_protocol_token() {
     let uid = Uuid::new_v4();
     let email = format!("ws-{}@example.com", uid);
     let username = format!("wsuser_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (token, _) = register_user(&mut app, &email, &username, password).await;
 
     // Start a real HTTP server for websocket handshake tests.
@@ -2904,7 +2909,7 @@ async fn attachment_upload_fails_when_user_storage_quota_is_exceeded() {
     let uid = Uuid::new_v4();
     let email = format!("quota-{}@example.com", uid);
     let username = format!("quota_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (token, user_id) = register_user(&mut app, &email, &username, password).await;
     let auth = format!("Bearer {}", token);
 
@@ -2955,7 +2960,7 @@ async fn email_verification_confirm_works_without_existing_session() {
     let uid = Uuid::new_v4();
     let email = format!("verify-{}@example.com", uid);
     let username = format!("verify_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (_token, user_id) = register_user(&mut app, &email, &username, password).await;
 
     sqlx::query("UPDATE users SET email_verified = FALSE WHERE id = $1")
@@ -3026,7 +3031,7 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
     let uid = Uuid::new_v4();
     let email = format!("chan-race-{}@example.com", uid);
     let username = format!("chanrace_{}", uid.as_u128() % 1_000_000);
-    let password = "password123";
+    let password = test_credential("default");
     let (token, _) = register_user(&mut app, &email, &username, password).await;
     let auth_header = format!("Bearer {}", token);
 
