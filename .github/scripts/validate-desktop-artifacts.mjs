@@ -2,14 +2,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, relative, resolve } from 'node:path'
 
 const repoRoot = process.cwd()
-const bundleRoot = resolve(
-  repoRoot,
-  process.env.DESKTOP_BUNDLE_DIR || 'apps/desktop/src-tauri/target/release/bundle',
-)
+const targetRoot = resolve(repoRoot, 'apps/desktop/src-tauri/target')
+const configuredBundleRoot = process.env.DESKTOP_BUNDLE_DIR
+  ? resolve(repoRoot, process.env.DESKTOP_BUNDLE_DIR)
+  : null
 const platform = normalizePlatform(
   process.argv.find((arg) => arg.startsWith('--platform='))?.split('=')[1] || process.env.RUNNER_OS,
 )
 const failures = []
+const warnings = []
 
 function normalizePlatform(value) {
   const normalized = String(value || '').toLowerCase()
@@ -23,6 +24,10 @@ function fail(message) {
   failures.push(message)
 }
 
+function warn(message) {
+  warnings.push(message)
+}
+
 function walk(dir, entries = []) {
   if (!existsSync(dir)) return entries
   for (const name of readdirSync(dir)) {
@@ -34,8 +39,39 @@ function walk(dir, entries = []) {
   return entries
 }
 
+function findBundleRoots() {
+  if (configuredBundleRoot) {
+    return existsSync(configuredBundleRoot) ? [configuredBundleRoot] : []
+  }
+
+  const candidates = []
+
+  function visit(dir) {
+    if (!existsSync(dir)) return
+    for (const name of readdirSync(dir)) {
+      const fullPath = join(dir, name)
+      const stat = statSync(fullPath)
+      if (!stat.isDirectory()) continue
+
+      if (name === 'bundle' && fullPath.split(/[\\/]/).includes('release')) {
+        candidates.push(fullPath)
+        continue
+      }
+
+      visit(fullPath)
+    }
+  }
+
+  visit(targetRoot)
+  return candidates
+}
+
+function displayRelativePath(fullPath) {
+  return relative(repoRoot, fullPath).replaceAll('\\', '/')
+}
+
 function displayPath(entry) {
-  return relative(repoRoot, entry.fullPath).replaceAll('\\', '/')
+  return displayRelativePath(entry.fullPath)
 }
 
 function fileEntries(entries) {
@@ -69,13 +105,19 @@ function requireDirectory(label, entries, predicate) {
 }
 
 function requireUpdaterMetadata(entries) {
-  const latestJson = requireFiles(
-    'updater latest.json',
-    entries,
-    (fullPath) => basename(fullPath) === 'latest.json',
-    32,
-  )
+  const latestJson = findFiles(entries, (fullPath) => basename(fullPath) === 'latest.json')
+  if (latestJson.length === 0) {
+    warn(
+      'No local updater latest.json was found. This file can be produced/uploaded by tauri-action release handling; preflight validates updater config and signing secrets.',
+    )
+    return
+  }
+
   for (const entry of latestJson) {
+    if (entry.stat.size < 32) {
+      fail(`Desktop artifact is too small: ${displayPath(entry)} (${entry.stat.size} bytes)`)
+      continue
+    }
     try {
       const metadata = JSON.parse(readFileSync(entry.fullPath, 'utf8').replace(/^\uFEFF/, ''))
       if (!metadata.version || typeof metadata.version !== 'string') {
@@ -97,10 +139,21 @@ if (platform === 'unknown') {
   fail('RUNNER_OS is missing or unsupported for desktop artifact validation')
 }
 
-if (!existsSync(bundleRoot)) {
-  fail(`Desktop bundle directory does not exist: ${relative(repoRoot, bundleRoot)}`)
+const bundleRoots = findBundleRoots()
+
+if (bundleRoots.length === 0) {
+  const searched = configuredBundleRoot
+    ? displayRelativePath(configuredBundleRoot)
+    : `${displayRelativePath(targetRoot)}/**/release/bundle`
+  fail(`Desktop bundle directory does not exist: ${searched}`)
 } else {
-  const entries = walk(bundleRoot)
+  const entries = bundleRoots.flatMap((bundleRoot) => walk(bundleRoot))
+  console.log(
+    `Desktop artifact validation scanning ${bundleRoots.length} bundle director${bundleRoots.length === 1 ? 'y' : 'ies'}:`,
+  )
+  for (const bundleRoot of bundleRoots) {
+    console.log(`- ${displayRelativePath(bundleRoot)}`)
+  }
 
   if (platform === 'windows') {
     requireFiles('Windows MSI installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.msi', 1_000_000)
@@ -123,6 +176,10 @@ if (failures.length > 0) {
     console.error(`- ${entry}`)
   }
   process.exit(1)
+}
+
+for (const entry of warnings) {
+  console.warn(`Desktop artifact validation warning: ${entry}`)
 }
 
 console.log(`Desktop artifact validation passed for ${platform}.`)
