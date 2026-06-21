@@ -40,6 +40,12 @@ import {
   normalizePresence,
   upsertDmChannel,
 } from '../friendsList'
+import {
+  getCachedDmMessages,
+  loadDmMessagesOnce,
+  setCachedDmMessages,
+  type CachedDmMessage,
+} from '../dmMessageCache'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -53,11 +59,7 @@ function presenceLabel(status?: string | null): string {
   return 'Online'
 }
 
-type UiDmMessage = MessageWithAuthor & {
-  clientId?: string
-  clientStatus?: 'sending' | 'failed'
-  clientError?: string
-}
+type UiDmMessage = CachedDmMessage
 
 function OnboardingCard({
   title,
@@ -198,7 +200,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
   const [dmUnreadDividerCount, setDmUnreadDividerCount] = useState(0)
-  const [, setDmConversationReady] = useState(false)
+  const [dmConversationReady, setDmConversationReady] = useState(false)
   const [dmInput, setDmInput] = useState('')
   const [dmSearch, setDmSearch] = useState('')
   const [dmSearchResults, setDmSearchResults] = useState<MessageWithAuthor[] | null>(null)
@@ -215,6 +217,31 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
   useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
+
+  const rememberDmMessages = useCallback((channelId: string, messages: UiDmMessage[]) => {
+    dmMessagesByChannelRef.current[channelId] = messages
+    if (userId) setCachedDmMessages(userId, channelId, messages)
+  }, [userId])
+
+  const cachedDmMessages = useCallback((channelId: string) => {
+    const local = dmMessagesByChannelRef.current[channelId]
+    if (local) return local
+    if (!userId) return undefined
+    const shared = getCachedDmMessages(userId, channelId)
+    if (shared) dmMessagesByChannelRef.current[channelId] = shared
+    return shared
+  }, [userId])
+
+  const prefetchDmConversation = useCallback((channelId: string) => {
+    if (!user || !userId || cachedDmMessages(channelId)) return
+    void loadDmMessagesOnce(userId, channelId, () => dmApi.listMessages(channelId, token))
+      .then((messages) => {
+        rememberDmMessages(channelId, messages)
+      })
+      .catch(() => {
+        // Click/open path owns user-facing error handling.
+      })
+  }, [cachedDmMessages, rememberDmMessages, token, user, userId])
 
   // Use user so web works: on web token is null, auth is via httpOnly cookie.
   const refreshServersAndFriends = useCallback(async () => {
@@ -282,16 +309,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [friends, friendsFilter],
   )
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
-    if (!user) return
+    if (!user || !userId) return
     const requestId = ++dmMessagesRequestRef.current
-    setDmConversationReady(false)
-    const cached = dmMessagesByChannelRef.current[channelId]
+    const cached = cachedDmMessages(channelId)
+    setDmConversationReady(!!cached)
     setDmMessages(cached ?? [])
     try {
-      const rows = await dmApi.listMessages(channelId, token)
-      const ui = rows.map((m) => ({ ...m, clientId: undefined, clientStatus: undefined, clientError: undefined }))
+      const ui = await loadDmMessagesOnce(userId, channelId, () => dmApi.listMessages(channelId, token))
       const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
-      dmMessagesByChannelRef.current[channelId] = merged
+      rememberDmMessages(channelId, merged)
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmMessages(merged)
         setDmConversationReady(true)
@@ -310,7 +336,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         console.error(err)
       }
     }
-  }, [token, user, setActiveDmChannelId, setView])
+  }, [cachedDmMessages, rememberDmMessages, token, user, userId, setActiveDmChannelId, setView])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) {
@@ -437,7 +463,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmMessages((prev) => {
         const next = prev.map((m) => (m.id === updated.id ? updated : m))
         if (activeDmChannelId) {
-          dmMessagesByChannelRef.current[activeDmChannelId] = next
+          rememberDmMessages(activeDmChannelId, next)
         }
         return next
       })
@@ -448,7 +474,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         message: e instanceof Error ? e.message : 'Could not update reaction.',
       })
     }
-  }, [token, user, pushToast, activeDmChannelId])
+  }, [token, user, pushToast, activeDmChannelId, rememberDmMessages])
 
   /* When switching to DM: lock window scroll and blur so nothing triggers page shift */
   useEffect(() => {
@@ -480,7 +506,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         if (existingIdx >= 0) {
           const next = [...prev]
           next[existingIdx] = incoming
-          dmMessagesByChannelRef.current[channelId] = next
+          rememberDmMessages(channelId, next)
           return next
         }
         const isFromMe = incoming.author?.user_id === user?.id
@@ -488,11 +514,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         if (isFromMe && sendingIdx >= 0) {
           const next = [...prev]
           next[sendingIdx] = incoming
-          dmMessagesByChannelRef.current[channelId] = next
+          rememberDmMessages(channelId, next)
           return next
         }
         const next = [...prev, incoming]
-        dmMessagesByChannelRef.current[channelId] = next
+        rememberDmMessages(channelId, next)
         return next
       })
       if (isDmConversationVisibleRef.current) {
@@ -503,7 +529,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
     })
     return () => unsub()
-  }, [clearDmUnread, subscribe, token, user?.id])
+  }, [clearDmUnread, rememberDmMessages, subscribe, token, user?.id])
 
   // Keep friends list and DM channel peer status in sync with PresenceUpdate (online/offline)
   useEffect(() => {
@@ -745,7 +771,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
     setDmMessages((prev) => {
       const next = [...prev, optimistic]
-      dmMessagesByChannelRef.current[channelId] = next
+      rememberDmMessages(channelId, next)
       return next
     })
     try {
@@ -757,11 +783,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       if (activeDmChannelIdRef.current === channelId) {
         setDmMessages((prev) => {
           const next = applySentDm(prev)
-          dmMessagesByChannelRef.current[channelId] = next
+          rememberDmMessages(channelId, next)
           return next
         })
       } else {
-        dmMessagesByChannelRef.current[channelId] = applySentDm(dmMessagesByChannelRef.current[channelId] ?? [])
+        rememberDmMessages(channelId, applySentDm(dmMessagesByChannelRef.current[channelId] ?? []))
       }
     } catch (err) {
       const applyFailedDm = (current: UiDmMessage[]) =>
@@ -773,11 +799,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       if (activeDmChannelIdRef.current === channelId) {
         setDmMessages((prev) => {
           const next = applyFailedDm(prev)
-          dmMessagesByChannelRef.current[channelId] = next
+          rememberDmMessages(channelId, next)
           return next
         })
       } else {
-        dmMessagesByChannelRef.current[channelId] = applyFailedDm(dmMessagesByChannelRef.current[channelId] ?? [])
+        rememberDmMessages(channelId, applyFailedDm(dmMessagesByChannelRef.current[channelId] ?? []))
       }
     }
   }
@@ -792,7 +818,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         const next = prev.map((m) =>
           m.clientId === clientId ? { ...m, clientStatus: 'sending' as const, clientError: undefined } : m
         )
-        dmMessagesByChannelRef.current[channelId] = next
+        rememberDmMessages(channelId, next)
         return next
       })
       try {
@@ -807,11 +833,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         if (activeDmChannelIdRef.current === channelId) {
           setDmMessages((prev) => {
             const next = applyRetriedDm(prev)
-            dmMessagesByChannelRef.current[channelId] = next
+            rememberDmMessages(channelId, next)
             return next
           })
         } else {
-          dmMessagesByChannelRef.current[channelId] = applyRetriedDm(dmMessagesByChannelRef.current[channelId] ?? [])
+          rememberDmMessages(channelId, applyRetriedDm(dmMessagesByChannelRef.current[channelId] ?? []))
         }
       } catch (err) {
         const applyFailedRetry = (current: UiDmMessage[]) =>
@@ -823,15 +849,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         if (activeDmChannelIdRef.current === channelId) {
           setDmMessages((prev) => {
             const next = applyFailedRetry(prev)
-            dmMessagesByChannelRef.current[channelId] = next
+            rememberDmMessages(channelId, next)
             return next
           })
         } else {
-          dmMessagesByChannelRef.current[channelId] = applyFailedRetry(dmMessagesByChannelRef.current[channelId] ?? [])
+          rememberDmMessages(channelId, applyFailedRetry(dmMessagesByChannelRef.current[channelId] ?? []))
         }
       }
     },
-    [token, activeDmChannelId, dmMessages, user, clearDmUnread]
+    [token, activeDmChannelId, dmMessages, user, clearDmUnread, rememberDmMessages]
   )
 
   const displayedDmMessages = dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages
@@ -842,7 +868,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const updated = await dmApi.editMessage(editingDmMessageId, editingDmContent.trim(), token)
       setDmMessages((prev) => {
         const next = prev.map((m) => (m.id === updated.id ? updated : m))
-        if (activeDmChannelId) dmMessagesByChannelRef.current[activeDmChannelId] = next
+        if (activeDmChannelId) rememberDmMessages(activeDmChannelId, next)
         return next
       })
       if (dmSearch.trim()) {
@@ -853,7 +879,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     } catch {
       // could toast
     }
-  }, [user, token, editingDmMessageId, editingDmContent, activeDmChannelId, dmSearch])
+  }, [user, token, editingDmMessageId, editingDmContent, activeDmChannelId, dmSearch, rememberDmMessages])
 
   const removeDmMessage = useCallback(
     async (messageId: string) => {
@@ -862,7 +888,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       if (isLocalOptimistic) {
         setDmMessages((prev) => {
           const next = prev.filter((m) => m.id !== messageId)
-          if (activeDmChannelId) dmMessagesByChannelRef.current[activeDmChannelId] = next
+          if (activeDmChannelId) rememberDmMessages(activeDmChannelId, next)
           return next
         })
         setDeleteDmConfirmMessageId(null)
@@ -872,7 +898,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         await dmApi.deleteMessage(messageId, token)
         setDmMessages((prev) => {
           const next = prev.filter((m) => m.id !== messageId)
-          if (activeDmChannelId) dmMessagesByChannelRef.current[activeDmChannelId] = next
+          if (activeDmChannelId) rememberDmMessages(activeDmChannelId, next)
           return next
         })
         if (dmSearch.trim()) {
@@ -883,7 +909,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         setDeleteDmConfirmMessageId(null)
       }
     },
-    [user, token, activeDmChannelId, dmSearch]
+    [user, token, activeDmChannelId, dmSearch, rememberDmMessages]
   )
 
 
@@ -929,8 +955,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               key={channel.id}
               type="button"
               className={`social-dm-item ${view === 'dm' && activeDmChannelId === channel.id ? 'active' : ''}`}
+              onPointerEnter={() => prefetchDmConversation(channel.id)}
+              onFocus={() => prefetchDmConversation(channel.id)}
               onClick={(e) => {
                 ; (e.currentTarget as HTMLButtonElement).blur()
+                const cached = cachedDmMessages(channel.id)
+                setDmMessages(cached ?? [])
+                setDmConversationReady(!!cached)
                 setView('dm')
                 setActiveDmChannelId(channel.id)
                 setPersistedSocialView('dm')
@@ -1288,6 +1319,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
+                loading={!dmConversationReady && !dmSearch.trim() && displayedDmMessages.length === 0}
                 unreadDividerCount={dmUnreadDividerCount}
                 draftAttachments={dmDraftAttachments}
                 messageInput={dmInput}
@@ -1326,6 +1358,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onPinMessage={handlePinDmMessage}
                 onUnpinMessage={handleUnpinDmMessage}
                 onToggleReaction={handleToggleDmReaction}
+                emptyStateTitle={`Start your conversation with ${dmChannel.peer_username}`}
+                emptyStateDescription="This is the beginning of your direct message history."
               />
             )
           })()}
