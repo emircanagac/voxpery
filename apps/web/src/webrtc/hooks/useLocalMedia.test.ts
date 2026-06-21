@@ -20,28 +20,28 @@ describe('screen share quality profiles', () => {
     expect(resolveScreenShareProfileForMode('presentation')).toEqual({
       resolution: '1080p',
       framerate: 30,
-      bitrate: 5_000_000,
+      bitrate: 4_000_000,
       contentHint: 'detail',
       degradationPreference: 'maintain-resolution',
     })
     expect(resolveScreenShareProfileForMode('video')).toEqual({
       resolution: '1080p',
       framerate: 60,
-      bitrate: 7_000_000,
+      bitrate: 6_000_000,
       contentHint: 'motion',
       degradationPreference: 'maintain-framerate',
     })
     expect(resolveScreenShareProfileForMode('gaming')).toEqual({
       resolution: '1080p',
       framerate: 60,
-      bitrate: 9_000_000,
+      bitrate: 8_000_000,
       contentHint: 'motion',
       degradationPreference: 'maintain-framerate',
     })
   })
 
   it('selects auto profile by shared surface', () => {
-    expect(resolveScreenShareProfileForMode('auto', 'monitor')).toEqual(SCREEN_SHARE_PRESET_PROFILE.gaming)
+    expect(resolveScreenShareProfileForMode('auto', 'monitor')).toEqual(SCREEN_SHARE_PRESET_PROFILE.video)
     expect(resolveScreenShareProfileForMode('auto', 'browser')).toEqual(SCREEN_SHARE_PRESET_PROFILE.video)
     expect(resolveScreenShareProfileForMode('auto', 'window')).toEqual(SCREEN_SHARE_PRESET_PROFILE.presentation)
     expect(resolveScreenShareProfileForMode('auto')).toEqual(SCREEN_SHARE_PRESET_PROFILE.presentation)

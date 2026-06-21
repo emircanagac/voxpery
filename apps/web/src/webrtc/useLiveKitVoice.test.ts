@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
+  remoteMediaKindForSource,
   remoteMediaStartCueKey,
   resyncVoiceStateAfterReconnect,
+  shouldSubscribeRemoteTrack,
   shouldPlayRemoteMediaStartCue,
 } from './useLiveKitVoice'
 import { AudioPresets, Track } from 'livekit-client'
@@ -17,6 +19,29 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+})
+
+describe('remote media subscriptions', () => {
+  it('keeps remote audio subscribed while the app is hidden', () => {
+    expect(shouldSubscribeRemoteTrack(Track.Kind.Audio, false)).toBe(true)
+  })
+
+  it('pauses remote video while hidden and restores it while visible', () => {
+    expect(shouldSubscribeRemoteTrack(Track.Kind.Video, false)).toBe(false)
+    expect(shouldSubscribeRemoteTrack(Track.Kind.Video, true)).toBe(true)
+  })
+
+  it('keeps user-hidden media unsubscribed even while the app is visible', () => {
+    expect(shouldSubscribeRemoteTrack(Track.Kind.Video, true, true)).toBe(false)
+    expect(shouldSubscribeRemoteTrack(Track.Kind.Audio, true, true)).toBe(false)
+  })
+
+  it('maps camera and screen publications to viewer controls', () => {
+    expect(remoteMediaKindForSource(Track.Source.Camera)).toBe('camera')
+    expect(remoteMediaKindForSource(Track.Source.ScreenShare)).toBe('screen')
+    expect(remoteMediaKindForSource(Track.Source.ScreenShareAudio)).toBe('screen')
+    expect(remoteMediaKindForSource(Track.Source.Microphone)).toBeNull()
   })
 })
 

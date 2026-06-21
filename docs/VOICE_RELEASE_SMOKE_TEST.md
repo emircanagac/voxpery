@@ -41,15 +41,17 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] `Presentation` profile publishes at the UI-described 1080p30 behavior.
 - [ ] `Video` profile publishes at the UI-described 1080p60 behavior.
 - [ ] `Gaming` profile publishes at the UI-described 1080p60 behavior with the higher bitrate profile.
-- [ ] `Auto` chooses by shared surface: monitor -> gaming, browser/tab -> video, window/unknown -> presentation.
+- [ ] `Auto` chooses a balanced profile by shared surface: monitor/browser -> video, window/unknown -> presentation.
 - [ ] Monitor/game and browser/video shares stay motion-first under load: frame pacing remains smooth before sharpness is preserved.
 - [ ] User A starts screen share; User B sees the screen tile.
 - [ ] User B hears the screen-start cue only once for the screen video track.
 - [ ] Sharing screen audio does not play a duplicate start cue.
-- [ ] User B hides the screen share; the screen tile collapses and only screen-share audio is muted.
+- [ ] User B hides the screen share; the screen tile collapses and its screen video/audio publications stop for that viewer.
+- [ ] While hidden by User B, the remote screen video and screen-share audio publications are unsubscribed; selecting `Show` restores them without replaying the start cue.
 - [ ] User A's normal microphone audio continues while the screen share is hidden.
 - [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
 - [ ] User B shows the screen share again and audio behavior returns with the visible media.
+- [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera/screen video traffic while microphone and screen-share audio continue; restoring the window resumes video without replaying start cues.
 - [ ] User A stops screen share; User B does not hear a stop cue.
 
 ## 5. Noise Suppression

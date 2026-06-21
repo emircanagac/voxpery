@@ -57,8 +57,9 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] `docs/VOICE_QUALITY_BENCHMARK.md` completed and recorded as `GO` when the release changes codec, bitrate, capture constraints, suppression tuning, VAD/gate thresholds, input gain, or LiveKit publish options.
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
-- [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding a screen share or changing screen-share volume affects only screen-share audio while normal microphone audio continues.
-- [ ] Screen share quality presets match the UI summary: Presentation uses 1080p30, Video/Gaming use 1080p60, and Auto selects the profile by shared surface without excessive bandwidth.
+- [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding media unsubscribes its remote publications for that viewer while normal microphone audio continues.
+- [ ] Screen share quality presets match the UI summary: Presentation uses 1080p30 at 4 Mbps, Video uses 1080p60 at 6 Mbps, Gaming uses 1080p60 at 8 Mbps, and Auto does not promote monitor sharing to Gaming.
+- [ ] Hiding or minimizing the app pauses incoming remote video subscriptions while voice audio continues, and restoring visibility resumes video without replaying media-start cues.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.
 - [ ] Timed-out members cannot send/edit server-channel messages or add new reactions until cleared or expired.
 - [ ] Mobile server chat shows one visible message after send, including after the API response and WebSocket echo both arrive.

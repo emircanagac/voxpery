@@ -54,15 +54,26 @@ function readScreenShareQuality(): ScreenShareQuality {
 }
 
 function screenShareQualitySummary(mode: ScreenShareQuality) {
-  if (mode === 'presentation') return '1080p30 · 5 Mbps · detail'
-  if (mode === 'video') return '1080p60 · 7 Mbps · motion'
-  if (mode === 'gaming') return '1080p60 · 9 Mbps · high motion'
-  return 'Auto picks 30/60fps by share source.'
+  if (mode === 'presentation') return '1080p30 · 4 Mbps · detail'
+  if (mode === 'video') return '1080p60 · 6 Mbps · motion'
+  if (mode === 'gaming') return '1080p60 · 8 Mbps · high motion'
+  return 'Auto uses a balanced profile up to 1080p60 · 6 Mbps.'
 }
 
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
   const navigate = useNavigate()
-  const { state, joinVoice, leaveVoice, startScreenShare, stopScreenShare, startCamera, stopCamera, setVoiceControls, playVoiceCue } = useLiveKitVoice()
+  const {
+    state,
+    joinVoice,
+    leaveVoice,
+    startScreenShare,
+    stopScreenShare,
+    startCamera,
+    stopCamera,
+    setVoiceControls,
+    setRemoteMediaSubscribed,
+    playVoiceCue,
+  } = useLiveKitVoice()
   const { user } = useAuthStore()
   const { members, voiceStates, channels, channelsByServerId, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls } = useAppStore(
     useShallow((s) => ({
@@ -461,13 +472,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const setRemoteMediaHidden = useCallback((peerId: string, kind: RemoteMediaKind, hidden: boolean) => {
     const key = getRemoteMediaKey(peerId, kind)
     if (!key) return
+    setRemoteMediaSubscribed(peerId, kind, !hidden)
     setHiddenRemoteMediaKeys((current) => {
       const next = new Set(current)
       if (hidden) next.add(key)
       else next.delete(key)
       return next
     })
-  }, [getRemoteMediaKey])
+  }, [getRemoteMediaKey, setRemoteMediaSubscribed])
 
   // Track total audio track count so we re-trigger playback when screen share audio arrives
   const remoteAudioTrackCount = useMemo(() => {
