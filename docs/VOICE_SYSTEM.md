@@ -183,10 +183,10 @@ Speaker
 
 | Preset        | Resolution | FPS | Bitrate (Mbps) | Use Case         |
 |---------------|------------|-----|----------------|------------------|
-| Auto          | 1080p      | 30/60 | 5-9          | Picks by shared surface |
-| Presentation  | 1080p      | 30  | 5.0            | Slides, docs, IDEs |
-| Video         | 1080p      | 60  | 7.0            | Browser tabs and video |
-| Gaming        | 1080p      | 60  | 9.0            | Full-screen motion |
+| Auto          | 1080p      | 30/60 | 4-6          | Balanced selection by shared surface |
+| Presentation  | 1080p      | 30  | 4.0            | Slides, docs, IDEs |
+| Video         | 1080p      | 60  | 6.0            | Browser tabs, monitors, and video |
+| Gaming        | 1080p      | 60  | 8.0            | Explicit high-motion mode |
 
 ### Implementation
 
@@ -206,16 +206,18 @@ await room.localParticipant.publishTrack(videoTrack, {
 
 - **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
 - **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
-- **Browser tab/video and monitor/gaming share**: `contentHint = 'motion'` at 1080p60 and `maintain-framerate` degradation so motion streams trade resolution before they stall on dropped frames.
+- **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with a balanced 6 Mbps cap and `maintain-framerate` degradation.
+- **Gaming share**: Explicit 1080p60 high-motion mode with an 8 Mbps cap for users who prefer quality over bandwidth.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 
 ### Remote Viewing Controls
 
 - Remote camera and screen-share tiles can be hidden per viewer without leaving the voice channel.
-- Hidden media stays as a compact placeholder with a `Show` action so the user can resume watching.
+- Hidden media stays as a compact placeholder with a `Show` action; its remote camera or screen publications are unsubscribed until the user resumes watching.
 - Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
-- Hiding a screen share also mutes that screen-share audio track; the participant's microphone audio continues normally.
+- Hiding a screen share unsubscribes both its video and screen-share audio publications; the participant's microphone audio continues normally.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
+- When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
 
 ## Camera
 

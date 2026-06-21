@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Reduced default screen-share bandwidth, unsubscribe viewer-hidden remote media, and pause incoming remote video while the app is hidden or minimized, keeping microphone audio connected.
+
 ### Security
 - Updated the frontend Babel toolchain to patched `@babel/core` releases that prevent arbitrary file reads through crafted `sourceMappingURL` comments.
 

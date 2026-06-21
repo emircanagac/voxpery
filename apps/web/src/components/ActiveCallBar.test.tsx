@@ -106,6 +106,7 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
     startCamera: vi.fn(),
     stopCamera: vi.fn(),
     setVoiceControls: vi.fn(),
+    setRemoteMediaSubscribed: vi.fn(),
     playVoiceCue: vi.fn(),
   }
 
@@ -155,18 +156,20 @@ describe('ActiveCallBar regressions', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])
 
-    renderActiveCallBar({
+    const { voice } = renderActiveCallBar({
       remoteStreams: new Map([['peer-1', remoteStream]]),
       remoteScreenTrackIds: new Set(['screen-track']),
     })
 
     fireEvent.click(screen.getByTitle('Stop watching screen'))
 
+    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
     expect(screen.getByText('Screen share hidden')).not.toBeNull()
     expect(screen.getAllByText('admin')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: /show/i }))
 
+    expect(voice.setRemoteMediaSubscribed).toHaveBeenLastCalledWith('peer-1', 'screen', true)
     expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
   })

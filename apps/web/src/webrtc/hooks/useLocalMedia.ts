@@ -27,21 +27,21 @@ export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'au
     presentation: {
         resolution: '1080p',
         framerate: 30,
-        bitrate: 5_000_000,
+        bitrate: 4_000_000,
         contentHint: 'detail',
         degradationPreference: 'maintain-resolution',
     },
     video: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 7_000_000,
+        bitrate: 6_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },
     gaming: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 9_000_000,
+        bitrate: 8_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },
@@ -60,7 +60,7 @@ export function resolveScreenShareProfileForMode(
         return SCREEN_SHARE_PRESET_PROFILE[mode]
     }
 
-    if (displaySurface === 'monitor') return SCREEN_SHARE_PRESET_PROFILE.gaming
+    if (displaySurface === 'monitor') return SCREEN_SHARE_PRESET_PROFILE.video
     if (displaySurface === 'browser') return SCREEN_SHARE_PRESET_PROFILE.video
     return SCREEN_SHARE_PRESET_PROFILE.presentation
 }
