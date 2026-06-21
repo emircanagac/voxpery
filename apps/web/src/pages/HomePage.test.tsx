@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DmChannel, Friend } from '../api'
@@ -7,6 +7,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
+import { clearDmMessageCacheForTests } from '../dmMessageCache'
 import HomePage from './HomePage'
 
 const apiMocks = vi.hoisted(() => ({
@@ -67,7 +68,15 @@ vi.mock('../api', () => ({
 }))
 
 vi.mock('../components/ChatArea', () => ({
-  default: () => <div data-testid="dm-chat">DM chat</div>,
+  default: ({ loading, messages }: { loading?: boolean; messages: unknown[] }) => (
+    <div
+      data-testid="dm-chat"
+      data-loading={String(!!loading)}
+      data-message-count={String(messages.length)}
+    >
+      DM chat
+    </div>
+  ),
 }))
 
 function friend(id: string, username: string, status: string): Friend {
@@ -91,6 +100,19 @@ function dmChannel(id: string, peerId = 'friend-cilo', peerUsername = 'cilo'): D
   }
 }
 
+function dmMessage(id: string, channelId: string) {
+  return {
+    id,
+    channel_id: channelId,
+    content: 'Cached history',
+    created_at: '2026-06-21T12:00:00.000Z',
+    author: {
+      user_id: 'friend-cilo',
+      username: 'cilo',
+    },
+  }
+}
+
 function renderHomePage() {
   return render(
     <MemoryRouter initialEntries={[ROUTES.home]}>
@@ -105,6 +127,7 @@ function renderHomePage() {
 describe('HomePage friends list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearDmMessageCacheForTests()
     localStorage.clear()
     sessionStorage.clear()
     window.scrollTo = vi.fn()
@@ -241,6 +264,75 @@ describe('HomePage friends list', () => {
     await waitFor(() => {
       expect(apiMocks.listDmMessages).toHaveBeenCalledWith(channel.id, null)
       expect(useAppStore.getState().dmUnread[channel.id]).toBe(0)
+    })
+  })
+
+  it('shows a stable loading state until an uncached DM history is ready', async () => {
+    const channel = dmChannel('dm-cilo')
+    let resolveMessages!: (messages: ReturnType<typeof dmMessage>[]) => void
+    const pendingMessages = new Promise<ReturnType<typeof dmMessage>[]>((resolve) => {
+      resolveMessages = resolve
+    })
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockReturnValue(pendingMessages)
+
+    renderHomePage()
+
+    const chat = await screen.findByTestId('dm-chat')
+    expect(chat).toHaveAttribute('data-loading', 'true')
+    expect(chat).toHaveAttribute('data-message-count', '0')
+
+    await act(async () => {
+      resolveMessages([dmMessage('message-1', channel.id)])
+      await pendingMessages
+    })
+
+    await waitFor(() => {
+      expect(chat).toHaveAttribute('data-loading', 'false')
+      expect(chat).toHaveAttribute('data-message-count', '1')
+    })
+  })
+
+  it('prefetches DM history on hover and reuses the in-flight request on open', async () => {
+    const channel = dmChannel('dm-cilo')
+    let resolveMessages!: (messages: ReturnType<typeof dmMessage>[]) => void
+    const pendingMessages = new Promise<ReturnType<typeof dmMessage>[]>((resolve) => {
+      resolveMessages = resolve
+    })
+    useAppStore.setState({
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockReturnValue(pendingMessages)
+
+    renderHomePage()
+
+    const dmButton = (await screen.findByText('cilo')).closest('button')
+    expect(dmButton).not.toBeNull()
+    fireEvent.pointerEnter(dmButton!)
+    fireEvent.click(dmButton!)
+
+    await waitFor(() => {
+      expect(apiMocks.listDmMessages).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('dm-chat')).toHaveAttribute('data-loading', 'true')
+    })
+
+    await act(async () => {
+      resolveMessages([dmMessage('message-1', channel.id)])
+      await pendingMessages
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-chat')).toHaveAttribute('data-message-count', '1')
     })
   })
 
