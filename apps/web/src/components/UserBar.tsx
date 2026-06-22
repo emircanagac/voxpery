@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, Keyboard, LogOut } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -78,6 +78,14 @@ import {
   getVoiceDiagnosticsSnapshot,
   isVoiceDiagnosticsEnabled,
 } from '../webrtc/voiceDiagnostics'
+import {
+  applyGlobalMuteShortcut,
+  formatGlobalMuteShortcut,
+  getStoredGlobalMuteShortcut,
+  registerDesktopGlobalMuteShortcut,
+  setGlobalMuteShortcutCaptureActive,
+  shortcutFromKeyboardEvent,
+} from '../globalMuteShortcut'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
@@ -252,6 +260,10 @@ export default function UserBar() {
   const [desktopAutostartLoading, setDesktopAutostartLoading] = useState(false)
   const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(true)
   const [minimizeToTrayLoading, setMinimizeToTrayLoading] = useState(false)
+  const [globalMuteShortcut, setGlobalMuteShortcut] = useState<string | null>(() => getStoredGlobalMuteShortcut())
+  const [capturingGlobalMuteShortcut, setCapturingGlobalMuteShortcut] = useState(false)
+  const [globalMuteShortcutSaving, setGlobalMuteShortcutSaving] = useState(false)
+  const [globalMuteShortcutError, setGlobalMuteShortcutError] = useState<string | null>(null)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
   const [usernameSaving, setUsernameSaving] = useState(false)
@@ -760,7 +772,8 @@ export default function UserBar() {
   useEffect(() => {
     if (showSettingsPanel) return
     if (capturingPtt) setCapturingPtt(false)
-  }, [capturingPtt, showSettingsPanel])
+    if (capturingGlobalMuteShortcut) setCapturingGlobalMuteShortcut(false)
+  }, [capturingGlobalMuteShortcut, capturingPtt, showSettingsPanel])
 
   useEffect(() => {
     if (!showSettingsPanel || activeSettingsSection !== 'voice') {
@@ -834,6 +847,59 @@ export default function UserBar() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!isTauri() || !globalMuteShortcut) return
+    void registerDesktopGlobalMuteShortcut(globalMuteShortcut).catch(() => {
+      setGlobalMuteShortcutError('This shortcut could not be registered. It may be used by another application.')
+    })
+  }, [globalMuteShortcut])
+
+  const saveGlobalMuteShortcut = useCallback(async (shortcut: string | null) => {
+    setGlobalMuteShortcutSaving(true)
+    setGlobalMuteShortcutError(null)
+    try {
+      await applyGlobalMuteShortcut(shortcut)
+      setGlobalMuteShortcut(shortcut)
+      setCapturingGlobalMuteShortcut(false)
+      pushToast({
+        level: 'info',
+        title: shortcut ? 'Mute shortcut updated' : 'Mute shortcut cleared',
+        message: shortcut
+          ? `${formatGlobalMuteShortcut(shortcut)} is ready to toggle your microphone.`
+          : 'The global microphone shortcut is no longer assigned.',
+      })
+    } catch {
+      setGlobalMuteShortcutError('This shortcut is unavailable. Choose another combination.')
+    } finally {
+      setGlobalMuteShortcutSaving(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    if (!capturingGlobalMuteShortcut) return
+    setGlobalMuteShortcutCaptureActive(true)
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      if (event.key === 'Escape') {
+        setCapturingGlobalMuteShortcut(false)
+        setGlobalMuteShortcutError(null)
+        return
+      }
+      const shortcut = shortcutFromKeyboardEvent(event)
+      if (!shortcut) {
+        setGlobalMuteShortcutError('Use Ctrl/Cmd, Alt, or Shift together with another key.')
+        return
+      }
+      void saveGlobalMuteShortcut(shortcut)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      setGlobalMuteShortcutCaptureActive(false)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [capturingGlobalMuteShortcut, saveGlobalMuteShortcut])
 
   const updateMyStatus = async (status: 'online' | 'dnd' | 'invisible') => {
     if (isTauri() && !token) return
@@ -1766,6 +1832,47 @@ export default function UserBar() {
                         </button>
                       </div>
                     )}
+                    <div className="user-setting-row user-setting-row--span-two">
+                      <div>
+                        <div className="user-setting-title">Toggle microphone mute</div>
+                        <div className="user-setting-desc">
+                          {capturingGlobalMuteShortcut
+                            ? 'Press a shortcut with Ctrl/Cmd, Alt, or Shift. Press Escape to cancel.'
+                            : `${formatGlobalMuteShortcut(globalMuteShortcut)}. ${
+                              isTauri()
+                                ? 'Works system-wide while Voxpery is running.'
+                                : 'Works while this Voxpery tab is focused.'
+                            }`}
+                        </div>
+                        {globalMuteShortcutError && (
+                          <div className="pw-hint pw-hint-warn">{globalMuteShortcutError}</div>
+                        )}
+                      </div>
+                      <div className="user-setting-actions">
+                        <button
+                          type="button"
+                          className={`user-toggle account-action-btn ${capturingGlobalMuteShortcut ? 'active' : ''}`}
+                          onClick={() => {
+                            setGlobalMuteShortcutError(null)
+                            setCapturingGlobalMuteShortcut((current) => !current)
+                          }}
+                          disabled={globalMuteShortcutSaving}
+                        >
+                          <Keyboard size={14} />
+                          {capturingGlobalMuteShortcut ? 'Press keys…' : globalMuteShortcut ? 'Rebind' : 'Set shortcut'}
+                        </button>
+                        {globalMuteShortcut && (
+                          <button
+                            type="button"
+                            className="user-toggle account-action-btn"
+                            onClick={() => void saveGlobalMuteShortcut(null)}
+                            disabled={globalMuteShortcutSaving}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     {showVoiceBenchmarkDiagnostics && (
                       <div className="user-setting-row user-setting-row--span-two">
                         <div>

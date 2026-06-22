@@ -281,11 +281,19 @@ test.describe('mocked core UI smoke', () => {
     const modal = page.locator('.user-settings-modal')
     await expect(modal).toHaveClass(/user-settings-modal--voice/)
     await expect(page.getByText('Audio devices')).toBeVisible()
-    await expect(page.getByText('Microphone')).toBeVisible()
+    await expect(page.getByText('Microphone', { exact: true })).toBeVisible()
     await expect(page.getByText('Speaker')).toBeVisible()
     await expect(page.getByText('Input tuning')).toBeVisible()
     await expect(page.getByText('Noise suppression')).toBeVisible()
     await expect(page.getByText('Activation mode')).toBeVisible()
+    await expect(page.getByText('Toggle microphone mute')).toBeVisible()
+    await expect(page.getByText(/Works while this Voxpery tab is focused/)).toBeVisible()
+    await page.getByRole('button', { name: 'Set shortcut' }).click()
+    await page.keyboard.press('Control+Shift+M')
+    await expect(modal.getByText(/^Ctrl\/Cmd\+Shift\+M\./)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Rebind' })).toBeVisible()
+    await page.getByRole('button', { name: 'Clear' }).click()
+    await expect(page.getByText(/Not assigned/)).toBeVisible()
 
     const hasHorizontalOverflow = await modal.evaluate((element) => {
       return element.scrollWidth > element.clientWidth + 1

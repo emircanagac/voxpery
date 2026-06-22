@@ -16,6 +16,9 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User A joins a voice channel and User B sees A in the channel list.
 - [ ] User B joins the same voice channel and both users hear the join cue.
 - [ ] Mute/unmute changes local mic state and does not disconnect the room.
+- [ ] The configured mute shortcut toggles the microphone while the web tab is focused.
+- [ ] In desktop builds, the configured mute shortcut also works while Voxpery is unfocused, minimized, or running in the tray.
+- [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
 - [ ] Deafen stops remote audio playback and restores it when disabled.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
