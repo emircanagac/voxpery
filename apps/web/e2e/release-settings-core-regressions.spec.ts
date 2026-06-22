@@ -25,6 +25,23 @@ test.describe('mocked release and settings regressions', () => {
     expect(hasHorizontalOverflow).toBe(false)
   })
 
+  test('keeps developer diagnostics out of web settings and uses web-specific copy', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.addInitScript(() => localStorage.setItem('voxperyVoiceDiagnostics', '1'))
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    const modal = page.locator('.user-settings-modal')
+    await expect(modal.locator('.user-settings-subtitle')).toContainText('account, communication, voice, and privacy')
+    await expect(modal.locator('.user-settings-subtitle')).not.toContainText('desktop')
+    await page.getByRole('button', { name: 'Communication' }).click()
+    await expect(modal.getByText('Browser notifications', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Voice & Audio' }).click()
+    await expect(modal.getByText('Benchmark diagnostics', { exact: true })).toHaveCount(0)
+  })
+
   test('keeps profile password modal validation and submission wired', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(2) })
     await installMockCoreApi(page, state)
