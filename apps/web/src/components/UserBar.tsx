@@ -75,11 +75,6 @@ import {
   type VoiceDeviceOption,
 } from '../voiceDevices'
 import {
-  formatVoiceDiagnosticsSnapshot,
-  getVoiceDiagnosticsSnapshot,
-  isVoiceDiagnosticsEnabled,
-} from '../webrtc/voiceDiagnostics'
-import {
   applyGlobalMuteShortcut,
   formatGlobalMuteShortcut,
   getStoredGlobalMuteShortcut,
@@ -1261,33 +1256,6 @@ export default function UserBar() {
     }
   }
 
-  const copyVoiceBenchmarkDiagnostics = async () => {
-    const snapshot = getVoiceDiagnosticsSnapshot()
-    if (!snapshot) {
-      pushToast({
-        level: 'info',
-        title: 'Voice diagnostics unavailable',
-        message: 'Enable voice diagnostics from the benchmark checklist, reload, and join voice before copying.',
-      })
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(formatVoiceDiagnosticsSnapshot(snapshot))
-      pushToast({
-        level: 'info',
-        title: 'Voice diagnostics copied',
-        message: 'Paste this JSON into the voice quality benchmark notes.',
-      })
-    } catch {
-      pushToast({
-        level: 'error',
-        title: 'Could not copy diagnostics',
-        message: 'Clipboard access was blocked by the browser or desktop shell.',
-      })
-    }
-  }
-
   const isGoogleOnlyAccount = user?.google_connected === true && user?.has_password !== true
   const currentInputDevice = inputDevices.find((device) => device.id === selectedInputDeviceId) ?? DEFAULT_INPUT_DEVICE_OPTION
   const currentOutputDevice = outputDevices.find((device) => device.id === selectedOutputDeviceId) ?? DEFAULT_OUTPUT_DEVICE_OPTION
@@ -1297,7 +1265,7 @@ export default function UserBar() {
     ? desktopMediaPermissionRecoveryMessage('microphone')
     : 'Allow microphone access to unlock full voice controls.'
   const showDesktopMicrophoneRecovery = isTauri() && microphonePermissionState === 'denied'
-  const showVoiceBenchmarkDiagnostics = isVoiceDiagnosticsEnabled()
+  const desktopRuntime = isTauri()
 
   const voiceDeviceMenu = openDeviceMenu && deviceMenuAnchor && typeof document !== 'undefined'
     ? createPortal(
@@ -1477,7 +1445,11 @@ export default function UserBar() {
             <header className="user-settings-header">
               <div className="user-settings-header-copy">
                 <h2>Settings</h2>
-                <p className="user-settings-subtitle">Manage your account, voice, desktop, and privacy preferences.</p>
+                <p className="user-settings-subtitle">
+                  {desktopRuntime
+                    ? 'Manage your account, communication, voice, desktop, and privacy preferences.'
+                    : 'Manage your account, communication, voice, and privacy preferences.'}
+                </p>
               </div>
             </header>
             <div className="user-settings-body">
@@ -1548,13 +1520,15 @@ export default function UserBar() {
                 </div>
                 <div className="user-setting-row user-setting-row--span-two">
                   <div>
-                    <div className="user-setting-title">Browser notifications</div>
+                    <div className="user-setting-title">
+                      {desktopRuntime ? 'Desktop notifications' : 'Browser notifications'}
+                    </div>
                     <div className="user-setting-desc">
                       {pushNotificationPermission === 'unsupported'
                         ? 'This environment does not support system notifications.'
                         : pushNotificationPermission === 'denied'
                           ? 'Notifications are blocked in your browser or desktop shell.'
-                          : 'Show browser or desktop pop-up notifications for direct messages, friend requests, and selected server messages.'}
+                          : `Show ${desktopRuntime ? 'desktop' : 'browser'} notifications for direct messages, friend requests, and selected server messages.`}
                     </div>
                   </div>
                   <button
@@ -1882,21 +1856,6 @@ export default function UserBar() {
                         )}
                       </div>
                     </div>
-                    {showVoiceBenchmarkDiagnostics && (
-                      <div className="user-setting-row user-setting-row--span-two">
-                        <div>
-                          <div className="user-setting-title">Benchmark diagnostics</div>
-                          <div className="user-setting-desc">Copy the active voice diagnostics snapshot for benchmark notes.</div>
-                        </div>
-                        <button
-                          type="button"
-                          className="user-toggle account-action-btn"
-                          onClick={() => void copyVoiceBenchmarkDiagnostics()}
-                        >
-                          Copy diagnostics
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               </section>
