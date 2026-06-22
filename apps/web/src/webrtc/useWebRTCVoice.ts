@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import type { SignalingMessage } from '../types'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
+import { getPreferredMicrophoneStream } from '../voiceDevices'
 
 type PeerId = string
 /** getStats() forEach callback: each entry is a map of stat properties. */
@@ -674,15 +675,12 @@ export function useWebRTCVoice() {
 
       // Acquire mic with basic noise suppression / echo cancellation so peer connections can attach tracks.
       const noiseSuppressionEnabled = localStorage.getItem(NOISE_SUPPRESSION_KEY) !== '0'
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: noiseSuppressionEnabled,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 1,
-        },
-        video: false,
+      const stream = await getPreferredMicrophoneStream({
+        echoCancellation: true,
+        noiseSuppression: noiseSuppressionEnabled,
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1,
       })
       // Store in ref immediately to avoid races with offer creation.
       localStreamRef.current = stream

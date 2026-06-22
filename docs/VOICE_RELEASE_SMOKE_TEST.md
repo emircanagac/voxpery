@@ -17,6 +17,9 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B joins the same voice channel and both users hear the join cue.
 - [ ] Mute/unmute changes local mic state and does not disconnect the room.
 - [ ] The configured mute shortcut toggles the microphone while the web tab is focused.
+- [ ] A new/default user joins with the operating system's current default microphone and speaker.
+- [ ] A valid custom microphone and speaker remain selected after reload and voice rejoin.
+- [ ] After a selected custom microphone or speaker is disconnected, the next capture/playback attempt silently uses the system default and Voice Settings shows `Windows Default`.
 - [ ] In desktop builds, the configured mute shortcut also works while Voxpery is unfocused, minimized, or running in the tray.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
 - [ ] Deafen stops remote audio playback and restores it when disabled.

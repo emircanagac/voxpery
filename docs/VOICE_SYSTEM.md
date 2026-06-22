@@ -186,6 +186,14 @@ Speaker
 - **Deafen**: Sets `audio.muted = true` on all remote elements
 - **Stop watching screen**: Hiding a remote screen share removes its screen-share audio track from playback while keeping the peer's normal microphone audio active.
 
+### Input and Output Device Selection
+
+- New users and users who leave device selection on `Windows Default` follow the current system default microphone and speaker.
+- Explicit microphone and speaker selections remain stored and are reused while those devices are available.
+- If a stored custom device is unplugged, removed, or no longer exposed by the browser, Voxpery clears only that stale preference and silently retries with the system default.
+- Permission failures, devices that are temporarily busy, and output-selection policy failures do not overwrite a valid custom preference.
+- The same microphone fallback is used by call preflight, LiveKit capture, the microphone test, and the legacy WebRTC path.
+
 ## Screen Sharing
 
 ### Resolutions & Bitrates

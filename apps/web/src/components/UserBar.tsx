@@ -69,6 +69,7 @@ import {
   supportsAudioOutputSelection,
   VOICE_INPUT_DEVICE_KEY,
   VOICE_OUTPUT_DEVICE_KEY,
+  VOICE_DEVICE_PREFERENCES_CHANGED_EVENT,
   VOICE_SETTINGS_CHANGED_EVENT,
   type MicrophonePermissionState,
   type VoiceDeviceOption,
@@ -456,13 +457,21 @@ export default function UserBar() {
   useEffect(() => {
     void refreshVoiceDevices()
     const mediaDevices = navigator.mediaDevices
-    if (!mediaDevices?.addEventListener) return
     const handleDeviceChange = () => {
       void refreshVoiceDevices()
     }
-    mediaDevices.addEventListener('devicechange', handleDeviceChange)
-    return () => mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+    mediaDevices?.addEventListener?.('devicechange', handleDeviceChange)
+    return () => mediaDevices?.removeEventListener?.('devicechange', handleDeviceChange)
   }, [refreshVoiceDevices])
+
+  useEffect(() => {
+    const handlePreferenceFallback = () => {
+      setSelectedInputDeviceId(getStoredVoiceInputDeviceId())
+      setSelectedOutputDeviceId(getStoredVoiceOutputDeviceId())
+    }
+    window.addEventListener(VOICE_DEVICE_PREFERENCES_CHANGED_EVENT, handlePreferenceFallback)
+    return () => window.removeEventListener(VOICE_DEVICE_PREFERENCES_CHANGED_EVENT, handlePreferenceFallback)
+  }, [])
 
   useEffect(() => {
     if (!showSettingsPanel || activeSettingsSection !== 'voice') return
