@@ -22,6 +22,13 @@ import { ROUTES } from '../routes'
 import { attachMediaStreamPreview } from '../mediaStreamPreview'
 import { resolveAvatarUrl } from '../api'
 import { createRemoteAudioKindPlaybackStream, remoteMediaVisibilityKey, type RemoteMediaKind } from '../webrtc/remoteMediaControls'
+import { isTauri } from '../secureStorage'
+import {
+  getStoredGlobalMuteShortcut,
+  GLOBAL_MUTE_SHORTCUT_EVENT,
+  isEditableShortcutTarget,
+  keyboardEventMatchesShortcut,
+} from '../globalMuteShortcut'
 
 interface VoxperyTrack extends MediaStreamTrack {
   __voxpery_isCamera?: boolean
@@ -692,17 +699,44 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     })
   }, [pushToast, state.lastError])
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     const stream = localStreamRef.current ?? state.localStream
+    if (!state.joinedChannelId || !stream || deafened) return
     const next = !muted
-    if (stream) {
-      const shouldMuteTrack = next || deafened || serverMuted || serverDeafened
-      for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
-    }
+    const shouldMuteTrack = next || deafened || serverMuted || serverDeafened
+    for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
     setMuted(next)
     setVoiceControls(next, deafened, state.isScreenSharing)
     playVoiceCue(next ? 'mute' : 'unmute')
-  }
+  }, [
+    deafened,
+    muted,
+    playVoiceCue,
+    serverDeafened,
+    serverMuted,
+    setVoiceControls,
+    state.isScreenSharing,
+    state.joinedChannelId,
+    state.localStream,
+  ])
+
+  useEffect(() => {
+    const onGlobalMuteShortcut = () => toggleMute()
+    window.addEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, onGlobalMuteShortcut)
+    return () => window.removeEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, onGlobalMuteShortcut)
+  }, [toggleMute])
+
+  useEffect(() => {
+    if (isTauri()) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return
+      if (!keyboardEventMatchesShortcut(event, getStoredGlobalMuteShortcut())) return
+      event.preventDefault()
+      toggleMute()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [toggleMute])
 
   const joinWithPreflight = async (channelId: string) => {
     if (!navigator.mediaDevices?.getUserMedia) {

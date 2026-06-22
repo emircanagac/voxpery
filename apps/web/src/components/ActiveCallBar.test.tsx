@@ -6,6 +6,10 @@ import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
+import {
+  GLOBAL_MUTE_SHORTCUT_EVENT,
+  GLOBAL_MUTE_SHORTCUT_STORAGE_KEY,
+} from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
 
 vi.mock('../webrtc/useLiveKitVoice', () => ({
@@ -128,6 +132,7 @@ describe('ActiveCallBar regressions', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
     Object.defineProperty(HTMLMediaElement.prototype, 'play', {
       configurable: true,
       value: vi.fn().mockResolvedValue(undefined),
@@ -195,5 +200,43 @@ describe('ActiveCallBar regressions', () => {
 
     expect(voice.setVoiceControls).toHaveBeenCalledWith(false, false, false)
     expect(voice.leaveVoice).toHaveBeenCalledOnce()
+  })
+
+  it('uses the configured shortcut while the web tab is focused', () => {
+    localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'CommandOrControl+Shift+M')
+    const localMic = mediaTrack('audio', 'local-mic')
+    const { voice } = renderActiveCallBar({
+      localStream: new MediaStream([localMic]),
+    })
+
+    fireEvent.keyDown(window, { code: 'KeyM', ctrlKey: true, shiftKey: true })
+
+    expect(localMic.enabled).toBe(false)
+    expect(voice.setVoiceControls).toHaveBeenCalledWith(true, false, false)
+  })
+
+  it('routes desktop global shortcut events through the existing mute control', () => {
+    const localMic = mediaTrack('audio', 'local-mic')
+    const { voice } = renderActiveCallBar({
+      localStream: new MediaStream([localMic]),
+    })
+
+    window.dispatchEvent(new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+
+    expect(localMic.enabled).toBe(false)
+    expect(voice.setVoiceControls).toHaveBeenCalledWith(true, false, false)
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('mute')
+  })
+
+  it('ignores shortcut events without an active voice session', () => {
+    const { voice } = renderActiveCallBar({
+      joinedChannelId: null,
+      localStream: null,
+    })
+
+    window.dispatchEvent(new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+
+    expect(voice.setVoiceControls).not.toHaveBeenCalled()
+    expect(voice.playVoiceCue).not.toHaveBeenCalled()
   })
 })

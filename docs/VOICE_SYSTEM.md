@@ -142,6 +142,15 @@ Two modes:
    - Suppression-enabled mode requires consecutive speech-like frames before opening the gate, and aggressive isolation rejects noise-dominant frames such as keyboard clicks, mouse clicks, and breath-heavy broadband noise
 2. **Push-to-Talk**: Manual control via keyboard (default: `V` key)
 
+### Microphone Mute Shortcut
+
+- Users can assign a modifier-based shortcut from `Settings -> Voice & Audio`.
+- On web, the shortcut works only while the Voxpery tab is focused, as required by browser security restrictions.
+- In the desktop app, the same preference is registered through Tauri's global-shortcut plugin and works while Voxpery is minimized or in the tray.
+- The shortcut dispatches through the same mute control used by the call bar, so microphone tracks, LiveKit state, realtime voice control state, and local cues stay synchronized.
+- A shortcut must include `Ctrl/Cmd`, `Alt`, or `Shift`; unmodified keys are rejected to avoid interfering with typing and games.
+- If a desktop registration conflicts with another application, Voxpery preserves the previous working shortcut and asks the user to choose another combination.
+
 ### Sensitivity Threshold
 
 - **Range**: `-100 dB .. 0 dB` in the UI (`0..100` internal slider scale)
