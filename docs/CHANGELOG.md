@@ -13,8 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Reduced default screen-share bandwidth, unsubscribe viewer-hidden remote media, and pause incoming remote video while the app is hidden or minimized, keeping microphone audio connected.
 - Removed benchmark-only diagnostics controls from user settings and tailored settings copy to web and desktop runtimes.
+- Made voice-channel camera and screen-share activity visible before joining, using a compact camera icon and Discord-style `LIVE` badge.
 
 ### Fixed
+- Updated desktop `quinn-proto` to `0.11.15` to address `RUSTSEC-2026-0185` remote memory exhaustion.
 - Made direct-message history open without a false empty state by reusing recent conversations, prefetching on sidebar intent, and deduplicating concurrent history requests.
 - Made saved microphone and speaker preferences fall back silently to the system default when a selected device is removed, while preserving available custom devices.
 
