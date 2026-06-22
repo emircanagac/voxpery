@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Reduced default screen-share bandwidth, unsubscribe viewer-hidden remote media, and pause incoming remote video while the app is hidden or minimized, keeping microphone audio connected.
 - Removed benchmark-only diagnostics controls from user settings and tailored settings copy to web and desktop runtimes.
+- Made voice-channel camera and screen-share activity visible before joining, using a compact camera icon and Discord-style `LIVE` badge.
 
 ### Fixed
 - Made direct-message history open without a false empty state by reusing recent conversations, prefetching on sidebar intent, and deduplicating concurrent history requests.

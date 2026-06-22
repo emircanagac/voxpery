@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Monitor, Video, Shield, Lock, Settings2, PhoneOff } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -588,18 +588,30 @@ export default function ChannelSidebar({
                                                             )}
                                                         </div>
                                                         <span className={`voice-participant-name${isSpeaking ? ' is-speaking' : ''}`}>{vm.username}</span>
-                                                        {(isScreenSharing || isCameraOn || isDeafened || isMuted) && (
-                                                            <span className="voice-participant-icons">
+                                                        {(isCameraOn || isScreenSharing) && (
+                                                            <span className="voice-participant-media" aria-label={`${vm.username} live media`}>
                                                                 {isCameraOn && (
-                                                                    <span className="voice-participant-icon-badge is-positive" title="Camera on">
-                                                                        <Video size={11} />
+                                                                    <span
+                                                                        className="voice-participant-camera"
+                                                                        title="Camera on"
+                                                                        aria-label={`${vm.username} camera on`}
+                                                                    >
+                                                                        <Video size={13} />
                                                                     </span>
                                                                 )}
                                                                 {isScreenSharing && (
-                                                                    <span className="voice-participant-icon-badge is-positive" title="Screen sharing">
-                                                                        <Monitor size={11} />
+                                                                    <span
+                                                                        className="voice-live-badge"
+                                                                        title="Screen sharing"
+                                                                        aria-label={`${vm.username} screen sharing`}
+                                                                    >
+                                                                        LIVE
                                                                     </span>
                                                                 )}
+                                                            </span>
+                                                        )}
+                                                        {(isDeafened || isMuted) && (
+                                                            <span className="voice-participant-icons">
                                                                 {isDeafened && (
                                                                     <>
                                                                         <span

@@ -1576,6 +1576,8 @@ body {
 }
 
 .voice-participant-name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1588,24 +1590,45 @@ body {
 }
 
 .voice-live-badge {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: rgba(233, 69, 96, 0.2);
-  border: 1px solid rgba(233, 69, 96, 0.55);
-  color: #ff9fb0;
+  min-height: 16px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #ed4245;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+  font-weight: 800;
+  line-height: 14px;
+  letter-spacing: 0;
+  box-shadow: 0 1px 4px rgba(237, 66, 69, 0.32);
+}
+
+.voice-participant-media {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.voice-participant-camera {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
 }
 
 .voice-participant-icons {
-  margin-left: auto;
+  margin-left: 0;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: #f04747;
   opacity: 0.95;
+  flex: 0 0 auto;
 }
 
 .voice-participant-icon-badge {

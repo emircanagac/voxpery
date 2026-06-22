@@ -185,6 +185,7 @@ Speaker
 - **Amplification >100%**: Routed through WebAudio GainNode (gain > 1.0)
 - **Deafen**: Sets `audio.muted = true` on all remote elements
 - **Stop watching screen**: Hiding a remote screen share removes its screen-share audio track from playback while keeping the peer's normal microphone audio active.
+- **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
 ### Input and Output Device Selection
 
