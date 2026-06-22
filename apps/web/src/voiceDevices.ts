@@ -1,4 +1,5 @@
 export const VOICE_SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
+export const VOICE_DEVICE_PREFERENCES_CHANGED_EVENT = 'voxpery-voice-device-preferences-changed'
 export const VOICE_INPUT_DEVICE_KEY = 'voxpery-settings-input-device-id'
 export const VOICE_OUTPUT_DEVICE_KEY = 'voxpery-settings-output-device-id'
 export const DEFAULT_INPUT_DEVICE_LABEL = 'Windows Default'
@@ -26,6 +27,31 @@ function readStoredDeviceId(key: string): string {
   } catch {
     return ''
   }
+}
+
+function clearStoredDeviceId(key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // The current capture/playback fallback still succeeds for this session.
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(VOICE_DEVICE_PREFERENCES_CHANGED_EVENT))
+  }
+}
+
+function isUnavailableDeviceError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const typedError = error as {
+    name?: unknown
+    constraint?: unknown
+    constraintName?: unknown
+  }
+  const name = String(typedError.name ?? '')
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return true
+  if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError') return false
+  const constraint = String(typedError.constraint ?? typedError.constraintName ?? '')
+  return constraint === '' || constraint === 'deviceId'
 }
 
 export function isStoredNoiseSuppressionEnabled(): boolean {
@@ -60,6 +86,39 @@ export function buildPreferredMicrophoneConstraints(): MediaTrackConstraints {
   return {
     deviceId: deviceId ? { exact: deviceId } : undefined,
     ...buildMicProcessingConstraints(noiseSuppressionEnabled),
+  }
+}
+
+export async function getPreferredMicrophoneStream(
+  overrides: MediaTrackConstraints = {},
+): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Microphone access is not supported in this browser')
+  }
+
+  const preferredDeviceId = getStoredVoiceInputDeviceId()
+  const preferredConstraints = {
+    ...buildPreferredMicrophoneConstraints(),
+    ...overrides,
+  }
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: preferredConstraints,
+      video: false,
+    })
+  } catch (error) {
+    if (!preferredDeviceId || !isUnavailableDeviceError(error)) throw error
+
+    clearStoredDeviceId(VOICE_INPUT_DEVICE_KEY)
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...buildPreferredMicrophoneConstraints(),
+        ...overrides,
+        deviceId: undefined,
+      },
+      video: false,
+    })
   }
 }
 
@@ -181,10 +240,12 @@ export async function applyPreferredAudioOutputDevice(element: HTMLAudioElement)
       await sinkElement.setSinkId(preferredSinkId)
     }
     return true
-  } catch {
-    if (preferredSinkId !== 'default') {
+  } catch (error) {
+    if (preferredSinkId !== 'default' && isUnavailableDeviceError(error)) {
+      clearStoredDeviceId(VOICE_OUTPUT_DEVICE_KEY)
       try {
         await sinkElement.setSinkId('default')
+        return true
       } catch {
         // ignore fallback failures
       }

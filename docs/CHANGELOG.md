@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Made direct-message history open without a false empty state by reusing recent conversations, prefetching on sidebar intent, and deduplicating concurrent history requests.
+- Made saved microphone and speaker preferences fall back silently to the system default when a selected device is removed, while preserving available custom devices.
 
 ### Security
 - Updated the frontend Babel toolchain to patched `@babel/core` releases that prevent arbitrary file reads through crafted `sourceMappingURL` comments.

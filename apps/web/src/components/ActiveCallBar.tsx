@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
-import { applyPreferredAudioOutputDevice, buildPreferredMicrophoneConstraints, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
+import { applyPreferredAudioOutputDevice, getPreferredMicrophoneStream, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 import {
   desktopMediaPermissionRecoveryMessage,
   isMediaPermissionDeniedError,
@@ -652,7 +652,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       let micStream: MediaStream | null = null
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: buildPreferredMicrophoneConstraints(), video: false })
+        micStream = await getPreferredMicrophoneStream()
         await joinVoice(channelId, { preflightStream: micStream })
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
@@ -749,7 +749,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     let stream: MediaStream | null = null
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: buildPreferredMicrophoneConstraints(), video: false })
+      stream = await getPreferredMicrophoneStream()
       await joinVoice(channelId, { preflightStream: stream })
     } catch (err: unknown) {
       stream?.getTracks().forEach((t) => t.stop())

@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react'
 import {
     applyMicTrackProcessingConstraints,
-    buildPreferredMicrophoneConstraints,
+    getPreferredMicrophoneStream,
     getStoredVoiceInputDeviceId,
 } from '../../voiceDevices'
 
@@ -137,16 +137,10 @@ export function useLocalMedia() {
         }
         cachedMicStreamRef.current?.getTracks().forEach((track) => track.stop())
         cachedMicStreamRef.current = null
-        if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error('Microphone access is not supported in this browser')
-        }
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: buildPreferredMicrophoneConstraints(),
-                video: false,
-            })
+            const stream = await getPreferredMicrophoneStream()
             cachedMicStreamRef.current = stream
-            cachedMicDeviceIdRef.current = preferredDeviceId
+            cachedMicDeviceIdRef.current = getStoredVoiceInputDeviceId()
             return stream
         } catch (err: unknown) {
             const name = (err as { name?: string })?.name ?? ''

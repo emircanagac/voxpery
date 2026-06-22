@@ -9,7 +9,7 @@ import {
 import {
     VOICE_SETTINGS_CHANGED_EVENT,
     applyPreferredAudioOutputDevice,
-    buildPreferredMicrophoneConstraints,
+    getPreferredMicrophoneStream,
 } from '../voiceDevices'
 import { evaluateVoiceGateFrame } from '../webrtc/voiceGate'
 import {
@@ -31,7 +31,6 @@ const MIC_TEST_PRESET_SWITCH_MUTE_MS = 180
 
 function buildMicTestConstraints(): MediaTrackConstraints {
     return {
-        ...buildPreferredMicrophoneConstraints(),
         channelCount: 1,
         // Mic test replays your own voice locally; browser AEC/AGC can
         // over-suppress syllables in this self-monitor loop.
@@ -193,10 +192,7 @@ export default function SensitivityBar({
                     return
                 }
 
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: buildMicTestConstraints(),
-                    video: false,
-                })
+                const stream = await getPreferredMicrophoneStream(buildMicTestConstraints())
                 if (cancelled) {
                     stream.getTracks().forEach((track) => track.stop())
                     return
