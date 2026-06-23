@@ -420,6 +420,83 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
+  it('keeps the unread divider anchored to the original remote message', async () => {
+    const localMessage = {
+      ...message('message-local', 'my new message', 2),
+      author: {
+        user_id: 'local-user',
+        username: 'local',
+      },
+    }
+    const initialMessages = [
+      message('message-read', 'already read', 0),
+      message('message-unread', 'first unread', 1),
+      localMessage,
+    ]
+    const { rerender } = renderChatArea({
+      messages: initialMessages,
+      currentUserId: 'local-user',
+      unreadDividerCount: 1,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('New unread messages').closest('[data-message-id]'))
+        .toHaveAttribute('data-message-id', 'message-unread')
+    })
+
+    const nextLocalMessage = {
+      ...message('message-local-2', 'another local message', 3),
+      author: {
+        user_id: 'local-user',
+        username: 'local',
+      },
+    }
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={[...initialMessages, nextLocalMessage]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+        currentUserId="local-user"
+        unreadDividerCount={1}
+      />
+    )
+
+    expect(screen.getByLabelText('New unread messages').closest('[data-message-id]'))
+      .toHaveAttribute('data-message-id', 'message-unread')
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={[
+          message('message-older', 'loaded history', 0),
+          ...initialMessages,
+          nextLocalMessage,
+          message('message-live', 'live arrival while open', 4),
+        ]}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+        currentUserId="local-user"
+        unreadDividerCount={1}
+      />
+    )
+
+    expect(screen.getByLabelText('New unread messages').closest('[data-message-id]'))
+      .toHaveAttribute('data-message-id', 'message-unread')
+  })
+
   it('exposes separate emoji, GIF, and sticker composer actions', async () => {
     renderChatArea()
 
