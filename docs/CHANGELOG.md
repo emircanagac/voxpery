@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-23
+
 ### Added
 - Added a configurable microphone mute shortcut that works while the web tab is focused and system-wide in the desktop app.
 
 ### Changed
+- Bumped web, server, and desktop package metadata to `0.2.3`.
 - Reduced default screen-share bandwidth, unsubscribe viewer-hidden remote media, and pause incoming remote video while the app is hidden or minimized, keeping microphone audio connected.
 - Removed benchmark-only diagnostics controls from user settings and tailored settings copy to web and desktop runtimes.
 - Made voice-channel camera and screen-share activity visible before joining, using a compact camera icon and Discord-style `LIVE` badge.
