@@ -27,6 +27,12 @@ type MentionUser = {
 
 type MessagePickerMode = 'emoji' | 'gif' | 'sticker'
 
+type UnreadDividerSnapshot = {
+    channelId: string | null
+    unreadCount: number
+    messageIds: string[]
+}
+
 /** Synthetic entry for @all mention (server-wide). Shown at top when user types @. */
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const TOP_AUTO_LOAD_THRESHOLD_PX = 96
@@ -626,6 +632,11 @@ export default function ChatArea({
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
     const currentChatChannelId = activeChannel?.id ?? null
     const currentChatChannelIdRef = useRef<string | null>(currentChatChannelId)
+    const [unreadDividerSnapshot, setUnreadDividerSnapshot] = useState<UnreadDividerSnapshot>({
+        channelId: null,
+        unreadCount: 0,
+        messageIds: [],
+    })
     const setMessagesScrollRef = useCallback(
         (el: HTMLDivElement | null) => {
             (messagesScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
@@ -724,11 +735,86 @@ export default function ChatArea({
         return withAll.slice(0, 9)
     }, [mentionCandidates, mentionOpen, mentionQuery])
 
+    const normalizedUnreadDividerCount = Number.isFinite(unreadDividerCount)
+        ? Math.max(0, Math.trunc(unreadDividerCount))
+        : 0
+    const isCurrentViewActive = isViewActive !== false
+
+    useLayoutEffect(() => {
+        setUnreadDividerSnapshot((previous) => {
+            if (previous.channelId !== currentChatChannelId) {
+                if (!currentChatChannelId || !isCurrentViewActive || normalizedUnreadDividerCount <= 0) {
+                    return {
+                        channelId: currentChatChannelId,
+                        unreadCount: normalizedUnreadDividerCount,
+                        messageIds: [],
+                    }
+                }
+            } else if (!isCurrentViewActive) {
+                if (previous.messageIds.length === 0 && previous.unreadCount === 0) return previous
+                return {
+                    channelId: currentChatChannelId,
+                    unreadCount: 0,
+                    messageIds: [],
+                }
+            } else if (normalizedUnreadDividerCount <= 0) {
+                // Search temporarily suppresses the divider by passing zero. Preserve
+                // the open-chat snapshot so clearing search restores the same boundary.
+                return previous
+            } else if (
+                previous.unreadCount === normalizedUnreadDividerCount
+                && previous.messageIds.length > 0
+            ) {
+                return previous
+            }
+
+            if (!currentChatChannelId || !isCurrentViewActive || normalizedUnreadDividerCount <= 0) {
+                return previous
+            }
+
+            const unreadCandidates = messages.filter((message) => (
+                message.channel_id === currentChatChannelId
+                && !message.clientId
+                && (!currentUserId || message.author?.user_id !== currentUserId)
+            ))
+            if (unreadCandidates.length === 0) {
+                return previous.channelId === currentChatChannelId
+                    ? previous
+                    : {
+                        channelId: currentChatChannelId,
+                        unreadCount: normalizedUnreadDividerCount,
+                        messageIds: [],
+                    }
+            }
+
+            return {
+                channelId: currentChatChannelId,
+                unreadCount: normalizedUnreadDividerCount,
+                messageIds: unreadCandidates
+                    .slice(-normalizedUnreadDividerCount)
+                    .map((message) => message.id),
+            }
+        })
+    }, [
+        currentChatChannelId,
+        currentUserId,
+        isCurrentViewActive,
+        messages,
+        normalizedUnreadDividerCount,
+    ])
+
     const firstUnreadIndex = useMemo(() => {
-        if (!Number.isFinite(unreadDividerCount) || unreadDividerCount <= 0) return -1
-        if (messages.length === 0) return -1
-        return Math.max(0, messages.length - unreadDividerCount)
-    }, [messages.length, unreadDividerCount])
+        if (!isCurrentViewActive || normalizedUnreadDividerCount <= 0) return -1
+        if (unreadDividerSnapshot.channelId !== currentChatChannelId) return -1
+        const unreadIds = new Set(unreadDividerSnapshot.messageIds)
+        return messages.findIndex((message) => unreadIds.has(message.id))
+    }, [
+        currentChatChannelId,
+        isCurrentViewActive,
+        messages,
+        normalizedUnreadDividerCount,
+        unreadDividerSnapshot,
+    ])
 
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
 
