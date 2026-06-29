@@ -423,6 +423,38 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
         "default Voxpery server must have Moderator role after register"
     );
 
+    let guide: (bool, String, String, Vec<Uuid>, Vec<String>) = sqlx::query_as(
+        r#"SELECT sog.enabled, sog.title, sog.body, sog.recommended_channel_ids, sog.starter_tasks
+           FROM server_onboarding_guides sog
+           INNER JOIN servers s ON s.id = sog.server_id
+           WHERE s.invite_code = 'voxpery'"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("default Voxpery server should have a seeded onboarding guide");
+
+    assert!(guide.0, "default Voxpery onboarding guide should be enabled");
+    assert_eq!(guide.1, "Welcome to the Voxpery Community");
+    assert!(
+        guide
+            .2
+            .contains("Start here, say hello, and jump into voice"),
+        "default Voxpery onboarding guide should explain the first session"
+    );
+    assert_eq!(
+        guide.3.len(),
+        2,
+        "default Voxpery onboarding guide should recommend text and voice channels"
+    );
+    assert_eq!(
+        guide.4,
+        vec![
+            "Send your first message in #general".to_string(),
+            "Join the General voice channel".to_string(),
+            "Explore the open-source project on GitHub".to_string(),
+        ]
+    );
+
     let moderator_permissions = sqlx::query_scalar::<_, i64>(
         r#"SELECT sr.permissions
            FROM server_roles sr
