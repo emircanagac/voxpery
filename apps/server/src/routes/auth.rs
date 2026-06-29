@@ -911,6 +911,14 @@ const PERM_MANAGE_PINS: i64 = 1 << 9;
 const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
+const DEFAULT_COMMUNITY_ONBOARDING_TITLE: &str = "Welcome to the Voxpery Community";
+const DEFAULT_COMMUNITY_ONBOARDING_BODY: &str =
+    "Start here, say hello, and jump into voice when you are ready.";
+const DEFAULT_COMMUNITY_ONBOARDING_TASKS: [&str; 3] = [
+    "Send your first message in #general",
+    "Join the General voice channel",
+    "Explore the open-source project on GitHub",
+];
 
 /// Env vars to resolve default Voxpery server owner: ADMIN_EMAIL or ADMIN_USERNAME (seeded admin).
 fn official_owner_lookup() -> (Option<String>, Option<String>) {
@@ -1109,6 +1117,8 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .execute(db)
         .await?;
 
+        ensure_default_onboarding_guide(db, server_id).await?;
+
         let already = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
         )
@@ -1135,6 +1145,47 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
 
         // "@everyone" is implicit in permission resolution; no explicit member assignment needed.
     }
+    Ok(())
+}
+
+async fn ensure_default_onboarding_guide(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+) -> Result<(), AppError> {
+    let recommended_channel_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"SELECT id
+           FROM channels
+           WHERE server_id = $1
+             AND (
+               (channel_type = 'text' AND LOWER(name) = 'general')
+               OR (channel_type = 'voice' AND LOWER(name) = 'general')
+             )
+           ORDER BY CASE WHEN channel_type = 'text' THEN 0 ELSE 1 END, position ASC, created_at ASC
+           LIMIT 2"#,
+    )
+    .bind(server_id)
+    .fetch_all(db)
+    .await?;
+    let starter_tasks = DEFAULT_COMMUNITY_ONBOARDING_TASKS
+        .iter()
+        .map(|task| (*task).to_string())
+        .collect::<Vec<_>>();
+
+    sqlx::query(
+        r#"INSERT INTO server_onboarding_guides (
+               server_id, enabled, title, body, recommended_channel_ids, starter_tasks, updated_at
+           )
+           VALUES ($1, TRUE, $2, $3, $4, $5, NOW())
+           ON CONFLICT (server_id) DO NOTHING"#,
+    )
+    .bind(server_id)
+    .bind(DEFAULT_COMMUNITY_ONBOARDING_TITLE)
+    .bind(DEFAULT_COMMUNITY_ONBOARDING_BODY)
+    .bind(&recommended_channel_ids)
+    .bind(&starter_tasks)
+    .execute(db)
+    .await?;
+
     Ok(())
 }
 

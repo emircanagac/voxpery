@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Send default login and registration completions to the server/community surface so new users land closer to the official Voxpery Community experience.
+- Seed the official Voxpery Community with an enabled onboarding guide that points new users toward first message, voice, and GitHub discovery actions.
 
 ### Security
 - Updated Rust `anyhow` lockfile entries to patched `1.0.103` releases that address `RUSTSEC-2026-0190`.

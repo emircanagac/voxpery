@@ -1,4 +1,4 @@
-import { CheckCircle2, Hash, X } from 'lucide-react'
+import { CheckCircle2, Hash, Mic, X } from 'lucide-react'
 import type { Channel, ServerOnboardingGuide } from '../api'
 
 interface ServerWelcomeGuideProps {
@@ -54,9 +54,10 @@ export default function ServerWelcomeGuide({
                             key={channel.id}
                             type="button"
                             className="server-welcome-guide__channel"
+                            aria-label={`${channel.channel_type === 'voice' ? 'Join voice channel' : 'Open channel'} ${channel.name}`}
                             onClick={() => onSelectChannel(channel.id)}
                         >
-                            <Hash size={14} />
+                            {channel.channel_type === 'voice' ? <Mic size={14} /> : <Hash size={14} />}
                             <span>{channel.name}</span>
                         </button>
                     ))}
