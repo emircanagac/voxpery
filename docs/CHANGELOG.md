@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Send default login and registration completions to the server/community surface so new users land closer to the official Voxpery Community experience.
+
 ## [0.2.3] - 2026-06-23
 
 ### Added
