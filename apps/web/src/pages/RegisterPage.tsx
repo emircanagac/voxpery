@@ -10,6 +10,7 @@ import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { requestPushNotificationPermissionIfNeeded } from '../pushNotifications'
 import { setPersistedSocialView } from '../socialView'
+import { resolvePostAuthRoute } from '../authRedirect'
 
 function GoogleLogoIcon() {
     return (
@@ -96,7 +97,7 @@ export default function RegisterPage() {
             setPersistedSocialView('friends')
             // Desktop: also save to secure storage
             if (isTauri()) await setSecureToken(res.token)
-            navigate(redirectTo || ROUTES.home)
+            navigate(resolvePostAuthRoute(redirectTo))
         } catch (err: unknown) {
             const { message, code } = getAuthErrorMessage(err)
             setError(code ? `${message} (Error code: ${code})` : message || 'Registration failed')
@@ -110,7 +111,7 @@ export default function RegisterPage() {
             <form className="auth-card" onSubmit={handleSubmit}>
                 <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
                 <h1>Voxpery</h1>
-                <p>Create a new account</p>
+                <p>Create an account and jump into the community</p>
 
                 {error && (
                     <div className="auth-error" role="alert">
