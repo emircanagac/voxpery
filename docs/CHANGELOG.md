@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Updated Rust `anyhow` lockfile entries to patched `1.0.103` releases that address `RUSTSEC-2026-0190`.
+- Updated the server `spin` lockfile entry from yanked `0.9.8` to `0.9.9`.
 
 ## [0.2.3] - 2026-06-23
 
