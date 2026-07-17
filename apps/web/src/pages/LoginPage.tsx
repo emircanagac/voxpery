@@ -7,7 +7,6 @@ import { useFeatureStore } from '../stores/features'
 import { isTauri, setSecureToken } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
-import { requestPushNotificationPermissionIfNeeded } from '../pushNotifications'
 import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
 
@@ -81,7 +80,6 @@ export default function LoginPage() {
         setLoading(true)
 
         try {
-            void requestPushNotificationPermissionIfNeeded()
             const res = await authApi.login(identifier, password)
             setAuth(res.token, res.user)
             setActiveDmChannelId(null)

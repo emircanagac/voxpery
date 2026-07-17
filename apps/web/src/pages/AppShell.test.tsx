@@ -36,6 +36,10 @@ vi.mock('../components/UserBar', () => ({
   default: () => <div data-testid="user-bar" />,
 }))
 
+vi.mock('../components/NotificationPermissionPrompt', () => ({
+  default: () => null,
+}))
+
 vi.mock('../notificationSound', () => ({
   playMessageNotificationSound: vi.fn(),
   shouldPlayNotificationSound: vi.fn(() => false),

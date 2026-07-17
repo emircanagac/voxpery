@@ -71,6 +71,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
+- [ ] Login and registration do not open a native notification permission prompt; the delayed in-app prompt requests permission only after the user selects `Enable`, and `Not now` suppresses it during the snooze window.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 - [ ] Uploaded chat image attachments render inline after channel/server navigation and open only in the in-app preview modal on web and desktop, with no external tab/browser navigation.

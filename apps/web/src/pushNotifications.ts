@@ -1,7 +1,14 @@
 const PUSH_KEY = 'voxpery-settings-push-enabled'
 const PUSH_EXPLICIT_KEY = 'voxpery-settings-push-explicit'
+const PUSH_PROMPT_SNOOZED_UNTIL_KEY = 'voxpery-push-prompt-snoozed-until'
 const APP_ICON = '/1024.png'
-const PERMISSION_PROMPTED_SESSION_KEY = 'voxpery-push-permission-prompted'
+export const PUSH_NOTIFICATION_STATE_CHANGED_EVENT = 'voxpery-push-notification-state-changed'
+export const PUSH_NOTIFICATION_PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000
+
+function notifyPushNotificationStateChanged(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(PUSH_NOTIFICATION_STATE_CHANGED_EVENT))
+}
 
 export function getPushNotificationsEnabled(): boolean {
   try {
@@ -26,6 +33,7 @@ export function setPushNotificationsEnabled(enabled: boolean, explicit = false):
   } catch {
     // ignore storage failures
   }
+  notifyPushNotificationStateChanged()
 }
 
 export function getPushNotificationPermission(): NotificationPermission | 'unsupported' {
@@ -35,26 +43,32 @@ export function getPushNotificationPermission(): NotificationPermission | 'unsup
 
 export async function requestPushNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
   if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
-  return window.Notification.requestPermission()
+  const permission = await window.Notification.requestPermission()
+  notifyPushNotificationStateChanged()
+  return permission
 }
 
-export async function requestPushNotificationPermissionIfNeeded(): Promise<NotificationPermission | 'unsupported'> {
+export function shouldOfferPushNotificationPrompt(now = Date.now()): boolean {
   const permission = getPushNotificationPermission()
-  if (permission === 'unsupported' || permission === 'granted' || permission === 'denied') return permission
-  if (!getPushNotificationsEnabled()) return permission
+  if (permission !== 'default' || hasExplicitPushPreference()) return false
   try {
-    if (sessionStorage.getItem(PERMISSION_PROMPTED_SESSION_KEY) === '1') return permission
+    const snoozedUntil = Number(localStorage.getItem(PUSH_PROMPT_SNOOZED_UNTIL_KEY) ?? '0')
+    return !Number.isFinite(snoozedUntil) || snoozedUntil <= now
   } catch {
-    // ignore sessionStorage failures
+    return true
   }
-  const nextPermission = await requestPushNotificationPermission()
+}
+
+export function snoozePushNotificationPrompt(
+  now = Date.now(),
+  durationMs = PUSH_NOTIFICATION_PROMPT_SNOOZE_MS,
+): void {
   try {
-    if (nextPermission === 'default') sessionStorage.removeItem(PERMISSION_PROMPTED_SESSION_KEY)
-    else sessionStorage.setItem(PERMISSION_PROMPTED_SESSION_KEY, '1')
+    localStorage.setItem(PUSH_PROMPT_SNOOZED_UNTIL_KEY, String(now + durationMs))
   } catch {
-    // ignore sessionStorage failures
+    // ignore storage failures
   }
-  return nextPermission
+  notifyPushNotificationStateChanged()
 }
 
 export function isAppBackgrounded(): boolean {
