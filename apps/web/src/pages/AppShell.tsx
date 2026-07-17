@@ -9,6 +9,7 @@ import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
+import NotificationPermissionPrompt from '../components/NotificationPermissionPrompt'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
@@ -50,6 +51,7 @@ export default function AppShell() {
     setDmUnreadFromChannels,
     setFriends,
     setSocialDataReady,
+    socialDataReady,
     activeDmChannelId,
     setActiveServer,
     setActiveChannel,
@@ -70,6 +72,7 @@ export default function AppShell() {
       setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       setFriends: s.setFriends,
       setSocialDataReady: s.setSocialDataReady,
+      socialDataReady: s.socialDataReady,
       activeDmChannelId: s.activeDmChannelId,
       setActiveServer: s.setActiveServer,
       setActiveChannel: s.setActiveChannel,
@@ -655,6 +658,7 @@ export default function AppShell() {
         </div>
       </header>
       <main className="shell-content">
+        <NotificationPermissionPrompt ready={socialDataReady} />
         <Outlet />
       </main>
       {/* Voice call bar — fixed to bottom of chat area, visible in both server and DM views */}
