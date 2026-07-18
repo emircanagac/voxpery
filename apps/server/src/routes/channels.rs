@@ -183,9 +183,23 @@ async fn delete_channel(
         .await?
         .ok_or(AppError::NotFound("Channel not found".into()))?;
 
-    // Require MANAGE_CHANNELS permission on this channel.
-    permissions::ensure_channel_permission(
-        &state.db,
+    let mut tx = state.db.begin().await?;
+    let locked_server_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(channel.server_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Server not found".into()))?;
+
+    let channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1 FOR UPDATE")
+        .bind(channel_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Channel not found".into()))?;
+    debug_assert_eq!(locked_server_id, channel.server_id);
+
+    permissions::ensure_channel_permission_on_connection(
+        &mut tx,
         channel_id,
         claims.sub,
         Permissions::MANAGE_CHANNELS,
@@ -198,7 +212,7 @@ async fn delete_channel(
             "SELECT COUNT(*) FROM channels WHERE server_id = $1 AND channel_type = 'text'",
         )
         .bind(channel.server_id)
-        .fetch_one(&state.db)
+        .fetch_one(&mut *tx)
         .await?;
         if text_count <= 1 {
             return Err(AppError::Validation(
@@ -207,8 +221,8 @@ async fn delete_channel(
         }
     }
 
-    audit::log(
-        &state.db,
+    audit::log_in_transaction(
+        &mut tx,
         claims.sub,
         Some(channel.server_id),
         "channel_delete",
@@ -220,8 +234,10 @@ async fn delete_channel(
 
     sqlx::query("DELETE FROM channels WHERE id = $1")
         .bind(channel_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
 
     crate::ws::publish_event(
         &state,

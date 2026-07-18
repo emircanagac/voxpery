@@ -91,7 +91,7 @@ npm run rate-limit:check
 Runs on `push` and `pull_request`:
 
 - `Secret Scan (gitleaks)` (containerized CLI)
-- `Backend` (`cargo check`, `cargo test`)
+- `Backend` (`cargo check`, then unit and integration tests against isolated PostgreSQL and Redis services)
 - `Frontend` (`npm ci`, `npm run lint`, `npm run build`)
 
 ### `.github/workflows/dependency-security.yml`
@@ -108,4 +108,4 @@ Runs on schedule, manual dispatch, and PR:
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-07-18.

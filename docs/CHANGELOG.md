@@ -11,10 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Send default login and registration completions to the server/community surface so new users land closer to the official Voxpery Community experience.
 - Seed the official Voxpery Community with an enabled onboarding guide that points new users toward first message, voice, and GitHub discovery actions.
 - Defer browser and desktop notification permission requests until the authenticated app is ready and the user accepts a non-blocking in-app prompt.
+- Serialize critical DM creation, server bootstrap, member-role replacement, and channel deletion writes so concurrent requests cannot leave duplicate or partial state.
+- Run backend integration and concurrency tests in CI against isolated PostgreSQL and Redis services instead of silently skipping database coverage.
 
 ### Security
 - Updated Rust `anyhow` lockfile entries to patched `1.0.103` releases that address `RUSTSEC-2026-0190`.
 - Updated the server `spin` lockfile entry from yanked `0.9.8` to `0.9.9`.
+- Re-check permissions inside locked database transactions and commit matching audit entries atomically with role and channel mutations.
 
 ## [0.2.3] - 2026-06-23
 

@@ -58,6 +58,13 @@ fn redis_client() -> redis::Client {
 }
 
 async fn setup_app() -> (axum::Router, Arc<AppState>) {
+    setup_app_with_auth_features(false, false).await
+}
+
+async fn setup_app_with_auth_features(
+    email_verification_enabled: bool,
+    password_reset_enabled: bool,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -118,9 +125,9 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         smtp_password: None,
         smtp_user: None,
         email_delivery_enabled: false,
-        email_verification_enabled: false,
+        email_verification_enabled,
         email_verification_required: false,
-        password_reset_enabled: false,
+        password_reset_enabled,
         attachment_service: Arc::new(attachment_service),
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
@@ -983,6 +990,24 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     assert_eq!(
         creator_has_everyone, 0,
         "@everyone is implicit and should not require explicit member-role row"
+    );
+
+    let bootstrap_counts: (i64, i64, i64, i64) = sqlx::query_as(
+        r#"SELECT
+               (SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2),
+               (SELECT COUNT(*) FROM channels WHERE server_id = $1 AND channel_type = 'text'),
+               (SELECT COUNT(*) FROM channels WHERE server_id = $1 AND channel_type = 'voice'),
+               (SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1)"#,
+    )
+    .bind(server_id)
+    .bind(creator_user_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("server bootstrap state should be readable");
+    assert_eq!(
+        bootstrap_counts,
+        (1, 1, 1, 1),
+        "server creation must commit its owner, channels, and category together"
     );
 }
 
@@ -2355,7 +2380,7 @@ async fn password_reset_invalidates_old_token() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, state) = setup_app_with_auth_features(false, true).await;
 
     let uid = Uuid::new_v4();
     let email = format!("pwreset-{}@example.com", uid);
@@ -2891,7 +2916,7 @@ async fn forgot_password_rate_limit_blocks_after_three_attempts() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app().await;
+    let (mut app, _) = setup_app_with_auth_features(false, true).await;
 
     let email = format!("forgot-rate-limit-{}@example.com", Uuid::new_v4());
     for attempt in 0..3 {
@@ -2987,7 +3012,7 @@ async fn email_verification_confirm_works_without_existing_session() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, state) = setup_app_with_auth_features(true, false).await;
 
     let uid = Uuid::new_v4();
     let email = format!("verify-{}@example.com", uid);
@@ -3170,4 +3195,334 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
         total_channels, 500,
         "row lock must keep channel count capped at 500"
     );
+}
+
+#[tokio::test]
+async fn dm_channel_create_race_returns_one_shared_channel() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let suffix = Uuid::new_v4().simple().to_string();
+    let alice_username = format!("dmalice{}", &suffix[..8]);
+    let bob_username = format!("dmbob{}", &suffix[8..16]);
+    let (alice_token, alice_id) = register_user(
+        &mut app,
+        &format!("{alice_username}@example.com"),
+        &alice_username,
+        test_credential("default"),
+    )
+    .await;
+    let (_, bob_id) = register_user(
+        &mut app,
+        &format!("{bob_username}@example.com"),
+        &bob_username,
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {alice_token}");
+
+    let request = || {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/dm/channels/{bob_id}"))
+            .header("Authorization", &auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let (response_a, response_b) = tokio::join!(
+        app.clone().oneshot(request()),
+        app.clone().oneshot(request())
+    );
+    let response_a = response_a.expect("DM create request A should resolve");
+    let response_b = response_b.expect("DM create request B should resolve");
+    assert_eq!(response_a.status(), StatusCode::OK);
+    assert_eq!(response_b.status(), StatusCode::OK);
+
+    let body_a = response_a.into_body().collect().await.unwrap().to_bytes();
+    let body_b = response_b.into_body().collect().await.unwrap().to_bytes();
+    let channel_a: serde_json::Value = serde_json::from_slice(&body_a).unwrap();
+    let channel_b: serde_json::Value = serde_json::from_slice(&body_b).unwrap();
+    assert_eq!(channel_a["id"], channel_b["id"]);
+
+    let pair_channel_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM dm_channels c
+           WHERE EXISTS (
+               SELECT 1 FROM dm_channel_members m
+               WHERE m.channel_id = c.id AND m.user_id = $1
+           )
+             AND EXISTS (
+               SELECT 1 FROM dm_channel_members m
+               WHERE m.channel_id = c.id AND m.user_id = $2
+           )"#,
+    )
+    .bind(alice_id)
+    .bind(bob_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(pair_channel_count, 1, "a DM pair must have one channel");
+}
+
+#[tokio::test]
+async fn concurrent_member_role_replacements_leave_one_complete_state() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let owner_suffix = Uuid::new_v4();
+    let (owner_token, _) = register_user(
+        &mut app,
+        &format!("role-owner-{owner_suffix}@example.com"),
+        &format!("role_owner_{}", owner_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let member_suffix = Uuid::new_v4();
+    let (member_token, member_id) = register_user(
+        &mut app,
+        &format!("role-member-{member_suffix}@example.com"),
+        &format!("role_member_{}", member_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let member_auth = format!("Bearer {member_token}");
+
+    let create_server_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": "Role Race Server" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, create_server_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let invite_code = server["invite_code"].as_str().unwrap();
+
+    let join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &member_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "member join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let mut role_ids = Vec::new();
+    for name in ["Race Alpha", "Race Beta"] {
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/servers/{server_id}/roles"))
+            .header("Authorization", &owner_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "name": name,
+                    "permissions": 0,
+                    "color": null
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, request).await;
+        assert_eq!(status, StatusCode::OK);
+        let role: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        role_ids.push(Uuid::parse_str(role["id"].as_str().unwrap()).unwrap());
+    }
+
+    let role_request = |role_id: Uuid| {
+        Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/api/servers/{server_id}/members/{member_id}/roles"
+            ))
+            .header("Authorization", &owner_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "role_ids": [role_id] })).unwrap(),
+            ))
+            .unwrap()
+    };
+    let (response_a, response_b) = tokio::join!(
+        app.clone().oneshot(role_request(role_ids[0])),
+        app.clone().oneshot(role_request(role_ids[1]))
+    );
+    assert_eq!(
+        response_a.expect("role request A should resolve").status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        response_b.expect("role request B should resolve").status(),
+        StatusCode::OK
+    );
+
+    let assigned_role_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT role_id FROM server_member_roles WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(assigned_role_ids.len(), 1);
+    assert!(role_ids.contains(&assigned_role_ids[0]));
+
+    let invalid_role_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/api/servers/{server_id}/members/{member_id}/roles"
+        ))
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "role_ids": [assigned_role_ids[0], Uuid::new_v4()]
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, invalid_role_request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let roles_after_rejection: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT role_id FROM server_member_roles WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(roles_after_rejection, assigned_role_ids);
+
+    let legacy_role: String =
+        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+            .bind(server_id)
+            .bind(member_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(legacy_role, "member");
+}
+
+#[tokio::test]
+async fn concurrent_text_channel_deletes_preserve_one_channel() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let suffix = Uuid::new_v4();
+    let (owner_token, _) = register_user(
+        &mut app,
+        &format!("delete-race-{suffix}@example.com"),
+        &format!("delete_race_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+
+    let create_server_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": "Delete Race Server" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, create_server_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let first_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'text' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let create_channel_request = Request::builder()
+        .method("POST")
+        .uri("/api/channels")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "server_id": server_id,
+                "name": "second-text",
+                "channel_type": "text"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, create_channel_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let second_channel: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let second_channel_id = Uuid::parse_str(second_channel["id"].as_str().unwrap()).unwrap();
+
+    let delete_request = |channel_id: Uuid| {
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/channels/{channel_id}"))
+            .header("Authorization", &owner_auth)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let (response_a, response_b) = tokio::join!(
+        app.clone().oneshot(delete_request(first_channel_id)),
+        app.clone().oneshot(delete_request(second_channel_id))
+    );
+    let status_a = response_a
+        .expect("delete request A should resolve")
+        .status();
+    let status_b = response_b
+        .expect("delete request B should resolve")
+        .status();
+    let success_count = [status_a, status_b]
+        .iter()
+        .filter(|status| **status == StatusCode::OK)
+        .count();
+    let rejected_count = [status_a, status_b]
+        .iter()
+        .filter(|status| **status == StatusCode::BAD_REQUEST)
+        .count();
+    assert_eq!(success_count, 1);
+    assert_eq!(rejected_count, 1);
+
+    let remaining_text_channels: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM channels WHERE server_id = $1 AND channel_type = 'text'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(remaining_text_channels, 1);
+
+    let delete_audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE server_id = $1 AND action = 'channel_delete'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(delete_audit_count, 1);
 }

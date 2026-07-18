@@ -374,6 +374,21 @@ async fn get_or_create_dm_channel(
     // Always enforce peer's DM privacy (open and create). So if they unfriend you, you can't open the channel either.
     check_can_dm_peer(&state, claims.sub, peer_id).await?;
 
+    let (pair_low, pair_high) = if claims.sub < peer_id {
+        (claims.sub, peer_id)
+    } else {
+        (peer_id, claims.sub)
+    };
+    let pair_lock_key = format!("dm:{pair_low}:{pair_high}");
+    let mut tx = state.db.begin().await?;
+
+    // Serialize this user pair across all application instances before checking for an
+    // existing channel. This closes the check-then-insert race without changing legacy data.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(pair_lock_key)
+        .execute(&mut *tx)
+        .await?;
+
     let existing = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT c.id
            FROM dm_channels c
@@ -383,7 +398,7 @@ async fn get_or_create_dm_channel(
     )
     .bind(claims.sub)
     .bind(peer_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let channel_id = if let Some(id) = existing {
@@ -392,21 +407,21 @@ async fn get_or_create_dm_channel(
         let id = Uuid::new_v4();
         sqlx::query("INSERT INTO dm_channels (id, created_at) VALUES ($1, NOW())")
             .bind(id)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
         sqlx::query(
             "INSERT INTO dm_channel_members (channel_id, user_id, joined_at) VALUES ($1, $2, NOW())",
         )
         .bind(id)
         .bind(claims.sub)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO dm_channel_members (channel_id, user_id, joined_at) VALUES ($1, $2, NOW())",
         )
         .bind(id)
         .bind(peer_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
         id
     };
@@ -416,7 +431,7 @@ async fn get_or_create_dm_channel(
     )
     .bind(channel_id)
     .bind(claims.sub)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     let info = sqlx::query_as::<_, DmChannelInfo>(
@@ -450,8 +465,10 @@ async fn get_or_create_dm_channel(
     )
     .bind(claims.sub)
     .bind(channel_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     let peer_status = visible_presence(
         &info.peer_status,
