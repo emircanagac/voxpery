@@ -1,6 +1,10 @@
 //! Attachment upload, storage, malware scanning, and URL validation.
 
-use std::{io::Cursor, path::PathBuf, time::Duration};
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use chrono::Datelike;
 use hmac::{Hmac, Mac};
@@ -20,6 +24,70 @@ use crate::{config::Config, errors::AppError};
 const MAX_URL_LEN: usize = 2048;
 const DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE: usize = 10;
 const DEFAULT_URL_TTL_SECS: u64 = 15 * 60;
+const MAX_SAFE_IMAGE_DIMENSION: u32 = 16_384;
+const MAX_SAFE_IMAGE_ALLOC_BYTES: u64 = 128 * 1024 * 1024;
+const GENERIC_BINARY_MIME: &str = "application/octet-stream";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DetectedAttachmentKind {
+    Jpeg,
+    Png,
+    Gif,
+    Webp,
+    Bmp,
+    Tiff,
+    Icon,
+    Avif,
+    Heic,
+    Pdf,
+    Zip,
+    Mp3,
+    Aac,
+    OggAudio,
+    OggVideo,
+    Wav,
+    Flac,
+    Mp4Video,
+    Mp4Audio,
+    QuickTime,
+    Webm,
+    Matroska,
+    Avi,
+    MpegVideo,
+    PlainText,
+}
+
+impl DetectedAttachmentKind {
+    fn mime_type(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+            Self::Gif => "image/gif",
+            Self::Webp => "image/webp",
+            Self::Bmp => "image/bmp",
+            Self::Tiff => "image/tiff",
+            Self::Icon => "image/x-icon",
+            Self::Avif => "image/avif",
+            Self::Heic => "image/heic",
+            Self::Pdf => "application/pdf",
+            Self::Zip => "application/zip",
+            Self::Mp3 => "audio/mpeg",
+            Self::Aac => "audio/aac",
+            Self::OggAudio => "audio/ogg",
+            Self::OggVideo => "video/ogg",
+            Self::Wav => "audio/wav",
+            Self::Flac => "audio/flac",
+            Self::Mp4Video => "video/mp4",
+            Self::Mp4Audio => "audio/mp4",
+            Self::QuickTime => "video/quicktime",
+            Self::Webm => "video/webm",
+            Self::Matroska => "video/x-matroska",
+            Self::Avi => "video/x-msvideo",
+            Self::MpegVideo => "video/mpeg",
+            Self::PlainText => "text/plain",
+        }
+    }
+}
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -511,8 +579,13 @@ impl AttachmentService {
         let source = bytes.to_vec();
 
         let reencoded = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-            let image = image::load_from_memory_with_format(&source, format)
-                .map_err(|e| format!("decode failed: {e}"))?;
+            let mut reader = image::ImageReader::with_format(Cursor::new(&source), format);
+            let mut limits = image::Limits::default();
+            limits.max_image_width = Some(MAX_SAFE_IMAGE_DIMENSION);
+            limits.max_image_height = Some(MAX_SAFE_IMAGE_DIMENSION);
+            limits.max_alloc = Some(MAX_SAFE_IMAGE_ALLOC_BYTES);
+            reader.limits(limits);
+            let image = reader.decode().map_err(|e| format!("decode failed: {e}"))?;
             let mut output = Cursor::new(Vec::<u8>::with_capacity(source.len()));
             image
                 .write_to(&mut output, format)
@@ -548,15 +621,20 @@ impl AttachmentService {
         bytes: &[u8],
     ) -> Result<PreparedAttachment, AppError> {
         self.validate_upload_file_meta(content_type, bytes.len())?;
+        let detected_content_type =
+            validate_upload_content(original_name, content_type, bytes)?.to_string();
+        self.validate_upload_file_meta(&detected_content_type, bytes.len())?;
         let prepared_bytes = self
-            .strip_image_metadata_if_needed(content_type, bytes)
+            .strip_image_metadata_if_needed(&detected_content_type, bytes)
             .await?;
-        self.validate_upload_file_meta(content_type, prepared_bytes.len())?;
+        self.validate_upload_file_meta(&detected_content_type, prepared_bytes.len())?;
+        let stored_content_type =
+            validate_upload_content(original_name, &detected_content_type, &prepared_bytes)?;
         self.scan_file_bytes(&prepared_bytes).await?;
 
         Ok(PreparedAttachment {
             original_name: original_name.to_string(),
-            content_type: content_type.to_string(),
+            content_type: stored_content_type.to_string(),
             size_bytes: prepared_bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
             bytes: prepared_bytes,
@@ -716,6 +794,309 @@ impl AttachmentService {
 
         Err(format!("Unexpected ClamAV response: {}", text.trim()))
     }
+}
+
+fn validate_upload_content(
+    original_name: &str,
+    declared_content_type: &str,
+    bytes: &[u8],
+) -> Result<&'static str, AppError> {
+    if has_blocked_executable_extension(original_name) {
+        return Err(AppError::Validation(
+            "Executable files and installers are not allowed as attachments".into(),
+        ));
+    }
+
+    let declared = normalize_mime_type(declared_content_type);
+    if is_active_or_executable_mime(&declared) || has_executable_signature(bytes) {
+        return Err(AppError::Validation(
+            "Executable or active attachment content is not allowed".into(),
+        ));
+    }
+
+    if looks_like_active_markup(bytes) {
+        return Err(AppError::Validation(
+            "Active HTML, XML, and SVG content is not allowed as an attachment".into(),
+        ));
+    }
+
+    let detected = detect_attachment_kind(bytes).ok_or_else(|| {
+        AppError::Validation("Attachment content type could not be identified safely".into())
+    })?;
+    let detected_mime = detected.mime_type();
+
+    if !declared_mime_matches_detected(&declared, detected_mime) {
+        return Err(AppError::Validation(format!(
+            "Attachment content does not match declared type '{declared_content_type}'"
+        )));
+    }
+
+    Ok(detected_mime)
+}
+
+fn normalize_mime_type(content_type: &str) -> String {
+    content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn declared_mime_matches_detected(declared: &str, detected: &str) -> bool {
+    if declared == GENERIC_BINARY_MIME || declared == detected {
+        return true;
+    }
+
+    matches!(
+        (declared, detected),
+        ("image/jpg", "image/jpeg")
+            | ("image/vnd.microsoft.icon", "image/x-icon")
+            | ("image/heif", "image/heic")
+            | ("application/x-zip-compressed", "application/zip")
+            | ("application/x-zip", "application/zip")
+            | ("audio/mp3", "audio/mpeg")
+            | ("audio/x-wav", "audio/wav")
+            | ("audio/wave", "audio/wav")
+            | ("audio/x-flac", "audio/flac")
+            | ("audio/x-m4a", "audio/mp4")
+            | ("video/x-m4v", "video/mp4")
+            | ("video/avi", "video/x-msvideo")
+            | ("application/ogg", "audio/ogg")
+            | ("application/ogg", "video/ogg")
+    )
+}
+
+fn has_blocked_executable_extension(original_name: &str) -> bool {
+    let normalized_name = original_name.trim().trim_end_matches([' ', '.']);
+    let extension = Path::new(normalized_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    matches!(
+        extension.as_str(),
+        "exe"
+            | "dll"
+            | "com"
+            | "scr"
+            | "msi"
+            | "msp"
+            | "msix"
+            | "msixbundle"
+            | "appx"
+            | "appxbundle"
+            | "cpl"
+            | "sys"
+            | "drv"
+            | "bat"
+            | "cmd"
+            | "ps1"
+            | "psm1"
+            | "vbs"
+            | "vbe"
+            | "wsf"
+            | "wsh"
+            | "hta"
+            | "reg"
+            | "desktop"
+            | "command"
+            | "app"
+            | "dmg"
+            | "pkg"
+            | "deb"
+            | "rpm"
+            | "apk"
+            | "ipa"
+            | "jar"
+            | "class"
+            | "wasm"
+            | "lnk"
+    )
+}
+
+fn is_active_or_executable_mime(content_type: &str) -> bool {
+    content_type.ends_with("+xml")
+        || matches!(
+            content_type,
+            "image/svg+xml"
+                | "text/html"
+                | "application/xhtml+xml"
+                | "text/xml"
+                | "application/xml"
+                | "text/javascript"
+                | "application/javascript"
+                | "application/x-javascript"
+                | "application/x-httpd-php"
+                | "application/x-msdownload"
+                | "application/x-dosexec"
+                | "application/vnd.microsoft.portable-executable"
+                | "application/x-executable"
+                | "application/x-sharedlib"
+                | "application/wasm"
+                | "application/java-archive"
+                | "application/java-vm"
+                | "application/vnd.android.package-archive"
+                | "application/x-apple-diskimage"
+        )
+}
+
+fn has_executable_signature(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"MZ")
+        || bytes.starts_with(b"\x7fELF")
+        || bytes.starts_with(&[0xfe, 0xed, 0xfa, 0xce])
+        || bytes.starts_with(&[0xce, 0xfa, 0xed, 0xfe])
+        || bytes.starts_with(&[0xfe, 0xed, 0xfa, 0xcf])
+        || bytes.starts_with(&[0xcf, 0xfa, 0xed, 0xfe])
+        || bytes.starts_with(&[0xca, 0xfe, 0xba, 0xbe])
+        || bytes.starts_with(&[0xca, 0xfe, 0xba, 0xbf])
+        || bytes.starts_with(&[0xbf, 0xba, 0xfe, 0xca])
+        || bytes.starts_with(b"dex\n")
+        || bytes.starts_with(b"\0asm")
+        || strip_utf8_bom_and_ascii_whitespace(bytes).starts_with(b"#!")
+}
+
+fn looks_like_active_markup(bytes: &[u8]) -> bool {
+    let prefix = strip_utf8_bom_and_ascii_whitespace(bytes);
+    let prefix = &prefix[..prefix.len().min(512)];
+    let lower = String::from_utf8_lossy(prefix).to_ascii_lowercase();
+    lower.starts_with("<svg")
+        || lower.starts_with("<?xml")
+        || lower.starts_with("<!doctype html")
+        || lower.starts_with("<html")
+}
+
+fn detect_attachment_kind(bytes: &[u8]) -> Option<DetectedAttachmentKind> {
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some(DetectedAttachmentKind::Jpeg);
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some(DetectedAttachmentKind::Png);
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some(DetectedAttachmentKind::Gif);
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") {
+        return match &bytes[8..12] {
+            b"WEBP" => Some(DetectedAttachmentKind::Webp),
+            b"WAVE" => Some(DetectedAttachmentKind::Wav),
+            b"AVI " => Some(DetectedAttachmentKind::Avi),
+            _ => None,
+        };
+    }
+    if bytes.starts_with(b"BM") {
+        return Some(DetectedAttachmentKind::Bmp);
+    }
+    if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        return Some(DetectedAttachmentKind::Tiff);
+    }
+    if bytes.starts_with(&[0, 0, 1, 0]) {
+        return Some(DetectedAttachmentKind::Icon);
+    }
+    if let Some(kind) = detect_iso_base_media_kind(bytes) {
+        return Some(kind);
+    }
+
+    let trimmed = strip_utf8_bom_and_ascii_whitespace(bytes);
+    if trimmed.starts_with(b"%PDF-") {
+        return Some(DetectedAttachmentKind::Pdf);
+    }
+    if bytes.starts_with(b"PK\x03\x04")
+        || bytes.starts_with(b"PK\x05\x06")
+        || bytes.starts_with(b"PK\x07\x08")
+    {
+        return Some(DetectedAttachmentKind::Zip);
+    }
+    if bytes.starts_with(b"ID3")
+        || matches!(bytes, [0xff, second, ..] if second & 0xe0 == 0xe0 && second & 0x06 != 0)
+    {
+        return Some(DetectedAttachmentKind::Mp3);
+    }
+    if matches!(bytes, [0xff, second, ..] if second & 0xf6 == 0xf0) {
+        return Some(DetectedAttachmentKind::Aac);
+    }
+    if bytes.starts_with(b"fLaC") {
+        return Some(DetectedAttachmentKind::Flac);
+    }
+    if bytes.starts_with(b"OggS") {
+        let header = &bytes[..bytes.len().min(128)];
+        if contains_bytes(header, b"theora") {
+            return Some(DetectedAttachmentKind::OggVideo);
+        }
+        return Some(DetectedAttachmentKind::OggAudio);
+    }
+    if bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        let header = &bytes[..bytes.len().min(4096)];
+        if contains_bytes(header, b"webm") {
+            return Some(DetectedAttachmentKind::Webm);
+        }
+        return Some(DetectedAttachmentKind::Matroska);
+    }
+    if bytes.starts_with(&[0, 0, 1, 0xba]) || bytes.starts_with(&[0, 0, 1, 0xb3]) {
+        return Some(DetectedAttachmentKind::MpegVideo);
+    }
+    if looks_like_plain_text(bytes) {
+        return Some(DetectedAttachmentKind::PlainText);
+    }
+
+    None
+}
+
+fn detect_iso_base_media_kind(bytes: &[u8]) -> Option<DetectedAttachmentKind> {
+    if bytes.len() < 12 || &bytes[4..8] != b"ftyp" {
+        return None;
+    }
+
+    let brands = &bytes[8..bytes.len().min(64)];
+    if contains_aligned_brand(brands, &[b"avif", b"avis"]) {
+        return Some(DetectedAttachmentKind::Avif);
+    }
+    if contains_aligned_brand(
+        brands,
+        &[b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"],
+    ) {
+        return Some(DetectedAttachmentKind::Heic);
+    }
+    if contains_aligned_brand(brands, &[b"M4A ", b"M4B ", b"M4P "]) {
+        return Some(DetectedAttachmentKind::Mp4Audio);
+    }
+    if contains_aligned_brand(brands, &[b"qt  "]) {
+        return Some(DetectedAttachmentKind::QuickTime);
+    }
+
+    Some(DetectedAttachmentKind::Mp4Video)
+}
+
+fn contains_aligned_brand(haystack: &[u8], needles: &[&[u8; 4]]) -> bool {
+    haystack
+        .chunks_exact(4)
+        .any(|brand| needles.iter().any(|needle| brand == needle.as_slice()))
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+}
+
+fn strip_utf8_bom_and_ascii_whitespace(mut bytes: &[u8]) -> &[u8] {
+    if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        bytes = &bytes[3..];
+    }
+    while matches!(bytes.first(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+        bytes = &bytes[1..];
+    }
+    bytes
+}
+
+fn looks_like_plain_text(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    text.chars()
+        .all(|ch| !ch.is_control() || matches!(ch, '\n' | '\r' | '\t'))
 }
 
 fn image_format_for_metadata_strip(content_type: &str) -> Option<image::ImageFormat> {
@@ -1029,6 +1410,102 @@ mod tests {
             .validate_upload_file_meta("application/x-msdownload", 1024)
             .is_err());
 
+        fs::remove_dir_all(test_root).await.expect("cleanup");
+    }
+
+    #[test]
+    fn upload_content_uses_magic_bytes_and_canonical_mime() {
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        assert_eq!(
+            validate_upload_content("image.png", GENERIC_BINARY_MIME, png).unwrap(),
+            "image/png"
+        );
+
+        let zip = b"PK\x03\x04archive";
+        assert_eq!(
+            validate_upload_content("archive.zip", "application/x-zip-compressed", zip).unwrap(),
+            "application/zip"
+        );
+
+        assert_eq!(
+            validate_upload_content("notes.txt", "text/plain; charset=utf-8", b"safe notes")
+                .unwrap(),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn upload_content_rejects_mime_spoofing_and_unknown_binary() {
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        assert!(validate_upload_content("fake.jpg", "image/jpeg", png).is_err());
+        assert!(
+            validate_upload_content("unknown.bin", GENERIC_BINARY_MIME, &[0, 159, 146, 150])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn upload_content_rejects_executables_and_active_markup() {
+        assert!(validate_upload_content(
+            "payload.bin",
+            GENERIC_BINARY_MIME,
+            b"MZfake-portable-executable"
+        )
+        .is_err());
+        assert!(validate_upload_content(
+            "renamed.txt",
+            "text/plain",
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"
+        )
+        .is_err());
+        assert!(validate_upload_content(
+            "renamed.zip.ExE. ",
+            GENERIC_BINARY_MIME,
+            b"PK\x03\x04archive"
+        )
+        .is_err());
+        assert!(validate_upload_content(
+            "startup.ps1",
+            "text/plain",
+            b"Write-Host 'payload'"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn upload_content_detects_common_audio_and_video_containers() {
+        let wav = b"RIFF\x10\0\0\0WAVEfmt ";
+        assert_eq!(
+            validate_upload_content("clip.wav", "audio/x-wav", wav).unwrap(),
+            "audio/wav"
+        );
+
+        let mp4 = b"\0\0\0\x18ftypisom\0\0\0\0isom";
+        assert_eq!(
+            validate_upload_content("clip.mp4", "video/mp4", mp4).unwrap(),
+            "video/mp4"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_png_decodes_reencodes_and_keeps_canonical_mime() {
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+        let image = image::DynamicImage::new_rgba8(1, 1);
+        let mut source = Cursor::new(Vec::new());
+        image
+            .write_to(&mut source, image::ImageFormat::Png)
+            .expect("encode source png");
+
+        let prepared = service
+            .prepare_file_for_storage("pixel.png", GENERIC_BINARY_MIME, &source.into_inner())
+            .await
+            .expect("prepare png");
+
+        assert_eq!(prepared.content_type, "image/png");
+        assert!(prepared.size_bytes > 0);
         fs::remove_dir_all(test_root).await.expect("cleanup");
     }
 
