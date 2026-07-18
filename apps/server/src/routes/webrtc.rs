@@ -17,9 +17,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
+    services::rate_limit::enforce_rate_limit,
     ws::access::can_join_voice_channel,
     AppState,
 };
+
+const TURN_CREDENTIAL_RATE_LIMIT_MAX: usize = 30;
+const LIVEKIT_TOKEN_USER_RATE_LIMIT_MAX: usize = 30;
+const LIVEKIT_TOKEN_RATE_LIMIT_MAX: usize = 20;
+const MEDIA_TOKEN_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Serialize)]
 pub struct TurnCredentialsResponse {
@@ -65,6 +71,15 @@ async fn turn_credentials(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<TurnCredentialsResponse>, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("webrtc:turn-credentials:{}", claims.sub),
+        TURN_CREDENTIAL_RATE_LIMIT_MAX,
+        MEDIA_TOKEN_RATE_LIMIT_WINDOW,
+        "TURN credential rate limit exceeded. Please retry shortly.",
+    )
+    .await?;
+
     tracing::info!(
         "User {} ({}) requested TURN credentials",
         claims.username,
@@ -145,6 +160,22 @@ async fn livekit_token(
 ) -> Result<Json<LivekitTokenResponse>, AppError> {
     let channel_id = uuid::Uuid::parse_str(&query.channel_id)
         .map_err(|_| AppError::Validation("Invalid channel_id".into()))?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("webrtc:livekit-token:{}", claims.sub),
+        LIVEKIT_TOKEN_USER_RATE_LIMIT_MAX,
+        MEDIA_TOKEN_RATE_LIMIT_WINDOW,
+        "Voice token rate limit exceeded. Please retry shortly.",
+    )
+    .await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("webrtc:livekit-token:{}:{}", claims.sub, channel_id),
+        LIVEKIT_TOKEN_RATE_LIMIT_MAX,
+        MEDIA_TOKEN_RATE_LIMIT_WINDOW,
+        "Voice token rate limit exceeded. Please retry shortly.",
+    )
+    .await?;
 
     let can_join = can_join_voice_channel(&state.db, claims.sub, channel_id).await?;
     if !can_join {

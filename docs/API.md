@@ -276,7 +276,11 @@ Current key limits (Redis-backed):
 - Change password: 5/hour per user
 - Friend request: 5/min per user
 - DM channel create: 5/min per user
+- Server and DM message search: 15/min per user/channel
 - Message send: `MESSAGE_RATE_LIMIT_MAX` / `MESSAGE_RATE_LIMIT_WINDOW_SECS`
+- TURN credentials: 30/min per user
+- LiveKit tokens: 30/min per user and 20/min per user/voice channel
+- Attachment content: 240/min per user and 30/min per user/attachment
 - Report submit: 5/min per reporter/server
 - WS connect: 3/10s per user
 

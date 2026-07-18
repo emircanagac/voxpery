@@ -4124,3 +4124,250 @@ async fn concurrent_duplicate_reports_create_one_open_report() {
     .unwrap();
     assert_eq!(duplicate_groups, 0);
 }
+
+#[tokio::test]
+async fn dm_message_search_rate_limit_matches_server_search() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let user_suffix = Uuid::new_v4();
+    let (user_token, user_id) = register_user(
+        &mut app,
+        &format!("dm-search-limit-{user_suffix}@example.com"),
+        &format!("dm_search_{}", user_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let peer_suffix = Uuid::new_v4();
+    let (_, peer_id) = register_user(
+        &mut app,
+        &format!("dm-search-peer-{peer_suffix}@example.com"),
+        &format!("dm_peer_{}", peer_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {user_token}");
+    let channel_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO dm_channels (id) VALUES ($1)")
+        .bind(channel_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(peer_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let search_request = || {
+        Request::builder()
+            .uri(format!(
+                "/api/dm/messages/{channel_id}/search?q=rate-limit"
+            ))
+            .header("Authorization", &auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+    for attempt in 1..=15 {
+        let (status, body) = oneshot(&mut app, search_request()).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "DM search attempt {attempt} failed unexpectedly: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, search_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the sixteenth DM search should be rate limited: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn voice_credential_endpoints_rate_limit_token_minting() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (token, _) = register_user(
+        &mut app,
+        &format!("voice-token-limit-{suffix}@example.com"),
+        &format!("voice_limit_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {token}");
+    let (server_id, _, _) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &auth_header,
+        "Voice Token Limit Server",
+    )
+    .await;
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let turn_request = || {
+        Request::builder()
+            .uri("/api/webrtc/turn-credentials")
+            .header("Authorization", &auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+    for attempt in 1..=30 {
+        let (status, body) = oneshot(&mut app, turn_request()).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "TURN credential attempt {attempt} failed unexpectedly: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, turn_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the thirty-first TURN request should be rate limited: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let livekit_request = || {
+        Request::builder()
+            .uri(format!(
+                "/api/webrtc/livekit-token?channel_id={voice_channel_id}"
+            ))
+            .header("Authorization", &auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+    for attempt in 1..=20 {
+        let (status, body) = oneshot(&mut app, livekit_request()).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "LiveKit token attempt {attempt} failed unexpectedly: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, livekit_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the twenty-first LiveKit token request should be rate limited: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let second_suffix = Uuid::new_v4();
+    let (second_token, _) = register_user(
+        &mut app,
+        &format!("voice-global-limit-{second_suffix}@example.com"),
+        &format!("voice_global_{}", second_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let second_auth_header = format!("Bearer {second_token}");
+    let unauthorized_livekit_request = || {
+        Request::builder()
+            .uri(format!(
+                "/api/webrtc/livekit-token?channel_id={}",
+                Uuid::new_v4()
+            ))
+            .header("Authorization", &second_auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+    for attempt in 1..=30 {
+        let (status, body) = oneshot(&mut app, unauthorized_livekit_request()).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "unauthorized LiveKit attempt {attempt} should reach access validation: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, unauthorized_livekit_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the thirty-first cross-channel LiveKit request should hit the user-wide limit: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn attachment_content_rate_limit_runs_before_signature_and_storage_work() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (token, _) = register_user(
+        &mut app,
+        &format!("attachment-read-limit-{suffix}@example.com"),
+        &format!("attachment_read_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {token}");
+    let attachment_id = Uuid::new_v4();
+    let content_request = |requested_attachment_id: Uuid| {
+        Request::builder()
+            .uri(format!(
+                "/api/attachments/content/{requested_attachment_id}?exp=4102444800&sig=invalid"
+            ))
+            .header("Authorization", &auth_header)
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    for attempt in 1..=30 {
+        let (status, body) = oneshot(&mut app, content_request(attachment_id)).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "attachment attempt {attempt} should reach signature validation: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, content_request(attachment_id)).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the thirty-first attachment request should be limited before validation: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    for attempt in 32..=240 {
+        let (status, body) = oneshot(&mut app, content_request(Uuid::new_v4())).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "attachment attempt {attempt} should remain under the user-wide limit: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let (status, body) = oneshot(&mut app, content_request(Uuid::new_v4())).await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the 241st attachment request should hit the user-wide limit: {}",
+        String::from_utf8_lossy(&body)
+    );
+}

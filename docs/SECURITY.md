@@ -132,6 +132,10 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **Auth** (`/api/auth/login`, `/api/auth/register`): 10 requests per minute per user
 - **Friend request** (`/api/friends/requests`): 5 requests per minute per user
 - **DM create** (`/api/dm/channels/:peer_id`): 5 requests per minute per user
+- **Message search** (server and DM): 15 requests per minute per user/channel
+- **TURN credentials**: 30 requests per minute per user
+- **LiveKit tokens**: 30 requests per minute per user and 20 requests per minute per user/voice channel
+- **Attachment content**: 240 requests per minute per user and 30 requests per minute per user/attachment
 - **Server join raid signals**: join bursts and new-account join bursts are recorded for moderator review.
 - **Server message raid protection**: message bursts and invite spikes are tracked per server/user; bursts can be rejected with `429` and write raid audit events.
 - **Messages** (`/api/messages/:id`): 30 messages per 10 seconds per user
