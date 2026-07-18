@@ -288,18 +288,31 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 
 ## Security Headers
 
-**Recommended nginx config**:
+The API applies a restrictive response policy at the Axum router boundary, including error and CORS preflight responses:
+
+- `Content-Security-Policy: default-src 'none'; ... frame-ancestors 'none'`
+- `Strict-Transport-Security: max-age=31536000`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Permissions-Policy` with camera, microphone, display capture, geolocation, and payment disabled
+
+The production web container applies the browser-facing policy:
+
 ```nginx
+add_header Strict-Transport-Security "max-age=31536000" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-Frame-Options "DENY" always;
-add_header X-XSS-Protection "1; mode=block" always;
 add_header Referrer-Policy "no-referrer" always;
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; connect-src 'self' https://api.your-domain.com wss://api.your-domain.com https://livekit.your-domain.com wss://livekit.your-domain.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" always;
+add_header Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), fullscreen=(self), geolocation=(), payment=()" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; connect-src 'self' https://api.your-domain.com wss://api.your-domain.com https://livekit.your-domain.com wss://livekit.your-domain.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; media-src 'self' blob:; manifest-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" always;
 ```
 
 `'wasm-unsafe-eval'` is required for the RNNoise WebAssembly voice suppression runtime. It is narrower than broad JavaScript `'unsafe-eval'` and should stay in `script-src` for production voice releases.
 
-The production web image passes `APP_ENV=production` and uses `apps/web/nginx.production.conf`, which does not allow browser connections to visitor loopback targets. Local Docker compose passes `APP_ENV=development` by default and uses `apps/web/nginx.development.conf` so `localhost` API and LiveKit smoke tests keep working. The web container runs with the unprivileged nginx image and listens on container port `8080`; Compose still exposes it on `127.0.0.1:${WEB_PORT:-5173}`.
+The production web image passes `APP_ENV=production` and uses `apps/web/nginx.production.conf`, which does not allow browser connections to visitor loopback targets. Local Docker compose passes `APP_ENV=development` by default and uses `apps/web/nginx.development.conf` so `localhost` API and LiveKit smoke tests keep working. Development omits HSTS, while both configs deny framing and keep the same media permissions. The `/healthz` location uses `default_type` rather than a nested `add_header`, so it inherits the server-level security policy. The web container runs with the unprivileged nginx image and listens on container port `8080`; Compose still exposes it on `127.0.0.1:${WEB_PORT:-5173}`.
+
+CI validates the nginx and Tauri policy files statically. Release smoke validates the headers returned by the deployed API `/health` and web `/healthz` endpoints, including HSTS on HTTPS URLs and production CSP loopback exclusion.
 
 ## Secrets Management
 

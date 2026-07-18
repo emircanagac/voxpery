@@ -128,6 +128,12 @@ if (tauri) {
   requireCspSource(tauri.app?.security?.csp, 'connect-src', 'https://challenges.cloudflare.com')
   requireCspSource(tauri.app?.security?.csp, 'script-src', 'https://challenges.cloudflare.com')
   requireCspSource(tauri.app?.security?.csp, 'frame-src', 'https://challenges.cloudflare.com')
+  requireCspSource(tauri.app?.security?.csp, 'media-src', "'self'")
+  requireCspSource(tauri.app?.security?.csp, 'media-src', 'blob:')
+  requireCspSource(tauri.app?.security?.csp, 'object-src', "'none'")
+  requireCspSource(tauri.app?.security?.csp, 'base-uri', "'none'")
+  requireCspSource(tauri.app?.security?.csp, 'form-action', "'self'")
+  requireCspSource(tauri.app?.security?.csp, 'frame-ancestors', "'none'")
 
   const installerIcon = tauri.bundle?.windows?.nsis?.installerIcon
   if (installerIcon !== 'icons/icon.ico') {

@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws'
 import { randomUUID } from 'node:crypto'
+import { securityHeaderFailures } from './security-headers.mjs'
 
 const API_BASE = process.env.SMOKE_API_URL || 'http://127.0.0.1:3001'
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
@@ -27,25 +28,15 @@ function assert(condition, message) {
 }
 
 async function checkSecurityHeaders() {
-  const res = await fetch(`${API_BASE}/health`)
+  const url = `${API_BASE}/health`
+  const res = await fetch(url)
   if (!res.ok) {
     throw new Error(`GET /health failed (${res.status})`)
   }
 
-  const header = (name) => (res.headers.get(name) || '').trim()
-  const csp = header('content-security-policy')
-  const xFrameOptions = header('x-frame-options').toUpperCase()
-  const xContentType = header('x-content-type-options').toLowerCase()
-  const referrerPolicy = header('referrer-policy').toLowerCase()
-
-  const missing = []
-  if (!csp || !csp.toLowerCase().includes('default-src')) missing.push('content-security-policy')
-  if (xFrameOptions !== 'DENY') missing.push('x-frame-options=DENY')
-  if (xContentType !== 'nosniff') missing.push('x-content-type-options=nosniff')
-  if (!referrerPolicy) missing.push('referrer-policy')
-
-  if (missing.length > 0) {
-    const msg = `[smoke] security headers missing/invalid: ${missing.join(', ')}`
+  const failures = securityHeaderFailures(res, { surface: 'api', url })
+  if (failures.length > 0) {
+    const msg = `[smoke] API security headers missing/invalid: ${failures.join(', ')}`
     if (REQUIRE_SECURITY_HEADERS) {
       throw new Error(msg)
     }

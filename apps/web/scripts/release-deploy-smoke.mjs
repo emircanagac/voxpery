@@ -1,3 +1,5 @@
+import { assertSecurityHeaders } from './security-headers.mjs'
+
 const API_BASE = requiredUrl('SMOKE_API_URL')
 const WEB_BASE = requiredUrl('SMOKE_WEB_URL')
 const RAW_EXPECTED_VERSION = process.env.SMOKE_EXPECTED_VERSION?.trim()
@@ -92,12 +94,14 @@ async function main() {
   validateImmutableImageTag(EXPECTED_IMAGE_TAG)
 
   const apiHealth = await getOk(`${API_BASE}/health`, 'API health')
+  assertSecurityHeaders(apiHealth, { surface: 'api', url: `${API_BASE}/health` })
   const apiHealthJson = await apiHealth.json().catch(() => null)
   assert(apiHealthJson?.status === 'ok', 'API health response must be {"status":"ok"}')
-  console.log('[release-smoke] API health OK')
+  console.log('[release-smoke] API health and security headers OK')
 
-  await getOk(`${WEB_BASE}/healthz`, 'web health')
-  console.log('[release-smoke] web health OK')
+  const webHealth = await getOk(`${WEB_BASE}/healthz`, 'web health')
+  assertSecurityHeaders(webHealth, { surface: 'web', url: `${WEB_BASE}/healthz` })
+  console.log('[release-smoke] web health and security headers OK')
 
   await checkVersionInDeployedAssets()
   console.log('[release-smoke] deployed version assets OK')

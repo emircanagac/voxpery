@@ -84,10 +84,11 @@ Current workflows:
 
 - `.github/workflows/ci.yml`
   - Secret scan
-  - Backend check/tests
+  - Backend check/tests, including API response security headers
+  - Static nginx/Tauri security policy validation
   - Frontend lint/unit tests/core UI smoke/mobile web smoke/build
 - `.github/workflows/release-smoke.yml`
-  - API smoke
+  - API smoke plus deployed API/web security header validation
   - Optional web E2E scope: desktop Chromium, mobile Chromium, or all browser projects
 - `.github/workflows/release-desktop.yml`
   - Desktop release preflight
@@ -98,4 +99,4 @@ Current workflows:
 
 ---
 
-Last verified against code on 2026-06-12.
+Last verified against code on 2026-07-19.

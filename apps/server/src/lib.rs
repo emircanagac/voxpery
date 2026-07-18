@@ -297,7 +297,8 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             middleware::csrf::protect_cookie_authenticated_writes,
         ))
         .layer(TraceLayer::new_for_http())
-        .layer(cors);
+        .layer(cors)
+        .layer(map_response(middleware::security_headers::apply));
 
     app.with_state(state)
 }

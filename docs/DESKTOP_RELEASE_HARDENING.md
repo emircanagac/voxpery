@@ -33,6 +33,8 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - `apps/desktop/src-tauri/capabilities/default.json` must not allow `localhost` or `127.0.0.1` HTTP targets in release builds.
 - `apps/desktop/src-tauri/tauri.conf.json` CSP `connect-src` must not include local HTTP/WS backends in release builds.
 - `apps/desktop/src-tauri/tauri.conf.json` CSP must allow Cloudflare Turnstile on `connect-src`, `script-src`, and `frame-src` so desktop registration can render CAPTCHA when production requires it.
+- Release and development CSPs must deny plugin/object content and parent framing, restrict base/form targets, and explicitly allow only self/blob media required by chat and voice playback.
+- Release preflight rejects missing `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, or `media-src 'self' blob:` directives.
 - If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
 - Voxpery development uses `apps/desktop/src-tauri/tauri.dev.conf.json` together with `cargo tauri dev --config tauri.dev.conf.json` for local backend connectivity.
 
