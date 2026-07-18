@@ -381,6 +381,81 @@ async fn register_login_me_flow() {
 }
 
 #[tokio::test]
+async fn cookie_authenticated_writes_require_a_trusted_origin() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("csrf-{uid}@example.com");
+    let username = format!("csrf_{}", uid.as_u128() % 1_000_000);
+    let password = test_credential("csrf");
+    let (token, _) = register_user(&mut app, &email, &username, password).await;
+    let cookie = format!("voxpery_token={token}");
+
+    for origin in [None, Some("https://evil.example"), Some("null")] {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/api/auth/email/request-verification")
+            .header("cookie", &cookie)
+            .header("content-type", "application/json");
+        if let Some(origin) = origin {
+            request = request.header("origin", origin);
+        }
+        let (status, _) = oneshot(&mut app, request.body(Body::from("{}")).unwrap()).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "cookie write from {origin:?} should be rejected"
+        );
+    }
+
+    let allowed_origin = Request::builder()
+        .method("POST")
+        .uri("/api/auth/email/request-verification")
+        .header("cookie", &cookie)
+        .header("origin", "http://localhost:5173")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, allowed_origin).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+    let allowed_referer = Request::builder()
+        .method("POST")
+        .uri("/api/auth/email/request-verification")
+        .header("cookie", &cookie)
+        .header("referer", "http://localhost:5173/settings/account")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, allowed_referer).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+    let desktop_bearer = Request::builder()
+        .method("POST")
+        .uri("/api/auth/email/request-verification")
+        .header("authorization", format!("Bearer {token}"))
+        .header("cookie", &cookie)
+        .header("origin", "https://evil.example")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, desktop_bearer).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+    let safe_cookie_read = Request::builder()
+        .uri("/api/auth/me")
+        .header("cookie", cookie)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, safe_cookie_read).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn default_voxpery_server_has_moderator_role_after_register() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

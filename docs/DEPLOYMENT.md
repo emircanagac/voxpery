@@ -30,6 +30,8 @@ Edit `.env` and set strong production values at minimum:
 - `ADMIN_PASSWORD`
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
+- Keep every web origin that sends cookie-authenticated writes in `CORS_ORIGINS`; the
+  same allowlist is used for server-side CSRF origin verification.
 - `VITE_API_URL` (public backend URL used by frontend build)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)

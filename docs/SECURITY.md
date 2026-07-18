@@ -115,7 +115,13 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 
 - **httpOnly**: Prevents JavaScript access (XSS mitigation)
 - **Secure**: Only sent over HTTPS (enforced for non-local origins)
-- **SameSite**: `Lax` (default, prevents CSRF)
+- **SameSite**: `Lax` (defense in depth; not the sole CSRF control)
+- **State-changing requests**: Cookie-authenticated non-safe methods require an exact
+  `Origin` match against `CORS_ORIGINS`, with same-origin `Referer` as a fallback.
+- **Desktop exception**: Bearer-authenticated desktop requests do not require browser
+  origin proof. OAuth callbacks retain their separate state-cookie validation.
+- **Opaque origins**: `Origin: null` is never accepted as proof for a cookie-authenticated
+  write, even if it exists in the CORS list for a legacy desktop integration.
 
 **Production requirement**: `COOKIE_SECURE=1` when `CORS_ORIGINS` includes non-localhost domains.
 
