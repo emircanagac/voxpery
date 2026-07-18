@@ -2,7 +2,7 @@
 
 # <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" /> Voxpery <img src="apps/web/public/1024.png" alt="Voxpery" width="36" height="36" style="vertical-align: -0.15em;" />
 
-**Open-source community chat and voice you can use hosted or self-host in minutes**
+**A free, open-source Discord alternative for communities that want control**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml/badge.svg)](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml)
@@ -10,9 +10,9 @@
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org/)
 [![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg)](https://react.dev/)
 
-*Hosted at voxpery.com, self-hostable with Docker, and built around chat, voice, moderation, and real-time presence.*
+*Start chatting on the hosted service or deploy the same Rust, React, and LiveKit stack on your own infrastructure.*
 
-**[Use at voxpery.com](https://voxpery.com)** | **[Self-host guide](#production-deployment)** | **[View roadmap](docs/ROADMAP.md)**
+**[Join the live community](https://voxpery.com/register)** | **[Self-host with Docker](docs/DEPLOYMENT.md)** | **[Download desktop](https://github.com/emircanagac/voxpery/releases/latest)** | **[View roadmap](docs/ROADMAP.md)**
 
 <img
   src="apps/web/src/assets/voxpery.png"
@@ -26,7 +26,14 @@
 
 ## Why Voxpery?
 
-Voxpery is for communities that want real-time chat and voice without giving up code transparency or data ownership. Use the hosted app on **voxpery.com**, or deploy the same stack yourself.
+Voxpery is a free, open-source Discord alternative for communities that want real-time chat and voice without giving up code transparency or data ownership. Use the hosted app on **voxpery.com**, or deploy the same stack yourself.
+
+Choose Voxpery when you want:
+
+- **A usable hosted service now** without operating your own infrastructure.
+- **A real self-hosting path** backed by Docker deployment and operations documentation.
+- **One public codebase** for the hosted web app, backend, and desktop clients.
+- **Community essentials** including text chat, DMs, voice, screen sharing, moderation, and account data controls.
 
 ## Can I Trust Voxpery?
 
