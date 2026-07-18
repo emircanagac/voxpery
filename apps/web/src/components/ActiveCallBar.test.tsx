@@ -11,6 +11,7 @@ import {
   GLOBAL_MUTE_SHORTCUT_STORAGE_KEY,
 } from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
+import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
 
 vi.mock('../webrtc/useLiveKitVoice', () => ({
   useLiveKitVoice: vi.fn(),
@@ -177,6 +178,21 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.setRemoteMediaSubscribed).toHaveBeenLastCalledWith('peer-1', 'screen', true)
     expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
+  })
+
+  it('reasserts remote microphone playback after the macOS share picker returns', () => {
+    const remoteMic = mediaTrack('audio', 'peer-mic')
+    const remoteStream = new MediaStream([remoteMic])
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+
+    renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+    })
+    play.mockClear()
+
+    window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
+
+    expect(play).toHaveBeenCalledOnce()
   })
 
   it('keeps mute, deafen, and leave controls wired to the joined voice session', () => {

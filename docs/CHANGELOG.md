@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Defer browser and desktop notification permission requests until the authenticated app is ready and the user accepts a non-blocking in-app prompt.
 - Serialize critical DM creation, server bootstrap, member-role replacement, and channel deletion writes so concurrent requests cannot leave duplicate or partial state.
 - Run backend integration and concurrency tests in CI against isolated PostgreSQL and Redis services instead of silently skipping database coverage.
+- Register macOS microphone, camera, screen-recording, and shared-audio permission metadata in desktop bundles and keep remote call playback active across the screen-share picker and app focus changes.
 
 ### Security
 - Updated Rust `anyhow` lockfile entries to patched `1.0.103` releases that address `RUSTSEC-2026-0190`.

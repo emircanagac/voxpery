@@ -13,6 +13,10 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
     - `icons/icon.icns`
     - `icons/128x128.png`
 - Release pipeline validates icon files and minimum file sizes before build.
+- macOS release bundles must merge `Info.plist` usage descriptions for microphone, camera, screen recording, and shared system audio.
+- macOS release bundles must apply `Entitlements.plist` with audio-input and camera capture entitlements.
+- Until Developer ID signing is configured, macOS release bundles use Tauri's ad-hoc signing identity (`-`) so those entitlements are applied consistently.
+- Release preflight validates both files and their Tauri configuration link so native permission registration cannot regress silently.
 
 ## 2) OAuth Deep-link Safety (required)
 
@@ -77,6 +81,8 @@ Before publishing a desktop release:
 6. Confirm normal app launch opens maximized on a fresh install, then restores the user's last size, position, and maximized state on later launches.
 7. Confirm Windows startup launch stays in the tray until the user opens Voxpery from the tray, and tray Show opens a maximized window.
 8. Confirm installer/update preparation closes tray/minimize state cleanly before install.
+9. On a clean macOS account, confirm microphone and screen-recording prompts identify Voxpery and the app remains listed in both Privacy & Security sections.
+10. Start screen share on macOS and confirm remote voice volume remains stable while the native picker opens, after a source is selected, and while Voxpery is unfocused.
 
 ## 6) Rollback Expectations
 

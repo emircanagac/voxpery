@@ -211,7 +211,7 @@ Speaker
 ```typescript
 const stream = await navigator.mediaDevices.getDisplayMedia({
   video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
-  audio: true  // Screen share audio (e.g., YouTube video)
+  audio: { suppressLocalAudioPlayback: false }  // Shared audio without ducking the active call
 })
 await room.localParticipant.publishTrack(videoTrack, {
   source: Track.Source.ScreenShare,
@@ -236,6 +236,7 @@ await room.localParticipant.publishTrack(videoTrack, {
 - Hiding a screen share unsubscribes both its video and screen-share audio publications; the participant's microphone audio continues normally.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
 - When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
+- Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, WebAudio state, and remote playback without changing per-user volume settings.
 
 ## Camera
 
@@ -269,13 +270,16 @@ await room.localParticipant.publishTrack(videoTrack, {
 3. Try another browser (Firefox, Chrome, Edge)
 4. Linux desktop: ensure `xdg-desktop-portal` + one backend (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` are installed/running, then restart Voxpery.
 
-### Mic or camera permission denied on desktop
+### Mic, camera, or screen-recording permission denied on desktop
 
 1. Open User Settings -> Voice & Audio.
 2. Click `Open settings` when microphone access is blocked, then allow Voxpery or desktop apps to use the microphone in OS privacy settings.
 3. For camera denial, open the OS camera privacy settings, allow Voxpery or desktop apps to use the camera, then retry the camera toggle.
-4. Restart Voxpery if the OS requires a restart before WebView permissions refresh.
-5. Return to Voxpery and click `Retry mic access` or retry the camera action.
+4. On macOS, allow Voxpery under Privacy & Security -> Screen & System Audio Recording before retrying screen share.
+5. Restart Voxpery if the OS requires a restart before WebView permissions refresh.
+6. Return to Voxpery and click `Retry mic access`, retry the camera action, or start screen share again.
+
+The macOS application bundle declares microphone, camera, screen-recording, and shared-audio usage descriptions. Its code-signing entitlements allow microphone and camera capture. These files are release-validated so a desktop build cannot silently lose its native permission registration.
 
 ### Voice quality diagnostics
 

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, relative, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 const repoRoot = process.cwd()
 const targetRoot = resolve(repoRoot, 'apps/desktop/src-tauri/target')
@@ -135,6 +136,51 @@ function requireUpdaterMetadata(entries) {
   }
 }
 
+function validateMacBundlePrivacyMetadata(entries, appBundles) {
+  const requiredInfoKeys = [
+    'NSMicrophoneUsageDescription',
+    'NSCameraUsageDescription',
+    'NSScreenCaptureUsageDescription',
+    'NSAudioCaptureUsageDescription',
+  ]
+  const infoPlists = requireFiles(
+    'macOS merged Info.plist',
+    entries,
+    (fullPath) => fullPath.endsWith(join('.app', 'Contents', 'Info.plist')),
+    200,
+  )
+  for (const entry of infoPlists) {
+    const contents = readFileSync(entry.fullPath)
+    for (const key of requiredInfoKeys) {
+      if (!contents.includes(Buffer.from(key))) {
+        fail(`${displayPath(entry)} must include ${key}`)
+      }
+    }
+  }
+
+  const requiredEntitlements = [
+    'com.apple.security.device.audio-input',
+    'com.apple.security.device.camera',
+  ]
+  for (const appBundle of appBundles) {
+    const result = spawnSync(
+      '/usr/bin/codesign',
+      ['-d', '--entitlements', ':-', appBundle.fullPath],
+      { encoding: 'utf8' },
+    )
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`
+    if (result.status !== 0) {
+      fail(`Unable to inspect macOS code-signing entitlements for ${displayPath(appBundle)}`)
+      continue
+    }
+    for (const key of requiredEntitlements) {
+      if (!output.includes(key)) {
+        fail(`${displayPath(appBundle)} code signature must include ${key}`)
+      }
+    }
+  }
+}
+
 if (platform === 'unknown') {
   fail('RUNNER_OS is missing or unsupported for desktop artifact validation')
 }
@@ -159,8 +205,9 @@ if (bundleRoots.length === 0) {
     requireFiles('Windows MSI installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.msi', 1_000_000)
     requireFiles('Windows NSIS installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.exe', 1_000_000)
   } else if (platform === 'macos') {
-    requireDirectory('macOS .app bundle', entries, (fullPath) => fullPath.endsWith('.app'))
+    const appBundles = requireDirectory('macOS .app bundle', entries, (fullPath) => fullPath.endsWith('.app'))
     requireFiles('macOS DMG installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.dmg', 1_000_000)
+    validateMacBundlePrivacyMetadata(entries, appBundles)
   } else if (platform === 'linux') {
     requireFiles('Linux DEB package', entries, (fullPath) => extname(fullPath).toLowerCase() === '.deb', 1_000_000)
     requireFiles('Linux RPM package', entries, (fullPath) => extname(fullPath).toLowerCase() === '.rpm', 1_000_000)

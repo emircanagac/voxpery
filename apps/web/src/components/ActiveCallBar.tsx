@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
+import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -414,6 +415,42 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
     }
   }, [getPlaybackVolumeFactor, parseRemoteAudioPlaybackKey])
+
+  const recoverRemoteAudioPlayback = useCallback(() => {
+    applyOutputVolumeToElements(outputVolumeRef.current / 100)
+    applyOutputDeviceToElements()
+
+    for (const nodes of perPeerAudioCtxRef.current.values()) {
+      if (nodes.ctx.state === 'suspended') {
+        void nodes.ctx.resume().catch(() => { })
+      }
+    }
+
+    if (deafenedRef.current) return
+    for (const [playbackKey, element] of remoteAudioRefsRef.current.entries()) {
+      const stream = element.srcObject
+      if (!(stream instanceof MediaStream) || stream.getAudioTracks().length === 0) continue
+      ensureRemoteAudioPlayback(playbackKey, element)
+    }
+  }, [applyOutputDeviceToElements, applyOutputVolumeToElements, ensureRemoteAudioPlayback])
+
+  useEffect(() => {
+    const recoverWhenVisible = () => {
+      if (document.visibilityState === 'hidden') return
+      recoverRemoteAudioPlayback()
+    }
+
+    window.addEventListener('focus', recoverRemoteAudioPlayback)
+    window.addEventListener('pageshow', recoverRemoteAudioPlayback)
+    window.addEventListener(SCREEN_SHARE_CAPTURE_READY_EVENT, recoverRemoteAudioPlayback)
+    document.addEventListener('visibilitychange', recoverWhenVisible)
+    return () => {
+      window.removeEventListener('focus', recoverRemoteAudioPlayback)
+      window.removeEventListener('pageshow', recoverRemoteAudioPlayback)
+      window.removeEventListener(SCREEN_SHARE_CAPTURE_READY_EVENT, recoverRemoteAudioPlayback)
+      document.removeEventListener('visibilitychange', recoverWhenVisible)
+    }
+  }, [recoverRemoteAudioPlayback])
 
   useEffect(() => {
     const onSettingsChanged = () => {
@@ -878,9 +915,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     try {
       await startScreenShare()
     } catch (e) {
-      const message = e instanceof Error
-        ? e.message
-        : 'Unable to start screen sharing. Check permission and active window selection.'
+      const permissionDenied = isMediaPermissionDeniedError(e, 'screen')
+      const message = permissionDenied
+        ? desktopMediaPermissionRecoveryMessage('screen')
+        : e instanceof Error
+          ? e.message
+          : 'Unable to start screen sharing. Check permission and active window selection.'
       pushToast({ level: 'error', title: 'Screen share failed', message })
     }
   }

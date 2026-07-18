@@ -253,15 +253,16 @@ fn desktop_update_unread_feedback(
 fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
     let target = match kind.as_str() {
         "camera" => "camera",
+        "screen" => "screen",
         _ => "microphone",
     };
 
     #[cfg(target_os = "windows")]
     {
-        let uri = if target == "camera" {
-            "ms-settings:privacy-webcam"
-        } else {
-            "ms-settings:privacy-microphone"
+        let uri = match target {
+            "camera" => "ms-settings:privacy-webcam",
+            "screen" => "ms-settings:privacy-screenshots",
+            _ => "ms-settings:privacy-microphone",
         };
         Command::new("cmd")
             .args(["/C", "start", "", uri])
@@ -272,10 +273,12 @@ fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let uri = if target == "camera" {
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
-        } else {
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        let uri = match target {
+            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "screen" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            _ => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
         };
         Command::new("open")
             .arg(uri)
