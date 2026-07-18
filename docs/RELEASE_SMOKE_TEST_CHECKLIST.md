@@ -36,7 +36,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Manual `Release / Smoke` workflow completed successfully against the release candidate web URL.
 - [ ] Manual `Release / Smoke` workflow run URL is recorded in Release Candidate Info.
 - [ ] Tag-triggered `Release / Metadata` check passed for web, server, desktop, and changelog version-bearing files before Docker publishing.
-- [ ] `Release / Smoke` ran with strict security headers enabled for production candidates.
+- [ ] `Release / Smoke` validated strict API `/health` and web `/healthz` security headers, including HTTPS HSTS, frame denial, MIME sniffing protection, referrer policy, Permissions Policy, and surface-specific CSP.
 - [ ] CI/release workflows ran against the exact release commit SHA or tag recorded above.
 - [ ] Docker images were built with an immutable `sha-<commit>` or `vX.Y.Z` tag, and production deploy did not use `latest`.
 - [ ] For `main-candidate` deploys, the manual deploy workflow built and published Docker images for the exact candidate ref before starting deploy.
@@ -115,6 +115,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Real production voice call with noise suppression on and `Noisy room` selected suppresses clap, keyboard, and room-noise bursts similarly to the local Docker build.
 - [ ] Production web CSP includes `script-src 'wasm-unsafe-eval'` so RNNoise WebAssembly can compile under strict headers.
 - [ ] Production web CSP `connect-src` does not include `localhost` or `127.0.0.1` loopback targets.
+- [ ] Desktop release preflight confirms restrictive `object-src`, `base-uri`, `form-action`, `frame-ancestors`, and media CSP directives.
 - [ ] During the real production voice call, after enabling `localStorage.setItem("voxperyVoiceDiagnostics", "1")` and reloading, DevTools `window.__VOXPERY_VOICE_DIAGNOSTICS__` reports `rnnoiseStatus: "ready"` and `aggressiveIsolation: true` when suppression is on.
 - [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` when suppression, CSP, service workers, build output, or production deployment config changed.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).

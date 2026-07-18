@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       require_security_headers:
-        description: Fail API smoke when production security headers are missing or invalid
+        description: Fail API smoke when production API security headers are missing or invalid
         required: true
         type: choice
         default: 'yes'

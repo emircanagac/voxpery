@@ -262,6 +262,47 @@ async fn health_returns_200_when_db_connected() {
     assert!(json.get("checks").is_none());
 }
 
+#[tokio::test]
+async fn api_security_headers_cover_normal_error_and_preflight_responses() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, _) = setup_app().await;
+
+    let requests = [
+        Request::builder().uri("/health").body(Body::empty()).unwrap(),
+        Request::builder()
+            .uri("/missing-route")
+            .body(Body::empty())
+            .unwrap(),
+        Request::builder()
+            .method("OPTIONS")
+            .uri("/api/auth/login")
+            .header("Origin", "http://localhost:5173")
+            .header("Access-Control-Request-Method", "POST")
+            .body(Body::empty())
+            .unwrap(),
+    ];
+
+    for request in requests {
+        let response = app.clone().oneshot(request).await.expect("request failed");
+        let headers = response.headers();
+        assert_eq!(headers["strict-transport-security"], "max-age=31536000");
+        assert_eq!(headers["x-frame-options"], "DENY");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["referrer-policy"], "no-referrer");
+        assert!(headers["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("frame-ancestors 'none'"));
+        assert!(headers["permissions-policy"]
+            .to_str()
+            .unwrap()
+            .contains("display-capture=()"));
+    }
+}
+
 fn assert_feature_disabled(status: StatusCode, body: &[u8]) {
     assert_eq!(
         status,

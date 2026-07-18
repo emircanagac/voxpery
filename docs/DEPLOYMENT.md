@@ -142,6 +142,8 @@ Security defaults in compose:
 - `web`, `server`, `postgres`, `redis`, `livekit:7880` bind to `127.0.0.1` only
 - Local compose passes `APP_ENV=development` and builds the web image with `apps/web/nginx.development.conf` so localhost API and LiveKit smoke tests work. Public production images pass `APP_ENV=production` in CI and use `apps/web/nginx.production.conf`, which omits browser loopback `connect-src` allowances.
 - The web image uses unprivileged nginx and listens on container port `8080`; Compose maps it to `127.0.0.1:${WEB_PORT:-5173}`.
+- Production web responses include HSTS, CSP, frame denial, MIME sniffing protection, a no-referrer policy, and media-aware Permissions Policy. API responses apply the corresponding API-safe policy in Axum, including error and CORS preflight responses.
+- Do not override or remove these headers at the public reverse proxy. The release smoke workflow validates the deployed API `/health` and web `/healthz` responses and fails on policy drift.
 - Public media ports stay open for LiveKit:
   - `7881/tcp` (fallback)
   - `7882/udp`
