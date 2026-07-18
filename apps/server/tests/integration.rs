@@ -58,6 +58,13 @@ fn redis_client() -> redis::Client {
 }
 
 async fn setup_app() -> (axum::Router, Arc<AppState>) {
+    setup_app_with_auth_features(false, false).await
+}
+
+async fn setup_app_with_auth_features(
+    email_verification_enabled: bool,
+    password_reset_enabled: bool,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -118,9 +125,9 @@ async fn setup_app() -> (axum::Router, Arc<AppState>) {
         smtp_password: None,
         smtp_user: None,
         email_delivery_enabled: false,
-        email_verification_enabled: false,
+        email_verification_enabled,
         email_verification_required: false,
-        password_reset_enabled: false,
+        password_reset_enabled,
         attachment_service: Arc::new(attachment_service),
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
@@ -2373,7 +2380,7 @@ async fn password_reset_invalidates_old_token() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, state) = setup_app_with_auth_features(false, true).await;
 
     let uid = Uuid::new_v4();
     let email = format!("pwreset-{}@example.com", uid);
@@ -2909,7 +2916,7 @@ async fn forgot_password_rate_limit_blocks_after_three_attempts() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app().await;
+    let (mut app, _) = setup_app_with_auth_features(false, true).await;
 
     let email = format!("forgot-rate-limit-{}@example.com", Uuid::new_v4());
     for attempt in 0..3 {
@@ -3005,7 +3012,7 @@ async fn email_verification_confirm_works_without_existing_session() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, state) = setup_app_with_auth_features(true, false).await;
 
     let uid = Uuid::new_v4();
     let email = format!("verify-{}@example.com", uid);
