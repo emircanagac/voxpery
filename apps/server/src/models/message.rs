@@ -48,6 +48,7 @@ pub struct MessageAuthor {
 pub struct SendMessageRequest {
     pub content: Option<String>,
     pub attachments: Option<serde_json::Value>,
+    pub client_request_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

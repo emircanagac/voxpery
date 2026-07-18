@@ -497,11 +497,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     // Refs to avoid stale closures in WebSocket handlers
     const activeChannelIdRef = useRef(activeChannelId)
+    const pendingMessageFingerprintsRef = useRef(new Set<string>())
     const activeServerIdRef = useRef(activeServerId)
     const channelServerMapRef = useRef<Record<string, string>>({})
     const tokenRef = useRef(token)
     const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
     const createServerInFlightRef = useRef(false)
+    const createServerRequestIdRef = useRef<string | null>(null)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
     const serverBootstrapRequestRef = useRef(0)
@@ -1279,6 +1281,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const content = replyingTo
             ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
             : bodyText
+        const sendFingerprint = `${channelId}\n${content}\n${JSON.stringify(attachments)}`
+        if (pendingMessageFingerprintsRef.current.has(sendFingerprint)) return
+        pendingMessageFingerprintsRef.current.add(sendFingerprint)
         setReplyingTo(null)
         const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const optimisticId = `local-${clientId}`
@@ -1306,7 +1311,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             return next
         })
         try {
-            const msg = await messageApi.send(channelId, content, attachments, token)
+            const msg = await messageApi.send(channelId, content, attachments, token, clientId)
             const applySentMessage = (current: UiMessage[]) => {
                 return reconcileConfirmedMessage(current, clientId, msg)
             }
@@ -1336,6 +1341,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             } else {
                 messagesByChannelRef.current[channelId] = applyFailedMessage(messagesByChannelRef.current[channelId] ?? [])
             }
+        } finally {
+            pendingMessageFingerprintsRef.current.delete(sendFingerprint)
         }
     }
 
@@ -1353,7 +1360,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             return next
         })
         try {
-            const msg = await messageApi.send(channelId, target.content, target.attachments ?? [], token)
+            const msg = await messageApi.send(
+                channelId,
+                target.content,
+                target.attachments ?? [],
+                token,
+                clientId,
+            )
             const applyRetriedMessage = (current: UiMessage[]) => {
                 if (current.some((m) => m.id === msg.id)) {
                     return current.filter((m) => m.clientId !== clientId)
@@ -1539,13 +1552,22 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!newServerName.trim() || !isLoggedIn) return
         createServerInFlightRef.current = true
         setIsCreatingServer(true)
+        const requestId = createServerRequestIdRef.current
+            ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        createServerRequestIdRef.current = requestId
         try {
-            const server = await serverApi.create(newServerName, newServerDescription.trim() || undefined, token)
+            const server = await serverApi.create(
+                newServerName,
+                newServerDescription.trim() || undefined,
+                token,
+                requestId,
+            )
             const allServers = await serverApi.list(token)
             setServers(allServers)
             setActiveServer(server.id)
             setNewServerName('')
             setNewServerDescription('')
+            createServerRequestIdRef.current = null
             setShowCreateServer(false)
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to create server.'
@@ -1576,6 +1598,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const openCreateModal = () => {
         createServerInFlightRef.current = false
+        createServerRequestIdRef.current = null
         setIsCreatingServer(false)
         setCreateServerError(null)
         setShowCreateServer(true)
@@ -3068,6 +3091,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                 if (isCreatingServer) return
                                 setShowCreateServer(false)
                                 setCreateServerError(null)
+                                createServerRequestIdRef.current = null
                             }}
                         >
                             <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
@@ -3080,7 +3104,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                     <input
                                         type="text"
                                         value={newServerName}
-                                        onChange={(e) => setNewServerName(e.target.value)}
+                                        onChange={(e) => {
+                                            setNewServerName(e.target.value)
+                                            createServerRequestIdRef.current = null
+                                        }}
                                         placeholder="My Awesome Server"
                                         autoFocus
                                         disabled={isCreatingServer}
@@ -3092,7 +3119,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                     <input
                                         type="text"
                                         value={newServerDescription}
-                                        onChange={(e) => setNewServerDescription(e.target.value)}
+                                        onChange={(e) => {
+                                            setNewServerDescription(e.target.value)
+                                            createServerRequestIdRef.current = null
+                                        }}
                                         placeholder="What's this server about?"
                                         maxLength={500}
                                         disabled={isCreatingServer}

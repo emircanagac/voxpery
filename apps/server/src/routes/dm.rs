@@ -13,7 +13,10 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor},
-    services::rate_limit::enforce_rate_limit,
+    services::{
+        idempotency::normalize_client_request_id,
+        rate_limit::enforce_rate_limit,
+    },
     ws::WsEvent,
     AppState,
 };
@@ -56,6 +59,7 @@ pub struct DmSearchQuery {
 pub struct SendDmMessageRequest {
     pub content: Option<String>,
     pub attachments: Option<serde_json::Value>,
+    pub client_request_id: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -89,6 +93,28 @@ struct DmMessageRow {
     user_id: Uuid,
     username: String,
     avatar_url: Option<String>,
+}
+
+async fn find_dm_message_by_client_request_id(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    client_request_id: &str,
+) -> Result<Option<DmMessageRow>, AppError> {
+    Ok(sqlx::query_as::<_, DmMessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id AS user_id, u.username, u.avatar_url
+           FROM dm_messages m
+           INNER JOIN users u ON u.id = m.user_id
+           WHERE m.channel_id = $1
+             AND m.user_id = $2
+             AND m.client_request_id = $3"#,
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(client_request_id)
+    .fetch_optional(&state.db)
+    .await?)
 }
 
 impl From<DmMessageRow> for MessageWithAuthor {
@@ -572,15 +598,7 @@ async fn send_dm_message(
     .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
     check_can_dm_peer(&state, claims.sub, peer_id).await?;
 
-    enforce_rate_limit(
-        &state.redis,
-        format!("message:dm:{}:{}", channel_id, claims.sub),
-        state.message_rate_limit_max,
-        Duration::from_secs(state.message_rate_limit_window_secs),
-        "Message rate limit exceeded. Please slow down.",
-    )
-    .await?;
-
+    let client_request_id = normalize_client_request_id(body.client_request_id.as_deref())?;
     let content = body.content.unwrap_or_default();
     let normalized_attachments = state
         .attachment_service
@@ -599,10 +617,53 @@ async fn send_dm_message(
         ));
     }
 
+    let replayed_row = if let Some(request_id) = client_request_id.as_deref() {
+        find_dm_message_by_client_request_id(&state, channel_id, claims.sub, request_id).await?
+    } else {
+        None
+    };
+    if let Some(row) = replayed_row {
+        if row.content != content || row.attachments != normalized_attachments {
+            return Err(AppError::Conflict(
+                "client_request_id was already used for a different DM message".into(),
+            ));
+        }
+        let mut message: MessageWithAuthor = row.into();
+        attach_dm_message_reactions(
+            &state.db,
+            std::slice::from_mut(&mut message),
+            claims.sub,
+        )
+        .await?;
+        message.attachments = state
+            .attachment_service
+            .hydrate_attachments_for_output(
+                &state.db,
+                &state.jwt_secret,
+                message.attachments.clone(),
+            )
+            .await?;
+        return Ok(Json(message));
+    }
+
+    enforce_rate_limit(
+        &state.redis,
+        format!("message:dm:{}:{}", channel_id, claims.sub),
+        state.message_rate_limit_max,
+        Duration::from_secs(state.message_rate_limit_window_secs),
+        "Message rate limit exceeded. Please slow down.",
+    )
+    .await?;
+
     let id = Uuid::new_v4();
-    let row = sqlx::query_as::<_, DmMessageRow>(
-        r#"INSERT INTO dm_messages (id, channel_id, user_id, content, attachments, created_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
+    let inserted_row = sqlx::query_as::<_, DmMessageRow>(
+        r#"INSERT INTO dm_messages (
+               id, channel_id, user_id, content, attachments, client_request_id, created_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (channel_id, user_id, client_request_id)
+               WHERE client_request_id IS NOT NULL
+           DO NOTHING
            RETURNING id, channel_id, content, attachments, edited_at, created_at,
                      $3 as user_id,
                      (SELECT username FROM users WHERE id = $3) as username,
@@ -613,8 +674,31 @@ async fn send_dm_message(
     .bind(claims.sub)
     .bind(&content)
     .bind(&normalized_attachments)
-    .fetch_one(&state.db)
+    .bind(&client_request_id)
+    .fetch_optional(&state.db)
     .await?;
+
+    let (row, inserted) = if let Some(row) = inserted_row {
+        (row, true)
+    } else {
+        let request_id = client_request_id.as_deref().ok_or_else(|| {
+            AppError::Internal("DM insert returned no row without an idempotency key".into())
+        })?;
+        let row = find_dm_message_by_client_request_id(
+            &state,
+            channel_id,
+            claims.sub,
+            request_id,
+        )
+        .await?
+        .ok_or_else(|| AppError::Internal("Idempotent DM replay was not found".into()))?;
+        if row.content != content || row.attachments != normalized_attachments {
+            return Err(AppError::Conflict(
+                "client_request_id was already used for a different DM message".into(),
+            ));
+        }
+        (row, false)
+    };
 
     let mut message: MessageWithAuthor = row.into();
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
@@ -622,15 +706,17 @@ async fn send_dm_message(
         .attachment_service
         .hydrate_attachments_for_output(&state.db, &state.jwt_secret, message.attachments.clone())
         .await?;
-    mark_dm_read(&state, channel_id, claims.sub, Some(message.id)).await?;
-    publish_dm_read(&state, channel_id, claims.sub, Some(message.id)).await;
-    let event = WsEvent::NewMessage {
-        channel_id,
-        channel_type: "dm".to_string(),
-        message: message.clone(),
-    };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
-        tracing::warn!("Failed to push DM event to members: {}", e);
+    if inserted {
+        mark_dm_read(&state, channel_id, claims.sub, Some(message.id)).await?;
+        publish_dm_read(&state, channel_id, claims.sub, Some(message.id)).await;
+        let event = WsEvent::NewMessage {
+            channel_id,
+            channel_type: "dm".to_string(),
+            message: message.clone(),
+        };
+        if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+            tracing::warn!("Failed to push DM event to members: {}", e);
+        }
     }
     Ok(Json(message))
 }

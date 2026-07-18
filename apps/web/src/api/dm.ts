@@ -30,10 +30,16 @@ export const dmApi = {
             { token },
         ),
 
-    sendMessage: (channelId: string, content: string, attachments: unknown, token: AuthToken) =>
+    sendMessage: (
+        channelId: string,
+        content: string,
+        attachments: unknown,
+        token: AuthToken,
+        clientRequestId?: string,
+    ) =>
         apiFetch<MessageWithAuthor>(`/api/dm/messages/${channelId}`, {
             method: 'POST',
-            body: { content, attachments },
+            body: { content, attachments, client_request_id: clientRequestId },
             token,
         }),
 

@@ -212,6 +212,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [dmDraftAttachments, setDmDraftAttachments] = useState<DraftAttachmentItem[]>([])
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
+  const pendingDmMessageFingerprintsRef = useRef(new Set<string>())
   const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
   const pushToast = useToastStore((s) => s.pushToast)
@@ -749,6 +750,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const content = replyingToDm
       ? `> @${replyingToDm.username}: ${replyingToDm.contentSnippet}\n\n${bodyText}`
       : bodyText
+    const sendFingerprint = `${channelId}\n${content}\n${JSON.stringify(attachmentsToSend)}`
+    if (pendingDmMessageFingerprintsRef.current.has(sendFingerprint)) return
+    pendingDmMessageFingerprintsRef.current.add(sendFingerprint)
     setReplyingToDm(null)
     setDmInput('')
     setDmDraftAttachments([])
@@ -775,7 +779,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       return next
     })
     try {
-      const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token)
+      const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token, clientId)
       clearDmUnread(channelId)
       const applySentDm = (current: UiDmMessage[]) => {
         return reconcileConfirmedMessage(current, clientId, msg)
@@ -805,6 +809,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       } else {
         rememberDmMessages(channelId, applyFailedDm(dmMessagesByChannelRef.current[channelId] ?? []))
       }
+    } finally {
+      pendingDmMessageFingerprintsRef.current.delete(sendFingerprint)
     }
   }
 
@@ -822,7 +828,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         return next
       })
       try {
-        const msg = await dmApi.sendMessage(channelId, target.content, target.attachments ?? [], token)
+        const msg = await dmApi.sendMessage(
+          channelId,
+          target.content,
+          target.attachments ?? [],
+          token,
+          clientId,
+        )
         clearDmUnread(channelId)
         const applyRetriedDm = (current: UiDmMessage[]) => {
           if (current.some((m) => m.id === msg.id)) {

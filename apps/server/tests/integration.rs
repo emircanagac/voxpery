@@ -4371,3 +4371,309 @@ async fn attachment_content_rate_limit_runs_before_signature_and_storage_work() 
         String::from_utf8_lossy(&body)
     );
 }
+
+#[tokio::test]
+async fn message_and_dm_retries_create_one_persistent_message() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("idempotent-message-{suffix}@example.com"),
+        &format!("idem_msg_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let peer_suffix = Uuid::new_v4();
+    let (_, peer_id) = register_user(
+        &mut app,
+        &format!("idempotent-peer-{peer_suffix}@example.com"),
+        &format!("idem_peer_{}", peer_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth = format!("Bearer {token}");
+    let (_, channel_id, _) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &auth,
+        "Idempotent Message Server",
+    )
+    .await;
+
+    let message_request_id = format!("message-{suffix}");
+    let message_request = |content: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/messages/{channel_id}"))
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "content": content,
+                    "client_request_id": message_request_id
+                }))
+                .unwrap(),
+            ))
+            .unwrap()
+    };
+    let (first_status, first_body) = oneshot(&mut app, message_request("send once")).await;
+    let (retry_status, retry_body) = oneshot(&mut app, message_request("send once")).await;
+    assert_eq!(first_status, StatusCode::OK);
+    assert_eq!(retry_status, StatusCode::OK);
+    let first_message: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
+    let retried_message: serde_json::Value = serde_json::from_slice(&retry_body).unwrap();
+    assert_eq!(first_message["id"], retried_message["id"]);
+    let message_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE channel_id = $1 AND user_id = $2 AND client_request_id = $3",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(&message_request_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(message_count, 1);
+    let (conflict_status, _) = oneshot(&mut app, message_request("different content")).await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+
+    let dm_channel_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO dm_channels (id) VALUES ($1)")
+        .bind(dm_channel_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)",
+    )
+    .bind(dm_channel_id)
+    .bind(user_id)
+    .bind(peer_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let dm_request_id = format!("dm-{suffix}");
+    let dm_request = || {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/dm/messages/{dm_channel_id}"))
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "content": "send DM once",
+                    "client_request_id": dm_request_id
+                }))
+                .unwrap(),
+            ))
+            .unwrap()
+    };
+    let (first_status, first_body) = oneshot(&mut app, dm_request()).await;
+    let (retry_status, retry_body) = oneshot(&mut app, dm_request()).await;
+    assert_eq!(first_status, StatusCode::OK);
+    assert_eq!(retry_status, StatusCode::OK);
+    let first_dm: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
+    let retried_dm: serde_json::Value = serde_json::from_slice(&retry_body).unwrap();
+    assert_eq!(first_dm["id"], retried_dm["id"]);
+    let dm_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM dm_messages WHERE channel_id = $1 AND user_id = $2 AND client_request_id = $3",
+    )
+    .bind(dm_channel_id)
+    .bind(user_id)
+    .bind(&dm_request_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(dm_count, 1);
+}
+
+#[tokio::test]
+async fn server_create_retry_returns_the_original_server() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("idempotent-server-{suffix}@example.com"),
+        &format!("idem_server_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth = format!("Bearer {token}");
+    let request_id = format!("server-{suffix}");
+    let create_request = |name: &str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/servers")
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "name": name,
+                    "description": "Retry-safe server",
+                    "client_request_id": request_id
+                }))
+                .unwrap(),
+            ))
+            .unwrap()
+    };
+    let (first_status, first_body) = oneshot(&mut app, create_request("One Server")).await;
+    let (retry_status, retry_body) = oneshot(&mut app, create_request("One Server")).await;
+    assert_eq!(first_status, StatusCode::OK);
+    assert_eq!(retry_status, StatusCode::OK);
+    let first: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
+    let retry: serde_json::Value = serde_json::from_slice(&retry_body).unwrap();
+    assert_eq!(first["id"], retry["id"]);
+    let server_id = Uuid::parse_str(first["id"].as_str().unwrap()).unwrap();
+    let server_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM servers WHERE owner_id = $1 AND client_request_id = $2",
+    )
+    .bind(user_id)
+    .bind(&request_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(server_count, 1);
+    let channel_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(channel_count, 2);
+    let (conflict_status, _) = oneshot(&mut app, create_request("Changed Server")).await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn repeated_attachment_upload_reuses_storage_and_quota() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("idempotent-upload-{suffix}@example.com"),
+        &format!("idem_upload_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth = format!("Bearer {token}");
+    let upload_request = || {
+        let boundary = format!("----voxpery-idempotent-{suffix}");
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"retry.txt\"\r\nContent-Type: text/plain\r\n\r\nretry-safe upload\r\n--{boundary}--\r\n"
+        );
+        Request::builder()
+            .method("POST")
+            .uri("/api/attachments/upload")
+            .header("Authorization", &auth)
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body.into_bytes()))
+            .unwrap()
+    };
+    let (first_status, first_body) = oneshot(&mut app, upload_request()).await;
+    let (retry_status, retry_body) = oneshot(&mut app, upload_request()).await;
+    assert_eq!(first_status, StatusCode::OK);
+    assert_eq!(retry_status, StatusCode::OK);
+    let first: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
+    let retry: serde_json::Value = serde_json::from_slice(&retry_body).unwrap();
+    assert_eq!(first[0]["id"], retry[0]["id"]);
+    let attachment_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1 AND original_name = 'retry.txt'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(attachment_count, 1);
+    let storage_used: i64 =
+        sqlx::query_scalar("SELECT storage_used_bytes FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(storage_used, 17);
+}
+
+#[tokio::test]
+async fn concurrent_friend_requests_create_one_pending_pair() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let sender_suffix = Uuid::new_v4();
+    let (sender_token, sender_id) = register_user(
+        &mut app,
+        &format!("friend-idem-sender-{sender_suffix}@example.com"),
+        &format!("friend_sender_{}", sender_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let target_suffix = Uuid::new_v4();
+    let (target_token, target_id) = register_user(
+        &mut app,
+        &format!("friend-idem-target-{target_suffix}@example.com"),
+        &format!("friend_target_{}", target_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let sender_auth = format!("Bearer {sender_token}");
+    let target_auth = format!("Bearer {target_token}");
+    let sender_username: String =
+        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+            .bind(sender_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let target_username: String =
+        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+            .bind(target_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let friend_request = |auth: &str, username: &str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/friends/requests")
+            .header("Authorization", auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "username": username })).unwrap(),
+            ))
+            .unwrap()
+    };
+    let (request_a, request_b) = tokio::join!(
+        app.clone()
+            .oneshot(friend_request(&sender_auth, &target_username)),
+        app.clone()
+            .oneshot(friend_request(&target_auth, &sender_username))
+    );
+    assert_eq!(request_a.unwrap().status(), StatusCode::OK);
+    assert_eq!(request_b.unwrap().status(), StatusCode::OK);
+    let pending_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM friend_requests
+           WHERE status = 'pending'
+             AND LEAST(requester_id, receiver_id) = LEAST($1::uuid, $2::uuid)
+             AND GREATEST(requester_id, receiver_id) = GREATEST($1::uuid, $2::uuid)"#,
+    )
+    .bind(sender_id)
+    .bind(target_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(pending_count, 1);
+}

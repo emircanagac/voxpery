@@ -15,10 +15,16 @@ export const messageApi = {
             { token },
         ),
 
-    send: (channelId: string, content: string, attachments: unknown, token: AuthToken) =>
+    send: (
+        channelId: string,
+        content: string,
+        attachments: unknown,
+        token: AuthToken,
+        clientRequestId?: string,
+    ) =>
         apiFetch<MessageWithAuthor>(`/api/messages/${channelId}`, {
             method: 'POST',
-            body: { content, attachments },
+            body: { content, attachments, client_request_id: clientRequestId },
             token,
         }),
 

@@ -25,6 +25,7 @@ use crate::{
         automod::AutoModRule,
         avatar_images::validate_server_icon_image_url,
         client_ip::resolve_client_ip,
+        idempotency::{acquire_transaction_lock, normalize_client_request_id},
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
@@ -564,14 +565,44 @@ async fn create_server(
     }
 
     let icon_url = validate_server_icon_url(body.icon_url.as_deref())?;
+    let client_request_id = normalize_client_request_id(body.client_request_id.as_deref())?;
 
     let server_id = Uuid::new_v4();
     let invite_code = generate_invite_code();
     let mut tx = state.db.begin().await?;
 
+    if let Some(request_id) = client_request_id.as_deref() {
+        acquire_transaction_lock(
+            &mut tx,
+            &format!("server-create:{}:{}", claims.sub, request_id),
+        )
+        .await?;
+        let existing = sqlx::query_as::<_, Server>(
+            "SELECT * FROM servers WHERE owner_id = $1 AND client_request_id = $2",
+        )
+        .bind(claims.sub)
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(existing) = existing {
+            if existing.name != body.name
+                || existing.icon_url != icon_url
+                || existing.description != body.description
+            {
+                return Err(AppError::Conflict(
+                    "client_request_id was already used for a different server".into(),
+                ));
+            }
+            tx.commit().await?;
+            return Ok(Json(existing));
+        }
+    }
+
     let server = sqlx::query_as::<_, Server>(
-        r#"INSERT INTO servers (id, name, icon_url, description, owner_id, invite_code, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        r#"INSERT INTO servers (
+               id, name, icon_url, description, owner_id, invite_code, client_request_id, created_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            RETURNING *"#,
     )
     .bind(server_id)
@@ -580,6 +611,7 @@ async fn create_server(
     .bind(&body.description)
     .bind(claims.sub)
     .bind(&invite_code)
+    .bind(&client_request_id)
     .fetch_one(&mut *tx)
     .await?;
 

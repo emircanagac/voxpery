@@ -18,6 +18,7 @@ use crate::{
     },
     services::{
         automod,
+        idempotency::normalize_client_request_id,
         moderation,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
@@ -175,6 +176,39 @@ struct MessageRow {
     username: String,
     avatar_url: Option<String>,
     role_color: Option<String>,
+}
+
+async fn find_message_by_client_request_id(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    client_request_id: &str,
+) -> Result<Option<MessageRow>, AppError> {
+    Ok(sqlx::query_as::<_, MessageRow>(
+        r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                  u.id AS user_id, u.username, u.avatar_url,
+                  (
+                      SELECT sr.color
+                      FROM server_roles sr
+                      INNER JOIN server_member_roles smr ON sr.id = smr.role_id
+                      INNER JOIN channels c ON c.server_id = sr.server_id
+                      WHERE smr.user_id = m.user_id
+                        AND c.id = m.channel_id
+                        AND sr.color IS NOT NULL
+                      ORDER BY sr.position ASC
+                      LIMIT 1
+                  ) AS role_color
+           FROM messages m
+           INNER JOIN users u ON u.id = m.user_id
+           WHERE m.channel_id = $1
+             AND m.user_id = $2
+             AND m.client_request_id = $3"#,
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(client_request_id)
+    .fetch_optional(&state.db)
+    .await?)
 }
 
 impl From<MessageRow> for MessageWithAuthor {
@@ -654,15 +688,7 @@ async fn send_message(
     let server_id = server_id_for_channel(&state.db, channel_id).await?;
     moderation::ensure_not_timed_out(&state.db, server_id, claims.sub).await?;
 
-    enforce_rate_limit(
-        &state.redis,
-        format!("message:channel:{}:{}", channel_id, claims.sub),
-        state.message_rate_limit_max,
-        Duration::from_secs(state.message_rate_limit_window_secs),
-        "Message rate limit exceeded. Please slow down.",
-    )
-    .await?;
-
+    let client_request_id = normalize_client_request_id(body.client_request_id.as_deref())?;
     let raw_content = body.content.unwrap_or_default();
     let content = if can_use_mass_mentions(channel_perms) {
         raw_content
@@ -685,6 +711,39 @@ async fn send_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
+    let replayed_row = if let Some(request_id) = client_request_id.as_deref() {
+        find_message_by_client_request_id(&state, channel_id, claims.sub, request_id).await?
+    } else {
+        None
+    };
+    if let Some(row) = replayed_row {
+        if row.content != content || row.attachments != normalized_attachments {
+            return Err(AppError::Conflict(
+                "client_request_id was already used for a different message".into(),
+            ));
+        }
+        let mut message: MessageWithAuthor = row.into();
+        attach_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;
+        message.attachments = state
+            .attachment_service
+            .hydrate_attachments_for_output(
+                &state.db,
+                &state.jwt_secret,
+                message.attachments.clone(),
+            )
+            .await?;
+        return Ok(Json(message));
+    }
+
+    enforce_rate_limit(
+        &state.redis,
+        format!("message:channel:{}:{}", channel_id, claims.sub),
+        state.message_rate_limit_max,
+        Duration::from_secs(state.message_rate_limit_window_secs),
+        "Message rate limit exceeded. Please slow down.",
+    )
+    .await?;
+
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
@@ -706,10 +765,15 @@ async fn send_message(
     .await?;
 
     // Insert and fetch with author in one round-trip using CTE
-    let row = sqlx::query_as::<_, MessageRow>(
+    let inserted_row = sqlx::query_as::<_, MessageRow>(
         r#"WITH new_msg AS (
-               INSERT INTO messages (id, channel_id, user_id, content, attachments, created_at)
-               VALUES ($1, $2, $3, $4, $5, NOW())
+               INSERT INTO messages (
+                   id, channel_id, user_id, content, attachments, client_request_id, created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+               ON CONFLICT (channel_id, user_id, client_request_id)
+                   WHERE client_request_id IS NOT NULL
+               DO NOTHING
                RETURNING *
            )
            SELECT nm.id, nm.channel_id, nm.content, nm.attachments, nm.edited_at, nm.created_at,
@@ -733,8 +797,26 @@ async fn send_message(
     .bind(claims.sub)
     .bind(&content)
     .bind(&normalized_attachments)
-    .fetch_one(&state.db)
+    .bind(&client_request_id)
+    .fetch_optional(&state.db)
     .await?;
+
+    let (row, inserted) = if let Some(row) = inserted_row {
+        (row, true)
+    } else {
+        let request_id = client_request_id.as_deref().ok_or_else(|| {
+            AppError::Internal("Message insert returned no row without an idempotency key".into())
+        })?;
+        let row = find_message_by_client_request_id(&state, channel_id, claims.sub, request_id)
+            .await?
+            .ok_or_else(|| AppError::Internal("Idempotent message replay was not found".into()))?;
+        if row.content != content || row.attachments != normalized_attachments {
+            return Err(AppError::Conflict(
+                "client_request_id was already used for a different message".into(),
+            ));
+        }
+        (row, false)
+    };
 
     let mut msg_with_author: MessageWithAuthor = row.into();
     attach_message_reactions(
@@ -752,16 +834,18 @@ async fn send_message(
         )
         .await?;
 
-    // Broadcast to WebSocket subscribers
-    crate::ws::publish_event(
-        &state,
-        WsEvent::NewMessage {
-            channel_id,
-            channel_type: "text".to_string(), // Text channel messages
-            message: msg_with_author.clone(),
-        },
-    )
-    .await;
+    // Replayed requests return the original message without broadcasting it twice.
+    if inserted {
+        crate::ws::publish_event(
+            &state,
+            WsEvent::NewMessage {
+                channel_id,
+                channel_type: "text".to_string(), // Text channel messages
+                message: msg_with_author.clone(),
+            },
+        )
+        .await;
+    }
 
     Ok(Json(msg_with_author))
 }

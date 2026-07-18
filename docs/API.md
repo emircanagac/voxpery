@@ -78,6 +78,7 @@ Notes:
 
 - `GET /api/servers`
 - `POST /api/servers`
+  - Optional `client_request_id` (1-128 URL-safe characters) makes retries return the originally created server. Reusing the ID with different server data returns `409`.
 - `GET /api/servers/:server_id`
 - `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
 - `DELETE /api/servers/:server_id` (owner)
@@ -171,6 +172,7 @@ Notes:
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
   - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
   - Multi-file uploads are all-or-nothing. If validation, quota reservation, metadata persistence, or transaction commit fails, database changes are rolled back and files already written for that request are removed.
+  - Retry-equivalent files from the same user reuse the existing clean attachment record and do not consume storage quota twice.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
@@ -192,6 +194,7 @@ Notes:
   - `from` filters by message author username.
   - `has_attachment=true` returns only messages with one or more attachments.
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
+  - Optional `client_request_id` makes network retries return the original message without a second database row or WebSocket broadcast. Reusing the ID with different content returns `409`.
 - `PATCH /api/messages/item/:message_id` (author only)
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
 - Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast. Keyword, link, invite, and mention-spam checks normalize invisible Unicode format/control characters before matching.
@@ -219,6 +222,7 @@ Notes:
 - `DELETE /api/friends/:friend_id`
 - `GET /api/friends/requests`
 - `POST /api/friends/requests`
+  - Concurrent requests for the same unordered user pair create at most one pending request.
 - `POST /api/friends/requests/:request_id/accept`
 - `POST /api/friends/requests/:request_id/reject`
 
@@ -236,6 +240,7 @@ Notes:
   - `from` filters by message author username.
   - `has_attachment=true` returns only messages with one or more attachments.
 - `POST /api/dm/messages/:channel_id`
+  - Supports the same optional `client_request_id` retry contract as server-channel messages.
 - `PATCH /api/dm/messages/item/:message_id`
 - `DELETE /api/dm/messages/item/:message_id`
 - `GET /api/dm/channels/:channel_id/read-state`

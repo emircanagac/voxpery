@@ -5,6 +5,7 @@ pub mod automod;
 pub mod auth;
 pub mod client_ip;
 pub mod email;
+pub mod idempotency;
 pub mod jwt_blacklist;
 pub mod moderation;
 pub mod permissions;

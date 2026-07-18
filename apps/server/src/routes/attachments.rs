@@ -17,6 +17,7 @@ use crate::{
     middleware::auth::{require_auth, Claims},
     services::{
         attachments::AttachmentResponseItem,
+        idempotency::acquire_transaction_lock,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
     },
@@ -159,6 +160,51 @@ async fn process_attachment_upload(
             .attachment_service
             .prepare_file_for_storage(&file_name, &content_type, &bytes)
             .await?;
+
+        acquire_transaction_lock(
+            tx,
+            &format!(
+                "attachment-upload:{}:{}:{}:{}:{}",
+                user_id,
+                prepared.sha256,
+                prepared.size_bytes,
+                prepared.content_type,
+                prepared.original_name
+            ),
+        )
+        .await?;
+        let existing = sqlx::query_as::<_, (Uuid, String, String, i64, String)>(
+            r#"SELECT id, content_type, original_name, size_bytes, sha256
+               FROM uploaded_attachments
+               WHERE user_id = $1
+                 AND sha256 = $2
+                 AND size_bytes = $3
+                 AND content_type = $4
+                 AND original_name = $5
+                 AND scan_status = 'clean'
+               ORDER BY created_at ASC
+               LIMIT 1"#,
+        )
+        .bind(user_id)
+        .bind(&prepared.sha256)
+        .bind(prepared.size_bytes)
+        .bind(&prepared.content_type)
+        .bind(&prepared.original_name)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some((id, content_type, original_name, size_bytes, sha256)) = existing {
+            uploaded.push(AttachmentResponseItem {
+                id,
+                url: state
+                    .attachment_service
+                    .signed_content_url(id, &state.jwt_secret),
+                content_type,
+                name: original_name,
+                size: size_bytes,
+                sha256,
+            });
+            continue;
+        }
 
         let reserve_result = sqlx::query_scalar::<_, Uuid>(
             r#"UPDATE users

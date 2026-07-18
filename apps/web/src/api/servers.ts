@@ -11,8 +11,17 @@ export const serverApi = {
     get: (serverId: string, token: AuthToken) =>
         apiFetch<ServerDetail>(`/api/servers/${serverId}`, { token }),
 
-    create: (name: string, description: string | undefined, token: AuthToken) =>
-        apiFetch<Server>('/api/servers', { method: 'POST', body: { name, description }, token }),
+    create: (
+        name: string,
+        description: string | undefined,
+        token: AuthToken,
+        clientRequestId?: string,
+    ) =>
+        apiFetch<Server>('/api/servers', {
+            method: 'POST',
+            body: { name, description, client_request_id: clientRequestId },
+            token,
+        }),
 
     update: (
         serverId: string,
