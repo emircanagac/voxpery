@@ -248,7 +248,10 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Validation**:
   - per-file size limit (`ATTACHMENTS_MAX_FILE_BYTES`, default 10 MB)
   - per-request file count limit (`ATTACHMENTS_MAX_FILES_PER_REQUEST`)
-  - MIME allowlist (`ATTACHMENTS_ALLOWED_MIME_PREFIXES`; ZIP includes `application/zip` and `application/x-zip-compressed`)
+  - declared MIME allowlist (`ATTACHMENTS_ALLOWED_MIME_PREFIXES`) followed by server-side magic-byte detection
+  - declared/detected MIME mismatches, unidentified binary data, executable signatures/installers/scripts, and active HTML/XML/SVG content are rejected
+  - generic `application/octet-stream` declarations are accepted only when the actual content resolves to a supported allowlisted type; the canonical detected MIME is persisted and served
+  - JPEG and PNG uploads are decoded with dimension/allocation limits and re-encoded before scanning and storage to remove metadata and appended payloads
 - **Malware scan**:
   - Optional ClamAV (`ATTACHMENTS_CLAMAV_ENABLED=1`)
   - `ATTACHMENTS_CLAMAV_FAIL_CLOSED=1` blocks uploads if scanner is unavailable

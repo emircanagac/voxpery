@@ -2934,6 +2934,59 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
 }
 
 #[tokio::test]
+async fn attachment_upload_rejects_mime_spoofed_executable() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("upload-spoof-{}@example.com", uid);
+    let username = format!("upload_spoof_{}", uid.as_u128() % 1_000_000);
+    let password = test_credential("default");
+    let (token, user_id) = register_user(&mut app, &email, &username, password).await;
+    let auth = format!("Bearer {}", token);
+
+    let boundary = format!("----voxperyspoof{}", Uuid::new_v4());
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"photo.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(b"MZfake-portable-executable");
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    let (status, response_body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "spoofed executable should be rejected: {}",
+        String::from_utf8_lossy(&response_body)
+    );
+
+    let stored_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored_count, 0, "rejected content must not be persisted");
+}
+
+#[tokio::test]
 async fn websocket_rejects_query_token_but_accepts_protocol_token() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

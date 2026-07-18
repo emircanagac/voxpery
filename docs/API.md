@@ -166,9 +166,10 @@ Notes:
 - `POST /api/attachments/upload` (auth required)
   - `multipart/form-data` with one or more `files` fields.
   - Default per-file limit is 10 MB (`ATTACHMENTS_MAX_FILE_BYTES=10485760`).
-  - Default MIME allowlist includes ZIP uploads from common browsers/Windows (`application/zip`, `application/x-zip-compressed`) but not executable installers.
+  - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME.
+  - Generic `application/octet-stream` declarations remain compatible with files whose actual type is safely detected, including ZIP uploads from browsers that do not report a specific ZIP MIME.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: MIME/size validation -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
+  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
