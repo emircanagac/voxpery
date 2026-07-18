@@ -71,6 +71,7 @@ cargo run
 npm ci
 npm run lint
 npm run build
+npm run check:initial-bundle
 npm run dev
 ```
 
@@ -93,7 +94,7 @@ Runs on `push` and `pull_request`:
 
 - `Secret Scan (gitleaks)` (containerized CLI)
 - `Backend` (`cargo check`, then unit and integration tests against isolated PostgreSQL and Redis services)
-- `Frontend` (`npm ci`, `npm run lint`, `npm run build`)
+- `Frontend` (`npm ci`, lint, tests, Playwright smoke coverage, production build, and the initial JavaScript budget check)
 
 ### `.github/workflows/dependency-security.yml`
 

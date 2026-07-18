@@ -54,6 +54,7 @@ cargo test
 cd ../web
 npm run lint
 npm run build
+npm run check:initial-bundle
 ```
 
 ## Documentation Sync (Required)

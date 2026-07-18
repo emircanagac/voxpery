@@ -4,20 +4,16 @@ import { useAppStore } from './stores/app'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'
 import { isTauri, setSecureToken } from './secureStorage'
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link'
-import { listen } from '@tauri-apps/api/event'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
 import GlobalLoading from './components/GlobalLoading'
-import AppShell from './pages/AppShell'
-import UnifiedLayout from './pages/UnifiedLayout'
-import { preloadRnnoiseWorklet } from './webrtc/rnnoise'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
-import { bootstrapDesktopAutostartDefault } from './desktopSettings'
 
+const AppShell = lazy(() => import('./pages/AppShell'))
+const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
@@ -86,9 +82,11 @@ function App() {
 
   useEffect(() => {
     if (!isDesktopApp) return
-    void bootstrapDesktopAutostartDefault().catch(() => {
-      // UserBar still exposes the manual control if the OS startup registration fails.
-    })
+    void import('./desktopSettings')
+      .then(({ bootstrapDesktopAutostartDefault }) => bootstrapDesktopAutostartDefault())
+      .catch(() => {
+        // UserBar still exposes the manual control if the OS startup registration fails.
+      })
   }, [isDesktopApp])
 
   useEffect(() => {
@@ -124,6 +122,7 @@ function App() {
       // Listen for deep links (Google OAuth callback)
       let unlisten: (() => void) | undefined
       let unlistenCustom: (() => void) | undefined
+      let disposed = false
 
       const handleDeepLinkUrl = (url: string) => {
         try {
@@ -151,21 +150,30 @@ function App() {
         }
       }
 
-      onOpenUrl((urls) => {
-        for (const url of urls) {
-          handleDeepLinkUrl(url)
-        }
-      })
-        .then((fn) => { unlisten = fn })
+      void import('@tauri-apps/plugin-deep-link')
+        .then(({ onOpenUrl }) => onOpenUrl((urls) => {
+          for (const url of urls) {
+            handleDeepLinkUrl(url)
+          }
+        }))
+        .then((fn) => {
+          if (disposed) fn()
+          else unlisten = fn
+        })
         .catch(console.error)
 
-      listen<string>('custom-deep-link', (event: { payload: string }) => {
-        handleDeepLinkUrl(event.payload)
-      })
-        .then((fn: () => void) => { unlistenCustom = fn })
+      void import('@tauri-apps/api/event')
+        .then(({ listen }) => listen<string>('custom-deep-link', (event: { payload: string }) => {
+          handleDeepLinkUrl(event.payload)
+        }))
+        .then((fn) => {
+          if (disposed) fn()
+          else unlistenCustom = fn
+        })
         .catch(console.error)
 
       return () => {
+        disposed = true
         if (unlisten) unlisten()
         if (unlistenCustom) unlistenCustom()
       }
@@ -289,7 +297,9 @@ function RnnoisePreloadOnInteraction() {
     const run = () => {
       if (done.current) return
       done.current = true
-      preloadRnnoiseWorklet()
+      void import('./webrtc/rnnoise')
+        .then(({ preloadRnnoiseWorklet }) => preloadRnnoiseWorklet())
+        .catch(() => {})
       document.removeEventListener('click', run)
       document.removeEventListener('keydown', run)
     }

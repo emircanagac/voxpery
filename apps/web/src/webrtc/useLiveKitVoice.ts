@@ -5,6 +5,7 @@ import {
   RemoteParticipant,
   Room,
   RoomEvent,
+  setLogLevel,
   Track,
   type RemoteTrackPublication,
   type TrackPublishOptions,
@@ -26,6 +27,10 @@ import {
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
 import type { RemoteMediaKind } from './remoteMediaControls'
+
+if (import.meta.env.PROD) {
+  setLogLevel('silent')
+}
 
 type PeerId = string
 type RemoteMediaStartCueKind = 'camera' | 'screen'
