@@ -258,7 +258,9 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
   - Docker Compose keeps ClamAV disabled by default; enable it explicitly with `--profile security`
 - **Storage backends**:
   - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
+  - Local files are written to a same-directory temporary path, flushed, and atomically renamed so partially written files are never exposed under final storage keys
   - Upload metadata persisted in `uploaded_attachments`
+  - Multi-file requests reserve quota and insert metadata in one database transaction; any request or commit failure rolls back the transaction and removes every file already finalized by that request
 - **Delivery model**:
   - Files are not exposed under a permanent public `/uploads` route.
   - API returns short-lived signed URLs (`/api/attachments/content/:id?exp=...&sig=...`).

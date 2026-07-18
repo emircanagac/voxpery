@@ -80,10 +80,49 @@ async fn upload_attachments(
     )
     .await?;
 
+    let mut tx = state.db.begin().await?;
+    let mut stored_keys = Vec::new();
+    let upload_result = process_attachment_upload(
+        &state,
+        claims.sub,
+        &mut multipart,
+        &mut tx,
+        &mut stored_keys,
+    )
+    .await;
+
+    match upload_result {
+        Ok(uploaded) => {
+            if let Err(error) = tx.commit().await {
+                cleanup_failed_upload_files(&state, &stored_keys).await;
+                return Err(error.into());
+            }
+            Ok(Json(uploaded))
+        }
+        Err(error) => {
+            if let Err(rollback_error) = tx.rollback().await {
+                tracing::error!(
+                    user_id = %claims.sub,
+                    error = %rollback_error,
+                    "Failed to roll back attachment upload transaction"
+                );
+            }
+            cleanup_failed_upload_files(&state, &stored_keys).await;
+            Err(error)
+        }
+    }
+}
+
+async fn process_attachment_upload(
+    state: &Arc<AppState>,
+    user_id: Uuid,
+    multipart: &mut Multipart,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    stored_keys: &mut Vec<String>,
+) -> Result<Vec<AttachmentResponseItem>, AppError> {
     let mut uploaded = Vec::<AttachmentResponseItem>::new();
     let mut file_count = 0usize;
     let max_files = state.attachment_service.max_files_per_request();
-    let mut tx = state.db.begin().await?;
 
     while let Some(field) = multipart
         .next_field()
@@ -126,9 +165,9 @@ async fn upload_attachments(
                RETURNING id"#,
         )
         .bind(prepared.size_bytes)
-        .bind(claims.sub)
+        .bind(user_id)
         .bind(FREE_TIER_STORAGE_QUOTA_BYTES)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
 
         if reserve_result.is_none() {
@@ -141,9 +180,10 @@ async fn upload_attachments(
             .attachment_service
             .store_prepared_file(prepared)
             .await?;
+        stored_keys.push(stored.storage_key.clone());
 
         let attachment_id = Uuid::new_v4();
-        let insert_result = sqlx::query(
+        sqlx::query(
             r#"INSERT INTO uploaded_attachments (
                    id,
                    user_id,
@@ -159,22 +199,15 @@ async fn upload_attachments(
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'clean',NOW())"#,
         )
         .bind(attachment_id)
-        .bind(claims.sub)
+        .bind(user_id)
         .bind(stored.storage_backend)
         .bind(&stored.storage_key)
         .bind(&stored.original_name)
         .bind(&stored.content_type)
         .bind(stored.size_bytes)
         .bind(&stored.sha256)
-        .execute(&mut *tx)
-        .await;
-        if let Err(e) = insert_result {
-            let _ = state
-                .attachment_service
-                .delete_local_file_by_storage_key(&stored.storage_key)
-                .await;
-            return Err(e.into());
-        }
+        .execute(&mut **tx)
+        .await?;
 
         uploaded.push(AttachmentResponseItem {
             id: attachment_id,
@@ -193,9 +226,24 @@ async fn upload_attachments(
             "No files received. Use multipart field name 'files'.".into(),
         ));
     }
-    tx.commit().await?;
 
-    Ok(Json(uploaded))
+    Ok(uploaded)
+}
+
+async fn cleanup_failed_upload_files(state: &Arc<AppState>, stored_keys: &[String]) {
+    for storage_key in stored_keys.iter().rev() {
+        if let Err(error) = state
+            .attachment_service
+            .delete_local_file_by_storage_key(storage_key)
+            .await
+        {
+            tracing::error!(
+                storage_key,
+                error = %error,
+                "Failed to clean up attachment after upload rollback"
+            );
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]

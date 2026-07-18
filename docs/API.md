@@ -169,7 +169,8 @@ Notes:
   - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME.
   - Generic `application/octet-stream` declarations remain compatible with files whose actual type is safely detected, including ZIP uploads from browsers that do not report a specific ZIP MIME.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> local storage -> metadata insert -> short-lived signed URL.
+  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
+  - Multi-file uploads are all-or-nothing. If validation, quota reservation, metadata persistence, or transaction commit fails, database changes are rolled back and files already written for that request are removed.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
