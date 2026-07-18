@@ -7,7 +7,7 @@ use axum::{
     body::{to_bytes, Body},
     extract::{DefaultBodyLimit, State},
     http::{header, Method, StatusCode},
-    middleware::map_response,
+    middleware::{from_fn_with_state, map_response},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -269,6 +269,8 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .allow_credentials(true);
 
     const BODY_LIMIT: usize = 10 * 1024 * 1024;
+    let cookie_csrf =
+        middleware::csrf::CookieCsrfConfig::new(state.cookie_name.clone(), cors_origins.clone());
 
     let app = Router::new()
         .route("/health", get(health_handler))
@@ -289,6 +291,10 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(map_response(sanitize_verbose_client_errors))
+        .layer(from_fn_with_state(
+            cookie_csrf,
+            middleware::csrf::protect_cookie_authenticated_writes,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors);
 

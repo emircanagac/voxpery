@@ -12,6 +12,11 @@ REST API for auth, servers, channels/categories, messages/reactions, friends, DM
 - Web: httpOnly cookie (`voxpery_token` by default)
 - Desktop: `Authorization: Bearer <jwt>`
 
+Cookie-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests must come from an
+origin listed in `CORS_ORIGINS`. The API verifies `Origin` (or same-origin `Referer`
+when `Origin` is absent); cross-site cookie mutations return `403`. Bearer-authenticated
+desktop requests are not subject to browser CSRF checks.
+
 ## Authorization Model
 
 Role/permission system is bitmask-based (`apps/server/src/services/permissions.rs`).
