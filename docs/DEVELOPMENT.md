@@ -50,6 +50,7 @@ Important keys:
 - `JWT_SECRET`, `JWT_EXPIRATION`
 - `CORS_ORIGINS`
 - `COOKIE_SECURE`, `AUTH_COOKIE_NAME`
+- `TRUSTED_PROXY_CIDRS` (leave empty unless requests arrive through a known proxy)
 - `LIVEKIT_WS_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 - `LIVEKIT_NODE_IP` (set to server public IPv4 in production; optional in local dev)
 - `VITE_API_URL`

@@ -12,7 +12,7 @@ use base64::{
 };
 use redis::AsyncCommands;
 use sha2::{Digest, Sha256};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
@@ -29,6 +29,7 @@ use crate::{
     },
     services::auth::{generate_token, hash_password, verify_password},
     services::avatar_images::validate_profile_avatar_url,
+    services::client_ip::resolve_client_ip,
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
     AppState,
@@ -293,38 +294,16 @@ fn visible_presence_from_preference(status: &str) -> &'static str {
     }
 }
 
-fn parse_forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
-    headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|raw| raw.split(',').next().map(str::trim))
-        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
-}
-
-fn is_trusted_proxy_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
-    }
-}
-
 fn extract_client_ip(
+    state: &AppState,
     headers: &HeaderMap,
     connect_info: Option<&ConnectInfo<SocketAddr>>,
 ) -> Option<String> {
-    let Some(peer_ip) = connect_info.map(|info| info.ip()) else {
-        return None;
-    };
-    if is_trusted_proxy_ip(&peer_ip) {
-        Some(
-            parse_forwarded_client_ip(headers)
-                .unwrap_or(peer_ip)
-                .to_string(),
-        )
-    } else {
-        Some(peer_ip.to_string())
-    }
+    resolve_client_ip(
+        headers,
+        connect_info.map(|info| info.ip()),
+        &state.trusted_proxies,
+    )
 }
 
 fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
@@ -715,7 +694,11 @@ async fn register(
     .await?;
 
     // 2) IP-based rate limit (Flood protection)
-    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
+    let client_ip = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
 
     // Allow max 5 accounts per IP per hour as basic flood protection
     if let Some(ip) = client_ip.as_deref() {
@@ -1197,7 +1180,11 @@ async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let identifier = body.identifier.trim().to_lowercase();
-    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
+    let client_ip = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
 
     enforce_rate_limit(
         &state.redis,
@@ -2884,7 +2871,11 @@ async fn forgot_password(
     }
 
     let email = body.email.trim().to_lowercase();
-    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
+    let client_ip = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
     let generic_ok = || {
         Json(
             serde_json::json!({ "message": "If an account with that email exists, we have sent a password reset link." }),

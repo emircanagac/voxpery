@@ -3,6 +3,7 @@ pub mod avatar_images;
 pub mod audit;
 pub mod automod;
 pub mod auth;
+pub mod client_ip;
 pub mod email;
 pub mod jwt_blacklist;
 pub mod moderation;

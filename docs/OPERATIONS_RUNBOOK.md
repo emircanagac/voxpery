@@ -140,12 +140,17 @@ Environment variables:
 - `LOGIN_FAILURE_MAX_ATTEMPTS` (default: `8`)
 - `LOGIN_FAILURE_IP_MAX_ATTEMPTS` (default: `20`)
 - `LOGIN_FAILURE_WINDOW_SECS` (default: `900`)
+- `TRUSTED_PROXY_CIDRS` (default: empty; comma-separated proxy IPs/CIDRs)
 
 Behavior:
 
 - Sliding-window rate limit still applies.
 - Repeated failed login attempts trigger temporary lockouts per identifier and per IP.
 - Successful login clears failure counters.
+- Forwarded client-IP headers are ignored unless the direct peer matches
+  `TRUSTED_PROXY_CIDRS`. The resolver walks `X-Forwarded-For` from the trusted edge
+  and uses the first untrusted address, preventing a client-supplied leftmost value
+  from replacing the actual rate-limit identity.
 
 ## 5) Log Review
 

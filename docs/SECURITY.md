@@ -138,6 +138,11 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **WebSocket connect**: 3 attempts per 10 seconds per user
 - **WebSocket frames**: 120 frames per 10 seconds per user
 
+Client-IP rate limits use the direct socket peer by default. `X-Forwarded-For`,
+`X-Real-IP`, and `CF-Connecting-IP` are accepted only when the direct peer belongs
+to an explicitly configured `TRUSTED_PROXY_CIDRS` range. Trust-all CIDRs are rejected
+at startup, and forwarded chains are evaluated from the trusted proxy edge.
+
 ### Implementation
 
 Rate limits are enforced with Redis sliding windows (`ZSET` based). Cleanup, count, insert, and expiry run inside one Redis Lua script so each rate-limit decision is atomic across concurrent app instances. Each hit uses a unique sorted-set member to avoid same-millisecond request collapse:
