@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::errors::AppError;
@@ -32,10 +32,19 @@ pub async fn get_user_server_permissions(
     server_id: Uuid,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
+    let mut connection = db.acquire().await?;
+    get_user_server_permissions_on_connection(&mut connection, server_id, user_id).await
+}
+
+pub async fn get_user_server_permissions_on_connection(
+    db: &mut PgConnection,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<Permissions, AppError> {
     // Owner always has all permissions.
     let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
         .bind(server_id)
-        .fetch_optional(db)
+        .fetch_optional(&mut *db)
         .await?;
 
     if owner_id.map(|id| id == user_id).unwrap_or(false) {
@@ -48,7 +57,7 @@ pub async fn get_user_server_permissions(
     )
     .bind(server_id)
     .bind(user_id)
-    .fetch_one(db)
+    .fetch_one(&mut *db)
     .await?;
     if is_member == 0 {
         return Ok(Permissions::empty());
@@ -71,7 +80,7 @@ pub async fn get_user_server_permissions(
     )
     .bind(server_id)
     .bind(user_id)
-    .fetch_all(db)
+    .fetch_all(&mut *db)
     .await?;
 
     let mut perms = Permissions::empty();
@@ -94,11 +103,20 @@ pub async fn get_user_channel_permissions(
     channel_id: Uuid,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
+    let mut connection = db.acquire().await?;
+    get_user_channel_permissions_on_connection(&mut connection, channel_id, user_id).await
+}
+
+pub async fn get_user_channel_permissions_on_connection(
+    db: &mut PgConnection,
+    channel_id: Uuid,
+    user_id: Uuid,
+) -> Result<Permissions, AppError> {
     // Resolve server_id and category from channel.
     let channel_row: Option<(Uuid, Option<String>)> =
         sqlx::query_as("SELECT server_id, category FROM channels WHERE id = $1")
             .bind(channel_id)
-            .fetch_optional(db)
+            .fetch_optional(&mut *db)
             .await?;
 
     let (server_id, category) = match channel_row {
@@ -106,7 +124,8 @@ pub async fn get_user_channel_permissions(
         None => return Ok(Permissions::empty()),
     };
 
-    let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+    let mut perms: Permissions =
+        get_user_server_permissions_on_connection(&mut *db, server_id, user_id).await?;
     // Full admin (MANAGE_SERVER) bypasses channel/category overrides.
     if perms.contains(Permissions::MANAGE_SERVER) {
         return Ok(Permissions::all());
@@ -135,7 +154,7 @@ pub async fn get_user_channel_permissions(
         .bind(server_id)
         .bind(user_id)
         .bind(category_name)
-        .fetch_all(db)
+        .fetch_all(&mut *db)
         .await?;
 
         let mut deny_mask = Permissions::empty();
@@ -174,7 +193,7 @@ pub async fn get_user_channel_permissions(
     .bind(server_id)
     .bind(user_id)
     .bind(channel_id)
-    .fetch_all(db)
+    .fetch_all(&mut *db)
     .await?;
 
     let mut deny_mask = Permissions::empty();
@@ -272,6 +291,20 @@ pub async fn ensure_server_permission(
     }
 }
 
+pub async fn ensure_server_permission_on_connection(
+    db: &mut PgConnection,
+    server_id: Uuid,
+    user_id: Uuid,
+    required: Permissions,
+) -> Result<(), AppError> {
+    let perms = get_user_server_permissions_on_connection(db, server_id, user_id).await?;
+    if perms.contains(required) {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden("Missing required permission".into()))
+    }
+}
+
 pub async fn ensure_channel_permission(
     db: &PgPool,
     channel_id: Uuid,
@@ -279,6 +312,20 @@ pub async fn ensure_channel_permission(
     required: Permissions,
 ) -> Result<(), AppError> {
     let perms: Permissions = get_user_channel_permissions(db, channel_id, user_id).await?;
+    if perms.contains(required) {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden("Missing required permission".into()))
+    }
+}
+
+pub async fn ensure_channel_permission_on_connection(
+    db: &mut PgConnection,
+    channel_id: Uuid,
+    user_id: Uuid,
+    required: Permissions,
+) -> Result<(), AppError> {
+    let perms = get_user_channel_permissions_on_connection(db, channel_id, user_id).await?;
     if perms.contains(required) {
         Ok(())
     } else {

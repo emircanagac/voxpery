@@ -199,6 +199,17 @@ Uniqueness (case-insensitive):
 - malware fields: `scan_status`, `malware_signature`
 - `created_at`
 
+## Transactional Write Invariants
+
+Critical multi-row writes use explicit PostgreSQL transactions and serialize competing requests before checking invariants:
+
+- Direct-message creation acquires a transaction-scoped advisory lock for the canonical user pair. Channel creation, both membership rows, and caller unhide then commit together, so concurrent opens resolve to one shared DM.
+- Server creation commits the server, owner membership, default text/voice channels, default category, and bootstrap roles as one unit. A failed bootstrap cannot expose a partially initialized server.
+- Member-role replacement locks the server and target membership rows, re-checks permissions on the same connection, validates requested roles in one batch, replaces assignments in bulk, updates the legacy bridge role, and writes its audit entry in one transaction.
+- Channel creation and deletion serialize on the same server-row lock. Text-channel deletion counts the remaining channels while holding that lock, so concurrent deletes cannot remove the final text channel.
+
+WebSocket broadcasts and LiveKit reconciliation happen only after the database commit. They may report or reconcile committed state, but they cannot cause a successful database transaction to be presented as rolled back.
+
 ## Removed/Deprecated
 
 - `server_webhooks` was created in migration `021` and removed in migration `025`.
@@ -256,4 +267,4 @@ All migrations currently present:
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-07-18.
