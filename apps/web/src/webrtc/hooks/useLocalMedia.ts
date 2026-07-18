@@ -6,6 +6,7 @@ import {
 } from '../../voiceDevices'
 
 export const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
+export const SCREEN_SHARE_CAPTURE_READY_EVENT = 'voxpery-screen-share-capture-ready'
 const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const DEFAULT_INPUT_VOLUME = 80
@@ -73,6 +74,22 @@ export function toScreenShareConstraintsForProfile(profile: ScreenShareProfile):
         case '720p':
         default:
             return { ...base, width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 } }
+    }
+}
+
+type DisplayAudioConstraints = MediaTrackConstraints & {
+    suppressLocalAudioPlayback: boolean
+}
+
+export function toScreenShareDisplayMediaOptions(
+    video: DisplayMediaStreamOptions['video'],
+): DisplayMediaStreamOptions {
+    return {
+        video,
+        audio: {
+            // Keep the active call audible while the native/macOS share picker changes focus.
+            suppressLocalAudioPlayback: false,
+        } as DisplayAudioConstraints,
     }
 }
 
@@ -218,12 +235,12 @@ export function useLocalMedia() {
             cachedScreenStreamRef.current = null
         }
         const videoConstraints = getScreenShareConstraints()
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-            video: videoConstraints,
-            audio: true,
-        })
+        const stream = await navigator.mediaDevices.getDisplayMedia(
+            toScreenShareDisplayMediaOptions(videoConstraints),
+        )
         await applyScreenShareTrackProfile(stream.getVideoTracks()[0])
         cachedScreenStreamRef.current = stream
+        window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
         return stream
     }, [applyScreenShareTrackProfile, getScreenShareConstraints])
 

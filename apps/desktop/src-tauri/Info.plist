@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Voxpery uses your microphone when you join a voice channel.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Voxpery uses your camera when you enable video in a voice channel.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Voxpery records the screen, window, or app you choose when you start screen sharing.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Voxpery captures shared system audio only when you include audio in a screen share.</string>
+</dict>
+</plist>

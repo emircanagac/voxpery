@@ -1,6 +1,6 @@
 import { isTauri } from './secureStorage'
 
-export type MediaPermissionKind = 'microphone' | 'camera'
+export type MediaPermissionKind = 'microphone' | 'camera' | 'screen'
 
 function currentDesktopPlatform(): 'windows' | 'macos' | 'linux' | 'unknown' {
   if (typeof navigator === 'undefined') return 'unknown'
@@ -12,7 +12,9 @@ function currentDesktopPlatform(): 'windows' | 'macos' | 'linux' | 'unknown' {
 }
 
 function mediaLabel(kind: MediaPermissionKind): string {
-  return kind === 'camera' ? 'camera' : 'microphone'
+  if (kind === 'camera') return 'camera'
+  if (kind === 'screen') return 'screen recording'
+  return 'microphone'
 }
 
 export function isMediaPermissionDeniedError(err: unknown, kind: MediaPermissionKind): boolean {
@@ -28,7 +30,7 @@ export function isMediaPermissionDeniedError(err: unknown, kind: MediaPermission
     || errMessage.includes('permission denied')
     || errMessage.includes('notallowederror')
     || errMessage.includes(`${label} permission denied`)
-    || (kind === 'camera' && errMessage.includes('securityerror'))
+    || ((kind === 'camera' || kind === 'screen') && errMessage.includes('securityerror'))
   )
 }
 
@@ -43,7 +45,7 @@ export function desktopMediaPermissionRecoveryMessage(kind: MediaPermissionKind)
     return `Permission was blocked. Open Windows Privacy & security settings, allow ${label} access for desktop apps, then return to Voxpery and retry.`
   }
   if (platform === 'macos') {
-    return `Permission was blocked. Open macOS Privacy & Security settings, allow Voxpery to use the ${label}, then restart Voxpery and retry.`
+    return `Permission was blocked. Open macOS Privacy & Security settings, allow Voxpery to use ${label}, then restart Voxpery and retry.`
   }
   if (platform === 'linux') {
     return `Permission was blocked. Ensure xdg-desktop-portal, a portal backend, and PipeWire are installed/running, then restart Voxpery and retry ${label} access.`

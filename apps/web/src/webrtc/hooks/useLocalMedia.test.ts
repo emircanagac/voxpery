@@ -3,6 +3,8 @@ import {
   normalizeScreenShareQuality,
   resolveScreenShareProfileForMode,
   SCREEN_SHARE_PRESET_PROFILE,
+  SCREEN_SHARE_CAPTURE_READY_EVENT,
+  toScreenShareDisplayMediaOptions,
   toScreenShareConstraintsForProfile,
 } from './useLocalMedia'
 
@@ -58,5 +60,17 @@ describe('screen share quality profiles', () => {
       height: { ideal: 1080, max: 1080 },
       frameRate: { ideal: 60, max: 60 },
     })
+  })
+
+  it('keeps call playback audible while the screen picker changes focus', () => {
+    const video = toScreenShareConstraintsForProfile(SCREEN_SHARE_PRESET_PROFILE.presentation)
+
+    expect(toScreenShareDisplayMediaOptions(video)).toEqual({
+      video,
+      audio: {
+        suppressLocalAudioPlayback: false,
+      },
+    })
+    expect(SCREEN_SHARE_CAPTURE_READY_EVENT).toBe('voxpery-screen-share-capture-ready')
   })
 })

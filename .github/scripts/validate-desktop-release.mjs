@@ -136,6 +136,16 @@ if (tauri) {
     )
   }
 
+  const macEntitlements = tauri.bundle?.macOS?.entitlements
+  if (macEntitlements !== './Entitlements.plist') {
+    fail(
+      `tauri.conf.json bundle.macOS.entitlements must be "./Entitlements.plist" (found: ${String(macEntitlements)})`,
+    )
+  }
+  if (tauri.bundle?.macOS?.signingIdentity !== '-') {
+    fail('tauri.conf.json bundle.macOS.signingIdentity must use ad-hoc signing ("-") until Developer ID signing is configured')
+  }
+
   const signingPrivateKey = process.env.TAURI_SIGNING_PRIVATE_KEY
   if (createUpdaterArtifacts && !signingPrivateKey) {
     fail('Updater artifacts are enabled but TAURI_SIGNING_PRIVATE_KEY is not configured')
@@ -145,6 +155,37 @@ if (tauri) {
 requireFile('apps/desktop/src-tauri/icons/icon.ico', 16_000)
 requireFile('apps/desktop/src-tauri/icons/icon.icns', 64_000)
 requireFile('apps/desktop/src-tauri/icons/icon.png', 8_000)
+
+requireFile('apps/desktop/src-tauri/Info.plist', 200)
+requireFile('apps/desktop/src-tauri/Entitlements.plist', 150)
+
+const macInfoPlistPath = resolve(repoRoot, 'apps/desktop/src-tauri/Info.plist')
+if (existsSync(macInfoPlistPath)) {
+  const macInfoPlist = readFileSync(macInfoPlistPath, 'utf8')
+  for (const key of [
+    'NSMicrophoneUsageDescription',
+    'NSCameraUsageDescription',
+    'NSScreenCaptureUsageDescription',
+    'NSAudioCaptureUsageDescription',
+  ]) {
+    if (!macInfoPlist.includes(`<key>${key}</key>`)) {
+      fail(`Info.plist must include ${key}`)
+    }
+  }
+}
+
+const macEntitlementsPath = resolve(repoRoot, 'apps/desktop/src-tauri/Entitlements.plist')
+if (existsSync(macEntitlementsPath)) {
+  const macEntitlements = readFileSync(macEntitlementsPath, 'utf8')
+  for (const key of [
+    'com.apple.security.device.audio-input',
+    'com.apple.security.device.camera',
+  ]) {
+    if (!macEntitlements.includes(`<key>${key}</key>`)) {
+      fail(`Entitlements.plist must include ${key}`)
+    }
+  }
+}
 
 const capability = loadJson('apps/desktop/src-tauri/capabilities/default.json')
 if (capability) {

@@ -21,6 +21,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] A valid custom microphone and speaker remain selected after reload and voice rejoin.
 - [ ] After a selected custom microphone or speaker is disconnected, the next capture/playback attempt silently uses the system default and Voice Settings shows `Windows Default`.
 - [ ] In desktop builds, the configured mute shortcut also works while Voxpery is unfocused, minimized, or running in the tray.
+- [ ] On a clean macOS install, the first voice join prompts for microphone access and Voxpery appears in Privacy & Security -> Microphone after the decision.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
 - [ ] Deafen stops remote audio playback and restores it when disabled.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
@@ -50,6 +51,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] `Auto` chooses a balanced profile by shared surface: monitor/browser -> video, window/unknown -> presentation.
 - [ ] Monitor/game and browser/video shares stay motion-first under load: frame pacing remains smooth before sharpness is preserved.
 - [ ] User A starts screen share; User B sees the screen tile.
+- [ ] On a clean macOS install, starting screen share prompts for Screen & System Audio Recording access and Voxpery appears in that Privacy & Security list.
+- [ ] On macOS, opening and closing the native share picker does not lower remote microphone audio; the same level continues without clicking Voxpery again.
 - [ ] User B hears the screen-start cue only once for the screen video track.
 - [ ] Sharing screen audio does not play a duplicate start cue.
 - [ ] User B hides the screen share; the screen tile collapses and its screen video/audio publications stop for that viewer.
