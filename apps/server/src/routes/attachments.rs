@@ -24,6 +24,9 @@ use crate::{
 };
 
 const FREE_TIER_STORAGE_QUOTA_BYTES: i64 = 1_073_741_824; // 1 GiB
+const ATTACHMENT_CONTENT_USER_RATE_LIMIT_MAX: usize = 240;
+const ATTACHMENT_CONTENT_ITEM_RATE_LIMIT_MAX: usize = 30;
+const ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
@@ -258,6 +261,26 @@ async fn get_attachment_content(
     Path(attachment_id): Path<Uuid>,
     Query(query): Query<AttachmentContentQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("attachments:content:user:{}", claims.sub),
+        ATTACHMENT_CONTENT_USER_RATE_LIMIT_MAX,
+        ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW,
+        "Attachment content rate limit exceeded. Please retry shortly.",
+    )
+    .await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!(
+            "attachments:content:item:{}:{}",
+            claims.sub, attachment_id
+        ),
+        ATTACHMENT_CONTENT_ITEM_RATE_LIMIT_MAX,
+        ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW,
+        "Attachment content rate limit exceeded. Please retry shortly.",
+    )
+    .await?;
+
     let allowed = state.attachment_service.verify_signed_content_url(
         attachment_id,
         query.exp,

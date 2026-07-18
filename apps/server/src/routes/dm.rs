@@ -18,6 +18,9 @@ use crate::{
     AppState,
 };
 
+const DM_SEARCH_RATE_LIMIT_MAX: usize = 15;
+const DM_SEARCH_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+
 fn escape_ilike_pattern(input: &str) -> String {
     input
         .replace('\\', "\\\\")
@@ -709,6 +712,14 @@ async fn search_dm_messages(
     Query(query): Query<DmSearchQuery>,
 ) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("dm:search:{}:{}", claims.sub, channel_id),
+        DM_SEARCH_RATE_LIMIT_MAX,
+        DM_SEARCH_RATE_LIMIT_WINDOW,
+        "Search rate limit exceeded. Please slow down.",
+    )
+    .await?;
 
     let term = query.q.as_deref().unwrap_or("").trim();
     let author = query.from.as_deref().unwrap_or("").trim().trim_start_matches('@');
