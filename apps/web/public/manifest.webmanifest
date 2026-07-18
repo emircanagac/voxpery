@@ -1,7 +1,7 @@
 {
   "name": "Voxpery",
   "short_name": "Voxpery",
-  "description": "Open-source community chat and voice with hosted access, self-hosting, and desktop apps.",
+  "description": "A free, open-source Discord alternative with hosted community chat, voice, desktop apps, and full self-hosting.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

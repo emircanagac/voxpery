@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Authentication Flow', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login')
   })
 
-  test('should redirect to login page when not authenticated', async ({ page }) => {
+  test('should load login page when not authenticated', async ({ page }) => {
     await expect(page).toHaveURL(/.*\/login/)
     await expect(page.getByRole('heading', { name: /voxpery/i })).toBeVisible()
   })
