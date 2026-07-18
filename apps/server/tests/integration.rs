@@ -104,6 +104,7 @@ async fn setup_app_with_auth_features(
         login_failure_max_attempts: 8,
         login_failure_ip_max_attempts: 20,
         login_failure_window_secs: 900,
+        trusted_proxies: voxpery_server::services::client_ip::TrustedProxySet::default(),
         message_rate_limit_max: 100,
         message_rate_limit_window_secs: 10,
         cookie_secure: false,

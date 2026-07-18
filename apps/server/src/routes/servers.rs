@@ -8,10 +8,7 @@ use axum::{
 use chrono::{Duration as ChronoDuration, Utc};
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::{
-    net::{IpAddr, SocketAddr},
-    time::Duration,
-};
+use std::{net::SocketAddr, time::Duration};
 use uuid::Uuid;
 
 use crate::{
@@ -27,6 +24,7 @@ use crate::{
         auth::generate_invite_code,
         automod::AutoModRule,
         avatar_images::validate_server_icon_image_url,
+        client_ip::resolve_client_ip,
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
@@ -436,38 +434,16 @@ fn visible_presence(status: &str, has_session: bool) -> String {
     }
 }
 
-fn parse_forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
-    headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|raw| raw.split(',').next().map(str::trim))
-        .and_then(|candidate| candidate.parse::<IpAddr>().ok())
-}
-
-fn is_trusted_proxy_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
-    }
-}
-
 fn extract_client_ip(
+    state: &AppState,
     headers: &HeaderMap,
     connect_info: Option<&ConnectInfo<SocketAddr>>,
 ) -> Option<String> {
-    let Some(peer_ip) = connect_info.map(|info| info.ip()) else {
-        return None;
-    };
-    if is_trusted_proxy_ip(&peer_ip) {
-        Some(
-            parse_forwarded_client_ip(headers)
-                .unwrap_or(peer_ip)
-                .to_string(),
-        )
-    } else {
-        Some(peer_ip.to_string())
-    }
+    resolve_client_ip(
+        headers,
+        connect_info.map(|info| info.ip()),
+        &state.trusted_proxies,
+    )
 }
 
 fn normalize_report_reason(reason: &str) -> Result<String, AppError> {
@@ -1173,7 +1149,11 @@ async fn join_server(
     )
     .await?;
 
-    let client_ip = extract_client_ip(&headers, connect_info.as_ref().map(|Extension(info)| info));
+    let client_ip = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
     if let Some(ref ip) = client_ip {
         enforce_rate_limit(
             &state.redis,

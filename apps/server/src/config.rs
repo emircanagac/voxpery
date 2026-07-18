@@ -1,3 +1,5 @@
+use crate::services::client_ip::TrustedProxySet;
+
 /// Application configuration loaded from environment variables.
 pub struct Config {
     pub database_url: String,
@@ -18,6 +20,8 @@ pub struct Config {
     pub login_failure_max_attempts: usize,
     pub login_failure_ip_max_attempts: usize,
     pub login_failure_window_secs: u64,
+    /// Reverse proxy source networks allowed to supply client IP headers.
+    pub trusted_proxies: TrustedProxySet,
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
     /// Optional admin account for default setup. If all three are set, a user is created at startup (if none with that email exists) and becomes owner of the default Voxpery server.
@@ -114,6 +118,9 @@ impl Config {
                 // "null" removed from default - add explicitly via CORS_ORIGINS if needed for Tauri
             ]
         });
+        let trusted_proxy_cidrs = std::env::var("TRUSTED_PROXY_CIDRS").ok();
+        let trusted_proxies = TrustedProxySet::parse(trusted_proxy_cidrs.as_deref())
+            .unwrap_or_else(|message| panic!("{message}"));
 
         Self {
             database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
@@ -167,6 +174,7 @@ impl Config {
                 .unwrap_or_else(|_| "900".into())
                 .parse()
                 .expect("LOGIN_FAILURE_WINDOW_SECS must be a number"),
+            trusted_proxies,
             message_rate_limit_max: std::env::var("MESSAGE_RATE_LIMIT_MAX")
                 .unwrap_or_else(|_| "30".into())
                 .parse()

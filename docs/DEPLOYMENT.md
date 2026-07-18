@@ -32,9 +32,21 @@ Edit `.env` and set strong production values at minimum:
 - `CORS_ORIGINS` with your production origins only
 - Keep every web origin that sends cookie-authenticated writes in `CORS_ORIGINS`; the
   same allowlist is used for server-side CSRF origin verification.
+- If a reverse proxy supplies client IP headers, set `TRUSTED_PROXY_CIDRS` to that
+  proxy's exact IP or dedicated network CIDR. Leave it empty for direct deployments.
 - `VITE_API_URL` (public backend URL used by frontend build)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)
+
+Reverse proxy note:
+
+- Configure the proxy to replace `X-Real-IP` and append its observed client address
+  to `X-Forwarded-For`. Never pass client-provided forwarding headers through unchanged.
+- Strip `CF-Connecting-IP` unless the request came through a verified Cloudflare path;
+  otherwise overwrite it with the value supplied by that trusted edge.
+- For a host proxy connecting through Docker's bridge, inspect the gateway with
+  `docker network inspect voxpery_default` and prefer its exact `/32` or `/128`
+  address over trusting the entire bridge network.
 
 LiveKit note:
 
