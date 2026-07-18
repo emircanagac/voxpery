@@ -165,6 +165,10 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+      - name: Check initial bundle budget
+        working-directory: apps/web
+        run: npm run check:initial-bundle
+
   docker_publish:
     name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
     needs:

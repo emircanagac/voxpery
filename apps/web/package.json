@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:initial-bundle": "node scripts/check-initial-bundle.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
@@ -31,7 +32,6 @@
   "dependencies": {
     "@marsidev/react-turnstile": "^1.5.3",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
-    "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-virtual": "^3.14.6",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2",
