@@ -561,4 +561,38 @@ describe('ChatArea regressions', () => {
     expect(preview).toHaveAttribute('height', '180')
     expect(preview).toHaveAttribute('alt', '')
   })
+
+  it('renders reactions after inline media and attachments', async () => {
+    mockDecodedImages()
+
+    const { container } = renderChatArea({
+      messages: [
+        {
+          ...message(
+            'message-media-reaction',
+            'party\n![gif](https://media.example.test/reaction.gif)',
+            0
+          ),
+          attachments: [
+            {
+              url: 'https://cdn.example.test/screenshot.png',
+              type: 'image/png',
+              name: 'screenshot.png',
+            },
+          ],
+          reactions: [{ emoji: '👍', count: 2, reacted: true }],
+        },
+      ],
+      onToggleReaction: vi.fn(),
+    })
+
+    await screen.findByRole('button', { name: 'Preview screenshot.png' })
+    const messageRow = container.querySelector('[data-message-id="message-media-reaction"]')
+    expect(messageRow).not.toBeNull()
+    expect(
+      Array.from(
+        messageRow!.querySelectorAll('.chat-inline-gif-link, .dm-attachments, .message-reactions')
+      ).map((element) => element.className)
+    ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
+  })
 })

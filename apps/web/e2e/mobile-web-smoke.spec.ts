@@ -57,7 +57,23 @@ test.describe('mocked mobile web smoke', () => {
       channelsByServerId: { [server.id]: channels },
       membersByServerId: { [server.id]: buildCoreMembers() },
       messagesByChannelId: {
-        [general.id]: [buildServerMessage(general.id, 'Mobile smoke baseline message')],
+        [general.id]: [
+          buildServerMessage(
+            general.id,
+            'Mobile smoke baseline message\n![gif](https://media.example.test/mobile.gif)',
+            {
+              id: 'mobile-media-reaction-message',
+              attachments: [
+                {
+                  url: 'https://cdn.example.test/mobile.png',
+                  type: 'image/png',
+                  name: 'mobile.png',
+                },
+              ],
+              reactions: [{ emoji: '👍', count: 1, reacted: false }],
+            }
+          ),
+        ],
       },
     })
     await installMockCoreApi(page, state)
@@ -71,6 +87,14 @@ test.describe('mocked mobile web smoke', () => {
     await expect(page.getByRole('button', { name: 'Browse GIFs' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Browse stickers' })).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
+
+    const mediaRow = page.locator('[data-message-id="mobile-media-reaction-message"]')
+    await expect(mediaRow.locator('.message-reactions')).toBeVisible()
+    await expect.poll(async () =>
+      mediaRow.locator('.chat-inline-gif-link, .dm-attachments, .message-reactions').evaluateAll(
+        (elements) => elements.map((element) => element.className)
+      )
+    ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
 
     const content = `Mobile smoke message ${Date.now()}`
     const messageInput = page.getByPlaceholder('Message #general')

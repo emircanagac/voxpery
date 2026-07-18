@@ -483,10 +483,18 @@ async fn pin_channel_message(
     )
     .await?;
 
+    let mut tx = state.db.begin().await?;
+    let server_id: Uuid =
+        sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1 FOR UPDATE")
+            .bind(channel_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Channel not found".into()))?;
+
     let msg_channel: Option<Uuid> =
         sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
             .bind(body.message_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?;
 
     let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
@@ -503,14 +511,14 @@ async fn pin_channel_message(
     )
     .bind(channel_id)
     .bind(body.message_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     if !already_pinned {
         let pin_count =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM channel_pins WHERE channel_id = $1")
                 .bind(channel_id)
-                .fetch_one(&state.db)
+                .fetch_one(&mut *tx)
                 .await?;
         if pin_count >= 50 {
             return Err(AppError::Validation(
@@ -519,7 +527,7 @@ async fn pin_channel_message(
         }
     }
 
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"INSERT INTO channel_pins (channel_id, message_id, pinned_by_id)
            VALUES ($1, $2, $3)
            ON CONFLICT (channel_id, message_id) DO NOTHING"#,
@@ -527,25 +535,22 @@ async fn pin_channel_message(
     .bind(channel_id)
     .bind(body.message_id)
     .bind(claims.sub)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
-    // We need server_id to log this
-    let server_id: Uuid = sqlx::query_scalar("SELECT server_id FROM channels WHERE id = $1")
-        .bind(channel_id)
-        .fetch_one(&state.db)
+    if inserted.rows_affected() > 0 {
+        crate::services::audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "message_pin",
+            "message",
+            Some(body.message_id),
+            Some(serde_json::json!({ "channel_id": channel_id })),
+        )
         .await?;
-
-    crate::services::audit::log(
-        &state.db,
-        claims.sub,
-        Some(server_id),
-        "message_pin",
-        "message",
-        Some(body.message_id),
-        Some(serde_json::json!({ "channel_id": channel_id })),
-    )
-    .await?;
+    }
+    tx.commit().await?;
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -992,6 +997,17 @@ async fn add_message_reaction(
     )
     .await?;
 
+    let mut tx = state.db.begin().await?;
+    let locked_channel_id: Uuid =
+        sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1 FOR UPDATE")
+            .bind(message_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("Message not found".into()))?;
+    if locked_channel_id != channel_id {
+        return Err(AppError::Forbidden("Message channel changed".into()));
+    }
+
     let emoji_already_present = sqlx::query_scalar::<_, bool>(
         r#"SELECT EXISTS (
                SELECT 1
@@ -1001,7 +1017,7 @@ async fn add_message_reaction(
     )
     .bind(message_id)
     .bind(&emoji)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     if !emoji_already_present {
@@ -1009,7 +1025,7 @@ async fn add_message_reaction(
             "SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = $1",
         )
         .bind(message_id)
-        .fetch_one(&state.db)
+        .fetch_one(&mut *tx)
         .await?;
         if distinct_emoji_count >= 20 {
             return Err(AppError::Validation(
@@ -1026,8 +1042,9 @@ async fn add_message_reaction(
     .bind(message_id)
     .bind(claims.sub)
     .bind(&emoji)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let mut msg_with_author = load_message_with_author(&state.db, message_id).await?;
     attach_message_reactions(

@@ -2410,31 +2410,12 @@ async fn report_user(
         return Err(AppError::NotFound("Member not found".into()));
     }
 
-    let existing_report_id = sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id
-           FROM server_reports
-           WHERE server_id = $1
-             AND reporter_user_id = $2
-             AND reported_user_id = $3
-             AND message_id IS NULL
-             AND status = 'open'
-           LIMIT 1"#,
-    )
-    .bind(server_id)
-    .bind(claims.sub)
-    .bind(body.reported_user_id)
-    .fetch_optional(&state.db)
-    .await?;
-    if existing_report_id.is_some() {
-        return Ok(Json(
-            serde_json::json!({ "message": "Report already submitted" }),
-        ));
-    }
-
-    sqlx::query(
+    let inserted_report_id = sqlx::query_scalar::<_, Uuid>(
         r#"INSERT INTO server_reports (
                 id, server_id, reporter_user_id, reported_user_id, reason, details, created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, NOW())"#,
+           ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id"#,
     )
     .bind(Uuid::new_v4())
     .bind(server_id)
@@ -2442,10 +2423,15 @@ async fn report_user(
     .bind(body.reported_user_id)
     .bind(reason)
     .bind(details)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    Ok(Json(serde_json::json!({ "message": "Report submitted" })))
+    let message = if inserted_report_id.is_some() {
+        "Report submitted"
+    } else {
+        "Report already submitted"
+    };
+    Ok(Json(serde_json::json!({ "message": message })))
 }
 
 async fn report_message(
@@ -2488,30 +2474,12 @@ async fn report_message(
         ));
     }
 
-    let existing_report_id = sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id
-           FROM server_reports
-           WHERE server_id = $1
-             AND reporter_user_id = $2
-             AND message_id = $3
-             AND status = 'open'
-           LIMIT 1"#,
-    )
-    .bind(server_id)
-    .bind(claims.sub)
-    .bind(body.message_id)
-    .fetch_optional(&state.db)
-    .await?;
-    if existing_report_id.is_some() {
-        return Ok(Json(
-            serde_json::json!({ "message": "Report already submitted" }),
-        ));
-    }
-
-    sqlx::query(
+    let inserted_report_id = sqlx::query_scalar::<_, Uuid>(
         r#"INSERT INTO server_reports (
                 id, server_id, reporter_user_id, reported_user_id, channel_id, message_id, message_excerpt, reason, details, created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())"#,
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id"#,
     )
     .bind(Uuid::new_v4())
     .bind(server_id)
@@ -2522,10 +2490,15 @@ async fn report_message(
     .bind(message_excerpt)
     .bind(reason)
     .bind(details)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    Ok(Json(serde_json::json!({ "message": "Report submitted" })))
+    let message = if inserted_report_id.is_some() {
+        "Report submitted"
+    } else {
+        "Report already submitted"
+    };
+    Ok(Json(serde_json::json!({ "message": message })))
 }
 
 async fn list_reports(

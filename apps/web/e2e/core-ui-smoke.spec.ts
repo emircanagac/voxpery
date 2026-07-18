@@ -268,6 +268,48 @@ test.describe('mocked core UI smoke', () => {
     expect(state.messagesByChannelId[general.id].some((message) => message.id === 'own-message')).toBe(false)
   })
 
+  test('keeps reactions below inline media and attachments', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+
+    const message = buildServerMessage(
+      general.id,
+      'Media order\n![gif](https://media.example.test/reaction.gif)',
+      {
+        id: 'media-reaction-message',
+        attachments: [
+          {
+            url: 'https://cdn.example.test/screenshot.png',
+            type: 'image/png',
+            name: 'screenshot.png',
+          },
+        ],
+        reactions: [{ emoji: '👍', count: 2, reacted: false }],
+      }
+    )
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [message] },
+    })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/servers')
+    const row = page.locator('[data-message-id="media-reaction-message"]')
+    await expect(row.locator('.message-reactions')).toBeVisible()
+    await expect(row.locator('.dm-attachments')).toBeVisible()
+    await expect(row.locator('.chat-inline-gif-link')).toBeVisible()
+    await expect.poll(async () =>
+      row.locator('.chat-inline-gif-link, .dm-attachments, .message-reactions').evaluateAll(
+        (elements) => elements.map((element) => element.className)
+      )
+    ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
+  })
+
   test('opens Voice & Audio settings without overflowing the settings modal', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)

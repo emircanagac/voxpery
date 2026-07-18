@@ -207,6 +207,8 @@ Critical multi-row writes use explicit PostgreSQL transactions and serialize com
 - Server creation commits the server, owner membership, default text/voice channels, default category, and bootstrap roles as one unit. A failed bootstrap cannot expose a partially initialized server.
 - Member-role replacement locks the server and target membership rows, re-checks permissions on the same connection, validates requested roles in one batch, replaces assignments in bulk, updates the legacy bridge role, and writes its audit entry in one transaction.
 - Channel creation and deletion serialize on the same server-row lock. Text-channel deletion counts the remaining channels while holding that lock, so concurrent deletes cannot remove the final text channel.
+- Pin additions lock their server or DM channel before enforcing the 50-pin limit. Reaction additions lock their server or DM message before enforcing the 20-distinct-emoji limit.
+- Open user and message reports are protected by partial unique indexes. Concurrent duplicate submissions resolve to the existing moderation-queue item instead of creating duplicate rows.
 
 WebSocket broadcasts and LiveKit reconciliation happen only after the database commit. They may report or reconcile committed state, but they cannot cause a successful database transaction to be presented as rolled back.
 
@@ -259,6 +261,7 @@ All migrations currently present:
 - `038_server_onboarding_guides.sql`
 - `039_default_dm_privacy_everyone.sql`
 - `040_dm_channel_hidden_state.sql`
+- `041_open_report_uniqueness.sql`
 
 ## Notes
 
