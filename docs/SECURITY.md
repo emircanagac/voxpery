@@ -265,6 +265,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
   - Local files are written to a same-directory temporary path, flushed, and atomically renamed so partially written files are never exposed under final storage keys
   - Upload metadata persisted in `uploaded_attachments`
   - Multi-file requests reserve quota and insert metadata in one database transaction; any request or commit failure rolls back the transaction and removes every file already finalized by that request
+  - Retry-equivalent uploads are serialized by content identity and reuse the existing clean attachment record, preventing duplicate files and quota accounting
 - **Delivery model**:
   - Files are not exposed under a permanent public `/uploads` route.
   - API returns short-lived signed URLs (`/api/attachments/content/:id?exp=...&sig=...`).
@@ -369,6 +370,8 @@ Critical role replacement and channel deletion flows lock their server-scoped da
 AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod matching removes common invisible Unicode format/control characters before evaluation so zero-width and bidi override characters cannot be used to split blocked keywords or links. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
 
 User and message reports require server membership, are rate limited per reporter/server, and use partial unique database indexes so concurrent repeated open reports for the same target cannot duplicate moderation work. Report listing is capped to keep the safety panel responsive under abuse.
+
+Server creation and server/DM message sends accept client request identifiers so a network retry returns the original resource without repeating child setup or WebSocket side effects. Reusing an identifier with different input is rejected with `409`. Pending friend requests use an unordered-pair partial unique index, while attachment uploads serialize equivalent content before storage and quota reservation.
 
 Pin and reaction limits are enforced while holding row locks on their parent channel or message. Concurrent requests therefore cannot exceed the 50-pin or 20-distinct-reaction limits in server and direct-message conversations.
 

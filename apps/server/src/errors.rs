@@ -26,6 +26,9 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Too many requests: {0}")]
     TooManyRequests(String),
 
@@ -48,6 +51,7 @@ impl IntoResponse for AppError {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), None),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone(), None),
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None),
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone(), None),
             AppError::FeatureDisabled(msg) => (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -100,6 +104,7 @@ mod tests {
             (AppError::NotFound("x".into()), StatusCode::NOT_FOUND),
             (AppError::Forbidden("x".into()), StatusCode::FORBIDDEN),
             (AppError::Validation("x".into()), StatusCode::BAD_REQUEST),
+            (AppError::Conflict("x".into()), StatusCode::CONFLICT),
             (
                 AppError::TooManyRequests("x".into()),
                 StatusCode::TOO_MANY_REQUESTS,

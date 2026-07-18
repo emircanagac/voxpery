@@ -188,38 +188,30 @@ async fn send_friend_request(
         return Err(AppError::Validation("You are already friends".into()));
     }
 
-    let pending = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM friend_requests
-           WHERE status = 'pending'
-             AND ((requester_id = $1 AND receiver_id = $2)
-               OR (requester_id = $2 AND receiver_id = $1))"#,
-    )
-    .bind(claims.sub)
-    .bind(target.id)
-    .fetch_one(&state.db)
-    .await?;
-
-    if pending > 0 {
-        return Err(AppError::Validation(
-            "A pending request already exists".into(),
-        ));
-    }
-
-    sqlx::query(
-        "INSERT INTO friend_requests (id, requester_id, receiver_id, status, created_at) VALUES ($1, $2, $3, 'pending', NOW())",
+    let inserted_request_id = sqlx::query_scalar::<_, Uuid>(
+        r#"INSERT INTO friend_requests (id, requester_id, receiver_id, status, created_at)
+           VALUES ($1, $2, $3, 'pending', NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id"#,
     )
     .bind(Uuid::new_v4())
     .bind(claims.sub)
     .bind(target.id)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    notify_friend_update(&state, claims.sub).await;
-    notify_friend_update(&state, target.id).await;
+    if inserted_request_id.is_some() {
+        notify_friend_update(&state, claims.sub).await;
+        notify_friend_update(&state, target.id).await;
+    }
 
-    Ok(Json(
-        serde_json::json!({ "message": "Friend request sent" }),
-    ))
+    Ok(Json(serde_json::json!({
+        "message": if inserted_request_id.is_some() {
+            "Friend request sent"
+        } else {
+            "A pending request already exists"
+        }
+    })))
 }
 
 async fn accept_friend_request(

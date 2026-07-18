@@ -43,6 +43,7 @@ pub struct CreateServerRequest {
     pub name: String,
     pub icon_url: Option<String>,
     pub description: Option<String>,
+    pub client_request_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
