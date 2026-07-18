@@ -364,7 +364,9 @@ Critical role replacement and channel deletion flows lock their server-scoped da
 
 AutoMod rules are server-scoped and require `MANAGE_MESSAGES` to manage. Enabled rules can block server-channel sends/edits for blocked keywords, invite links, links, or mention spam before persistence/broadcast. AutoMod matching removes common invisible Unicode format/control characters before evaluation so zero-width and bidi override characters cannot be used to split blocked keywords or links. AutoMod blocks write audit entries with rule metadata and a truncated content preview.
 
-User and message reports require server membership, are rate limited per reporter/server, and repeated open reports for the same target are deduplicated before they reach the moderation queue. Report listing is capped to keep the safety panel responsive under abuse.
+User and message reports require server membership, are rate limited per reporter/server, and use partial unique database indexes so concurrent repeated open reports for the same target cannot duplicate moderation work. Report listing is capped to keep the safety panel responsive under abuse.
+
+Pin and reaction limits are enforced while holding row locks on their parent channel or message. Concurrent requests therefore cannot exceed the 50-pin or 20-distinct-reaction limits in server and direct-message conversations.
 
 Temporary member timeouts require `MANAGE_MESSAGES`, respect role hierarchy, cannot target the server owner, and block server-channel sends/edits plus new reactions until expiration or manual clearing. Timeout create/clear actions are audit logged.
 

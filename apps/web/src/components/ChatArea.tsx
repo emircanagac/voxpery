@@ -2249,22 +2249,6 @@ export default function ChatArea({
                                             ) : (
                                                 renderMessageContent(msg.content)
                                             )}
-                                            {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
-                                                <div className="message-reactions">
-                                                    {msg.reactions.map((reaction) => (
-                                                        <button
-                                                            key={`${msg.id}-${reaction.emoji}`}
-                                                            type="button"
-                                                            className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
-                                                            disabled={!onToggleReaction}
-                                                            onClick={() => onToggleReaction?.(msg.id, reaction.emoji, !!reaction.reacted)}
-                                                        >
-                                                            <span>{reaction.emoji}</span>
-                                                            <span>{reaction.count}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
                                             {msg.clientStatus === 'failed' && msg.clientId && (
                                                 <div className="message-retry-row">
                                                     <button
@@ -2289,6 +2273,22 @@ export default function ChatArea({
                                                             <AttachmentLink key={`${att.url}-${i}`} attachment={att} index={i} />
                                                         )
                                                     })}
+                                                </div>
+                                            )}
+                                            {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                                                <div className="message-reactions">
+                                                    {msg.reactions.map((reaction) => (
+                                                        <button
+                                                            key={`${msg.id}-${reaction.emoji}`}
+                                                            type="button"
+                                                            className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
+                                                            disabled={!onToggleReaction}
+                                                            onClick={() => onToggleReaction?.(msg.id, reaction.emoji, !!reaction.reacted)}
+                                                        >
+                                                            <span>{reaction.emoji}</span>
+                                                            <span>{reaction.count}</span>
+                                                        </button>
+                                                    ))}
                                                 </div>
                                             )}
                                             {isDm && msg.author?.user_id === currentUserId && isSeenMessage(msg.id) && (

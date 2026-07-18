@@ -204,12 +204,14 @@ Notes:
 - `GET /api/messages/:channel_id/pins`
 - `POST /api/messages/:channel_id/pins` (requires `MANAGE_PINS`)
 - `DELETE /api/messages/:channel_id/pins/:message_id` (requires `MANAGE_PINS`)
+- Server channels and direct-message conversations accept at most 50 pinned messages. Concurrent pin requests are serialized against the parent channel.
 
 ### Reactions
 
 - `POST /api/messages/item/:message_id/reactions`
 - `DELETE /api/messages/item/:message_id/reactions?emoji=...`
 - Reaction add/remove requires effective `SEND_MESSAGES`.
+- Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
 
 ## Friends Endpoints
 

@@ -794,15 +794,48 @@ async fn pin_dm_message(
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
 
+    let mut tx = state.db.begin().await?;
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM dm_channels WHERE id = $1 FOR UPDATE")
+        .bind(channel_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("DM channel not found".into()))?;
+
     let msg_channel: Option<Uuid> =
         sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
             .bind(body.message_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?;
 
     let msg_channel = msg_channel.ok_or_else(|| AppError::NotFound("Message not found".into()))?;
     if msg_channel != channel_id {
         return Err(AppError::Forbidden("Message is not in this channel".into()));
+    }
+
+    let already_pinned = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM dm_channel_pins
+               WHERE dm_channel_id = $1 AND dm_message_id = $2
+           )"#,
+    )
+    .bind(channel_id)
+    .bind(body.message_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if !already_pinned {
+        let pin_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM dm_channel_pins WHERE dm_channel_id = $1",
+        )
+        .bind(channel_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if pin_count >= 50 {
+            return Err(AppError::Validation(
+                "This conversation already has the maximum of 50 pinned messages".into(),
+            ));
+        }
     }
 
     sqlx::query(
@@ -813,8 +846,9 @@ async fn pin_dm_message(
     .bind(channel_id)
     .bind(body.message_id)
     .bind(claims.sub)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let row = sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -978,6 +1012,43 @@ async fn add_dm_reaction(
 
     check_dm_access(&state, channel_id, claims.sub).await?;
 
+    let mut tx = state.db.begin().await?;
+    let locked_channel_id: Uuid =
+        sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1 FOR UPDATE")
+            .bind(message_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("DM message not found".into()))?;
+    if locked_channel_id != channel_id {
+        return Err(AppError::Forbidden("DM message channel changed".into()));
+    }
+
+    let emoji_already_present = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM dm_message_reactions
+               WHERE message_id = $1 AND emoji = $2
+           )"#,
+    )
+    .bind(message_id)
+    .bind(&emoji)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if !emoji_already_present {
+        let distinct_emoji_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT emoji) FROM dm_message_reactions WHERE message_id = $1",
+        )
+        .bind(message_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if distinct_emoji_count >= 20 {
+            return Err(AppError::Validation(
+                "This message already has the maximum of 20 different reactions".into(),
+            ));
+        }
+    }
+
     sqlx::query(
         r#"INSERT INTO dm_message_reactions (message_id, user_id, emoji)
            VALUES ($1, $2, $3)
@@ -986,8 +1057,9 @@ async fn add_dm_reaction(
     .bind(message_id)
     .bind(claims.sub)
     .bind(&emoji)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let mut message = load_dm_message_with_author(&state.db, message_id).await?;
     attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub).await?;

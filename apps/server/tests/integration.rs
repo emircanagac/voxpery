@@ -201,6 +201,41 @@ async fn register_user(
     (token, user_id)
 }
 
+async fn create_server_with_default_text_channel(
+    app: &mut axum::Router,
+    state: &AppState,
+    auth_header: &str,
+    name: &str,
+) -> (Uuid, Uuid, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/servers")
+        .header("Authorization", auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "name": name })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(app, request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "server create failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
+    let invite_code = server["invite_code"].as_str().unwrap().to_string();
+    let channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'text' ORDER BY position ASC LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    (server_id, channel_id, invite_code)
+}
+
 fn token_hash_base64(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -3751,4 +3786,341 @@ async fn concurrent_text_channel_deletes_preserve_one_channel() {
     .await
     .unwrap();
     assert_eq!(delete_audit_count, 1);
+}
+
+#[tokio::test]
+async fn concurrent_pin_and_reaction_requests_preserve_message_limits() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let (owner_token, owner_id) = register_user(
+        &mut app,
+        &format!("message-limit-{suffix}@example.com"),
+        &format!("message_limit_{}", suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (_server_id, channel_id, _) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &owner_auth,
+        "Message Limit Race Server",
+    )
+    .await;
+
+    sqlx::query(
+        r#"INSERT INTO messages (id, channel_id, user_id, content, created_at)
+           SELECT uuid_generate_v4(), $1, $2, 'pin limit seed', NOW()
+           FROM generate_series(1, 49)"#,
+    )
+    .bind(channel_id)
+    .bind(owner_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO channel_pins (channel_id, message_id, pinned_by_id)
+           SELECT $1, id, $2
+           FROM messages
+           WHERE channel_id = $1 AND content = 'pin limit seed'"#,
+    )
+    .bind(channel_id)
+    .bind(owner_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let pin_candidate_a = Uuid::new_v4();
+    let pin_candidate_b = Uuid::new_v4();
+    for message_id in [pin_candidate_a, pin_candidate_b] {
+        sqlx::query(
+            "INSERT INTO messages (id, channel_id, user_id, content) VALUES ($1, $2, $3, 'pin race candidate')",
+        )
+        .bind(message_id)
+        .bind(channel_id)
+        .bind(owner_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    let pin_request = |message_id: Uuid| {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/messages/{channel_id}/pins"))
+            .header("Authorization", &owner_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "message_id": message_id })).unwrap(),
+            ))
+            .unwrap()
+    };
+    let (pin_a, pin_b) = tokio::join!(
+        app.clone().oneshot(pin_request(pin_candidate_a)),
+        app.clone().oneshot(pin_request(pin_candidate_b))
+    );
+    let pin_statuses = [
+        pin_a.expect("pin request A should resolve").status(),
+        pin_b.expect("pin request B should resolve").status(),
+    ];
+    assert_eq!(
+        pin_statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        pin_statuses
+            .iter()
+            .filter(|status| **status == StatusCode::BAD_REQUEST)
+            .count(),
+        1
+    );
+    let pin_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM channel_pins WHERE channel_id = $1")
+            .bind(channel_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(pin_count, 50);
+
+    let reaction_message_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO messages (id, channel_id, user_id, content) VALUES ($1, $2, $3, 'reaction race target')",
+    )
+    .bind(reaction_message_id)
+    .bind(channel_id)
+    .bind(owner_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO message_reactions (message_id, user_id, emoji)
+           SELECT $1, $2, 'seed-' || seed
+           FROM generate_series(1, 19) AS seed"#,
+    )
+    .bind(reaction_message_id)
+    .bind(owner_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let reaction_request = |emoji: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/messages/item/{reaction_message_id}/reactions"
+            ))
+            .header("Authorization", &owner_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "emoji": emoji })).unwrap(),
+            ))
+            .unwrap()
+    };
+    let (reaction_a, reaction_b) = tokio::join!(
+        app.clone().oneshot(reaction_request("new-a")),
+        app.clone().oneshot(reaction_request("new-b"))
+    );
+    let reaction_statuses = [
+        reaction_a
+            .expect("reaction request A should resolve")
+            .status(),
+        reaction_b
+            .expect("reaction request B should resolve")
+            .status(),
+    ];
+    assert_eq!(
+        reaction_statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        reaction_statuses
+            .iter()
+            .filter(|status| **status == StatusCode::BAD_REQUEST)
+            .count(),
+        1
+    );
+    let reaction_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = $1",
+    )
+    .bind(reaction_message_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(reaction_count, 20);
+}
+
+#[tokio::test]
+async fn concurrent_duplicate_reports_create_one_open_report() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let reporter_suffix = Uuid::new_v4();
+    let (reporter_token, reporter_id) = register_user(
+        &mut app,
+        &format!("reporter-{reporter_suffix}@example.com"),
+        &format!("reporter_{}", reporter_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let target_suffix = Uuid::new_v4();
+    let (target_token, target_id) = register_user(
+        &mut app,
+        &format!("report-target-{target_suffix}@example.com"),
+        &format!("report_target_{}", target_suffix.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let reporter_auth = format!("Bearer {reporter_token}");
+    let target_auth = format!("Bearer {target_token}");
+    let (server_id, channel_id, invite_code) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &reporter_auth,
+        "Report Race Server",
+    )
+    .await;
+
+    let join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &target_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "target join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let user_report_request = || {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/servers/{server_id}/reports/user"))
+            .header("Authorization", &reporter_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "reported_user_id": target_id,
+                    "reason": "spam"
+                }))
+                .unwrap(),
+            ))
+            .unwrap()
+    };
+    let (user_report_a, user_report_b) = tokio::join!(
+        app.clone().oneshot(user_report_request()),
+        app.clone().oneshot(user_report_request())
+    );
+    assert_eq!(
+        user_report_a
+            .expect("user report A should resolve")
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        user_report_b
+            .expect("user report B should resolve")
+            .status(),
+        StatusCode::OK
+    );
+
+    let send_request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/{channel_id}"))
+        .header("Authorization", &target_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "report race message" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, send_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let message_id = Uuid::parse_str(message["id"].as_str().unwrap()).unwrap();
+
+    let message_report_request = || {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/servers/{server_id}/reports/message"))
+            .header("Authorization", &reporter_auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "message_id": message_id,
+                    "reason": "spam"
+                }))
+                .unwrap(),
+            ))
+            .unwrap()
+    };
+    let (message_report_a, message_report_b) = tokio::join!(
+        app.clone().oneshot(message_report_request()),
+        app.clone().oneshot(message_report_request())
+    );
+    assert_eq!(
+        message_report_a
+            .expect("message report A should resolve")
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        message_report_b
+            .expect("message report B should resolve")
+            .status(),
+        StatusCode::OK
+    );
+
+    let open_report_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM server_reports
+           WHERE server_id = $1
+             AND reporter_user_id = $2
+             AND reported_user_id = $3
+             AND status = 'open'"#,
+    )
+    .bind(server_id)
+    .bind(reporter_id)
+    .bind(target_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(open_report_count, 2, "one user and one message report should remain");
+
+    let duplicate_groups: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM (
+               SELECT message_id
+               FROM server_reports
+               WHERE server_id = $1
+                 AND reporter_user_id = $2
+                 AND reported_user_id = $3
+                 AND status = 'open'
+               GROUP BY message_id
+               HAVING COUNT(*) > 1
+           ) duplicates"#,
+    )
+    .bind(server_id)
+    .bind(reporter_id)
+    .bind(target_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(duplicate_groups, 0);
 }
