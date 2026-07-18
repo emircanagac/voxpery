@@ -12,11 +12,11 @@ on:
         required: true
         type: string
       expected_version:
-        description: Expected semantic release version, for example 0.2.3 or v0.2.3
+        description: Expected semantic release version, for example 1.2.3 or v1.2.3
         required: false
         type: string
       expected_image_tag:
-        description: Expected immutable Docker image tag, for example v0.2.3 or sha-abc123def456
+        description: Expected immutable Docker image tag, for example v1.2.3 or sha-abc123def456
         required: false
         type: string
       require_security_headers:

@@ -7,18 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-19
+
+### Added
+- Added a default onboarding guide to the official Voxpery Community so new users can discover messaging, voice, and project contribution paths immediately.
+
 ### Changed
-- Send default login and registration completions to the server/community surface so new users land closer to the official Voxpery Community experience.
-- Seed the official Voxpery Community with an enabled onboarding guide that points new users toward first message, voice, and GitHub discovery actions.
-- Defer browser and desktop notification permission requests until the authenticated app is ready and the user accepts a non-blocking in-app prompt.
-- Serialize critical DM creation, server bootstrap, member-role replacement, and channel deletion writes so concurrent requests cannot leave duplicate or partial state.
-- Run backend integration and concurrency tests in CI against isolated PostgreSQL and Redis services instead of silently skipping database coverage.
-- Register macOS microphone, camera, screen-recording, and shared-audio permission metadata in desktop bundles and keep remote call playback active across the screen-share picker and app focus changes.
+- Bumped web, server, and desktop package metadata to `0.2.4`.
+- Sent default login and registration completions to the server/community surface so new users land closer to the official Voxpery Community experience.
+- Deferred browser and desktop notification permission requests until the authenticated app is ready and the user accepts a non-blocking in-app prompt.
+- Serialized critical DM creation, server bootstrap, member-role replacement, and channel deletion writes so concurrent requests cannot leave duplicate or partial state.
+- Ran backend integration and concurrency tests in CI against isolated PostgreSQL and Redis services instead of silently skipping database coverage.
+- Registered macOS microphone, camera, screen-recording, and shared-audio permission metadata in desktop bundles and kept remote call playback active across the screen-share picker and app focus changes.
+- Clarified the README and hosted landing page around Voxpery's open-source, self-hostable, privacy-focused positioning.
+- Deferred authenticated, voice, RNNoise, and desktop-only JavaScript from public routes, reducing initial JavaScript by roughly 75%, with a CI bundle budget to prevent regressions.
+
+### Fixed
+- Made attachment uploads, reaction/report/pin limits, and critical multi-table writes rollback safely under failures and concurrent requests.
+- Made retryable DM, message, reaction, report, and pin writes idempotent so transport retries cannot create duplicate side effects.
+- Preserved message and reaction integrity when concurrent edits, deletes, pins, reports, and channel operations race.
 
 ### Security
 - Updated Rust `anyhow` lockfile entries to patched `1.0.103` releases that address `RUSTSEC-2026-0190`.
 - Updated the server `spin` lockfile entry from yanked `0.9.8` to `0.9.9`.
-- Re-check permissions inside locked database transactions and commit matching audit entries atomically with role and channel mutations.
+- Re-checked permissions inside locked database transactions and committed matching audit entries atomically with role and channel mutations.
+- Added strict attachment content-signature validation and hardened cookie authentication against cross-site request forgery.
+- Required explicit trusted-proxy configuration before accepting forwarded client IP headers.
+- Added rate limits for abuse-sensitive authentication, reporting, reaction, pin, and invitation paths.
+- Enforced web, API, and desktop security-header policies in CI, including restrictive CSP regression checks.
+- Updated vulnerable or yanked Rust and web dependency paths, including `quick-xml`, `anyhow`, and `spin`.
 
 ## [0.2.3] - 2026-06-23
 

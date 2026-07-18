@@ -13,7 +13,7 @@ on:
           - main-candidate
           - custom
       image_tag:
-        description: 'Custom mode only: immutable Docker image tag, for example sha-abc123def456 or v0.2.0'
+        description: 'Custom mode only: immutable Docker image tag, for example sha-abc123def456 or v1.2.3'
         required: false
         type: string
       git_ref:
