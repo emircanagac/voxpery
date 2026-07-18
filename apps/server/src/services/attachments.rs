@@ -669,9 +669,7 @@ impl AttachmentService {
                 AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
             })?;
         }
-        fs::write(&path, &bytes)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to write uploaded attachment: {e}")))?;
+        write_file_atomically(&path, &bytes).await?;
         Ok(StoredAttachment {
             storage_backend: "local",
             storage_key: key,
@@ -794,6 +792,48 @@ impl AttachmentService {
 
         Err(format!("Unexpected ClamAV response: {}", text.trim()))
     }
+}
+
+async fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    let temporary_path = path.with_extension(format!("uploading-{}", Uuid::new_v4()));
+    let mut temporary_file = match fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary_path)
+        .await
+    {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = fs::remove_file(&temporary_path).await;
+            return Err(AppError::Internal(format!(
+                "Failed to create temporary attachment file: {error}"
+            )));
+        }
+    };
+
+    let write_result = async {
+        temporary_file.write_all(bytes).await?;
+        temporary_file.flush().await?;
+        temporary_file.sync_all().await
+    }
+    .await;
+    drop(temporary_file);
+
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary_path).await;
+        return Err(AppError::Internal(format!(
+            "Failed to write uploaded attachment: {error}"
+        )));
+    }
+
+    if let Err(error) = fs::rename(&temporary_path, path).await {
+        let _ = fs::remove_file(&temporary_path).await;
+        return Err(AppError::Internal(format!(
+            "Failed to finalize uploaded attachment: {error}"
+        )));
+    }
+
+    Ok(())
 }
 
 fn validate_upload_content(
@@ -1533,6 +1573,42 @@ mod tests {
             .next_back()
             .expect("last storage key segment");
         assert!(Uuid::parse_str(object_id).is_ok());
+        let stored_path = service
+            .resolve_local_path(&stored.storage_key)
+            .expect("stored path");
+        assert_eq!(fs::read(&stored_path).await.expect("stored bytes"), b"hello");
+        let mut sibling_entries = fs::read_dir(stored_path.parent().expect("storage parent"))
+            .await
+            .expect("storage directory");
+        while let Some(entry) = sibling_entries.next_entry().await.expect("storage entry") {
+            assert!(
+                !entry.file_name().to_string_lossy().contains(".uploading-"),
+                "successful writes must not leave temporary files"
+            );
+        }
+
+        fs::remove_dir_all(test_root).await.expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn atomic_write_removes_temporary_file_when_finalize_fails() {
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&test_root).await.expect("test root");
+        let target_path = test_root.join("existing-directory");
+        fs::create_dir(&target_path).await.expect("conflicting target");
+
+        let error = write_file_atomically(&target_path, b"temporary payload")
+            .await
+            .expect_err("renaming a file over a directory must fail");
+        assert!(error.to_string().contains("Failed to finalize"));
+
+        let mut entries = fs::read_dir(&test_root).await.expect("test root entries");
+        while let Some(entry) = entries.next_entry().await.expect("test root entry") {
+            assert!(
+                !entry.file_name().to_string_lossy().contains(".uploading-"),
+                "failed finalization must remove temporary files"
+            );
+        }
 
         fs::remove_dir_all(test_root).await.expect("cleanup");
     }

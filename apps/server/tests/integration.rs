@@ -13,7 +13,7 @@ use http_body_util::BodyExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -136,6 +136,27 @@ async fn setup_app_with_auth_features(
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
     (app, state)
+}
+
+async fn count_regular_files(root: &Path) -> usize {
+    let mut directories = vec![root.to_path_buf()];
+    let mut count = 0;
+
+    while let Some(directory) = directories.pop() {
+        let mut entries = tokio::fs::read_dir(&directory)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", directory.display()));
+        while let Some(entry) = entries.next_entry().await.expect("failed to read entry") {
+            let file_type = entry.file_type().await.expect("failed to read file type");
+            if file_type.is_dir() {
+                directories.push(entry.path());
+            } else if file_type.is_file() {
+                count += 1;
+            }
+        }
+    }
+
+    count
 }
 
 async fn oneshot(app: &mut axum::Router, req: Request<Body>) -> (StatusCode, bytes::Bytes) {
@@ -3132,6 +3153,82 @@ async fn attachment_upload_fails_when_user_storage_quota_is_exceeded() {
         String::from_utf8_lossy(&body).contains("Storage quota exceeded"),
         "quota error message should be explicit: {}",
         String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn attachment_upload_rolls_back_prior_files_when_later_file_exceeds_quota() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let email = format!("quota-rollback-{}@example.com", uid);
+    let username = format!("quota_rollback_{}", uid.as_u128() % 1_000_000);
+    let password = test_credential("default");
+    let (token, user_id) = register_user(&mut app, &email, &username, password).await;
+    let auth = format!("Bearer {}", token);
+    let initial_storage_used = 1_073_741_819_i64;
+
+    sqlx::query("UPDATE users SET storage_used_bytes = $1 WHERE id = $2")
+        .bind(initial_storage_used)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let boundary = format!("----voxperyquotarollback{}", Uuid::new_v4());
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"first.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"second.txt\"\r\nContent-Type: text/plain\r\n\r\nworld\r\n--{boundary}--\r\n"
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body.into_bytes()))
+        .unwrap();
+    let (status, response_body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "second upload should exceed quota: {}",
+        String::from_utf8_lossy(&response_body)
+    );
+
+    let storage_used: i64 =
+        sqlx::query_scalar("SELECT storage_used_bytes FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        storage_used, initial_storage_used,
+        "quota reservation must roll back"
+    );
+
+    let stored_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored_count, 0, "attachment metadata must roll back");
+
+    let storage_root = state
+        .attachment_service
+        .local_storage_dir()
+        .expect("local attachment storage root");
+    assert_eq!(
+        count_regular_files(&storage_root).await,
+        0,
+        "rollback must remove files stored earlier in the request"
     );
 }
 
