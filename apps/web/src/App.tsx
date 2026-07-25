@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router'
 import { useAppStore } from './stores/app'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'

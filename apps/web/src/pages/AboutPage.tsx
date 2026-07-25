@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { Code2, Download, Globe2, Server, ShieldCheck } from 'lucide-react'
 import { releaseApi, type LatestReleaseResponse } from '../api'
 import { ROUTES } from '../routes'

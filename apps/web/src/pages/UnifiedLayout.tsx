@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import type { ServerSettingsTab } from '../stores/app'

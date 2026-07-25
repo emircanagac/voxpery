@@ -2,7 +2,7 @@ import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Moni
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'

@@ -1,7 +1,7 @@
 import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
 import { useShallow } from 'zustand/react/shallow'

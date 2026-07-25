@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from 'react'
-import { NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router'
 import { MessageCircle } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'

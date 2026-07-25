@@ -6,7 +6,7 @@ import { dmApi, friendApi, resolveAvatarUrl, serverApi, type ServerRole } from '
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useToastStore } from '../stores/toast'
 import type { StatusValue } from './StatusIcon'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 
