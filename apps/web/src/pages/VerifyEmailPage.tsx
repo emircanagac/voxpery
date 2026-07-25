@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   attachmentApi,

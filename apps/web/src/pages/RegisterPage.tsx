@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type MouseEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { Turnstile } from '@marsidev/react-turnstile'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'

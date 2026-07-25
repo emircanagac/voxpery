@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type MouseEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'

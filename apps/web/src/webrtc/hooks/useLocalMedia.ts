@@ -161,10 +161,10 @@ export function useLocalMedia() {
             return stream
         } catch (err: unknown) {
             const name = (err as { name?: string })?.name ?? ''
-            if (name === 'NotAllowedError') throw new Error('Microphone permission denied')
-            if (name === 'NotFoundError') throw new Error('No microphone device detected')
-            if (name === 'NotReadableError') throw new Error('Microphone is in use by another app')
-            throw new Error('Unable to access microphone')
+            if (name === 'NotAllowedError') throw new Error('Microphone permission denied', { cause: err })
+            if (name === 'NotFoundError') throw new Error('No microphone device detected', { cause: err })
+            if (name === 'NotReadableError') throw new Error('Microphone is in use by another app', { cause: err })
+            throw new Error('Unable to access microphone', { cause: err })
         }
     }, [])
 

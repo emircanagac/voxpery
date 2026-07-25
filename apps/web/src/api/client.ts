@@ -177,7 +177,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
                 tauriFetch = mod.fetch
             } catch (importErr) {
                 const msg = importErr instanceof Error ? importErr.message : String(importErr)
-                throw new Error(`CONNECTION_ERROR:Desktop plugin could not load. ${msg}`)
+                throw new Error(`CONNECTION_ERROR:Desktop plugin could not load. ${msg}`, { cause: importErr })
             }
             res = await tauriFetch(url, { ...fetchOptions, timeout: 30 } as RequestInit & { timeout?: number })
         } else {
@@ -192,9 +192,9 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
                 console.error('[Voxpery] Connection failed. URL:', url, 'Error:', detail, cause || '')
                 // Show API base in error so user can see if build had wrong VITE_API_URL
                 const apiHint = ` (API: ${getApiBase()})`
-                throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${fullDetail}`)
+                throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${fullDetail}`, { cause: err })
             }
-            throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${fullDetail}`)
+            throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${fullDetail}`, { cause: err })
         }
         throw err
     }
@@ -240,9 +240,9 @@ export async function apiMultipartFetch<T>(path: string, formData: FormData, tok
         if (isNetworkError(err) || isTauri()) {
             if (isTauri()) {
                 const apiHint = ` (API: ${getApiBase()})`
-                throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${detail}`)
+                throw new Error(`CONNECTION_ERROR:Cannot connect to the server.${apiHint} ${detail}`, { cause: err })
             }
-            throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${detail}`)
+            throw new Error(`CONNECTION_ERROR:Cannot connect to the server. ${detail}`, { cause: err })
         }
         throw err
     }

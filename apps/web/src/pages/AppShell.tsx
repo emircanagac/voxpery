@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Outlet, useNavigate, useLocation } from 'react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownToLine, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'

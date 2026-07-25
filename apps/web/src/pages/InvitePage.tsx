@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 import { resolveServerIconUrl, serverApi } from '../api'
 import type { ServerRule } from '../api/contracts'
