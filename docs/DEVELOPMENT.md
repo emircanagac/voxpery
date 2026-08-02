@@ -98,7 +98,7 @@ Runs on `push` and `pull_request`:
 
 ### `.github/workflows/dependency-security.yml`
 
-Runs on schedule, manual dispatch, and PR:
+Runs every Monday at 04:00 UTC, on manual dispatch, and on every PR:
 
 - Rust dependency audit (`cargo audit`)
 - Web production dependency audit (`npm audit --omit=dev --audit-level=high`)
@@ -110,4 +110,4 @@ Runs on schedule, manual dispatch, and PR:
 
 ---
 
-Last verified against code on 2026-07-18.
+Last verified against code on 2026-08-02.

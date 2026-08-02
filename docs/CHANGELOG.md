@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated declarative routing imports to React Router 8 and updated the frontend lint dependency chain to ESLint 10.
 - Preserved original error causes when wrapping network and microphone-access failures for clearer diagnostics.
+- Reduced scheduled dependency audits from daily to weekly while retaining audits on every pull request and manual dispatch.
 
 ### Security
 - Updated React Router to `8.3.0` to address `GHSA-qwww-vcr4-c8h2`.
 - Updated `brace-expansion` to `5.0.8` through the supported ESLint dependency chain to address `GHSA-3jxr-9vmj-r5cp` and `GHSA-mh99-v99m-4gvg`.
+- Updated server and desktop `event-listener` lockfile entries to patched `5.4.2` releases that address `RUSTSEC-2026-0221`.
 
 ## [0.2.4] - 2026-07-19
 
