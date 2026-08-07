@@ -37,7 +37,24 @@ describe('AboutPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeInTheDocument()
     expect(screen.getByText(/a discord alternative for communities/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
     expect(screen.getByRole('link', { name: /join voxpery community/i })).toHaveAttribute('href', '/register')
+    expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute(
+      'href',
+      'https://github.com/emircanagac/voxpery',
+    )
+    expect(screen.getByRole('link', { name: 'Releases' })).toHaveAttribute(
+      'href',
+      'https://github.com/emircanagac/voxpery/releases/latest',
+    )
+    expect(screen.getByRole('link', { name: 'Contributors' })).toHaveAttribute(
+      'href',
+      'https://github.com/emircanagac/voxpery/graphs/contributors',
+    )
+    expect(screen.getByRole('link', { name: 'Security' })).toHaveAttribute(
+      'href',
+      'https://github.com/emircanagac/voxpery/blob/main/SECURITY.md',
+    )
     expect(screen.getByText(/new accounts join the live community automatically/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /self-host with docker/i })).toHaveAttribute(
       'href',
@@ -45,5 +62,30 @@ describe('AboutPage', () => {
     )
     expect(screen.getByText('Inspectable by design')).toBeInTheDocument()
     expect(screen.getByText('Your deployment choice')).toBeInTheDocument()
+  })
+
+  it('routes authenticated visitors back into the app', () => {
+    vi.mocked(releaseApi.getLatest).mockRejectedValue(new Error('release unavailable'))
+    useAuthStore.setState({
+      token: 'test-token',
+      user: {
+        id: 'user-1',
+        username: 'tester',
+        email: 'tester@example.com',
+        email_verified: true,
+        status: 'online',
+      },
+      loggingOut: false,
+    })
+
+    render(
+      <MemoryRouter>
+        <AboutPage />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Go to app' })).toHaveAttribute('href', '/social')
+    expect(screen.getByRole('link', { name: /open voxpery/i })).toHaveAttribute('href', '/social')
+    expect(screen.queryByRole('link', { name: 'Login' })).not.toBeInTheDocument()
   })
 })

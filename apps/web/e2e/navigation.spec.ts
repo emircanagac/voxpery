@@ -6,7 +6,12 @@ test.describe('App Navigation', () => {
 
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
     await expect(page.getByRole('link', { name: /join voxpery community/i })).toHaveAttribute('href', '/register')
+    await expect(page.getByRole('link', { name: 'Source' })).toHaveAttribute(
+      'href',
+      'https://github.com/emircanagac/voxpery',
+    )
     await expect(page.getByRole('link', { name: /self-host with docker/i })).toBeVisible()
   })
 
