@@ -140,6 +140,60 @@ fn append_query_param(path: &str, key: &str, value: &str) -> String {
     out
 }
 
+fn escape_html_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn javascript_string_literal(value: &str) -> String {
+    serde_json::to_string(value)
+        .unwrap_or_else(|_| "\"voxpery://auth/\"".to_string())
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+}
+
+fn desktop_oauth_handoff_html(redirect_url: &str) -> String {
+    let href = escape_html_attribute(redirect_url);
+    let app_url = javascript_string_literal(redirect_url);
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Opening Voxpery...</title>
+<style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }}
+    .card {{ background: #313244; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 400px; }}
+    h1 {{ color: #89b4fa; margin-bottom: 1rem; }}
+    p {{ line-height: 1.5; color: #a6adc8; }}
+    .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; transition: opacity 0.2s; }}
+    .btn:hover {{ opacity: 0.9; }}
+</style>
+</head>
+<body>
+<main class="card">
+    <h1>Login Successful!</h1>
+    <p>You are being redirected to the Voxpery desktop app.</p>
+    <p>If the app does not open automatically, use the button below.</p>
+    <a id="open-voxpery" href="{href}" class="btn">Open Voxpery</a>
+</main>
+<script>
+    const appUrl = {app_url};
+    window.addEventListener("load", () => {{
+        window.setTimeout(() => window.location.replace(appUrl), 100);
+    }}, {{ once: true }});
+</script>
+</body>
+</html>"#
+    )
+}
+
 fn is_valid_pkce_component(value: &str) -> bool {
     let len = value.len();
     if !(43..=128).contains(&len) {
@@ -233,8 +287,8 @@ async fn consume_desktop_oauth_code(
 #[cfg(test)]
 mod oauth_pkce_tests {
     use super::{
-        constant_time_eq, is_valid_pkce_component, normalize_oauth_username_seed,
-        pkce_s256_challenge,
+        constant_time_eq, desktop_oauth_handoff_html, is_valid_pkce_component,
+        normalize_oauth_username_seed, pkce_s256_challenge,
     };
 
     #[test]
@@ -283,6 +337,19 @@ mod oauth_pkce_tests {
             normalize_oauth_username_seed("Fran\u{00E7}ois d'\u{00C6}vreux"),
             "francois_d_aevreux"
         );
+    }
+
+    #[test]
+    fn desktop_oauth_handoff_keeps_automatic_and_manual_open_paths_safe() {
+        let html = desktop_oauth_handoff_html(
+            "voxpery://auth/servers?next=\"</script><script>alert(1)</script>&code=abc",
+        );
+
+        assert!(html.contains("id=\"open-voxpery\""));
+        assert!(html.contains("window.location.replace(appUrl)"));
+        assert!(html.contains("&quot;&lt;/script&gt;"));
+        assert!(html.contains("\\u003c/script\\u003e"));
+        assert!(!html.contains("<script>alert(1)</script>"));
     }
 }
 
@@ -1871,44 +1938,7 @@ async fn google_oauth_callback(
     };
 
     let mut response = if is_desktop {
-        // Desktop UX: Return a nice HTML page that triggers the deep link and tells user to close tab.
-        let html = format!(
-            r#"<!DOCTYPE html>
-    <html>
-    <head>
-    <title>Authenticating...</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }}
-        .card {{ background: #313244; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 400px; }}
-        h1 {{ color: #89b4fa; margin-bottom: 1rem; }}
-        p {{ line-height: 1.5; color: #a6adc8; }}
-        .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; transition: opacity 0.2s; }}
-        .btn:hover {{ opacity: 0.9; }}
-    </style>
-    </head>
-    <body>
-    <div class="card">
-        <h1>Login Successful!</h1>
-        <p>You are being redirected to the Voxpery desktop app.</p>
-        <p>If the app doesn't open, you can click the button below or safely close this tab.</p>
-        <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
-            <a href="{}" class="btn" style="margin-top: 0;">Back to App</a>
-        </div>
-    </div>
-    <script>
-        // Try to redirect automatically
-        window.location.href = "{}";
-        // Close window after a delay (often blocked by browsers but worth a try)
-        setTimeout(() => {{
-            // Some browsers allow closing if opened via script, though OAuth is usually not the case.
-            // window.close();
-        }}, 3000);
-    </script>
-    </body>
-    </html>"#,
-            redirect_url, redirect_url
-        );
-        Html(html).into_response()
+        Html(desktop_oauth_handoff_html(&redirect_url)).into_response()
     } else {
         Redirect::temporary(&redirect_url).into_response()
     };
