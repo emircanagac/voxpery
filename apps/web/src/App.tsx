@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router'
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router'
 import { useAppStore } from './stores/app'
 import { useAuthStore, restoreSecureSession } from './stores/auth'
 import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'
@@ -11,6 +11,7 @@ import GlobalLoading from './components/GlobalLoading'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
+import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks } from './desktopOAuth'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -75,6 +76,7 @@ function App() {
   const validatedSessionRef = useRef(false)
   const authFailureHandledRef = useRef(false)
   const isDesktopApp = isTauri()
+  const navigate = useNavigate()
 
   useEffect(() => {
     void loadFeatures()
@@ -114,74 +116,58 @@ function App() {
     useAppStore.getState().resetSessionState()
   }, [restoring, user])
 
-  // Desktop: restore from secure storage. Web: zustand persist handles restoration.
+  // Desktop: restore secure storage, then collect cold-start and runtime OAuth deep links.
   useEffect(() => {
-    if (isTauri()) {
-      restoreSecureSession().finally(() => setRestoring(false))
-
-      // Listen for deep links (Google OAuth callback)
-      let unlisten: (() => void) | undefined
-      let unlistenCustom: (() => void) | undefined
+    if (isDesktopApp) {
+      let disposeDeepLinks: (() => void) | undefined
       let disposed = false
+      const handleDeepLinkUrl = createDesktopOAuthDeepLinkHandler({
+        getCodeVerifier: getStoredDesktopOAuthVerifier,
+        clearCodeVerifier: clearStoredDesktopOAuthVerifier,
+        exchangeCode: authApi.exchangeDesktopOAuthCode,
+        setAuth: (authToken, authUser) => useAuthStore.getState().setAuth(authToken, authUser),
+        persistToken: setSecureToken,
+        navigate: (path) => navigate(path, { replace: true }),
+        onError: (error) => console.error('Desktop OAuth return failed:', error),
+      })
 
-      const handleDeepLinkUrl = (url: string) => {
-        try {
-          const parsed = new URL(url)
-          const code = parsed.searchParams.get('code')
-          if (code) {
-            const codeVerifier = getStoredDesktopOAuthVerifier()
-            if (!codeVerifier) {
-              console.error('Missing desktop OAuth code verifier; restart login flow.')
-              return
-            }
-            authApi
-              .exchangeDesktopOAuthCode(code, codeVerifier)
-              .then((auth) => {
-                useAuthStore.getState().setAuth(auth.token, auth.user)
-                setSecureToken(auth.token).catch(() => {})
-                clearStoredDesktopOAuthVerifier()
-              })
-              .catch((err) => {
-                 console.error("Deep link auth error:", err)
-              })
-          }
-        } catch (err) {
-          console.error("Deep link URL parse error:", err)
-        }
+      const bootstrapDesktopSession = async () => {
+        await restoreSecureSession()
+        const [deepLink, event] = await Promise.all([
+          import('@tauri-apps/plugin-deep-link'),
+          import('@tauri-apps/api/event'),
+        ])
+        const cleanup = await registerDesktopOAuthDeepLinks(
+          {
+            getCurrent: deepLink.getCurrent,
+            onOpenUrl: deepLink.onOpenUrl,
+            listenCustom: (handler) => event.listen<string>(
+              'custom-deep-link',
+              (received) => handler(received.payload),
+            ),
+          },
+          handleDeepLinkUrl,
+          (error) => console.error('Desktop deep-link setup failed:', error),
+        )
+        if (disposed) cleanup()
+        else disposeDeepLinks = cleanup
       }
 
-      void import('@tauri-apps/plugin-deep-link')
-        .then(({ onOpenUrl }) => onOpenUrl((urls) => {
-          for (const url of urls) {
-            handleDeepLinkUrl(url)
-          }
-        }))
-        .then((fn) => {
-          if (disposed) fn()
-          else unlisten = fn
+      void bootstrapDesktopSession()
+        .catch((error) => console.error('Desktop session bootstrap failed:', error))
+        .finally(() => {
+          if (!disposed) setRestoring(false)
         })
-        .catch(console.error)
-
-      void import('@tauri-apps/api/event')
-        .then(({ listen }) => listen<string>('custom-deep-link', (event: { payload: string }) => {
-          handleDeepLinkUrl(event.payload)
-        }))
-        .then((fn) => {
-          if (disposed) fn()
-          else unlistenCustom = fn
-        })
-        .catch(console.error)
 
       return () => {
         disposed = true
-        if (unlisten) unlisten()
-        if (unlistenCustom) unlistenCustom()
+        disposeDeepLinks?.()
       }
     } else {
       // Web: wait for zustand persist to rehydrate, then mark as ready
       queueMicrotask(() => setRestoring(false))
     }
-  }, [])
+  }, [isDesktopApp, navigate])
 
   // Web: cookie-based session restore/validation.
   useEffect(() => {

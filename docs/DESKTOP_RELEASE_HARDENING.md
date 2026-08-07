@@ -23,6 +23,9 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Desktop OAuth callback origin is `voxpery://auth`.
 - Backend CORS allowlist must include `voxpery://auth`.
 - Desktop deep-link scheme in Tauri config must include `voxpery`.
+- The desktop client must process both cold-start URLs from the deep-link plugin's `getCurrent()` API and runtime URLs from `onOpenUrl`/single-instance events.
+- OAuth callback codes are single-use. Duplicate delivery through multiple desktop event sources must be deduplicated before exchange.
+- The browser handoff page must attempt to open Voxpery automatically, keep an explicit user-gesture fallback, and safely encode the generated deep-link URL.
 - Release preflight validates:
   - deep-link scheme setup
   - frontend OAuth origin behavior
@@ -73,7 +76,7 @@ Before publishing or announcing a desktop release:
 Before publishing a desktop release:
 
 1. Complete `docs/RELEASE_SMOKE_TEST_CHECKLIST.md`.
-2. Confirm OAuth deep-link roundtrip works from browser back to desktop app.
+2. Confirm OAuth deep-link roundtrip works from browser back to both a closed and an already-running desktop app.
 3. Confirm installer uses Voxpery icon/name (not default NSIS icon).
 4. Confirm update check UX:
    - no-update state is understandable

@@ -87,8 +87,10 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Windows startup launch keeps Voxpery in the background/tray, and opening it from the tray shows a maximized window.
 - [ ] Production desktop build connects only to the official API and does not allow localhost API scopes.
 - [ ] Desktop register screen renders CAPTCHA and new account registration succeeds when production CAPTCHA is enabled.
-- [ ] Google OAuth opens browser and returns to desktop app via `voxpery://` deep link.
-- [ ] Session is restored after OAuth callback (user ends in authenticated app state).
+- [ ] With Voxpery closed, Google OAuth opens the browser, starts the desktop app via `voxpery://`, and completes sign-in without requiring a second callback click.
+- [ ] With Voxpery already running, Google OAuth returns to and focuses the existing desktop instance.
+- [ ] If the browser blocks automatic external-protocol navigation, the `Open Voxpery` fallback completes the same sign-in flow.
+- [ ] Session is restored after OAuth callback, the one-time code is not exchanged twice, and the user lands on the requested authenticated route.
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
 - [ ] Desktop release workflow ran against the exact release tag/ref, with `smoke_checklist_confirmed=yes`.
 - [ ] Production desktop releases used `platform=all`; single-platform workflow runs are recorded as test/hotfix-only.
