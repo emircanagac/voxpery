@@ -65,6 +65,11 @@ Attachments note:
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
+- Privacy-safe operational observability is disabled by default. Set `OBSERVABILITY_ENABLED=true`
+  only when the deployment needs aggregate reliability counters; see
+  [OBSERVABILITY.md](OBSERVABILITY.md) for the fixed event schema and retention policy.
+- `OBSERVABILITY_RATE_LIMIT_MAX` and `OBSERVABILITY_RATE_LIMIT_WINDOW_SECS` control the
+  unauthenticated event endpoint's per-network-fingerprint limit. Defaults are `120` and `60`.
 - Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
 - SMTP delivery uses STARTTLS on submission port 587 and forces an IPv4 outbound connection, matching hosts that do not provide Docker IPv6 routing.
 - Password reset and email verification depend on email delivery.

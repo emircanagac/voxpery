@@ -86,6 +86,7 @@ export interface SystemFeatures {
     email_verification_enabled: boolean
     email_verification_required: boolean
     password_reset_enabled: boolean
+    observability_enabled: boolean
 }
 
 export interface ServerDetail extends Server {

@@ -51,6 +51,7 @@ describe('auth notification permission behavior', () => {
     useFeatureStore.setState({
       features: {
         google_oauth_enabled: false,
+        observability_enabled: false,
         email_delivery_enabled: false,
         email_verification_enabled: false,
         email_verification_required: false,

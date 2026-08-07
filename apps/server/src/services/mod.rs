@@ -1,13 +1,14 @@
 pub mod attachments;
-pub mod avatar_images;
 pub mod audit;
-pub mod automod;
 pub mod auth;
+pub mod automod;
+pub mod avatar_images;
 pub mod client_ip;
 pub mod email;
 pub mod idempotency;
 pub mod jwt_blacklist;
 pub mod moderation;
+pub mod observability;
 pub mod permissions;
 pub mod rate_limit;
 pub mod voice_revoke;

@@ -12,6 +12,7 @@ import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
 import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks } from './desktopOAuth'
+import { configureObservability, reportObservabilityEvent } from './observability'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -72,6 +73,8 @@ function App() {
   const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
   const loadFeatures = useFeatureStore((s) => s.loadFeatures)
+  const features = useFeatureStore((s) => s.features)
+  const featureError = useFeatureStore((s) => s.error)
   const [restoring, setRestoring] = useState(true)
   const validatedSessionRef = useRef(false)
   const authFailureHandledRef = useRef(false)
@@ -81,6 +84,11 @@ function App() {
   useEffect(() => {
     void loadFeatures()
   }, [loadFeatures])
+
+  useEffect(() => {
+    if (features) configureObservability(features.observability_enabled)
+    else if (featureError) configureObservability(false)
+  }, [featureError, features])
 
   useEffect(() => {
     if (!isDesktopApp) return
@@ -129,6 +137,7 @@ function App() {
         persistToken: setSecureToken,
         navigate: (path) => navigate(path, { replace: true }),
         onError: (error) => console.error('Desktop OAuth return failed:', error),
+        onObservabilityEvent: reportObservabilityEvent,
       })
 
       const bootstrapDesktopSession = async () => {
@@ -147,14 +156,20 @@ function App() {
             ),
           },
           handleDeepLinkUrl,
-          (error) => console.error('Desktop deep-link setup failed:', error),
+          (error) => {
+            reportObservabilityEvent('desktop_oauth_setup_failed')
+            console.error('Desktop deep-link setup failed:', error)
+          },
         )
         if (disposed) cleanup()
         else disposeDeepLinks = cleanup
       }
 
       void bootstrapDesktopSession()
-        .catch((error) => console.error('Desktop session bootstrap failed:', error))
+        .catch((error) => {
+          reportObservabilityEvent('desktop_oauth_setup_failed')
+          console.error('Desktop session bootstrap failed:', error)
+        })
         .finally(() => {
           if (!disposed) setRestoring(false)
         })

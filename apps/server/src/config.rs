@@ -24,6 +24,10 @@ pub struct Config {
     pub trusted_proxies: TrustedProxySet,
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
+    /// Emit allowlisted, privacy-safe operational events. Disabled by default.
+    pub observability_enabled: bool,
+    pub observability_rate_limit_max: usize,
+    pub observability_rate_limit_window_secs: u64,
     /// Optional admin account for default setup. If all three are set, a user is created at startup (if none with that email exists) and becomes owner of the default Voxpery server.
     pub admin_email: Option<String>,
     pub admin_username: Option<String>,
@@ -183,6 +187,19 @@ impl Config {
                 .unwrap_or_else(|_| "10".into())
                 .parse()
                 .expect("MESSAGE_RATE_LIMIT_WINDOW_SECS must be a number"),
+            observability_enabled: std::env::var("OBSERVABILITY_ENABLED")
+                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            observability_rate_limit_max: std::env::var("OBSERVABILITY_RATE_LIMIT_MAX")
+                .unwrap_or_else(|_| "120".into())
+                .parse()
+                .expect("OBSERVABILITY_RATE_LIMIT_MAX must be a number"),
+            observability_rate_limit_window_secs: std::env::var(
+                "OBSERVABILITY_RATE_LIMIT_WINDOW_SECS",
+            )
+            .unwrap_or_else(|_| "60".into())
+            .parse()
+            .expect("OBSERVABILITY_RATE_LIMIT_WINDOW_SECS must be a number"),
             admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
             admin_username: std::env::var("ADMIN_USERNAME")
                 .ok()

@@ -74,6 +74,16 @@ Notes:
 - `email/request-verification` can optionally change the current account email and issues a fresh verification token.
 - `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
 
+## System Endpoints
+
+- `GET /api/system/features`
+  - Public integration capability flags used by web and desktop clients.
+- `POST /api/system/observability/events`
+  - Public, rate-limited, best-effort operational event endpoint.
+  - Accepts only `{ "event": "<allowlisted_code>", "client": "web|desktop" }` and rejects unknown fields.
+  - Returns an empty `204` when accepted, disabled, or unavailable so event delivery never affects product behavior.
+  - Disabled by default; see [OBSERVABILITY.md](OBSERVABILITY.md) for the event list and privacy contract.
+
 ## Server Endpoints
 
 - `GET /api/servers`

@@ -65,6 +65,19 @@ async fn setup_app_with_auth_features(
     email_verification_enabled: bool,
     password_reset_enabled: bool,
 ) -> (axum::Router, Arc<AppState>) {
+    setup_app_with_features(
+        email_verification_enabled,
+        password_reset_enabled,
+        false,
+    )
+    .await
+}
+
+async fn setup_app_with_features(
+    email_verification_enabled: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -108,6 +121,9 @@ async fn setup_app_with_auth_features(
         trusted_proxies: voxpery_server::services::client_ip::TrustedProxySet::default(),
         message_rate_limit_max: 100,
         message_rate_limit_window_secs: 10,
+        observability_enabled,
+        observability_rate_limit_max: 100,
+        observability_rate_limit_window_secs: 60,
         cookie_secure: false,
         cookie_name: "voxpery_token".to_string(),
         cors_origins: vec!["http://localhost:5173".to_string()],
@@ -264,6 +280,52 @@ async fn health_returns_200_when_db_connected() {
 }
 
 #[tokio::test]
+async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_schema() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app_with_features(false, false, true).await;
+
+    let features = Request::builder()
+        .uri("/api/system/features")
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, features).await;
+    assert_eq!(status, StatusCode::OK);
+    let features: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(features["observability_enabled"], true);
+
+    let valid = Request::builder()
+        .method("POST")
+        .uri("/api/system/observability/events")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "event": "voice_join_succeeded", "client": "web" }).to_string(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, valid).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(body.is_empty());
+
+    let arbitrary = Request::builder()
+        .method("POST")
+        .uri("/api/system/observability/events")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "event": "voice_join_succeeded",
+                "client": "web",
+                "message": "must not be logged"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, arbitrary).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn api_security_headers_cover_normal_error_and_preflight_responses() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
@@ -272,7 +334,10 @@ async fn api_security_headers_cover_normal_error_and_preflight_responses() {
     let (app, _) = setup_app().await;
 
     let requests = [
-        Request::builder().uri("/health").body(Body::empty()).unwrap(),
+        Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap(),
         Request::builder()
             .uri("/missing-route")
             .body(Body::empty())
@@ -614,7 +679,10 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .await
     .expect("default Voxpery server should have a seeded onboarding guide");
 
-    assert!(guide.0, "default Voxpery onboarding guide should be enabled");
+    assert!(
+        guide.0,
+        "default Voxpery onboarding guide should be enabled"
+    );
     assert_eq!(guide.1, "Welcome to the Voxpery Community");
     assert!(
         guide
@@ -786,8 +854,13 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let owner_uid = Uuid::new_v4();
     let owner_email = format!("onboarding-owner-{owner_uid}@example.com");
     let owner_username = format!("onboarding_owner_{}", owner_uid.as_u128() % 1_000_000);
-    let (owner_token, _) =
-        register_user(&mut app, &owner_email, &owner_username, test_credential("default")).await;
+    let (owner_token, _) = register_user(
+        &mut app,
+        &owner_email,
+        &owner_username,
+        test_credential("default"),
+    )
+    .await;
     let owner_auth = format!("Bearer {owner_token}");
 
     let req = Request::builder()
@@ -848,8 +921,13 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let member_uid = Uuid::new_v4();
     let member_email = format!("onboarding-member-{member_uid}@example.com");
     let member_username = format!("onboarding_member_{}", member_uid.as_u128() % 1_000_000);
-    let (member_token, _) =
-        register_user(&mut app, &member_email, &member_username, test_credential("default")).await;
+    let (member_token, _) = register_user(
+        &mut app,
+        &member_email,
+        &member_username,
+        test_credential("default"),
+    )
+    .await;
     let member_auth = format!("Bearer {member_token}");
 
     let req = Request::builder()
@@ -895,8 +973,13 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let outsider_email = format!("onboarding-outsider-{outsider_uid}@example.com");
     let outsider_username = format!("onboarding_outsider_{}", outsider_uid.as_u128() % 1_000_000);
     let outsider_password = format!("onboarding-credential-{}", Uuid::new_v4().as_simple());
-    let (outsider_token, _) =
-        register_user(&mut app, &outsider_email, &outsider_username, &outsider_password).await;
+    let (outsider_token, _) = register_user(
+        &mut app,
+        &outsider_email,
+        &outsider_username,
+        &outsider_password,
+    )
+    .await;
     let outsider_auth = format!("Bearer {outsider_token}");
     let req = Request::builder()
         .uri(format!("/api/servers/{server_id}/onboarding"))
@@ -918,8 +1001,13 @@ async fn member_timeout_blocks_and_clear_restores_messages() {
     let owner_uid = Uuid::new_v4();
     let owner_email = format!("timeout-owner-{owner_uid}@example.com");
     let owner_username = format!("timeout_owner_{}", owner_uid.as_u128() % 1_000_000);
-    let (owner_token, _) =
-        register_user(&mut app, &owner_email, &owner_username, test_credential("default")).await;
+    let (owner_token, _) = register_user(
+        &mut app,
+        &owner_email,
+        &owner_username,
+        test_credential("default"),
+    )
+    .await;
     let owner_auth = format!("Bearer {owner_token}");
 
     let req = Request::builder()
@@ -945,8 +1033,13 @@ async fn member_timeout_blocks_and_clear_restores_messages() {
     let member_uid = Uuid::new_v4();
     let member_email = format!("timeout-member-{member_uid}@example.com");
     let member_username = format!("timeout_member_{}", member_uid.as_u128() % 1_000_000);
-    let (member_token, member_id) =
-        register_user(&mut app, &member_email, &member_username, test_credential("default")).await;
+    let (member_token, member_id) = register_user(
+        &mut app,
+        &member_email,
+        &member_username,
+        test_credential("default"),
+    )
+    .await;
     let member_auth = format!("Bearer {member_token}");
 
     let req = Request::builder()
@@ -4143,7 +4236,10 @@ async fn concurrent_duplicate_reports_create_one_open_report() {
     .fetch_one(&state.db)
     .await
     .unwrap();
-    assert_eq!(open_report_count, 2, "one user and one message report should remain");
+    assert_eq!(
+        open_report_count, 2,
+        "one user and one message report should remain"
+    );
 
     let duplicate_groups: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*)
@@ -4197,21 +4293,17 @@ async fn dm_message_search_rate_limit_matches_server_search() {
         .execute(&state.db)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(peer_id)
-    .execute(&state.db)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)")
+        .bind(channel_id)
+        .bind(user_id)
+        .bind(peer_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
 
     let search_request = || {
         Request::builder()
-            .uri(format!(
-                "/api/dm/messages/{channel_id}/search?q=rate-limit"
-            ))
+            .uri(format!("/api/dm/messages/{channel_id}/search?q=rate-limit"))
             .header("Authorization", &auth_header)
             .body(Body::empty())
             .unwrap()
@@ -4488,15 +4580,13 @@ async fn message_and_dm_retries_create_one_persistent_message() {
         .execute(&state.db)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)",
-    )
-    .bind(dm_channel_id)
-    .bind(user_id)
-    .bind(peer_id)
-    .execute(&state.db)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2), ($1, $3)")
+        .bind(dm_channel_id)
+        .bind(user_id)
+        .bind(peer_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
     let dm_request_id = format!("dm-{suffix}");
     let dm_request = || {
         Request::builder()
@@ -4674,18 +4764,16 @@ async fn concurrent_friend_requests_create_one_pending_pair() {
     .await;
     let sender_auth = format!("Bearer {sender_token}");
     let target_auth = format!("Bearer {target_token}");
-    let sender_username: String =
-        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(sender_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
-    let target_username: String =
-        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(target_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
+    let sender_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(sender_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    let target_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(target_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
     let friend_request = |auth: &str, username: &str| {
         Request::builder()
             .method("POST")

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportFrontendCrash } from '../observability'
 
 interface Props {
   children: ReactNode
@@ -18,6 +19,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    reportFrontendCrash()
     console.error('ErrorBoundary caught:', error, errorInfo)
   }
 

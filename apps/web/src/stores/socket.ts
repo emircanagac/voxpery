@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createWebSocket } from '../api'
+import { reportObservabilityEvent } from '../observability'
 
 type WsListener = (data: unknown) => void
 type ReconnectListener = () => void
@@ -71,6 +72,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             if (get().connectionId !== connectionId) return
 
             const wasConnected = get().wasConnectedBefore
+            const reconnectAttempt = get().reconnectAttempt
             set({
                 isConnected: true,
                 socket: ws,
@@ -81,6 +83,9 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
             // Fire reconnect listeners if this was a re-establishment (not first connect)
             if (wasConnected) {
+                if (reconnectAttempt > 0) {
+                    reportObservabilityEvent('websocket_reconnect_succeeded')
+                }
                 get().reconnectListeners.forEach((cb) => {
                     try { cb() } catch (e) { console.error('[WS] reconnect listener error:', e) }
                 })
@@ -109,6 +114,9 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             const { shouldReconnect, reconnectAttempt } = get()
             if (shouldReconnect && reconnectAttempt < RECONNECT_MAX_ATTEMPTS) {
                 const nextAttempt = reconnectAttempt + 1
+                if (nextAttempt === 1) {
+                    reportObservabilityEvent('websocket_reconnect_started')
+                }
                 const delayMs = websocketReconnectDelayMs(nextAttempt)
                 const reconnectTimer = setTimeout(() => {
                     const { token: latestToken, shouldReconnect: latestShouldReconnect, connectionId: latestConnectionId } = get()
@@ -125,6 +133,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
                 set({ reconnectAttempt: nextAttempt, reconnectTimer })
             } else if (shouldReconnect) {
+                reportObservabilityEvent('websocket_reconnect_exhausted')
                 set({ shouldReconnect: false, reconnectAttempt: 0, reconnectTimer: null })
             }
         }

@@ -19,6 +19,7 @@ This folder is the source of truth for architecture, development, deployment, ro
 - **[VOICE_SYSTEM.md](VOICE_SYSTEM.md)** - LiveKit integration and voice pipeline
 - **[VOICE_SUPPRESSION_SMOKE_TEST.md](VOICE_SUPPRESSION_SMOKE_TEST.md)** - release gate for RNNoise and voice suppression parity
 - **[PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md)** - Realtime workload risks and measurement plan
+- **[OBSERVABILITY.md](OBSERVABILITY.md)** - Privacy-safe operational event contract, metrics, and retention
 - **[DATABASE.md](DATABASE.md)** - Schema, migrations, and key queries
 - **[SECURITY.md](SECURITY.md)** - Security model and hardening checklist
 - **[../SECURITY.md](../SECURITY.md)** - Private vulnerability reporting policy

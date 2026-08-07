@@ -40,7 +40,7 @@ Choose Voxpery when you want:
 Voxpery is open source, so the hosted app and self-hosted version are built from public, reviewable code. You can inspect how authentication, attachments, voice, moderation, and data export/delete work instead of relying on a closed client.
 
 - **Google sign-in does not give Voxpery your Google password.** Google OAuth only confirms your identity and returns the account information needed to sign you in.
-- **No ads or analytics by default.** Voxpery is not built around tracking users or selling attention.
+- **No ads or behavioral analytics.** Optional operational counters contain only allowlisted event codes, are disabled by default for self-hosting, and never include message content or user identifiers.
 - **Self-hostable by design.** Communities that want full control can run the same stack on their own server.
 - **Data controls are built in.** Users can export their account data and permanently delete their account.
 - **Attachments are scoped.** Uploaded files use signed access and server/DM viewer authorization instead of public permanent links.
@@ -51,7 +51,7 @@ Voxpery is open source, so the hosted app and self-hosted version are built from
 |---------|---------|---------|-------|-----------|
 | **Open-source model** | Yes: AGPL-3.0 | No: proprietary | No: proprietary | Partial: open-core |
 | **Self-hostable** | Yes: full stack | No | No | Yes |
-| **Data control / privacy** | Yes: self-host + no telemetry by default | SaaS data collection policies | SaaS data collection policies | Strong self-host control |
+| **Data control / privacy** | Yes: self-host + operational observability off by default | SaaS data collection policies | SaaS data collection policies | Strong self-host control |
 | **Voice calling** | LiveKit SFU | Native voice | Huddles (free plan limits) | Calls plugin |
 | **Desktop app stack** | Tauri | Proprietary desktop client | Electron desktop client | Electron desktop client |
 | **Pricing model** | OSS / self-host free | Freemium (Nitro) | Freemium + paid tiers | OSS + paid enterprise tiers |
@@ -59,7 +59,7 @@ Voxpery is open source, so the hosted app and self-hosted version are built from
 
 Voxpery is not trying to beat mature commercial platforms on every enterprise feature today. Discord and Slack still have bigger ecosystems, polished mobile apps, app directories, and years of edge-case hardening. Mattermost is more mature for enterprise compliance and large deployments.
 
-Voxpery is strongest when you want a smaller, inspectable, self-hostable community platform with hosted access available now, modern voice through LiveKit, no analytics by default, and a roadmap focused on open community ownership.
+Voxpery is strongest when you want a smaller, inspectable, self-hostable community platform with hosted access available now, modern voice through LiveKit, no behavioral analytics, and a roadmap focused on open community ownership.
 
 ---
 
@@ -74,7 +74,7 @@ Voxpery is strongest when you want a smaller, inspectable, self-hostable communi
 
 ### Security & Privacy
 - **Secure auth defaults** - JWT + Argon2id, httpOnly cookies, Google OAuth support
-- **No tracking** - Zero analytics, zero telemetry, zero ads
+- **No behavioral tracking** - No ads or analytics; optional content-free operational counters are documented and off by default for self-hosting
 - **Self-hosted** - Full control of your data, run on your server
 - **Scoped attachment access** - Signed URLs + server/DM viewer authorization
 - **Open source** - Audit-ready code, AGPL license
@@ -105,7 +105,7 @@ Voxpery is strongest when you want a smaller, inspectable, self-hostable communi
 
 **Use the hosted app:** [voxpery.com](https://voxpery.com)
 - Sign up -> Create/join servers -> Start voice
-- No credit card, no data collection
+- No credit card, no ads or behavioral tracking
 - Same open-source code as self-hosted version
 
 ### For Self-Hosters: Deploy Your Own

@@ -5,9 +5,9 @@ use std::time::Instant;
 
 use axum::{
     body::{to_bytes, Body},
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{header, Method, StatusCode},
-    middleware::{from_fn_with_state, map_response},
+    middleware::{from_fn_with_state, map_response, Next},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -53,6 +53,9 @@ pub struct AppState {
     pub trusted_proxies: services::client_ip::TrustedProxySet,
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
+    pub observability_enabled: bool,
+    pub observability_rate_limit_max: usize,
+    pub observability_rate_limit_window_secs: u64,
     pub cookie_secure: bool,
     pub cookie_name: String,
     pub cors_origins: Vec<String>,
@@ -213,6 +216,21 @@ pub fn validate_security_config(
     Ok(())
 }
 
+async fn observe_backend_server_errors(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let response = next.run(request).await;
+    if services::observability::should_observe_backend_response(
+        state.observability_enabled,
+        response.status(),
+    ) {
+        services::observability::log_backend_5xx(response.status());
+    }
+    response
+}
+
 /// Validates optional integrations that can be disabled for self-hosted deployments.
 pub fn validate_optional_integration_config(config: &config::Config) -> Result<(), String> {
     if config.google_client_id.is_some() != config.google_client_secret.is_some() {
@@ -297,6 +315,10 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .layer(from_fn_with_state(
             cookie_csrf,
             middleware::csrf::protect_cookie_authenticated_writes,
+        ))
+        .layer(from_fn_with_state(
+            state.clone(),
+            observe_backend_server_errors,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -397,6 +419,9 @@ mod tests {
             trusted_proxies: crate::services::client_ip::TrustedProxySet::default(),
             message_rate_limit_max: 30,
             message_rate_limit_window_secs: 10,
+            observability_enabled: false,
+            observability_rate_limit_max: 120,
+            observability_rate_limit_window_secs: 60,
             admin_email: None,
             admin_username: None,
             admin_password: None,

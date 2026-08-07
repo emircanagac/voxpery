@@ -169,6 +169,18 @@ Focus on:
 - DB/Redis connectivity failures
 - LiveKit token/join errors
 
+When `OBSERVABILITY_ENABLED=true`, review privacy-safe reliability counters separately:
+
+```bash
+docker compose logs --since 24h server | grep 'voxpery_observability'
+```
+
+These lines contain only an allowlisted `event_code` plus `client` or numeric HTTP
+`status`. They must not contain paths, request bodies, account identifiers, message
+content, IP addresses, error text, or stack traces. Keep hosted observability logs for
+at most 14 days, exclude them from long-lived backups, and aggregate counts before
+sharing reports. Self-hosted deployments may leave the feature disabled.
+
 ## 6) Production Triage Commands
 
 Use these commands when the app is unreachable, the backend is restarting, or users report login, voice, or attachment failures.
@@ -240,3 +252,6 @@ Alert when any of these conditions persist for more than one check window:
 - Server logs contain `Failed to run migrations`, `VersionMismatch`, `ParseIntError`, or `must be a number`.
 - Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` lines.
 - Attachment logs show repeated read/write, malware scanner, or upload failures.
+- Privacy-safe counters show falling OAuth/voice/reconnect success ratios or a sustained
+  increase in `frontend_crash` or `backend_http_5xx`; metric formulas are documented in
+  [OBSERVABILITY.md](OBSERVABILITY.md).

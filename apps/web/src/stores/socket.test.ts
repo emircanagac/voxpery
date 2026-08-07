@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useSocketStore, websocketReconnectDelayMs } from './socket'
 import { act } from '@testing-library/react'
 
+const { reportObservabilityEvent } = vi.hoisted(() => ({
+  reportObservabilityEvent: vi.fn(),
+}))
+
+vi.mock('../observability', () => ({ reportObservabilityEvent }))
+
 // WebSocket ready state constants
 const WS_CONNECTING = 0
 const WS_OPEN = 1
@@ -71,6 +77,7 @@ describe('WebSocket Store', () => {
       wasConnectedBefore: false,
     })
     MockWebSocket.instances = []
+    reportObservabilityEvent.mockClear()
     vi.clearAllTimers()
     vi.useFakeTimers()
   })
@@ -223,6 +230,10 @@ describe('WebSocket Store', () => {
     await vi.advanceTimersByTimeAsync(1100)
 
     expect(reconnectListener).toHaveBeenCalled()
+    expect(reportObservabilityEvent.mock.calls).toEqual([
+      ['websocket_reconnect_started'],
+      ['websocket_reconnect_succeeded'],
+    ])
     unsubscribe()
   })
 
