@@ -3,6 +3,7 @@ import { createMockCoreState, installMockCoreApi } from './mock-core-api'
 
 const AUTH_FEATURES = {
   google_oauth_enabled: false,
+  observability_enabled: false,
   email_delivery_enabled: true,
   email_verification_enabled: true,
   email_verification_required: false,

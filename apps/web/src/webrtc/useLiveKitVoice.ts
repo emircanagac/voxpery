@@ -27,6 +27,7 @@ import {
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
 import type { RemoteMediaKind } from './remoteMediaControls'
+import { reportObservabilityEvent } from '../observability'
 
 if (import.meta.env.PROD) {
   setLogLevel('silent')
@@ -564,6 +565,7 @@ export function useLiveKitVoice() {
     finalMediaDisconnectReconciledRef.current = false
     isJoiningRef.current = true
     setIsJoining(true)
+    reportObservabilityEvent('voice_join_started')
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
     let micPublished = false
 
@@ -752,10 +754,12 @@ export function useLiveKitVoice() {
           playVoiceCue('join')
         })
         .on(RoomEvent.Reconnecting, () => {
+          reportObservabilityEvent('livekit_reconnect_started')
           console.warn('[useLiveKitVoice] LiveKit Room reconnecting...')
           updateRoomStats()
         })
         .on(RoomEvent.Reconnected, () => {
+          reportObservabilityEvent('livekit_reconnect_succeeded')
           updateRoomStats()
           refreshLocalStreams()
           // Re-subscribe to all existing remote participants' tracks
@@ -766,6 +770,9 @@ export function useLiveKitVoice() {
           }
         })
         .on(RoomEvent.Disconnected, (reason) => {
+          if (roomRef.current === room) {
+            reportObservabilityEvent('livekit_disconnected')
+          }
           if (!import.meta.env.PROD) {
             console.warn('[useLiveKitVoice] LiveKit Room disconnected, reason:', reason)
           }
@@ -838,7 +845,9 @@ export function useLiveKitVoice() {
       useAppStore.getState().setJoinedVoiceChannelId(channelId)
       send('SetVoiceControl', { muted: desiredMicMutedRef.current, deafened: false, screen_sharing: false, camera_on: false })
       playVoiceCue('join')
+      reportObservabilityEvent('voice_join_succeeded')
     } catch (e: unknown) {
+      reportObservabilityEvent('voice_join_failed')
       const msg = (e as Error)?.message ?? 'Failed to join voice'
       setLastError(msg)
       remoteMediaStartCueReadyRef.current = false

@@ -4,6 +4,7 @@ import {
     getPreferredMicrophoneStream,
     getStoredVoiceInputDeviceId,
 } from '../../voiceDevices'
+import { reportObservabilityEvent } from '../../observability'
 
 export const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 export const SCREEN_SHARE_CAPTURE_READY_EVENT = 'voxpery-screen-share-capture-ready'
@@ -158,8 +159,10 @@ export function useLocalMedia() {
             const stream = await getPreferredMicrophoneStream()
             cachedMicStreamRef.current = stream
             cachedMicDeviceIdRef.current = getStoredVoiceInputDeviceId()
+            reportObservabilityEvent('media_microphone_started')
             return stream
         } catch (err: unknown) {
+            reportObservabilityEvent('media_microphone_failed')
             const name = (err as { name?: string })?.name ?? ''
             if (name === 'NotAllowedError') throw new Error('Microphone permission denied', { cause: err })
             if (name === 'NotFoundError') throw new Error('No microphone device detected', { cause: err })
@@ -199,6 +202,7 @@ export function useLocalMedia() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints)
                 if (stream.getVideoTracks().length > 0) {
+                    reportObservabilityEvent('media_camera_started')
                     return stream
                 }
                 stream.getTracks().forEach((t) => t.stop())
@@ -215,6 +219,7 @@ export function useLocalMedia() {
         const name = (lastErr as { name?: string })?.name ?? ''
         const message = String((lastErr as { message?: unknown })?.message ?? '').toLowerCase()
 
+        reportObservabilityEvent('media_camera_failed')
         if (name === 'NotAllowedError' || name === 'SecurityError') throw new Error('Camera permission denied')
         if (name === 'NotFoundError' || name === 'DevicesNotFoundError') throw new Error('No camera device detected')
         if (name === 'NotReadableError' || message.includes('in use') || message.includes('busy')) {
@@ -235,13 +240,19 @@ export function useLocalMedia() {
             cachedScreenStreamRef.current = null
         }
         const videoConstraints = getScreenShareConstraints()
-        const stream = await navigator.mediaDevices.getDisplayMedia(
-            toScreenShareDisplayMediaOptions(videoConstraints),
-        )
-        await applyScreenShareTrackProfile(stream.getVideoTracks()[0])
-        cachedScreenStreamRef.current = stream
-        window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
-        return stream
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia(
+                toScreenShareDisplayMediaOptions(videoConstraints),
+            )
+            await applyScreenShareTrackProfile(stream.getVideoTracks()[0])
+            cachedScreenStreamRef.current = stream
+            window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
+            reportObservabilityEvent('media_screen_share_started')
+            return stream
+        } catch (error) {
+            reportObservabilityEvent('media_screen_share_failed')
+            throw error
+        }
     }, [applyScreenShareTrackProfile, getScreenShareConstraints])
 
     /** Returns LiveKit-compatible videoEncoding and content hint based on quality mode. */

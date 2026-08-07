@@ -27,9 +27,7 @@ async fn main() {
     let config = config::Config::from_env();
 
     if config.is_production && config.trusted_proxies.is_empty() {
-        tracing::warn!(
-            "TRUSTED_PROXY_CIDRS is empty; forwarded client-IP headers are disabled"
-        );
+        tracing::warn!("TRUSTED_PROXY_CIDRS is empty; forwarded client-IP headers are disabled");
     }
 
     if let Err(msg) = validate_security_config(
@@ -110,6 +108,9 @@ async fn main() {
         trusted_proxies: config.trusted_proxies.clone(),
         message_rate_limit_max: config.message_rate_limit_max,
         message_rate_limit_window_secs: config.message_rate_limit_window_secs,
+        observability_enabled: config.observability_enabled,
+        observability_rate_limit_max: config.observability_rate_limit_max,
+        observability_rate_limit_window_secs: config.observability_rate_limit_window_secs,
         cookie_secure: config.cookie_secure,
         cookie_name: config.cookie_name.clone(),
         cors_origins: config.cors_origins.clone(),

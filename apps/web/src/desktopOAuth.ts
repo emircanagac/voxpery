@@ -1,6 +1,7 @@
 import type { UserPublic } from './api'
 import { resolvePostAuthRoute } from './authRedirect'
 import { ROUTES } from './routes'
+import type { ObservabilityEventCode } from './observability'
 
 const DESKTOP_OAUTH_PROTOCOL = 'voxpery:'
 const DESKTOP_OAUTH_HOST = 'auth'
@@ -20,6 +21,7 @@ interface DesktopOAuthHandlerDependencies {
   persistToken: (token: string) => Promise<void>
   navigate: (path: string) => void
   onError?: (error: unknown) => void
+  onObservabilityEvent?: (event: ObservabilityEventCode) => void
 }
 
 export interface DesktopOAuthDeepLinkSources {
@@ -87,15 +89,19 @@ export function createDesktopOAuthDeepLinkHandler(deps: DesktopOAuthHandlerDepen
     if (!deepLink) return false
 
     if (deepLink.error || !deepLink.code) {
+      deps.onObservabilityEvent?.('desktop_oauth_return_received')
+      deps.onObservabilityEvent?.('desktop_oauth_return_failed')
       deps.navigate(oauthFailureRoute(deepLink.redirectTo))
       return true
     }
 
     if (handledCodes.has(deepLink.code)) return true
     handledCodes.add(deepLink.code)
+    deps.onObservabilityEvent?.('desktop_oauth_return_received')
 
     const codeVerifier = deps.getCodeVerifier()
     if (!codeVerifier) {
+      deps.onObservabilityEvent?.('desktop_oauth_return_failed')
       deps.onError?.(new Error('Desktop OAuth code verifier is missing'))
       deps.navigate(oauthFailureRoute(deepLink.redirectTo))
       return true
@@ -106,9 +112,11 @@ export function createDesktopOAuthDeepLinkHandler(deps: DesktopOAuthHandlerDepen
       deps.setAuth(auth.token, auth.user)
       await deps.persistToken(auth.token)
       deps.clearCodeVerifier()
+      deps.onObservabilityEvent?.('desktop_oauth_return_succeeded')
       deps.navigate(deepLink.redirectTo)
     } catch (error) {
       deps.clearCodeVerifier()
+      deps.onObservabilityEvent?.('desktop_oauth_return_failed')
       deps.onError?.(error)
       deps.navigate(oauthFailureRoute(deepLink.redirectTo))
     }

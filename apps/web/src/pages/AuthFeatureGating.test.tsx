@@ -15,6 +15,7 @@ vi.mock('../openExternalUrl', () => ({
 }))
 const disabledFeatures: SystemFeatures = {
   google_oauth_enabled: false,
+  observability_enabled: false,
   email_delivery_enabled: false,
   email_verification_enabled: false,
   email_verification_required: false,
@@ -24,6 +25,7 @@ const disabledFeatures: SystemFeatures = {
 const enabledGoogleFeatures: SystemFeatures = {
   ...disabledFeatures,
   google_oauth_enabled: true,
+  observability_enabled: false,
 }
 
 function renderWithFeatures(ui: ReactElement, features: SystemFeatures = disabledFeatures) {

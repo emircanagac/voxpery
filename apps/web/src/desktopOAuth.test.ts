@@ -30,6 +30,7 @@ describe('desktop OAuth deep links', () => {
     const persistToken = vi.fn().mockResolvedValue(undefined)
     const clearCodeVerifier = vi.fn()
     const navigate = vi.fn()
+    const onObservabilityEvent = vi.fn()
     const handler = createDesktopOAuthDeepLinkHandler({
       getCodeVerifier: () => 'pkce-verifier',
       clearCodeVerifier,
@@ -37,6 +38,7 @@ describe('desktop OAuth deep links', () => {
       setAuth,
       persistToken,
       navigate,
+      onObservabilityEvent,
     })
     const url = `voxpery://auth/servers?code=${code}`
 
@@ -49,11 +51,16 @@ describe('desktop OAuth deep links', () => {
     expect(persistToken).toHaveBeenCalledWith('desktop-token')
     expect(clearCodeVerifier).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledWith('/servers')
+    expect(onObservabilityEvent.mock.calls).toEqual([
+      ['desktop_oauth_return_received'],
+      ['desktop_oauth_return_succeeded'],
+    ])
   })
 
   it('returns to login when the callback cannot be completed', async () => {
     const navigate = vi.fn()
     const onError = vi.fn()
+    const onObservabilityEvent = vi.fn()
     const handler = createDesktopOAuthDeepLinkHandler({
       getCodeVerifier: () => null,
       clearCodeVerifier: vi.fn(),
@@ -62,12 +69,17 @@ describe('desktop OAuth deep links', () => {
       persistToken: vi.fn(),
       navigate,
       onError,
+      onObservabilityEvent,
     })
 
     await handler(`voxpery://auth/servers?code=${code}`)
 
     expect(onError).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledWith('/login?error=oauth_failed&redirect=%2Fservers')
+    expect(onObservabilityEvent.mock.calls).toEqual([
+      ['desktop_oauth_return_received'],
+      ['desktop_oauth_return_failed'],
+    ])
   })
 
   it('registers runtime listeners and processes the cold-start URL from getCurrent', async () => {
