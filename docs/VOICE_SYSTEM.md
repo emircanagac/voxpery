@@ -120,8 +120,10 @@ Room.localParticipant.publishTrack
     - speech-presence shaping
     - compressor strength
     - residual noise floor attenuation
-  - `Balanced` is the recommended default and keeps a wider speech band with gentler compression/floor attenuation so everyday voices sound more natural
-  - `Noisy room` and stricter custom thresholds trend more aggressive for keyboard and room noise
+  - `Balanced` is the recommended default. It keeps a `110 Hz .. 7.6 kHz` post-denoise band, uses gentle `2.6:1` compression, and keeps detected speech above a `0.90` residual-floor gain so everyday voices retain body and upper detail.
+  - `Noisy room` remains stronger without collapsing into a telephone-like voice band. It keeps a `145 Hz .. 5.6 kHz` band, uses bounded `4.8:1` compression, and keeps detected speech above a `0.82` residual-floor gain.
+  - Spectral isolation and attack/recovery smoothing are profile-aware: `Balanced` recovers speech faster and attenuates it less, while `Noisy room` applies stronger isolation only to noise-dominant frames such as keyboard and fan fixtures.
+  - Clean speech bypasses post-RNNoise floor and spectral attenuation in both presets. Quiet speech remains fully open in `Balanced`; `Noisy room` may apply bounded cleanup but must not mute or hard-gate it.
 - **Microphone publish quality**
   - The processed microphone track is published with LiveKit's high-quality mono Opus preset.
   - DTX remains enabled to avoid sending unnecessary silence, and RED remains enabled for packet-loss resilience.

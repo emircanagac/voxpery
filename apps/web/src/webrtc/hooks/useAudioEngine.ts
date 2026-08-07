@@ -72,6 +72,7 @@ function getSpeechIsolationTarget(
     lowFloorThr: number,
     openFloorThr: number,
     aggressiveIsolation: boolean,
+    suppressionTuning: VoiceSuppressionTuning,
 ): number {
     const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1500)
     const bodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2400)
@@ -86,24 +87,49 @@ function getSpeechIsolationTarget(
     const boomyNoise = lowNoiseDb > bodyDb + 2.5
     const clickyNoise = highNoiseDb > presenceDb + 2.5
 
-    if (aggressiveIsolation && clickyNoise) return quietish ? 0.18 : 0.42
-    if (aggressiveIsolation && boomyNoise && quietish) return 0.24
-
-    if (!speechLike) {
-        if (rms <= lowFloorThr || quietish) return aggressiveIsolation ? 0.035 : 0.16
-        return clickyNoise || boomyNoise
-            ? (aggressiveIsolation ? 0.08 : 0.24)
-            : (aggressiveIsolation ? 0.14 : 0.3)
+    if (aggressiveIsolation && clickyNoise && !speechLike) {
+        return quietish
+            ? pickSuppressionValue(suppressionTuning, { off: 0.86, balanced: 0.5, high: 0.3 })
+            : pickSuppressionValue(suppressionTuning, { off: 0.92, balanced: 0.68, high: 0.42 })
+    }
+    if (aggressiveIsolation && boomyNoise && quietish) {
+        return pickSuppressionValue(suppressionTuning, { off: 0.86, balanced: 0.52, high: 0.34 })
     }
 
-    if (rms <= lowFloorThr) return aggressiveIsolation ? 0.14 : 0.28
+    if (!speechLike) {
+        if (rms <= lowFloorThr || quietish) {
+            return aggressiveIsolation
+                ? pickSuppressionValue(suppressionTuning, { off: 0.16, balanced: 0.16, high: 0.07 })
+                : 0.16
+        }
+        return clickyNoise || boomyNoise
+            ? (aggressiveIsolation
+                ? pickSuppressionValue(suppressionTuning, { off: 0.24, balanced: 0.24, high: 0.12 })
+                : 0.24)
+            : (aggressiveIsolation
+                ? pickSuppressionValue(suppressionTuning, { off: 0.3, balanced: 0.34, high: 0.22 })
+                : 0.3)
+    }
+
+    if (rms <= lowFloorThr) {
+        return aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.28, balanced: 0.48, high: 0.3 })
+            : 0.28
+    }
     if (rms < openFloorThr) {
         const ratio = (rms - lowFloorThr) / Math.max(1e-6, openFloorThr - lowFloorThr)
         const eased = ratio * ratio * (3 - 2 * ratio)
-        return aggressiveIsolation ? (0.28 + eased * 0.64) : (0.42 + eased * 0.5)
+        if (!aggressiveIsolation) return 0.42 + eased * 0.5
+        const closedGain = pickSuppressionValue(suppressionTuning, { off: 0.42, balanced: 0.64, high: 0.46 })
+        const openGain = pickSuppressionValue(suppressionTuning, { off: 0.92, balanced: 0.98, high: 0.96 })
+        return closedGain + eased * (openGain - closedGain)
     }
 
-    if (clickyNoise && quietish) return aggressiveIsolation ? 0.68 : 0.86
+    if (clickyNoise && quietish) {
+        return aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.86, balanced: 0.88, high: 0.8 })
+            : 0.86
+    }
     return 1
 }
 
@@ -112,6 +138,7 @@ function isLikelySpeechFrame(
     sampleRate: number,
     fftSize: number,
     aggressiveIsolation: boolean,
+    suppressionTuning: VoiceSuppressionTuning,
 ): boolean {
     const presenceDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 220, 1400)
     const speechBodyDb = getBandAverageDb(frequencyData, sampleRate, fftSize, 180, 2200)
@@ -131,9 +158,16 @@ function isLikelySpeechFrame(
         highNoiseDb > presenceDb + 2.2
         && highNoiseDb > speechBodyDb + 2.8
         && upperSpeechDb < highNoiseDb + 1.2
-    return score >= (aggressiveIsolation ? -0.8 : -2.8)
+    const boomy =
+        lowNoiseDb > speechBodyDb + 2.5
+        && lowNoiseDb > upperSpeechDb + 3
+    const scoreThreshold = aggressiveIsolation
+        ? pickSuppressionValue(suppressionTuning, { off: -2.8, balanced: -2, high: -1.8 })
+        : -2.8
+    return score >= scoreThreshold
         && !clicky
-        && (!aggressiveIsolation || !noiseDominant)
+        && !boomy
+        && (!aggressiveIsolation || suppressionTuning !== 'high' || !noiseDominant)
 }
 
 export type VoiceCueKind =
@@ -154,6 +188,17 @@ export interface LiveSuppressionConfig {
     minFloorGain: number
     floorReleaseAlpha: number
     floorReleaseTime: number
+    speechSafeFloorGain: number
+    isolationAttenuationAlpha: number
+    isolationRecoveryAlpha: number
+    isolationAttenuationTime: number
+    isolationRecoveryTime: number
+}
+
+export interface SuppressionFrameEvaluation {
+    targetFloorGain: number
+    targetIsolationGain: number
+    likelySpeech: boolean
 }
 
 interface LiveSuppressionNodes {
@@ -183,31 +228,31 @@ export function buildSuppressionFilterConfig(
 ): LiveSuppressionFilterConfig {
     return {
         highPassHz: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 120, balanced: 135, high: 170 })
+            ? pickSuppressionValue(suppressionTuning, { off: 120, balanced: 110, high: 145 })
             : pickSuppressionValue(suppressionTuning, { off: 120, balanced: 125, high: 145 }),
         lowPassHz: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6800, high: 3500 })
+            ? pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 7600, high: 5600 })
             : pickSuppressionValue(suppressionTuning, { off: 7200, balanced: 6200, high: 4400 }),
         deClickGainDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -2.4, high: -10 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: -1.2, high: -5 })
             : pickSuppressionValue(suppressionTuning, { off: 0, balanced: -1.8, high: -4.2 }),
         speechPresenceGainDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 0.9, high: 1.9 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0, balanced: 0.5, high: 1 })
             : pickSuppressionValue(suppressionTuning, { off: 0, balanced: 1.1, high: 1.75 }),
         compressorThresholdDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -32, high: -44 })
+            ? pickSuppressionValue(suppressionTuning, { off: -30, balanced: -28, high: -37 })
             : pickSuppressionValue(suppressionTuning, { off: -30, balanced: -31, high: -36 }),
         compressorKneeDb: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 9, high: 5 })
+            ? pickSuppressionValue(suppressionTuning, { off: 10, balanced: 12, high: 8 })
             : pickSuppressionValue(suppressionTuning, { off: 10, balanced: 10, high: 8 }),
         compressorRatio: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 4, high: 8.2 })
+            ? pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 2.6, high: 4.8 })
             : pickSuppressionValue(suppressionTuning, { off: 3.5, balanced: 3.8, high: 5.4 }),
         compressorAttackSec: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0028, high: 0.001 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.004, high: 0.002 })
             : pickSuppressionValue(suppressionTuning, { off: 0.003, balanced: 0.0024, high: 0.0015 }),
         compressorReleaseSec: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.085, high: 0.038 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.12, high: 0.075 })
             : pickSuppressionValue(suppressionTuning, { off: 0.085, balanced: 0.082, high: 0.065 }),
     }
 }
@@ -236,21 +281,77 @@ export function buildSuppressionConfig(
         aggressiveIsolation,
         suppressionTuning,
         lowFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -51, high: -40 })
+            ? pickSuppressionValue(suppressionTuning, { off: -51, balanced: -54, high: -43 })
             : pickSuppressionValue(suppressionTuning, { off: -51, balanced: -50, high: -46 })),
         openFloorThr: dbToLinear(aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -39, high: -29 })
+            ? pickSuppressionValue(suppressionTuning, { off: -40, balanced: -42, high: -31 })
             : pickSuppressionValue(suppressionTuning, { off: -40, balanced: -38, high: -34 })),
         minFloorGain: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.12, high: 0.012 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.22, high: 0.035 })
             : pickSuppressionValue(suppressionTuning, { off: 0.12, balanced: 0.1, high: 0.06 }),
         floorReleaseAlpha: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.07, high: 0.12 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.045, high: 0.08 })
             : pickSuppressionValue(suppressionTuning, { off: 0.08, balanced: 0.075, high: 0.09 }),
         floorReleaseTime: aggressiveIsolation
-            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.075, high: 0.046 })
+            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.11, high: 0.07 })
             : pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.066, high: 0.055 }),
+        speechSafeFloorGain: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 1, balanced: 0.9, high: 0.82 })
+            : pickSuppressionValue(suppressionTuning, { off: 1, balanced: 0.9, high: 0.84 }),
+        isolationAttenuationAlpha: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.14, balanced: 0.1, high: 0.15 })
+            : 0.14,
+        isolationRecoveryAlpha: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.22, balanced: 0.3, high: 0.28 })
+            : 0.22,
+        isolationAttenuationTime: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.06, balanced: 0.09, high: 0.075 })
+            : 0.06,
+        isolationRecoveryTime: aggressiveIsolation
+            ? pickSuppressionValue(suppressionTuning, { off: 0.03, balanced: 0.022, high: 0.025 })
+            : 0.03,
     }
+}
+
+export function evaluateSuppressionFrame(
+    frequencyData: Float32Array,
+    sampleRate: number,
+    fftSize: number,
+    rms: number,
+    config: LiveSuppressionConfig,
+): SuppressionFrameEvaluation {
+    let targetFloorGain = 1
+    if (rms <= config.lowFloorThr) {
+        targetFloorGain = config.minFloorGain
+    } else if (rms < config.openFloorThr) {
+        const ratio = (rms - config.lowFloorThr) / Math.max(1e-6, config.openFloorThr - config.lowFloorThr)
+        const eased = ratio * ratio * (3 - 2 * ratio)
+        targetFloorGain = config.minFloorGain + eased * (1 - config.minFloorGain)
+    }
+
+    const targetIsolationGain = getSpeechIsolationTarget(
+        frequencyData,
+        sampleRate,
+        fftSize,
+        rms,
+        config.lowFloorThr,
+        config.openFloorThr,
+        config.aggressiveIsolation,
+        config.suppressionTuning,
+    )
+    const likelySpeech = isLikelySpeechFrame(
+        frequencyData,
+        sampleRate,
+        fftSize,
+        config.aggressiveIsolation,
+        config.suppressionTuning,
+    )
+
+    if (likelySpeech) {
+        targetFloorGain = Math.max(targetFloorGain, config.speechSafeFloorGain)
+    }
+
+    return { targetFloorGain, targetIsolationGain, likelySpeech }
 }
 
 function applySuppressionConfig(
@@ -576,34 +677,16 @@ export function useAudioEngine() {
                 let likelySpeech = false
 
                 if (refinementEnabled) {
-                    if (rms <= liveSuppressionConfig.lowFloorThr) {
-                        targetGain = liveSuppressionConfig.minFloorGain
-                    } else if (rms < liveSuppressionConfig.openFloorThr) {
-                        const ratio = (rms - liveSuppressionConfig.lowFloorThr) / (liveSuppressionConfig.openFloorThr - liveSuppressionConfig.lowFloorThr)
-                        const eased = ratio * ratio * (3 - 2 * ratio)
-                        targetGain = liveSuppressionConfig.minFloorGain + eased * (1 - liveSuppressionConfig.minFloorGain)
-                    }
-                    targetIsolationGain = getSpeechIsolationTarget(
+                    const evaluation = evaluateSuppressionFrame(
                         frequencyBuffer,
                         ctx.sampleRate,
                         refinementAnalyser.fftSize,
                         rms,
-                        liveSuppressionConfig.lowFloorThr,
-                        liveSuppressionConfig.openFloorThr,
-                        liveSuppressionConfig.aggressiveIsolation,
+                        liveSuppressionConfig,
                     )
-                    likelySpeech = isLikelySpeechFrame(
-                        frequencyBuffer,
-                        ctx.sampleRate,
-                        refinementAnalyser.fftSize,
-                        liveSuppressionConfig.aggressiveIsolation,
-                    )
-                    // When we detect speech, avoid over-attenuating the send floor.
-                    // This keeps syllables intact while retaining strong suppression in non-speech frames.
-                    if (likelySpeech) {
-                        const speechSafeFloor = liveSuppressionConfig.aggressiveIsolation ? 0.72 : 0.8
-                        targetGain = Math.max(targetGain, speechSafeFloor)
-                    }
+                    targetGain = evaluation.targetFloorGain
+                    targetIsolationGain = evaluation.targetIsolationGain
+                    likelySpeech = evaluation.likelySpeech
                 }
 
                 const alpha = targetGain > currentFloorGain ? 0.38 : liveSuppressionConfig.floorReleaseAlpha
@@ -613,14 +696,17 @@ export function useAudioEngine() {
                     ctx.currentTime,
                     targetGain > currentFloorGain ? 0.016 : liveSuppressionConfig.floorReleaseTime,
                 )
-                const isolationAlpha = targetIsolationGain > currentIsolationGain
-                    ? 0.22
-                    : (liveSuppressionConfig.aggressiveIsolation ? 0.2 : 0.14)
+                const recoveringIsolation = targetIsolationGain > currentIsolationGain
+                const isolationAlpha = recoveringIsolation
+                    ? liveSuppressionConfig.isolationRecoveryAlpha
+                    : liveSuppressionConfig.isolationAttenuationAlpha
                 currentIsolationGain = isolationAlpha * targetIsolationGain + (1 - isolationAlpha) * currentIsolationGain
                 speechIsolationGainNode.gain.setTargetAtTime(
                     currentIsolationGain,
                     ctx.currentTime,
-                    targetIsolationGain > currentIsolationGain ? 0.03 : 0.06,
+                    recoveringIsolation
+                        ? liveSuppressionConfig.isolationRecoveryTime
+                        : liveSuppressionConfig.isolationAttenuationTime,
                 )
                 const nowMs = Date.now()
                 if (nowMs - lastProcessingDiagnosticsAt >= 750) {
