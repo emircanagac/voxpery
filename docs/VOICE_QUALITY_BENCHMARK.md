@@ -68,6 +68,19 @@ Record separate scores for:
 
 `Balanced` is the natural-voice baseline. It should keep more body and upper detail than `Noisy room`, with gentler de-clicking, compression, and floor attenuation. `Noisy room` remains the stronger cleanup mode for keyboard, fan, and room-noise rejection.
 
+## Automated Suppression Guardrails
+
+`apps/web/src/webrtc/voiceQualityBenchmarkConfig.test.ts` runs deterministic spectral fixtures before subjective call testing. These fixtures compare the raw frame with the gain targets produced by both suppression profiles:
+
+- Clean speech must remain at `1.0` floor gain and `1.0` isolation gain in both profiles.
+- Quiet speech mixed with dense background noise must remain fully open in `Balanced`.
+- The same quiet speech in `Noisy room` must keep at least `0.82` floor gain and `0.46` isolation gain; cleanup may be audible, but it cannot collapse to silence.
+- Speech mixed with keyboard transients must remain classified as speech; `Noisy room` must retain at least `0.80` isolation gain instead of treating the whole frame as keyboard-only noise.
+- Keyboard and fan fixtures must receive stronger isolation in `Noisy room` than in `Balanced`, while both targets remain above zero.
+- `Balanced` must retain the wider speech band and gentler compressor; `Noisy room` may be stronger but cannot return to the previous narrow-band, high-ratio configuration.
+
+These model-level fixtures prevent destructive parameter regressions and run in CI. They do not replace the reference call because synthetic spectra cannot measure perceived timbre, codec artifacts, microphone-specific behavior, or end-to-end WebRTC output.
+
 ## Runtime Diagnostics
 
 Before the Voxpery run, enable diagnostics on the sender:
@@ -120,6 +133,7 @@ A voice-quality change is acceptable only when:
 - Voxpery normal speech clarity is at least `4/5`.
 - Voxpery naturalness is at least `4/5`.
 - Voxpery has no repeated clipped syllables during normal speech.
+- Neither preset makes a familiar speaker sound distinctly thinner, metallic, robotic, or telephone-like.
 - Voxpery does not consistently open voice activity for fan, mouse, keyboard, clap, or breath while silent.
 - Voxpery is not more than one point worse than the reference app in clarity or naturalness.
 - `Noisy room` improves noise rejection without making normal speech hard to understand.
@@ -144,9 +158,10 @@ Use small PRs for each tuning change.
    - input gain/compression
    - LiveKit publish options
 3. Run unit tests for changed voice helpers.
-4. Run `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
-5. Run this benchmark against the same reference call.
-6. Put before/after scores and diagnostic fields in the PR description.
+4. Confirm the automated suppression guardrails pass for clean speech, quiet speech in noise, keyboard, and fan fixtures.
+5. Run `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
+6. Run this benchmark against the same reference call.
+7. Put before/after scores and diagnostic fields in the PR description.
 
 ## PR Result Template
 

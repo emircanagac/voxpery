@@ -65,14 +65,15 @@ Run each sound while the receiver listens:
 
 | Input | Expected result |
 | --- | --- |
-| Normal speech | Clear and intelligible, without chopped syllables. |
+| Normal speech | Clear, natural, and intelligible, without chopped syllables or metallic/telephone-like coloration. |
+| Quiet speech | Remains understandable and does not disappear between syllables. |
 | Single clap near the mic | Not transmitted, or only a heavily attenuated transient. |
 | Keyboard typing | Not transmitted as continuous speech. |
 | Mouse clicks | Not transmitted as continuous speech. |
 | Fan or steady room noise | Does not open the voice activity gate by itself. |
 | Short breath near mic | Does not keep the gate open after the breath ends. |
 
-Fail the release candidate if normal speech is hard to understand, or if clap/keyboard/fan noise consistently reaches the receiver like normal voice.
+Fail the release candidate if normal or quiet speech is hard to understand, if a familiar speaker sounds distinctly thinner or synthetic than the reference call, or if clap/keyboard/fan noise consistently reaches the receiver like normal voice.
 
 ## Local vs Production Parity
 
