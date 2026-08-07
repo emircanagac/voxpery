@@ -322,7 +322,7 @@ async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_
         ))
         .unwrap();
     let (status, _) = oneshot(&mut app, arbitrary).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
