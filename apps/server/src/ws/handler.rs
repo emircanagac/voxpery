@@ -725,7 +725,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     .await;
                                 }
                             }
-                            WsClientMessage::JoinVoice { channel_id } => {
+                            WsClientMessage::JoinVoice {
+                                channel_id,
+                                participant_sid,
+                            } => {
                                 match can_join_voice_channel(&recv_state.db, user_id, channel_id)
                                     .await
                                 {
@@ -743,6 +746,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         // 1. Update voice session
                                         let previous_channel_id =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
+                                        if let Some(participant_sid) = participant_sid.filter(|sid| {
+                                            !sid.is_empty()
+                                                && sid.len() <= 128
+                                                && sid.bytes().all(|byte| {
+                                                    byte.is_ascii_alphanumeric()
+                                                        || matches!(byte, b'_' | b'-')
+                                                })
+                                        }) {
+                                            recv_state
+                                                .voice_participant_sids
+                                                .insert(user_id, participant_sid);
+                                        } else {
+                                            recv_state.voice_participant_sids.remove(&user_id);
+                                        }
                                         if let Some(previous_channel_id) = previous_channel_id {
                                             if previous_channel_id != channel_id {
                                                 cleanup_voice_channel_active_since_if_empty(
@@ -820,6 +837,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 if let Some((_, previous_channel_id)) =
                                     recv_state.voice_sessions.remove(&user_id)
                                 {
+                                    recv_state.voice_participant_sids.remove(&user_id);
                                     let previous_server_id =
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
@@ -1109,6 +1127,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     if last_session_gone {
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
+            state.voice_participant_sids.remove(&user_id);
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
             let _ = state.voice_controls.remove(&user_id);
             cleanup_voice_channel_active_since_if_empty(&state, previous_channel_id);

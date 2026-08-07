@@ -120,7 +120,11 @@ pub enum WsClientMessage {
     /// Typing indicator.
     Typing { channel_id: Uuid, is_typing: bool },
     /// Join a voice channel.
-    JoinVoice { channel_id: Uuid },
+    JoinVoice {
+        channel_id: Uuid,
+        #[serde(default)]
+        participant_sid: Option<String>,
+    },
     /// Leave voice channel.
     LeaveVoice,
     /// Disconnect another member from voice (server moderation).

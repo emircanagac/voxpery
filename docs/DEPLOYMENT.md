@@ -153,6 +153,7 @@ Security defaults in compose:
 Important:
 
 - The default `docker-compose.yml` applies conservative LiveKit limits even if you do not customize `.env`.
+- The bundled LiveKit config sends signed participant lifecycle webhooks to the internal server service. It reuses `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`; no extra public webhook URL or secret is required for Compose deployments.
 - Default values are:
   - `LIVEKIT_CPUS_LIMIT=2.0`
   - `LIVEKIT_MEM_LIMIT=1500m`

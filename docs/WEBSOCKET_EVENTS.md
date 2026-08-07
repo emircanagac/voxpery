@@ -67,7 +67,13 @@ Note:
 ### `JoinVoice`
 
 ```json
-{ "type": "JoinVoice", "data": { "channel_id": "voice-channel-uuid" } }
+{
+  "type": "JoinVoice",
+  "data": {
+    "channel_id": "voice-channel-uuid",
+    "participant_sid": "PA_livekit-session"
+  }
+}
 ```
 
 Authorization:
@@ -167,20 +173,23 @@ Legacy custom signaling event.
 
 ## Voice + LiveKit Flow
 
-1. Client sends `JoinVoice` over WS.
-2. Backend validates effective permission and updates process-local `voice_sessions`.
-3. Backend broadcasts voice state/control events.
-4. Client requests `GET /api/webrtc/livekit-token`.
-5. Client connects to LiveKit room.
+1. Client requests `GET /api/webrtc/livekit-token`; the backend validates effective voice permissions.
+2. Client connects to the LiveKit room and publishes its microphone.
+3. Client sends `JoinVoice` over WS only after the media connection succeeds.
+4. Backend updates process-local `voice_sessions` and broadcasts voice state/control events.
+5. LiveKit owns the reconnect grace window, so temporary `Reconnecting` state keeps sidebar presence intact.
+6. A final room `Disconnected` event sends `LeaveVoice` over the application WebSocket and clears local media state.
+7. The signed LiveKit `participant_left` webhook idempotently clears the same backend voice session for suspended or unreachable clients. The participant SID prevents a delayed leave event from removing a newer rejoin. Backend WebSocket cleanup remains the fallback when both connections are lost.
 
 ## Security Notes
 
 - `Subscribe` uses permission-aware channel access checks.
 - Broadcast delivery performs current-access re-checks before sending channel events.
 - `JoinVoice` uses permission-aware voice checks.
+- LiveKit webhook payloads require a matching API-key issuer, HS256 signature, expiration, and raw-body SHA-256 claim before they can clear voice state.
 - Voice state/control events are filtered by current server membership.
 - `Signal` forwarding is constrained to same voice channel participants.
 
 ---
 
-Last verified against code on 2026-05-09.
+Last verified against code on 2026-08-07.

@@ -70,19 +70,43 @@ export function remoteMediaKindForSource(source: Track.Source): RemoteMediaKind 
 interface VoiceReconnectResyncOptions {
   channelId: string | null
   roomState: string | null
+  participantSid?: string | null
   control: VoiceControlState
   send: (type: string, data: unknown) => void
+}
+
+interface FinalMediaDisconnectReconcileOptions {
+  channelId: string | null
+  alreadyReconciled: boolean
+  isCurrentRoom: boolean
+  leaveVoice: (options: { skipLeaveSound: boolean; skipRoomDisconnect: boolean }) => void
+}
+
+export function reconcileFinalMediaDisconnect({
+  channelId,
+  alreadyReconciled,
+  isCurrentRoom,
+  leaveVoice,
+}: FinalMediaDisconnectReconcileOptions): boolean {
+  if (!channelId || alreadyReconciled || !isCurrentRoom) return false
+
+  leaveVoice({ skipLeaveSound: true, skipRoomDisconnect: true })
+  return true
 }
 
 export function resyncVoiceStateAfterReconnect({
   channelId,
   roomState,
+  participantSid,
   control,
   send,
 }: VoiceReconnectResyncOptions): void {
   if (!channelId || !roomState || roomState === 'disconnected') return
 
-  send('JoinVoice', { channel_id: channelId })
+  send('JoinVoice', {
+    channel_id: channelId,
+    ...(participantSid ? { participant_sid: participantSid } : {}),
+  })
   send('SetVoiceControl', {
     muted: !!control?.muted,
     deafened: !!control?.deafened,
@@ -171,6 +195,8 @@ export function useLiveKitVoice() {
   const userHiddenRemoteMediaKeysRef = useRef<Set<string>>(new Set())
   const resumedTrackSidsRef = useRef<Set<string>>(new Set())
   const joinedChannelIdRef = useRef<string | null>(null)
+  const finalMediaDisconnectReconciledRef = useRef(false)
+  const finalMediaDisconnectHandlerRef = useRef<(isCurrentRoom: boolean) => void>(() => undefined)
   const desiredMicMutedRef = useRef(false)
   const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
 
@@ -535,6 +561,7 @@ export function useLiveKitVoice() {
     }
 
     setLastError(null)
+    finalMediaDisconnectReconciledRef.current = false
     isJoiningRef.current = true
     setIsJoining(true)
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
@@ -743,8 +770,7 @@ export function useLiveKitVoice() {
             console.warn('[useLiveKitVoice] LiveKit Room disconnected, reason:', reason)
           }
           updateRoomStats()
-          // If the room disconnects unexpectedly, clean up local state
-          // but do NOT call leaveVoice() — the WS resync effect handles re-join
+          finalMediaDisconnectHandlerRef.current(roomRef.current === room)
         })
 
       const connectPromise = room.connect(ws_url, lkToken, {
@@ -785,6 +811,10 @@ export function useLiveKitVoice() {
         },
       })
 
+      if (String(room.state) !== 'connected') {
+        throw new Error('LiveKit disconnected before voice presence was registered')
+      }
+
       micPublished = true
       localAudioTrackRef.current = pub.track as LocalAudioTrack
       await setLocalMicMuted(desiredMicMutedRef.current)
@@ -800,7 +830,10 @@ export function useLiveKitVoice() {
       }
 
       joinedChannelIdRef.current = channelId
-      send('JoinVoice', { channel_id: channelId })
+      send('JoinVoice', {
+        channel_id: channelId,
+        participant_sid: room.localParticipant.sid,
+      })
       setJoinedChannelId(channelId)
       useAppStore.getState().setJoinedVoiceChannelId(channelId)
       send('SetVoiceControl', { muted: desiredMicMutedRef.current, deafened: false, screen_sharing: false, camera_on: false })
@@ -818,7 +851,7 @@ export function useLiveKitVoice() {
     }
     }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
-    const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean }) => {
+    const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
     if (joinedChannelIdRef.current && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
@@ -851,7 +884,7 @@ export function useLiveKitVoice() {
     localCameraTrackRef.current = null
     localScreenTracksRef.current = []
 
-    if (room) room.disconnect()
+    if (room && !options?.skipRoomDisconnect) room.disconnect()
 
     setRoomState('disconnected')
     setParticipantCount(0)
@@ -864,6 +897,18 @@ export function useLiveKitVoice() {
     setScreenStream(null)
     setCameraStream(null)
   }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
+
+  useEffect(() => {
+    finalMediaDisconnectHandlerRef.current = (isCurrentRoom) => {
+      const reconciled = reconcileFinalMediaDisconnect({
+        channelId: joinedChannelIdRef.current,
+        alreadyReconciled: finalMediaDisconnectReconciledRef.current,
+        isCurrentRoom,
+        leaveVoice,
+      })
+      if (reconciled) finalMediaDisconnectReconciledRef.current = true
+    }
+  }, [leaveVoice])
 
   const stopScreenShare = useCallback(() => {
     const room = roomRef.current
@@ -1112,6 +1157,7 @@ export function useLiveKitVoice() {
       resyncVoiceStateAfterReconnect({
         channelId,
         roomState: room ? String(room.state) : null,
+        participantSid: room?.localParticipant.sid ?? null,
         control,
         send,
       })
