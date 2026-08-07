@@ -79,6 +79,7 @@ export default function AboutPage() {
   const detectedDownload = platform !== 'unknown' ? downloads[platform] : null
   const primaryDownloadUrl = detectedDownload ?? releaseUrl
   const primaryDownloadLabel = platform === 'unknown' ? 'Download desktop app' : `Download for ${PLATFORM_LABELS[platform]}`
+  const loginRoute = isAuthenticated ? ROUTES.home : ROUTES.login
   const appEntryRoute = isAuthenticated ? ROUTES.home : ROUTES.register
   const appEntryLabel = isAuthenticated ? 'Open Voxpery' : 'Join Voxpery Community'
   const releaseMeta = [releaseTag, releaseDate].filter(Boolean).join(' - ')
@@ -110,7 +111,7 @@ export default function AboutPage() {
         </nav>
 
         <div className="about-topbar-actions">
-          <Link to={appEntryRoute} className="about-btn about-btn--login">
+          <Link to={loginRoute} className="about-btn about-btn--login">
             {isAuthenticated ? 'Go to app' : 'Login'}
           </Link>
         </div>
