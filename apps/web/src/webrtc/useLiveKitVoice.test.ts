@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
+  reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
   remoteMediaStartCueKey,
   resyncVoiceStateAfterReconnect,
@@ -52,6 +53,7 @@ describe('resyncVoiceStateAfterReconnect', () => {
     resyncVoiceStateAfterReconnect({
       channelId: 'voice-channel-1',
       roomState: 'connected',
+      participantSid: 'PA_current',
       control: {
         muted: true,
         deafened: false,
@@ -63,6 +65,7 @@ describe('resyncVoiceStateAfterReconnect', () => {
 
     expect(send).toHaveBeenNthCalledWith(1, 'JoinVoice', {
       channel_id: 'voice-channel-1',
+      participant_sid: 'PA_current',
     })
     expect(send).toHaveBeenNthCalledWith(2, 'SetVoiceControl', {
       muted: true,
@@ -127,6 +130,61 @@ describe('resyncVoiceStateAfterReconnect', () => {
     })
 
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('final LiveKit disconnect reconciliation', () => {
+  it('leaves signaling presence after the media room is permanently disconnected', () => {
+    const leaveVoice = vi.fn()
+
+    expect(reconcileFinalMediaDisconnect({
+      channelId: 'voice-channel-1',
+      alreadyReconciled: false,
+      isCurrentRoom: true,
+      leaveVoice,
+    })).toBe(true)
+
+    expect(leaveVoice).toHaveBeenCalledOnce()
+    expect(leaveVoice).toHaveBeenCalledWith({
+      skipLeaveSound: true,
+      skipRoomDisconnect: true,
+    })
+  })
+
+  it('does not emit duplicate leave events for the same disconnect', () => {
+    const leaveVoice = vi.fn()
+
+    expect(reconcileFinalMediaDisconnect({
+      channelId: 'voice-channel-1',
+      alreadyReconciled: true,
+      isCurrentRoom: true,
+      leaveVoice,
+    })).toBe(false)
+    expect(leaveVoice).not.toHaveBeenCalled()
+  })
+
+  it('does not emit leave when no voice presence is active', () => {
+    const leaveVoice = vi.fn()
+
+    expect(reconcileFinalMediaDisconnect({
+      channelId: null,
+      alreadyReconciled: false,
+      isCurrentRoom: true,
+      leaveVoice,
+    })).toBe(false)
+    expect(leaveVoice).not.toHaveBeenCalled()
+  })
+
+  it('ignores a delayed disconnect event from a previous room', () => {
+    const leaveVoice = vi.fn()
+
+    expect(reconcileFinalMediaDisconnect({
+      channelId: 'voice-channel-2',
+      alreadyReconciled: false,
+      isCurrentRoom: false,
+      leaveVoice,
+    })).toBe(false)
+    expect(leaveVoice).not.toHaveBeenCalled()
   })
 })
 

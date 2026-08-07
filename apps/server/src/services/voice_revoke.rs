@@ -75,7 +75,7 @@ fn voice_control_event_from_state(
     }
 }
 
-async fn clear_local_voice_session(
+pub(crate) async fn clear_local_voice_session(
     state: &Arc<AppState>,
     user_id: Uuid,
     channel_id: Uuid,
@@ -91,6 +91,7 @@ async fn clear_local_voice_session(
         return;
     }
 
+    state.voice_participant_sids.remove(&user_id);
     let server_id = server_id_for_channel_from_state(state, channel_id).await;
     let _ = state.voice_controls.remove(&user_id);
     cleanup_voice_channel_active_since_if_empty(state, channel_id);
