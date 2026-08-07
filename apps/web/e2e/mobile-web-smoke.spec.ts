@@ -63,6 +63,7 @@ test.describe('mocked mobile web smoke', () => {
             'Mobile smoke baseline message\n![gif](https://media.example.test/mobile.gif)',
             {
               id: 'mobile-media-reaction-message',
+              created_at: new Date().toISOString(),
               attachments: [
                 {
                   url: 'https://cdn.example.test/mobile.png',
@@ -101,7 +102,15 @@ test.describe('mocked mobile web smoke', () => {
     await messageInput.fill(content)
     await messageInput.press('Enter')
     await expect(page.getByText(content)).toBeVisible()
+    await expectVirtualMessageHeight(page.locator('.virtual-list-item', { hasText: content }), 44)
     expect(state.messagesByChannelId[general.id]?.some((message) => message.content === content)).toBe(true)
+
+    const continuation = `Mobile smoke continuation ${Date.now()}`
+    await messageInput.fill(continuation)
+    await messageInput.press('Enter')
+    await expect(page.getByText(continuation)).toBeVisible()
+    await expectVirtualMessageHeight(page.locator('.virtual-list-item', { hasText: continuation }), 23)
+    expect(state.messagesByChannelId[general.id]?.some((message) => message.content === continuation)).toBe(true)
 
     await page.getByRole('button', { name: 'View members' }).click()
     const sheet = page.locator('.mobile-member-sheet')
@@ -117,6 +126,12 @@ async function expectScrollable(locator: Locator) {
   await expect.poll(async () => {
     return locator.evaluate((element) => element.scrollHeight > element.clientHeight)
   }).toBe(true)
+}
+
+async function expectVirtualMessageHeight(locator: Locator, expectedHeight: number) {
+  await expect.poll(async () => {
+    return locator.evaluate((element) => Math.round(element.getBoundingClientRect().height))
+  }).toBe(expectedHeight)
 }
 
 async function expectNoHorizontalOverflow(locator: Locator) {

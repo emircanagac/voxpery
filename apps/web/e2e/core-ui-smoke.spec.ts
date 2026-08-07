@@ -98,7 +98,9 @@ test.describe('mocked core UI smoke', () => {
       channelsByServerId: { [server.id]: channels },
       membersByServerId: { [server.id]: buildCoreMembers() },
       messagesByChannelId: {
-        [general.id]: [buildServerMessage(general.id, 'Pinned release note')],
+        [general.id]: [buildServerMessage(general.id, 'Pinned release note', {
+          created_at: new Date().toISOString(),
+        })],
         [announcements.id]: [buildServerMessage(announcements.id, 'Announcements stay visible')],
       },
     })
@@ -119,7 +121,16 @@ test.describe('mocked core UI smoke', () => {
     await messageInput.press('Enter')
 
     await expect(page.getByText(content)).toBeVisible()
+    await expectVirtualMessageHeight(page.locator('.virtual-list-item', { hasText: content }), 53)
     expect(state.messagesByChannelId[general.id]?.some((message) => message.content === content)).toBe(true)
+
+    const continuation = `Server smoke continuation ${Date.now()}`
+    await messageInput.fill(continuation)
+    await messageInput.press('Enter')
+
+    await expect(page.getByText(continuation)).toBeVisible()
+    await expectVirtualMessageHeight(page.locator('.virtual-list-item', { hasText: continuation }), 23)
+    expect(state.messagesByChannelId[general.id]?.some((message) => message.content === continuation)).toBe(true)
 
     await page.locator('.channel-item', { hasText: 'announcements' }).click()
     await expect(page.locator('.chat-header .channel-title')).toHaveText('announcements')
@@ -412,4 +423,10 @@ async function expectScrollable(locator: Locator) {
   await expect.poll(async () => {
     return locator.evaluate((element) => element.scrollHeight > element.clientHeight)
   }).toBe(true)
+}
+
+async function expectVirtualMessageHeight(locator: Locator, expectedHeight: number) {
+  await expect.poll(async () => {
+    return locator.evaluate((element) => Math.round(element.getBoundingClientRect().height))
+  }).toBe(expectedHeight)
 }

@@ -4,25 +4,31 @@ import type { Channel } from '../api'
 import ChatArea from './ChatArea'
 
 const scrollToIndex = vi.fn()
+let estimateVirtualRow: ((index: number) => number) | undefined
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({
     count,
     getItemKey,
+    estimateSize,
   }: {
     count: number
     getItemKey: (index: number) => string | number
-  }) => ({
-    getTotalSize: () => count * 120,
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({
-        index,
-        key: getItemKey(index),
-        start: index * 120,
-      })),
-    measureElement: vi.fn(),
-    scrollToIndex,
-  }),
+    estimateSize: (index: number) => number
+  }) => {
+    estimateVirtualRow = estimateSize
+    return {
+      getTotalSize: () => count * 120,
+      getVirtualItems: () =>
+        Array.from({ length: count }, (_, index) => ({
+          index,
+          key: getItemKey(index),
+          start: index * 120,
+        })),
+      measureElement: vi.fn(),
+      scrollToIndex,
+    }
+  },
 }))
 
 const channel = (id: string, name: string): Channel =>
@@ -99,11 +105,52 @@ describe('ChatArea regressions', () => {
   beforeEach(() => {
     vi.useRealTimers()
     scrollToIndex.mockClear()
+    estimateVirtualRow = undefined
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
   })
 
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it('matches desktop CSS heights for the first avatar row and compact continuation rows', () => {
+    const rows = [
+      message('message-1', 'first author', 0),
+      {
+        ...message('message-2', 'new author', 1),
+        author: { user_id: 'user-2', username: 'friend' },
+      },
+      {
+        ...message('message-3', 'compact continuation', 2),
+        author: { user_id: 'user-2', username: 'friend' },
+      },
+    ]
+
+    renderChatArea({ messages: rows })
+
+    expect(estimateVirtualRow?.(1)).toBe(53)
+    expect(estimateVirtualRow?.(2)).toBe(23)
+  })
+
+  it('matches mobile CSS heights before the first virtualizer measurement', () => {
+    const rows = [
+      message('message-1', 'first author', 0),
+      {
+        ...message('message-2', 'new author', 1),
+        author: { user_id: 'user-2', username: 'friend' },
+      },
+      {
+        ...message('message-3', 'compact continuation', 2),
+        author: { user_id: 'user-2', username: 'friend' },
+      },
+    ]
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 })
+
+    renderChatArea({ messages: rows })
+
+    expect(estimateVirtualRow?.(1)).toBe(44)
+    expect(estimateVirtualRow?.(2)).toBe(23)
   })
 
   it('re-anchors switched channels to their latest rendered message', async () => {
