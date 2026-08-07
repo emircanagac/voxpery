@@ -4533,6 +4533,7 @@ body {
   align-items: flex-start;
   gap: 16px;
   padding: 4px 16px;
+  min-height: 52px;
   border-radius: var(--border-radius-sm);
   position: relative;
   min-width: 0;
@@ -4587,6 +4588,7 @@ body {
 .message.message-compact {
   padding-top: 1px;
   padding-bottom: 1px;
+  min-height: 22px;
 }
 
 .message.message-compact .message-avatar {
@@ -13946,6 +13948,7 @@ textarea {
   .message {
     gap: 12px;
     padding: 2px 12px;
+    min-height: 43px;
   }
 
   .message-avatar {

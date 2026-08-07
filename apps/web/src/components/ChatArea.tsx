@@ -38,10 +38,26 @@ const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const TOP_AUTO_LOAD_THRESHOLD_PX = 96
 const USER_SCROLL_INTENT_WINDOW_MS = 1200
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
-const ESTIMATED_GROUPED_MESSAGE_ROW_PX = 24
-const ESTIMATED_MESSAGE_GROUP_ROW_PX = 52
-const ESTIMATED_DAY_DIVIDER_PX = 36
-const ESTIMATED_UNREAD_DIVIDER_PX = 30
+// Includes the virtual item's 1px bottom padding. Keep these values aligned with
+// the desktop and max-width: 700px message/divider rules in index.css.
+const MESSAGE_ROW_METRICS = {
+    desktop: {
+        grouped: 23,
+        group: 53,
+        firstDayDivider: 34,
+        dayDivider: 46,
+        unreadDivider: 38,
+        typing: 27,
+    },
+    mobile: {
+        grouped: 23,
+        group: 44,
+        firstDayDivider: 28,
+        dayDivider: 24,
+        unreadDivider: 28,
+        typing: 27,
+    },
+} as const
 const ESTIMATED_ATTACHMENT_ROW_PX = 36
 const ESTIMATED_MEDIA_ROW_PX = 228
 const ESTIMATED_STICKER_ROW_PX = 128
@@ -291,20 +307,29 @@ function parseReplyContent(content: string): { replyUsername: string; replyQuote
     return { replyUsername: match[1].trim(), replyQuote: cleanReplyQuotePreview(match[2]), replyBody }
 }
 
-function estimateMessageRowHeight(messages: UiMessage[], index: number, firstUnreadIndex: number, hasTypingRow: boolean) {
-    if (hasTypingRow && index === messages.length) return 34
+function estimateMessageRowHeight(
+    messages: UiMessage[],
+    index: number,
+    firstUnreadIndex: number,
+    hasTypingRow: boolean,
+    mobileLayout: boolean = false,
+) {
+    const metrics = mobileLayout ? MESSAGE_ROW_METRICS.mobile : MESSAGE_ROW_METRICS.desktop
+    if (hasTypingRow && index === messages.length) return metrics.typing
     const message = messages[index]
-    if (!message) return ESTIMATED_MESSAGE_GROUP_ROW_PX
+    if (!message) return metrics.group
 
     const isGrouped = isMessageGroupedAt(messages, index, firstUnreadIndex)
-    let estimate = isGrouped ? ESTIMATED_GROUPED_MESSAGE_ROW_PX : ESTIMATED_MESSAGE_GROUP_ROW_PX
-    if (isNewMessageDayAt(messages, index)) estimate += ESTIMATED_DAY_DIVIDER_PX
-    if (firstUnreadIndex >= 0 && index === firstUnreadIndex) estimate += ESTIMATED_UNREAD_DIVIDER_PX
+    let estimate = isGrouped ? metrics.grouped : metrics.group
+    if (isNewMessageDayAt(messages, index)) {
+        estimate += index === 0 ? metrics.firstDayDivider : metrics.dayDivider
+    }
+    if (firstUnreadIndex >= 0 && index === firstUnreadIndex) estimate += metrics.unreadDivider
     if (message.edited_at || message.clientStatus === 'failed') estimate += 8
     estimate += estimateTextExtraHeight(message.content ?? '')
     estimate += estimateEmbeddedMediaHeight(message.content ?? '')
     estimate += estimateAttachmentHeight(message.attachments)
-    return Math.max(ESTIMATED_GROUPED_MESSAGE_ROW_PX, estimate)
+    return Math.max(metrics.grouped, estimate)
 }
 
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
@@ -627,6 +652,9 @@ export default function ChatArea({
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
+    const [useMobileMessageLayout, setUseMobileMessageLayout] = useState(
+        () => typeof window !== 'undefined' ? window.innerWidth <= 700 : false
+    )
     const chatAreaRef = useRef<HTMLDivElement | null>(null)
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
@@ -867,7 +895,13 @@ export default function ChatArea({
         getItemKey: (index) => messages[index]?.id ?? (index === messages.length ? 'typing-indicator' : index),
         // Keep newly-added rows close to their final measured height so bottom-locked
         // chats do not visibly settle after the virtualizer's first measurement.
-        estimateSize: (index) => estimateMessageRowHeight(messages, index, firstUnreadIndex, !!typingIndicatorLabel),
+        estimateSize: (index) => estimateMessageRowHeight(
+            messages,
+            index,
+            firstUnreadIndex,
+            !!typingIndicatorLabel,
+            useMobileMessageLayout,
+        ),
         measureElement: (el) => el?.getBoundingClientRect().height ?? 64,
         overscan: 8,
     })
@@ -1693,7 +1727,10 @@ export default function ChatArea({
 
     useEffect(() => {
         if (typeof window === 'undefined') return
-        const onResize = () => setUseCompactMobileTimestamp(window.innerWidth <= 520)
+        const onResize = () => {
+            setUseCompactMobileTimestamp(window.innerWidth <= 520)
+            setUseMobileMessageLayout(window.innerWidth <= 700)
+        }
         onResize()
         window.addEventListener('resize', onResize)
         return () => window.removeEventListener('resize', onResize)
