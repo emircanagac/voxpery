@@ -103,7 +103,7 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await page.getByRole('button', { name: 'Communication' }).click()
     await expect(settingsModal.getByText('Desktop notifications', { exact: true })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Desktop' }).click()
+    await settingsModal.getByRole('button', { name: 'Desktop', exact: true }).click()
     await expect(settingsModal).toContainText('App updates')
     await expect(settingsModal).toContainText('Installed version: 0.2.0-desktop-test.')
     await expect(settingsModal).toContainText('Launch on startup')

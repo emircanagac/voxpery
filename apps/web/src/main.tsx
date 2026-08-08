@@ -5,7 +5,9 @@ import './index.css'
 import App from './App'
 import { registerPwaServiceWorker } from './pwa'
 import { installGlobalObservabilityHandlers } from './observability'
+import { initializeTheme } from './theme'
 
+initializeTheme()
 registerPwaServiceWorker()
 installGlobalObservabilityHandlers()
 

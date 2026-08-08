@@ -34,12 +34,38 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
 
     const modal = page.locator('.user-settings-modal')
-    await expect(modal.locator('.user-settings-subtitle')).toContainText('account, communication, voice, and privacy')
+    await expect(modal.locator('.user-settings-subtitle')).toContainText('account, appearance, communication, voice, and privacy')
     await expect(modal.locator('.user-settings-subtitle')).not.toContainText('desktop')
     await page.getByRole('button', { name: 'Communication' }).click()
     await expect(modal.getByText('Browser notifications', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Voice & Audio' }).click()
     await expect(modal.getByText('Benchmark diagnostics', { exact: true })).toHaveCount(0)
+  })
+
+  test('persists theme and accent preferences without layout overflow', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Appearance' }).click()
+
+    const modal = page.locator('.user-settings-modal')
+    await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+    await modal.getByRole('button', { name: /Light/ }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+
+    const accentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
+    await accentInput.fill('#2d8f70')
+    await accentInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
+    await expectNoHorizontalOverflow(modal)
+
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    await expect(page.locator('html')).toHaveCSS('--user-accent', '#2d8f70')
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(244, 246, 248)')
   })
 
   test('keeps profile password modal validation and submission wired', async ({ page }) => {
@@ -112,3 +138,9 @@ test.describe('mocked release and settings regressions', () => {
     expect(state.lastDeleteAccountConfirm).toBe('DELETE')
   })
 })
+
+async function expectNoHorizontalOverflow(locator: import('@playwright/test').Locator) {
+  await expect.poll(async () => {
+    return locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+  }).toBe(true)
+}

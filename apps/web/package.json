@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:e2e": "node scripts/dev-e2e.mjs",
     "build": "tsc -b && vite build",
     "check:initial-bundle": "node scripts/check-initial-bundle.mjs",
     "lint": "eslint .",

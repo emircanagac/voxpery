@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, Keyboard, LogOut } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, Keyboard, LogOut, Palette } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -18,6 +18,7 @@ import {
   type SpeakingPreset,
 } from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
+import ThemeSettings from './ThemeSettings'
 import { ROUTES } from '../routes'
 import {
   DEFAULT_VOICE_INPUT_PROFILE,
@@ -105,7 +106,7 @@ const DEFAULT_OUTPUT_DEVICE_OPTION: VoiceDeviceOption = {
   fullLabel: 'Windows default speaker',
 }
 
-type SettingsSection = 'profile' | 'communication' | 'voice' | 'desktop' | 'privacy'
+type SettingsSection = 'profile' | 'appearance' | 'communication' | 'voice' | 'desktop' | 'privacy'
 type VoiceDeviceMenu = 'input' | 'output'
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
 function getInitial(name: string) {
@@ -1447,8 +1448,8 @@ export default function UserBar() {
                 <h2>Settings</h2>
                 <p className="user-settings-subtitle">
                   {desktopRuntime
-                    ? 'Manage your account, communication, voice, desktop, and privacy preferences.'
-                    : 'Manage your account, communication, voice, and privacy preferences.'}
+                    ? 'Manage your account, appearance, communication, voice, desktop, and privacy preferences.'
+                    : 'Manage your account, appearance, communication, voice, and privacy preferences.'}
                 </p>
               </div>
             </header>
@@ -1461,6 +1462,14 @@ export default function UserBar() {
                 >
                   <User size={16} />
                   <span>Profile</span>
+                </button>
+                <button
+                  type="button"
+                  className={`user-settings-nav__item ${activeSettingsSection === 'appearance' ? 'user-settings-nav__item--active' : ''}`}
+                  onClick={() => setActiveSettingsSection('appearance')}
+                >
+                  <Palette size={16} />
+                  <span>Appearance</span>
                 </button>
                 <button
                   type="button"
@@ -1498,6 +1507,7 @@ export default function UserBar() {
                 )}
               </nav>
               <div className="user-settings-scroll" ref={settingsScrollRef}>
+              {activeSettingsSection === 'appearance' && <ThemeSettings />}
               {activeSettingsSection === 'communication' && (
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Communication</h3>

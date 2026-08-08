@@ -11,6 +11,25 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
+  test('keeps theme settings usable and persistent on a phone viewport', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(3) })
+    await installMockCoreApi(page, state)
+    await page.addInitScript(() => {
+      localStorage.setItem('voxpery-settings-theme', 'light')
+    })
+
+    await page.goto('/social')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Appearance' }).click()
+
+    const modal = page.locator('.user-settings-modal')
+    await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+    await expectNoHorizontalOverflow(modal)
+    await modal.getByRole('button', { name: /Rose/ }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'rose')
+  })
+
   test('keeps Social friends, requests, and DM entry usable on a phone viewport', async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(24),
