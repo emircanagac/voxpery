@@ -22,6 +22,7 @@ const apiMocks = vi.hoisted(() => ({
   listDmChannels: vi.fn(),
   getOrCreateDmChannel: vi.fn(),
   hideDmChannel: vi.fn(),
+  updateDmChannelPreferences: vi.fn(),
   listDmMessages: vi.fn(),
   markDmRead: vi.fn(),
   listDmPins: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('../api', () => ({
     listChannels: apiMocks.listDmChannels,
     getOrCreateChannel: apiMocks.getOrCreateDmChannel,
     hideChannel: apiMocks.hideDmChannel,
+    updateChannelPreferences: apiMocks.updateDmChannelPreferences,
     listMessages: apiMocks.listDmMessages,
     markRead: apiMocks.markDmRead,
     listPins: apiMocks.listDmPins,
@@ -97,6 +99,8 @@ function dmChannel(id: string, peerId = 'friend-cilo', peerUsername = 'cilo'): D
     peer_status: 'online',
     last_message_at: null,
     unread_count: 0,
+    pinned_at: null,
+    is_pinned: false,
   }
 }
 
@@ -161,6 +165,7 @@ describe('HomePage friends list', () => {
     apiMocks.markDmRead.mockResolvedValue(undefined)
     apiMocks.listDmPins.mockResolvedValue([])
     apiMocks.hideDmChannel.mockResolvedValue(undefined)
+    apiMocks.updateDmChannelPreferences.mockResolvedValue({ pinned: true })
   })
 
   it('opens a DM when a friend row is selected', async () => {
@@ -222,6 +227,35 @@ describe('HomePage friends list', () => {
       expect(useAppStore.getState().dmChannelIds).toEqual([])
     })
     expect(screen.queryByRole('button', { name: 'Hide DM with cilo' })).toBeNull()
+  })
+
+  it('pins and unpins a DM using the persisted channel preference endpoint', async () => {
+    const older = { ...dmChannel('dm-older', 'friend-older', 'older'), last_message_at: '2026-01-01T00:00:00.000Z' }
+    const recent = { ...dmChannel('dm-recent', 'friend-recent', 'recent'), last_message_at: '2026-02-01T00:00:00.000Z' }
+    apiMocks.listDmChannels.mockResolvedValue([recent, older])
+
+    renderHomePage()
+
+    const olderDmRow = (await screen.findByRole('button', { name: 'Open DM with older' })).closest('.social-dm-item')
+    expect(olderDmRow).not.toBeNull()
+    fireEvent.contextMenu(olderDmRow!)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin Conversation' }))
+
+    await waitFor(() => {
+      expect(apiMocks.updateDmChannelPreferences).toHaveBeenCalledWith(older.id, true, null)
+      expect(useAppStore.getState().dmChannels[0]).toMatchObject({ id: older.id, is_pinned: true })
+    })
+
+    apiMocks.updateDmChannelPreferences.mockResolvedValue({ pinned: false })
+    const pinnedDmRow = screen.getByRole('button', { name: 'Open DM with older' }).closest('.social-dm-item')
+    expect(pinnedDmRow).not.toBeNull()
+    fireEvent.contextMenu(pinnedDmRow!)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin Conversation' }))
+
+    await waitFor(() => {
+      expect(apiMocks.updateDmChannelPreferences).toHaveBeenLastCalledWith(older.id, false, null)
+      expect(useAppStore.getState().dmChannels.map((channel) => channel.id)).toEqual([recent.id, older.id])
+    })
   })
 
   it('shows cached social data without waiting for the server list refresh', async () => {

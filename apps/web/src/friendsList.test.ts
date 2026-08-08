@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { DmChannel, Friend } from './api'
-import { getVisibleFriendsForFilter, upsertDmChannel } from './friendsList'
+import {
+  getVisibleFriendsForFilter,
+  sortDmChannels,
+  touchDmChannelActivity,
+  upsertDmChannel,
+} from './friendsList'
 
 function friend(id: string, username: string, status: string): Friend {
   return {
@@ -20,6 +25,8 @@ function dmChannel(id: string, peerUsername: string): DmChannel {
     peer_status: 'online',
     last_message_at: null,
     unread_count: 0,
+    pinned_at: null,
+    is_pinned: false,
   }
 }
 
@@ -54,7 +61,11 @@ describe('friends list helpers', () => {
 
   it('upserts opened DM channels without leaving stale duplicates', () => {
     const current = [dmChannel('old-a', 'alpha'), dmChannel('old-b', 'bravo')]
-    const updated = { ...dmChannel('old-b', 'bravo'), unread_count: 2 }
+    const updated = {
+      ...dmChannel('old-b', 'bravo'),
+      unread_count: 2,
+      last_message_at: '2026-03-01T00:00:00.000Z',
+    }
 
     expect(upsertDmChannel(current, updated)).toEqual([updated, current[0]])
     expect(upsertDmChannel(current, dmChannel('new-c', 'charlie')).map((channel) => channel.id)).toEqual([
@@ -62,5 +73,27 @@ describe('friends list helpers', () => {
       'old-a',
       'old-b',
     ])
+  })
+
+  it('keeps pinned DMs above recent activity and orders each group by latest message', () => {
+    const oldPinned = { ...dmChannel('pinned-old', 'old pin'), is_pinned: true, pinned_at: '2026-02-01T00:00:00.000Z', last_message_at: '2026-01-01T00:00:00.000Z' }
+    const recent = { ...dmChannel('recent', 'recent'), last_message_at: '2026-03-01T00:00:00.000Z' }
+    const newestPinned = { ...dmChannel('pinned-new', 'new pin'), is_pinned: true, pinned_at: '2026-03-01T00:00:00.000Z', last_message_at: '2025-12-01T00:00:00.000Z' }
+
+    expect(sortDmChannels([recent, oldPinned, newestPinned]).map((channel) => channel.id)).toEqual([
+      'pinned-new',
+      'pinned-old',
+      'recent',
+    ])
+  })
+
+  it('moves an active unpinned DM without displacing pinned conversations', () => {
+    const pinned = { ...dmChannel('pinned', 'pinned'), is_pinned: true, pinned_at: '2026-03-01T00:00:00.000Z' }
+    const older = { ...dmChannel('older', 'older'), last_message_at: '2026-01-01T00:00:00.000Z' }
+    const active = { ...dmChannel('active', 'active'), last_message_at: '2026-01-02T00:00:00.000Z' }
+
+    const touched = touchDmChannelActivity([pinned, active, older], older.id, '2026-04-01T00:00:00.000Z')
+
+    expect(touched.map((channel) => channel.id)).toEqual(['pinned', 'older', 'active'])
   })
 })

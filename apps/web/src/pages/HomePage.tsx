@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Send, UserMinus, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Pin, Send, UserMinus, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -38,6 +38,8 @@ import {
   type FriendsFilter,
   getVisibleFriendsForFilter,
   normalizePresence,
+  sortDmChannels,
+  touchDmChannelActivity,
   upsertDmChannel,
 } from '../friendsList'
 import {
@@ -157,6 +159,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
   const [removingFriend, setRemovingFriend] = useState(false)
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
+  const [updatingDmPreferenceId, setUpdatingDmPreferenceId] = useState<string | null>(null)
+  const [dmContextMenu, setDmContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const dmChannels = storeDmChannels
@@ -218,6 +222,24 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
   useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
+
+  useEffect(() => {
+    if (!dmContextMenu) return
+    const closeMenu = () => setDmContextMenu(null)
+    const closeMenuOnKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('keydown', closeMenuOnKey)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('keydown', closeMenuOnKey)
+    }
+  }, [dmContextMenu])
 
   const rememberDmMessages = useCallback((channelId: string, messages: UiDmMessage[]) => {
     dmMessagesByChannelRef.current[channelId] = messages
@@ -658,6 +680,57 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }
 
+  const handleToggleDmPinned = useCallback(async (channelId: string, pinned: boolean) => {
+    if (!user || updatingDmPreferenceId) return
+    const previousChannels = useAppStore.getState().dmChannels
+    const nextChannels = sortDmChannels(
+      previousChannels.map((channel) =>
+        channel.id === channelId
+          ? { ...channel, is_pinned: pinned, pinned_at: pinned ? new Date().toISOString() : null }
+          : channel,
+      ),
+    )
+    setUpdatingDmPreferenceId(channelId)
+    setStoreDmChannels(nextChannels)
+    try {
+      await dmApi.updateChannelPreferences(channelId, pinned, token)
+    } catch (err) {
+      setStoreDmChannels(previousChannels)
+      pushToast({
+        level: 'error',
+        title: pinned ? 'Pin failed' : 'Unpin failed',
+        message: err instanceof Error ? err.message : 'Could not update this conversation.',
+      })
+    } finally {
+      setUpdatingDmPreferenceId(null)
+    }
+  }, [pushToast, setStoreDmChannels, token, updatingDmPreferenceId, user])
+
+  const handleHideDmChannel = useCallback(async (channelId: string) => {
+    const previousChannels = useAppStore.getState().dmChannels
+    const nextChannels = previousChannels.filter((channel) => channel.id !== channelId)
+    setDmContextMenu(null)
+    setStoreDmChannels(nextChannels)
+    setDmChannelIds(nextChannels.map((channel) => channel.id))
+    if (activeDmChannelId === channelId) {
+      setView('friends')
+      setActiveDmChannelId(null)
+      setPersistedSocialView('friends')
+      navigate(ROUTES.home)
+    }
+    try {
+      await dmApi.hideChannel(channelId, token)
+    } catch (err) {
+      setStoreDmChannels(previousChannels)
+      setDmChannelIds(previousChannels.map((channel) => channel.id))
+      pushToast({
+        level: 'error',
+        title: 'DM hide failed',
+        message: err instanceof Error ? err.message : 'Could not hide this conversation.',
+      })
+    }
+  }, [activeDmChannelId, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setStoreDmChannels, token])
+
   const handleDmAttachmentPick = async (files: FileList | null) => {
     if (!files) return
     const incoming = Array.from(files)
@@ -781,6 +854,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     try {
       const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token, clientId)
       clearDmUnread(channelId)
+      setStoreDmChannels(
+        touchDmChannelActivity(useAppStore.getState().dmChannels, channelId, msg.created_at),
+      )
       const applySentDm = (current: UiDmMessage[]) => {
         return reconcileConfirmedMessage(current, clientId, msg)
       }
@@ -962,80 +1038,74 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             </span>
           </div>
         ) : (
-          dmChannels.map((channel) => (
-            <button
-              key={channel.id}
-              type="button"
+          dmChannels.map((channel, index) => (
+            <Fragment key={channel.id}>
+              {channel.is_pinned && (index === 0 || !dmChannels[index - 1]?.is_pinned) && (
+                <div className="social-dm-group-label">Pinned</div>
+              )}
+              {!channel.is_pinned && index > 0 && dmChannels[index - 1]?.is_pinned && (
+                <div className="social-dm-group-label">Recent</div>
+              )}
+            <div
               className={`social-dm-item ${view === 'dm' && activeDmChannelId === channel.id ? 'active' : ''}`}
               onPointerEnter={() => prefetchDmConversation(channel.id)}
-              onFocus={() => prefetchDmConversation(channel.id)}
-              onClick={(e) => {
-                ; (e.currentTarget as HTMLButtonElement).blur()
-                const cached = cachedDmMessages(channel.id)
-                setDmMessages(cached ?? [])
-                setDmConversationReady(!!cached)
-                setView('dm')
-                setActiveDmChannelId(channel.id)
-                setPersistedSocialView('dm')
-                clearDmUnread(channel.id)
-                if (location.pathname !== ROUTES.dm) navigate(ROUTES.dm)
-                setMobileSidebarPanel('none')
+              onContextMenu={(event) => {
+                event.preventDefault()
+                const rect = event.currentTarget.getBoundingClientRect()
+                const menuWidth = 196
+                const menuHeight = 82
+                const requestedX = event.clientX || rect.right
+                const requestedY = event.clientY || rect.bottom
+                setDmContextMenu({
+                  channelId: channel.id,
+                  x: Math.min(Math.max(8, requestedX), Math.max(8, window.innerWidth - menuWidth - 8)),
+                  y: Math.min(Math.max(8, requestedY), Math.max(8, window.innerHeight - menuHeight - 8)),
+                })
               }}
             >
-              <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
-                {channel.peer_avatar_url ? (
-                  <img src={resolveAvatarUrl(channel.peer_avatar_url) ?? ''} alt="" />
-                ) : (
-                  channel.peer_username.charAt(0).toUpperCase()
-                )}
-              </div>
-              <div className="home-member-meta">
-                <div>{channel.peer_username}</div>
-              </div>
+              <button
+                type="button"
+                className="social-dm-open"
+                onFocus={() => prefetchDmConversation(channel.id)}
+                onClick={(e) => {
+                  e.currentTarget.blur()
+                  const cached = cachedDmMessages(channel.id)
+                  setDmMessages(cached ?? [])
+                  setDmConversationReady(!!cached)
+                  setView('dm')
+                  setActiveDmChannelId(channel.id)
+                  setPersistedSocialView('dm')
+                  clearDmUnread(channel.id)
+                  if (location.pathname !== ROUTES.dm) navigate(ROUTES.dm)
+                  setMobileSidebarPanel('none')
+                }}
+                aria-label={`Open DM with ${channel.peer_username}`}
+              >
+                <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
+                  {channel.peer_avatar_url ? (
+                    <img src={resolveAvatarUrl(channel.peer_avatar_url) ?? ''} alt="" />
+                  ) : (
+                    channel.peer_username.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="home-member-meta">
+                  <div>{channel.peer_username}</div>
+                </div>
+              </button>
               <div className="social-dm-actions">
                 {(dmUnread[channel.id] ?? 0) > 0 && <span className="social-dm-unread">{formatBadgeCount(dmUnread[channel.id] ?? 0)}</span>}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="home-member-action"
+                <button
+                  type="button"
+                  className="home-member-action social-dm-close"
                   title="Hide conversation"
                   aria-label={`Hide DM with ${channel.peer_username}`}
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    const previousChannels = useAppStore.getState().dmChannels
-                    const nextChannels = previousChannels.filter((dmChannel) => dmChannel.id !== channel.id)
-                    setStoreDmChannels(nextChannels)
-                    setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
-                    if (activeDmChannelId === channel.id) {
-                      setView('friends')
-                      setActiveDmChannelId(null)
-                      setPersistedSocialView('friends')
-                      navigate(ROUTES.home)
-                    }
-                    try {
-                      await dmApi.hideChannel(channel.id, token)
-                    } catch (err) {
-                      setStoreDmChannels(previousChannels)
-                      setDmChannelIds(previousChannels.map((dmChannel) => dmChannel.id))
-                      pushToast({
-                        level: 'error',
-                        title: 'DM hide failed',
-                        message: err instanceof Error ? err.message : 'Could not hide this conversation.',
-                      })
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      e.currentTarget.click()
-                    }
-                  }}
+                  onClick={() => void handleHideDmChannel(channel.id)}
                 >
-                  <X size={14} />
-                </div>
+                  <X size={12} />
+                </button>
               </div>
-            </button>
+            </div>
+            </Fragment>
           ))
         )}
 
@@ -1377,6 +1447,44 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           })()}
         </div>
       </section>
+
+      {dmContextMenu && (() => {
+        const channel = dmChannels.find((candidate) => candidate.id === dmContextMenu.channelId)
+        if (!channel) return null
+        return createPortal(
+          <div
+            className="server-context-menu social-dm-context-menu"
+            role="menu"
+            aria-label={`Conversation actions for ${channel.peer_username}`}
+            style={{ left: dmContextMenu.x, top: dmContextMenu.y }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="server-context-menu-item"
+              role="menuitem"
+              disabled={updatingDmPreferenceId === channel.id}
+              onClick={() => {
+                setDmContextMenu(null)
+                void handleToggleDmPinned(channel.id, !channel.is_pinned)
+              }}
+            >
+              <Pin size={14} />
+              {channel.is_pinned ? 'Unpin Conversation' : 'Pin Conversation'}
+            </button>
+            <button
+              type="button"
+              className="server-context-menu-item danger"
+              role="menuitem"
+              onClick={() => void handleHideDmChannel(channel.id)}
+            >
+              <X size={14} />
+              Close DM
+            </button>
+          </div>,
+          document.body,
+        )
+      })()}
 
       {removeFriendTarget && createPortal(
         <div className="modal-overlay" onClick={() => !removingFriend && setRemoveFriendTarget(null)}>

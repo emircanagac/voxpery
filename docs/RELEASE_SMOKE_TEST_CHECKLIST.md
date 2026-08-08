@@ -71,6 +71,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
+- [ ] DM pins persist across refresh/login, pinned conversations stay above activity-sorted unpinned DMs, and a hidden DM returns only after explicit reopen or new message activity.
+- [ ] Channel managers can create channels from the compact header menu, a category `+`, and the category context menu; non-managers see none of these controls.
 - [ ] Login and registration do not open a native notification permission prompt; the delayed in-app prompt requests permission only after the user selects `Enable`, and `Not now` suppresses it during the snooze window.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.

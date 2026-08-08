@@ -78,6 +78,8 @@ function dmChannel(id: string, peerId = 'friend-1', peerUsername = 'friend'): Dm
     peer_status: 'online',
     last_message_at: null,
     unread_count: 0,
+    pinned_at: null,
+    is_pinned: false,
   }
 }
 

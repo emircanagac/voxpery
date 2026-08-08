@@ -11,6 +11,8 @@ function dmChannel(id: string, unread_count: number): DmChannel {
         peer_status: 'online',
         last_message_at: null,
         unread_count,
+        pinned_at: null,
+        is_pinned: false,
     }
 }
 

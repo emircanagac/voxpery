@@ -12,6 +12,7 @@ import UserBar from '../components/UserBar'
 import NotificationPermissionPrompt from '../components/NotificationPermissionPrompt'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
+import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import {
   shouldShowPushNotification,
@@ -414,7 +415,7 @@ export default function AppShell() {
           }
         }
         if (e?.type === 'NewMessage') {
-          const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { author?: { user_id?: string; username?: string } } }
+          const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { created_at?: string; author?: { user_id?: string; username?: string } } }
           const channelId = payload?.channel_id
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
@@ -424,11 +425,13 @@ export default function AppShell() {
           if (authorId && authorId === userId) return
 
           void (async () => {
-            let channel = dmChannels.find((c) => c.id === channelId)
+            let currentChannels = useAppStore.getState().dmChannels
+            let channel = currentChannels.find((c) => c.id === channelId)
             let dmIds = dmChannelIds
             if (!channel) {
               try {
                 const latest = await dmApi.listChannels(token)
+                currentChannels = latest
                 dmIds = latest.map((c) => c.id)
                 setDmChannels(latest)
                 setDmChannelIds(dmIds)
@@ -443,7 +446,8 @@ export default function AppShell() {
               try {
                 const created = await dmApi.getOrCreateChannel(authorId, token)
                 channel = created
-                const next = [created, ...dmChannels.filter((c) => c.id !== created.id)]
+                const next = upsertDmChannel(currentChannels, created)
+                currentChannels = next
                 dmIds = next.map((c) => c.id)
                 setDmChannels(next)
                 setDmChannelIds(dmIds)
@@ -462,7 +466,11 @@ export default function AppShell() {
               unreadHandled = true
             }
 
-            const nextChannels = [channel, ...dmChannels.filter((c) => c.id !== channel.id)]
+            const nextChannels = touchDmChannelActivity(
+              currentChannels,
+              channel.id,
+              incomingMessage?.created_at ?? new Date().toISOString(),
+            )
             setDmChannels(nextChannels)
             setDmChannelIds(nextChannels.map((c) => c.id))
 

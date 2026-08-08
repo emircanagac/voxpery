@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Channel, MemberInfo, Server } from '../api'
 import { useAppStore } from '../stores/app'
@@ -85,5 +85,61 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.getByLabelText(`${remoteMember.username} camera on`)).toBeVisible()
         expect(screen.getByLabelText(`${remoteMember.username} screen sharing`)).toHaveTextContent('LIVE')
         expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
+    })
+
+    it('offers compact, permission-aware channel creation controls', () => {
+        const onOpenCreateChannel = vi.fn()
+        const onOpenCreateCategory = vi.fn()
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            activeChannelId: null,
+        })
+
+        const { container } = render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                canManageChannels
+                onOpenCreateChannel={onOpenCreateChannel}
+                onOpenCreateCategory={onOpenCreateCategory}
+            />,
+        )
+
+        expect(container.querySelector('.channel-create-actions')).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Create channels and categories' })).toBeNull()
+        const channelList = container.querySelector('.channel-list')
+        expect(channelList).not.toBeNull()
+        fireEvent.contextMenu(channelList!)
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Create Category' }))
+        expect(onOpenCreateCategory).toHaveBeenCalledTimes(1)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Create channel in Voice' }))
+        expect(onOpenCreateChannel).toHaveBeenCalledWith('Voice')
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Voice' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Create Channel' }))
+        expect(onOpenCreateChannel).toHaveBeenLastCalledWith('Voice')
+    })
+
+    it('does not expose channel creation controls without manage permission', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            activeChannelId: null,
+        })
+
+        render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                canManageChannels={false}
+                onOpenCreateChannel={vi.fn()}
+                onOpenCreateCategory={vi.fn()}
+            />,
+        )
+
+        expect(screen.queryByRole('button', { name: 'Create channels and categories' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Create channel in Voice' })).toBeNull()
     })
 })

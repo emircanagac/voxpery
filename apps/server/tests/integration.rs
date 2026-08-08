@@ -1691,7 +1691,7 @@ async fn friend_dm_channel_open_returns_channel_info() {
 }
 
 #[tokio::test]
-async fn hidden_dm_channel_stays_out_of_channel_list_until_reopened() {
+async fn dm_channel_visibility_and_pinning_persist_for_each_user() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
@@ -1819,6 +1819,48 @@ async fn hidden_dm_channel_stays_out_of_channel_list_until_reopened() {
 
     let req = Request::builder()
         .method("POST")
+        .uri(format!("/api/dm/messages/{channel_id}"))
+        .header("Authorization", &bob_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "content": "new activity reopens the DM" })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "send DM activity failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels.as_array().unwrap().len(), 1);
+    assert_eq!(channels[0]["id"].as_str().unwrap(), channel_id);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/dm/channels/{channel_id}/hide"))
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "hide reopened friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .method("POST")
         .uri(format!("/api/dm/channels/{bob_id}"))
         .header("Authorization", &alice_auth)
         .body(Body::empty())
@@ -1840,6 +1882,73 @@ async fn hidden_dm_channel_stays_out_of_channel_list_until_reopened() {
     assert_eq!(status, StatusCode::OK);
     let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(channels.as_array().unwrap().len(), 1);
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri(format!("/api/dm/channels/{channel_id}/preferences"))
+        .header("Authorization", &alice_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "pinned": true })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "pin friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels[0]["is_pinned"].as_bool(), Some(true));
+    assert!(channels[0]["pinned_at"].as_str().is_some());
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &bob_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels[0]["is_pinned"].as_bool(), Some(false));
+    assert!(channels[0]["pinned_at"].is_null());
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri(format!("/api/dm/channels/{channel_id}/preferences"))
+        .header("Authorization", &alice_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "pinned": false })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "unpin friend DM failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let req = Request::builder()
+        .uri("/api/dm/channels")
+        .header("Authorization", &alice_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let channels: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(channels[0]["is_pinned"].as_bool(), Some(false));
+    assert!(channels[0]["pinned_at"].is_null());
 }
 
 #[tokio::test]

@@ -134,6 +134,8 @@ export interface DmChannel {
     peer_status: string
     last_message_at: string | null
     unread_count: number
+    pinned_at: string | null
+    is_pinned: boolean
 }
 
 export interface DmReadState {

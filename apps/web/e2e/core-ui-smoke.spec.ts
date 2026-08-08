@@ -155,12 +155,12 @@ test.describe('mocked core UI smoke', () => {
     await page.setViewportSize({ width: 1366, height: 768 })
 
     await page.goto('/servers')
-    await page.locator('.channel-create-btn[title="Create Channel"]').click()
+    await page.getByRole('button', { name: 'Create channel in GENERAL' }).click()
 
     const modal = page.locator('.modal-create-channel')
     await expect(modal.getByRole('heading', { name: 'Create Channel' })).toBeVisible()
     await modal.getByPlaceholder('e.g. general').fill('raid-notes')
-    await modal.locator('input[list="channel-category-suggestions"]').fill('PLANNING')
+    await expect(modal.locator('input[list="channel-category-suggestions"]')).toHaveValue('GENERAL')
     await modal.getByPlaceholder('What is this channel for?').fill('Planning notes used by the smoke test.')
     await modal.getByRole('button', { name: 'Create Channel' }).click()
 
@@ -190,6 +190,8 @@ test.describe('mocked core UI smoke', () => {
         peer_status: 'online',
         last_message_at: null,
         unread_count: 0,
+        pinned_at: null,
+        is_pinned: false,
       }],
       dmMessagesByChannelId: { 'dm-friend-01': [] },
     })

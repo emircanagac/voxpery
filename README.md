@@ -67,7 +67,7 @@ Voxpery is strongest when you want a smaller, inspectable, self-hostable communi
 
 ### Communication
 - **Crystal-clear voice** - LiveKit SFU, auto quality adaptation, screen sharing
-- **Text & DMs** - Servers, channels, direct messages with real-time typing
+- **Text & DMs** - Servers, compact channel management, activity-sorted direct messages, and pinned conversations
 - **Friends & social** - Add friends, see status, mutual presence
 - **Fast navigation** - Quick switcher for server, channel, and DM jumps
 - **Reactions & attachments** - Emoji reactions, uploads, signed attachment access
@@ -204,12 +204,6 @@ docker compose up -d --build  # Full stack
 - **[Join Voxpery Discussions](https://github.com/emircanagac/voxpery/discussions)** - Ask questions, get help, discuss features
 - **[Report bugs / suggest features](https://github.com/emircanagac/voxpery/issues)**
 - **[Read docs](docs/)**
-
----
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=emircanagac/voxpery&type=Date)](https://star-history.com/#emircanagac/voxpery&Date)
 
 ---
 

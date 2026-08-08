@@ -239,12 +239,15 @@ Notes:
 ## Direct Message Endpoints
 
 - `GET /api/dm/channels`
-  - Returns visible DM channel metadata including `unread_count`, the server-derived unread count for the current user.
-  - Channels hidden by the current user are excluded unless they have unread messages.
+  - Returns visible DM channel metadata including `unread_count`, `last_message_at`, and the per-user `is_pinned` / `pinned_at` preference.
+  - Pinned conversations are returned first; pinned and unpinned groups are each ordered by latest message activity.
+  - Channels hidden by the current user are excluded until explicitly reopened or a message newer than the hide action arrives.
 - `POST /api/dm/channels/:peer_id`
   - Opens or creates a DM channel with the peer and restores it if the current user had hidden it.
 - `POST /api/dm/channels/:channel_id/hide`
-  - Hides the channel from the current user's DM list without deleting messages or hiding it for the peer.
+  - Hides and unpins the channel for the current user without deleting messages or hiding it for the peer.
+- `PATCH /api/dm/channels/:channel_id/preferences`
+  - Accepts `{ "pinned": true|false }`, persists the preference for the current user, and restores a hidden DM when pinning it.
 - `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
 - `GET /api/dm/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
   - `from` filters by message author username.

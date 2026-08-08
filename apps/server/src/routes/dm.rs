@@ -40,6 +40,8 @@ pub struct DmChannelInfo {
     pub peer_status: String,
     pub last_message_at: Option<chrono::DateTime<chrono::Utc>>,
     pub unread_count: i64,
+    pub pinned_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub is_pinned: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -80,6 +82,11 @@ pub struct RemoveDmReactionQuery {
 #[derive(Debug, serde::Deserialize)]
 pub struct PinDmMessageRequest {
     pub message_id: Uuid,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateDmChannelPreferencesRequest {
+    pub pinned: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -221,6 +228,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
         .route("/channels/{channel_id}/hide", post(hide_dm_channel))
+        .route(
+            "/channels/{channel_id}/preferences",
+            patch(update_dm_channel_preferences),
+        )
         .route("/channels/{channel_id}/read-state", get(get_dm_read_state))
         .route("/channels/{channel_id}/read", post(mark_dm_channel_read))
         .route(
@@ -270,6 +281,7 @@ async fn list_dm_channels(
                     u.avatar_url as peer_avatar_url,
                     u.status as peer_status,
                     self_m.hidden_at,
+                    self_m.pinned_at,
                     c.created_at,
                     (
                       SELECT m.created_at
@@ -300,10 +312,17 @@ async fn list_dm_channels(
                   peer_avatar_url,
                   peer_status,
                   last_message_at,
-                  unread_count
+                  unread_count,
+                  pinned_at,
+                  pinned_at IS NOT NULL AS is_pinned
            FROM channel_rows
-           WHERE hidden_at IS NULL OR unread_count > 0
-           ORDER BY COALESCE(last_message_at, created_at) DESC"#,
+           WHERE hidden_at IS NULL
+              OR pinned_at IS NOT NULL
+              OR last_message_at > hidden_at
+           ORDER BY pinned_at IS NULL ASC,
+                    pinned_at DESC NULLS LAST,
+                    COALESCE(last_message_at, created_at) DESC,
+                    id ASC"#,
     )
     .bind(claims.sub)
     .fetch_all(&state.db)
@@ -484,8 +503,12 @@ async fn get_or_create_dm_channel(
                     WHERE m.channel_id = c.id
                       AND m.user_id <> $1
                       AND (r.read_at IS NULL OR m.created_at > r.read_at)
-                  ) as unread_count
+                  ) as unread_count,
+                  self_m.pinned_at,
+                  self_m.pinned_at IS NOT NULL AS is_pinned
            FROM dm_channels c
+           INNER JOIN dm_channel_members self_m
+             ON self_m.channel_id = c.id AND self_m.user_id = $1
            INNER JOIN dm_channel_members peer_m
              ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
            INNER JOIN users u ON u.id = peer_m.user_id
@@ -519,7 +542,7 @@ async fn hide_dm_channel(
     check_dm_access(&state, channel_id, claims.sub).await?;
 
     sqlx::query(
-        "UPDATE dm_channel_members SET hidden_at = NOW() WHERE channel_id = $1 AND user_id = $2",
+        "UPDATE dm_channel_members SET hidden_at = NOW(), pinned_at = NULL WHERE channel_id = $1 AND user_id = $2",
     )
     .bind(channel_id)
     .bind(claims.sub)
@@ -527,6 +550,29 @@ async fn hide_dm_channel(
     .await?;
 
     Ok(Json(()))
+}
+
+async fn update_dm_channel_preferences(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Json(payload): Json<UpdateDmChannelPreferencesRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_dm_access(&state, channel_id, claims.sub).await?;
+
+    sqlx::query(
+        r#"UPDATE dm_channel_members
+           SET pinned_at = CASE WHEN $3 THEN NOW() ELSE NULL END,
+               hidden_at = CASE WHEN $3 THEN NULL ELSE hidden_at END
+           WHERE channel_id = $1 AND user_id = $2"#,
+    )
+    .bind(channel_id)
+    .bind(claims.sub)
+    .bind(payload.pinned)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(serde_json::json!({ "pinned": payload.pinned })))
 }
 
 async fn get_dm_messages(
