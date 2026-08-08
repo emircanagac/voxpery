@@ -18,6 +18,13 @@ export const dmApi = {
             token,
         }),
 
+    updateChannelPreferences: (channelId: string, pinned: boolean, token: AuthToken) =>
+        apiFetch<{ pinned: boolean }>(`/api/dm/channels/${channelId}/preferences`, {
+            method: 'PATCH',
+            body: { pinned },
+            token,
+        }),
+
     listMessages: (channelId: string, token: AuthToken, before?: string) =>
         apiFetch<MessageWithAuthor[]>(
             `/api/dm/messages/${channelId}${before ? `?before=${before}` : ''}`,

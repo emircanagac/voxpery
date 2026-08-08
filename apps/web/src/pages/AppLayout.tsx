@@ -2595,11 +2595,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
-    const openCreateChannelModal = () => {
+    const openCreateChannelModal = (category?: string) => {
         setCreateChannelError(null)
         setCreateChannelName('')
         setCreateChannelType('text')
-        setCreateChannelCategory('')
+        setCreateChannelCategory(category ?? '')
         setCreateChannelDescription('')
         setShowCreateChannel(true)
     }

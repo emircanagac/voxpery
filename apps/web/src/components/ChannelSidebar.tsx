@@ -15,7 +15,7 @@ type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 
 interface ChannelSidebarProps {
     onOpenServerSettings?: () => void
-    onOpenCreateChannel?: () => void
+    onOpenCreateChannel?: (category?: string) => void
     onOpenCreateCategory?: () => void
     onOpenCategoryPermissions?: (category: string) => void
     onRenameCategory?: (category: string) => void
@@ -85,6 +85,7 @@ export default function ChannelSidebar({
     const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
     const [categoryMenu, setCategoryMenu] = useState<{ category: string; x: number; y: number } | null>(null)
+    const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; channelId: string; x: number; y: number } | null>(null)
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
     const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
@@ -190,15 +191,17 @@ export default function ChannelSidebar({
     const closeAllContextMenus = () => {
         setContextMenu(null)
         setCategoryMenu(null)
+        setCreateMenu(null)
         setParticipantMenu(null)
     }
 
     useEffect(() => {
-        if (!contextMenu && !participantMenu && !categoryMenu) return
+        if (!contextMenu && !participantMenu && !categoryMenu && !createMenu) return
         const close = () => {
             setContextMenu(null)
             setParticipantMenu(null)
             setCategoryMenu(null)
+            setCreateMenu(null)
         }
         window.addEventListener('click', close)
         window.addEventListener('scroll', close, true)
@@ -206,7 +209,7 @@ export default function ChannelSidebar({
             window.removeEventListener('click', close)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu, participantMenu, categoryMenu])
+    }, [contextMenu, participantMenu, categoryMenu, createMenu])
 
     useEffect(() => {
         if (Object.keys(voiceChannelActiveSince).length === 0) return
@@ -245,60 +248,41 @@ export default function ChannelSidebar({
 
     return (
         <div className="channel-sidebar" ref={sidebarRef}>
-            <div
-                className={`channel-header ${activeServer && onOpenServerSettings ? 'channel-header--clickable' : ''}`}
-                onClick={activeServer && onOpenServerSettings ? onOpenServerSettings : undefined}
-                role={activeServer && onOpenServerSettings ? 'button' : undefined}
-                tabIndex={activeServer && onOpenServerSettings ? 0 : undefined}
-                onKeyDown={
-                    activeServer && onOpenServerSettings
-                        ? (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                onOpenServerSettings()
-                            }
-                        }
-                        : undefined
-                }
-                title={activeServer && onOpenServerSettings ? 'Open server settings' : undefined}
-            >
+            <div className="channel-header">
                 {activeServer ? (
                     <>
-                        <span className="channel-header-title">{activeServer.name}</span>
-                        <span className="channel-header-action" aria-hidden="true">
-                            <Settings2 size={14} />
-                        </span>
+                        <button
+                            type="button"
+                            className="channel-header-server"
+                            onClick={onOpenServerSettings}
+                            title={onOpenServerSettings ? 'Open server settings' : undefined}
+                            disabled={!onOpenServerSettings}
+                        >
+                            <span className="channel-header-title">{activeServer.name}</span>
+                            {onOpenServerSettings && (
+                                <span className="channel-header-action" aria-hidden="true">
+                                    <Settings2 size={14} />
+                                </span>
+                            )}
+                        </button>
                     </>
                 ) : (
                     <span style={{ color: 'var(--text-muted)' }}>{loading ? 'Loading server…' : 'Select a Server'}</span>
                 )}
             </div>
 
-            <div className="channel-list">
-                {canManageChannels && onOpenCreateChannel && (
-                    <div className="channel-create-actions">
-                        <button
-                            type="button"
-                            className="channel-create-btn"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenCreateChannel(); }}
-                            title="Create Channel"
-                        >
-                            <Plus size={16} />
-                            Channel
-                        </button>
-                        {onOpenCreateCategory && (
-                            <button
-                                type="button"
-                                className="channel-create-btn"
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenCreateCategory(); }}
-                                title="Create Category"
-                            >
-                                <Plus size={16} />
-                                Category
-                            </button>
-                        )}
-                    </div>
-                )}
+            <div
+                className="channel-list"
+                onContextMenu={(e) => {
+                    if (!canManageChannels || !onOpenCreateChannel) return
+                    const target = e.target as HTMLElement
+                    if (target.closest('.channel-category-group, .channel-item')) return
+                    e.preventDefault()
+                    const pos = clampMenuPosition(e.clientX, e.clientY, 190, 92)
+                    closeAllContextMenus()
+                    setCreateMenu(pos)
+                }}
+            >
                 {loading ? (
                     <div className="channel-sidebar-skeleton" aria-hidden="true">
                         <div className="channel-sidebar-skeleton-row" />
@@ -371,9 +355,10 @@ export default function ChannelSidebar({
                             }
                         }}
                     >
-                        <button
+                        <div className="channel-category">
+                          <button
                             type="button"
-                            className={`channel-category channel-category-btn ${dragOverCategoryForChannel === category ? 'is-channel-drop-target' : ''}`}
+                            className={`channel-category-btn ${dragOverCategoryForChannel === category ? 'is-channel-drop-target' : ''}`}
                             onClick={() =>
                                 setCollapsedCategories((prev) => ({
                                     ...prev,
@@ -422,10 +407,22 @@ export default function ChannelSidebar({
                                 setDragOverCategory(null)
                                 setDragOverCategoryForChannel(null)
                             }}
-                        >
-                            <ChevronDown size={10} className={collapsedCategories[category] ? 'is-collapsed' : ''} />
-                            {category}
-                        </button>
+                          >
+                              <ChevronDown size={10} className={collapsedCategories[category] ? 'is-collapsed' : ''} />
+                              <span>{category}</span>
+                          </button>
+                          {canManageChannels && onOpenCreateChannel && (
+                              <button
+                                  type="button"
+                                  className="channel-category-add"
+                                  aria-label={`Create channel in ${category}`}
+                                  title={`Create channel in ${category}`}
+                                  onClick={() => onOpenCreateChannel(category)}
+                              >
+                                  <Plus size={14} />
+                              </button>
+                          )}
+                        </div>
                         {!collapsedCategories[category] && chs.map((ch) => {
                             const isActive = activeChannelId === ch.id
                             const channelPerms = typeof ch.my_permissions === 'number' ? ch.my_permissions : 0
@@ -650,6 +647,41 @@ export default function ChannelSidebar({
                 ))}
             </div>
 
+            {createMenu && canManageChannels && onOpenCreateChannel && (
+                <div
+                    ref={menuRef}
+                    className="server-context-menu channel-context-menu"
+                    role="menu"
+                    style={{ left: createMenu.x, top: createMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        type="button"
+                        className="server-context-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                            setCreateMenu(null)
+                            onOpenCreateChannel()
+                        }}
+                    >
+                        Create Channel
+                    </button>
+                    {onOpenCreateCategory && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                                setCreateMenu(null)
+                                onOpenCreateCategory()
+                            }}
+                        >
+                            Create Category
+                        </button>
+                    )}
+                </div>
+            )}
+
             {contextMenu && (() => {
                 const channel = channels.find((c) => c.id === contextMenu.channelId)
                 if (!channel) return null
@@ -710,6 +742,18 @@ export default function ChannelSidebar({
                     style={{ left: categoryMenu.x, top: categoryMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    {onOpenCreateChannel && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            onClick={() => {
+                                onOpenCreateChannel(categoryMenu.category)
+                                setCategoryMenu(null)
+                            }}
+                        >
+                            Create Channel
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="server-context-menu-item"

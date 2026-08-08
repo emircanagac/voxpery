@@ -1025,6 +1025,8 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       peer_status: friend?.status ?? 'offline',
       last_message_at: null,
       unread_count: 0,
+      pinned_at: null,
+      is_pinned: false,
     })
     await json(route, channel)
     return
@@ -1033,6 +1035,18 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   const dmReadStateMatch = pathname.match(/^\/api\/dm\/channels\/([^/]+)\/read-state$/)
   if (dmReadStateMatch && method === 'GET') {
     await json(route, { peer_last_read_message_id: null })
+    return
+  }
+
+  const dmPreferencesMatch = pathname.match(/^\/api\/dm\/channels\/([^/]+)\/preferences$/)
+  if (dmPreferencesMatch && method === 'PATCH') {
+    const body = parseJsonBody<{ pinned?: boolean }>(request)
+    const channel = state.dmChannels.find((item) => item.id === dmPreferencesMatch[1])
+    if (channel) {
+      channel.is_pinned = !!body.pinned
+      channel.pinned_at = body.pinned ? new Date().toISOString() : null
+    }
+    await json(route, { pinned: !!body.pinned })
     return
   }
 

@@ -129,9 +129,11 @@ Uniqueness (case-insensitive):
 
 ### `dm_channel_members`
 
-- `channel_id`, `user_id`, `joined_at`, `hidden_at`
+- `channel_id`, `user_id`, `joined_at`, `hidden_at`, `pinned_at`
 - `hidden_at` stores whether that specific user has hidden the DM from their sidebar.
-- Hidden DMs remain intact and are shown again when reopened or when unread messages need attention.
+- `pinned_at` stores that user's pinned-conversation preference; it is not shared with the peer.
+- Hidden DMs remain intact and return only when explicitly reopened or when a message newer than `hidden_at` arrives. Hiding a DM also clears its pin.
+- DM lists put pinned conversations first, then order each group by latest message activity.
 
 ### `dm_messages`
 
