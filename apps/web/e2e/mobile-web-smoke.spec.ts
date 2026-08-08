@@ -26,8 +26,21 @@ test.describe('mocked mobile web smoke', () => {
     const modal = page.locator('.user-settings-modal')
     await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
     await expectNoHorizontalOverflow(modal)
-    await modal.getByRole('button', { name: /Rose/ }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'rose')
+    await modal.locator('.theme-option', { hasText: 'Dark' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+
+    await modal.getByRole('button', { name: /Custom/ }).click()
+    const customThemeInput = modal.getByRole('textbox', { name: 'Custom theme hex color' })
+    await customThemeInput.fill('#c9578f')
+    await customThemeInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
+    await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
+    await expectNoHorizontalOverflow(modal)
+
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    await expect(page.locator('.feedback-dock')).not.toBeVisible()
   })
 
   test('keeps Social friends, requests, and DM entry usable on a phone viewport', async ({ page }) => {

@@ -71,6 +71,8 @@ Voxpery is strongest when you want a smaller, inspectable, self-hostable communi
 - **Friends & social** - Add friends, see status, mutual presence
 - **Fast navigation** - Quick switcher for server, channel, and DM jumps
 - **Reactions & attachments** - Emoji reactions, uploads, signed attachment access
+- **Personal appearance** - Ready-made themes plus a simple custom color that generates a contrast-safe palette
+- **Direct feedback** - Bug reports and feature requests open the repository's matching GitHub issue template from web or desktop
 
 ### Security & Privacy
 - **Secure auth defaults** - JWT + Argon2id, httpOnly cookies, Google OAuth support

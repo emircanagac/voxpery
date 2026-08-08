@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, Keyboard, LogOut, Palette } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut, Palette } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -1851,7 +1851,6 @@ export default function UserBar() {
                           }}
                           disabled={globalMuteShortcutSaving}
                         >
-                          <Keyboard size={14} />
                           {capturingGlobalMuteShortcut ? 'Press keys…' : globalMuteShortcut ? 'Rebind' : 'Set shortcut'}
                         </button>
                         {globalMuteShortcut && (

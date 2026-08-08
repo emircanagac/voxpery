@@ -73,6 +73,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
 - [ ] DM pins persist across refresh/login, pinned conversations stay above activity-sorted unpinned DMs, and a hidden DM returns only after explicit reopen or new message activity.
 - [ ] Channel managers can create channels from the compact header menu, a category `+`, and the category context menu; non-managers see none of these controls.
+- [ ] Appearance offers Default, Dark, Light, and Custom choices; Custom generates a readable palette from one valid hex color, persists after reload, and `Reset defaults` restores the original Voxpery palette without horizontal overflow on desktop or mobile.
+- [ ] The fixed bottom-right feedback dock shows theme-aligned `Report a bug` and `Request a feature` actions that open the matching GitHub issue templates on web and desktop; it stays outside information sidebars and is hidden on mobile so chat/composer width is unchanged.
 - [ ] Login and registration do not open a native notification permission prompt; the delayed in-app prompt requests permission only after the user selects `Enable`, and `Not now` suppresses it during the snooze window.
 - [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.

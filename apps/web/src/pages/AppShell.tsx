@@ -10,6 +10,7 @@ import ActiveCallBar from '../components/ActiveCallBar'
 import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
 import NotificationPermissionPrompt from '../components/NotificationPermissionPrompt'
+import FeedbackCard from '../components/FeedbackCard'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
@@ -675,6 +676,9 @@ export default function AppShell() {
           selectedVoiceChannelId={selectedVoiceChannelId}
           activeChannelId={showVoiceStage ? activeChannelId : null}
         />
+      </div>
+      <div className="feedback-dock">
+        <FeedbackCard />
       </div>
       {/* User profile bar — stays in left sidebar */}
       <div className="left-bottom-panel">
