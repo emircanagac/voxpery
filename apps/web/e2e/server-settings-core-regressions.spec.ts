@@ -44,41 +44,41 @@ test.describe('mocked server settings UI regressions', () => {
   test('keeps member profile popout aligned with the active theme', async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
-    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'rose'))
+    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'dark'))
 
     await page.goto('/servers')
     await page.locator('.member-item', { hasText: 'Friend 01' }).click()
     const popout = page.locator('.member-profile-popout')
     await expect(popout).toBeVisible()
 
-    const rose = await readMemberProfileThemeSnapshot(popout)
+    const dark = await readMemberProfileThemeSnapshot(popout)
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
     const light = await readMemberProfileThemeSnapshot(popout)
 
-    expect(rose.popoutBackground).not.toBe(light.popoutBackground)
-    expect(rose.sectionBackground).not.toBe(light.sectionBackground)
-    expect(rose.badgeBackground).not.toBe(light.badgeBackground)
-    expect(rose.popoutBorder).not.toBe(light.popoutBorder)
+    expect(dark.popoutBackground).not.toBe(light.popoutBackground)
+    expect(dark.sectionBackground).not.toBe(light.sectionBackground)
+    expect(dark.badgeBackground).not.toBe(light.badgeBackground)
+    expect(dark.popoutBorder).not.toBe(light.popoutBorder)
   })
 
   test('keeps server settings surfaces aligned with the active theme', async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
-    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'rose'))
+    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'dark'))
 
     await openServerSettings(page)
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'rose')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 
     const modal = page.locator('.modal-server-settings')
-    const rose = await readSettingsThemeSnapshot(modal)
+    const dark = await readSettingsThemeSnapshot(modal)
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
     const light = await readSettingsThemeSnapshot(modal)
 
-    expect(rose.overlayBackground).not.toBe(light.overlayBackground)
-    expect(rose.modalBackground).not.toBe(light.modalBackground)
-    expect(rose.navigationBackground).not.toBe(light.navigationBackground)
-    expect(rose.activeNavigationBackground).not.toBe(light.activeNavigationBackground)
-    expect(rose.inputBackground).not.toBe(light.inputBackground)
+    expect(dark.overlayBackground).not.toBe(light.overlayBackground)
+    expect(dark.modalBackground).not.toBe(light.modalBackground)
+    expect(dark.navigationBackground).not.toBe(light.navigationBackground)
+    expect(dark.activeNavigationBackground).not.toBe(light.activeNavigationBackground)
+    expect(dark.inputBackground).not.toBe(light.inputBackground)
   })
 
   test('opens server settings and saves overview profile changes', async ({ page }) => {

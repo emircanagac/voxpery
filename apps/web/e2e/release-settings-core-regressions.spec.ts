@@ -42,7 +42,7 @@ test.describe('mocked release and settings regressions', () => {
     await expect(modal.getByText('Benchmark diagnostics', { exact: true })).toHaveCount(0)
   })
 
-  test('persists theme and accent preferences without layout overflow', async ({ page }) => {
+  test('switches built-in themes and resets appearance defaults without layout overflow', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(2) })
     await installMockCoreApi(page, state)
     await page.setViewportSize({ width: 1366, height: 768 })
@@ -53,38 +53,98 @@ test.describe('mocked release and settings regressions', () => {
 
     const modal = page.locator('.user-settings-modal')
     await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
-    await modal.getByRole('button', { name: /Rose/ }).click()
+    await modal.locator('.theme-option', { hasText: 'Dark' }).click()
     await page.evaluate(() => {
       const probe = document.createElement('button')
       probe.className = 'chat-jump-to-latest theme-contract-probe'
       probe.textContent = 'Newest'
       document.body.appendChild(probe)
     })
-    const roseTheme = await readAppearanceThemeSnapshot(page)
+    const darkTheme = await readAppearanceThemeSnapshot(page)
 
-    await modal.getByRole('button', { name: /Light/ }).click()
+    await modal.locator('.theme-option', { hasText: 'Light' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
     const lightTheme = await readAppearanceThemeSnapshot(page)
 
-    expect(roseTheme.modalSurface).not.toBe(lightTheme.modalSurface)
-    expect(roseTheme.activeSettingsNavigation).not.toBe(lightTheme.activeSettingsNavigation)
-    expect(roseTheme.serverActions).not.toBe(lightTheme.serverActions)
-    expect(roseTheme.releaseBadge).not.toBe(lightTheme.releaseBadge)
-    expect(roseTheme.jumpToLatest).not.toBe(lightTheme.jumpToLatest)
+    expect(darkTheme.modalSurface).not.toBe(lightTheme.modalSurface)
+    expect(darkTheme.activeSettingsNavigation).not.toBe(lightTheme.activeSettingsNavigation)
+    expect(darkTheme.serverActions).not.toBe(lightTheme.serverActions)
+    expect(darkTheme.releaseBadge).not.toBe(lightTheme.releaseBadge)
+    expect(darkTheme.jumpToLatest).not.toBe(lightTheme.jumpToLatest)
     await expect.poll(async () => {
       return page.locator('.server-sidebar-actions').evaluate((element) => getComputedStyle(element).backgroundImage)
     }).toContain('rgb(232, 235, 240)')
 
-    const accentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
-    await accentInput.fill('#2d8f70')
-    await accentInput.press('Enter')
-    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
     await expectNoHorizontalOverflow(modal)
 
+    await modal.getByRole('button', { name: 'Reset defaults' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'voxpery')
+    await expect(modal.getByRole('button', { name: 'Reset defaults' })).toBeDisabled()
+
     await page.reload()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-    await expect(page.locator('html')).toHaveCSS('--user-accent', '#2d8f70')
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(244, 246, 248)')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'voxpery')
+    await expect(page.locator('html')).not.toHaveAttribute('data-custom-accent', 'true')
+  })
+
+  test('persists a generated full theme from one custom color', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Appearance' }).click()
+
+    const modal = page.locator('.user-settings-modal')
+    const themeGroup = modal.getByRole('group', { name: 'Theme' })
+    await expect(themeGroup.locator('.theme-option')).toHaveCount(4)
+    await expect(themeGroup.getByRole('button', { name: /Default/ })).toBeVisible()
+    await expect(themeGroup.getByRole('button', { name: /Dark/ })).toBeVisible()
+    await expect(themeGroup.getByRole('button', { name: /Light/ })).toBeVisible()
+    await expect(themeGroup.getByRole('button', { name: /Custom/ })).toBeVisible()
+    await expect(modal.locator('.theme-custom-panel')).toHaveCount(0)
+    await modal.getByRole('button', { name: /Custom/ }).click()
+    await expect(modal.locator('.theme-custom-panel')).toBeVisible()
+    const customThemeInput = modal.getByRole('textbox', { name: 'Custom theme hex color' })
+    await customThemeInput.fill('#7b3fc6')
+    await customThemeInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
+    await expect(modal.getByText('Choose your color', { exact: true })).toBeVisible()
+    await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
+    await expect(modal.getByRole('textbox', { name: 'Custom accent hex color' })).toHaveCount(0)
+    await expectNoHorizontalOverflow(modal)
+
+    const generatedBackground = await page.locator('html').evaluate((element) => (
+      getComputedStyle(element).getPropertyValue('--user-theme-bg-primary').trim()
+    ))
+    expect(generatedBackground).toMatch(/^#[0-9a-f]{6}$/)
+
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
+    await expect(page.locator('html')).toHaveCSS('--user-theme-bg-primary', generatedBackground)
+  })
+
+  test('shows feedback entry points on Social without replacing conversation content', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/social')
+
+    const feedbackCard = page.locator('.feedback-dock .feedback-card')
+    await expect(feedbackCard.getByRole('heading', { name: 'Share feedback' })).toBeVisible()
+    await expect(feedbackCard.getByRole('button', { name: 'Report a bug' })).toBeVisible()
+    await expect(feedbackCard.getByRole('button', { name: 'Request a feature' })).toBeVisible()
+    await expect(page.locator('.home-side .feedback-card')).toHaveCount(0)
+
+    const dockBox = await page.locator('.feedback-dock').boundingBox()
+    expect(dockBox).not.toBeNull()
+    expect(dockBox?.width).toBe(240)
+    expect(dockBox?.height).toBe(80)
+    expect(dockBox?.x).toBe(1126)
+    expect(dockBox?.y).toBe(688)
   })
 
   test('keeps profile password modal validation and submission wired', async ({ page }) => {

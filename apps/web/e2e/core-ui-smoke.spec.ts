@@ -113,6 +113,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
     await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
     await expect(page.getByText('Pinned release note')).toBeVisible()
+    await expect(page.locator('.feedback-dock .feedback-card').getByRole('heading', { name: 'Share feedback' })).toBeVisible()
 
     const content = `Server smoke message ${Date.now()}`
     const messageInput = page.getByPlaceholder('Message #general')
