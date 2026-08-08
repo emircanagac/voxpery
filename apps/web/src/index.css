@@ -17,7 +17,7 @@
   --topbar-start: #1e2746;
   --topbar-end: #1a223f;
   --ui-contrast-rgb: 255, 255, 255;
-  --overlay-backdrop: rgba(3, 8, 20, 0.72);
+  --overlay-backdrop: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   --scrollbar-thumb: rgba(122, 170, 231, 0.32);
   --scrollbar-thumb-hover: rgba(122, 170, 231, 0.48);
 
@@ -27,6 +27,13 @@
   --accent-secondary: #35589f;
   --accent-gradient: #3f6ec8;
   --accent-glow: 0 0 20px rgba(79, 127, 216, 0.28);
+  --accent-soft: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  --accent-soft-hover: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  --accent-soft-strong: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+  --accent-border-strong: color-mix(in srgb, var(--accent-primary) 64%, transparent);
+  --accent-foreground: color-mix(in srgb, var(--accent-primary) 38%, var(--text-primary));
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 18%, transparent);
   --btn-primary-bg: #2f63c8;
   --btn-primary-bg-hover: #3c76de;
   --btn-primary-border: rgba(147, 197, 253, 0.35);
@@ -769,10 +776,8 @@ body {
   justify-content: space-between;
   gap: 14px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(53, 88, 159, 0.28), rgba(34, 45, 82, 0.42)),
-    rgba(20, 28, 54, 0.94);
+  border-bottom: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-header));
   flex-shrink: 0;
 }
 
@@ -814,26 +819,26 @@ body {
 }
 
 .shell-notification-cta-dismiss {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary);
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
 }
 
 .shell-notification-cta-dismiss:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--btn-secondary-border-hover);
+  background: var(--btn-secondary-bg-hover);
   color: var(--text-primary);
 }
 
 .shell-notification-cta-enable {
-  border: 1px solid rgba(168, 204, 255, 0.36);
-  background: rgba(79, 127, 216, 0.18);
-  color: #eef5ff;
+  border: 1px solid var(--btn-primary-border);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
 }
 
 .shell-notification-cta-enable:hover {
-  border-color: rgba(168, 204, 255, 0.52);
-  background: rgba(79, 127, 216, 0.28);
+  border-color: var(--btn-primary-border-hover);
+  background: var(--btn-primary-bg-hover);
 }
 
 /* ============================================
@@ -878,8 +883,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 0 2px;
-  background: linear-gradient(180deg, rgba(21, 31, 57, 0) 0%, rgba(17, 28, 55, 0.78) 38%, rgba(17, 28, 55, 0.96) 100%);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg-secondary) 78%, transparent) 38%, var(--bg-secondary) 100%);
+  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.05);
 }
 
 .server-icon {
@@ -1180,14 +1185,14 @@ body {
 .server-separator {
   width: 32px;
   height: 2px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--ui-contrast-rgb), 0.08);
   border-radius: 1px;
   margin: 2px 0;
 }
 
 .server-add {
   background: transparent;
-  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border: 2px dashed rgba(var(--ui-contrast-rgb), 0.18);
   color: var(--accent-primary);
 }
 
@@ -1236,7 +1241,7 @@ body {
 
 .server-add:hover {
   border-color: var(--accent-primary);
-  background: rgba(233, 69, 96, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .server-action-label {
@@ -5371,14 +5376,14 @@ body {
   display: inline-block;
   padding: 0 5px;
   border-radius: 5px;
-  background: rgba(88, 101, 242, 0.2);
-  color: #b6c2ff;
+  background: var(--accent-soft-hover);
+  color: var(--accent-foreground);
   font-weight: 600;
 }
 
 .mention-pill-all {
-  background: rgba(233, 69, 96, 0.2);
-  color: #ffb3c5;
+  background: var(--btn-danger-soft-bg);
+  color: var(--btn-danger-soft-text);
 }
 
 /* Message input */
@@ -5398,20 +5403,17 @@ body {
   height: 30px;
   min-width: 94px;
   padding: 0 11px;
-  border: 1px solid rgba(124, 171, 255, 0.42);
+  border: 1px solid var(--accent-border);
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(24, 44, 86, 0.96) 0%, rgba(14, 30, 60, 0.96) 100%);
-  color: #deecff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 18%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 9%, var(--bg-popover)));
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1;
   cursor: pointer;
   z-index: 7;
-  box-shadow:
-    0 10px 24px rgba(4, 8, 18, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 0 1px rgba(59, 112, 208, 0.2);
+  box-shadow: var(--shadow-medium), inset 0 1px rgba(var(--ui-contrast-rgb), 0.14), 0 0 0 1px var(--accent-soft-hover);
   backdrop-filter: blur(6px);
   transition:
     border-color var(--transition-fast),
@@ -5423,22 +5425,16 @@ body {
 }
 
 .chat-jump-to-latest:hover {
-  border-color: rgba(151, 192, 255, 0.66);
-  background: linear-gradient(180deg, rgba(31, 57, 108, 0.98) 0%, rgba(19, 40, 79, 0.98) 100%);
-  color: #edf6ff;
+  border-color: var(--accent-border-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 26%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 14%, var(--bg-popover)));
+  color: var(--text-primary);
   transform: translateY(-1px);
-  box-shadow:
-    0 13px 26px rgba(6, 12, 26, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 0 0 1px rgba(87, 141, 242, 0.3);
+  box-shadow: var(--shadow-high), inset 0 1px rgba(var(--ui-contrast-rgb), 0.18), 0 0 0 1px var(--accent-border);
 }
 
 .chat-jump-to-latest:active {
   transform: translateY(0);
-  box-shadow:
-    0 8px 16px rgba(4, 8, 18, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    0 0 0 1px rgba(59, 112, 208, 0.2);
+  box-shadow: var(--shadow-low), inset 0 1px rgba(var(--ui-contrast-rgb), 0.12), 0 0 0 1px var(--accent-soft-hover);
 }
 
 @keyframes chat-jump-to-latest-enter {
@@ -6267,9 +6263,9 @@ body {
   width: 260px;
   max-width: calc(100vw - 20px);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: linear-gradient(180deg, rgba(30, 41, 72, 0.98), rgba(22, 31, 56, 0.98));
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.14);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 10%, var(--bg-popover)), var(--bg-popover));
+  box-shadow: var(--shadow-high);
   padding: 10px;
 }
 
@@ -6284,7 +6280,7 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--ui-contrast-rgb), 0.12);
   color: var(--text-primary);
   display: inline-flex;
   align-items: center;
@@ -6330,8 +6326,8 @@ body {
 }
 
 .member-profile-badge {
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.2);
+  background: rgba(var(--ui-contrast-rgb), 0.06);
   color: var(--text-secondary);
   border-radius: 999px;
   font-size: 10px;
@@ -6346,8 +6342,8 @@ body {
 }
 
 .member-profile-section {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(6, 18, 39, 0.52);
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
+  background: color-mix(in srgb, var(--bg-primary) 68%, var(--bg-surface));
   border-radius: 9px;
   padding: 7px 9px;
   margin-top: 6px;
@@ -12068,6 +12064,222 @@ a.community-open-btn:hover {
   border-color: var(--btn-primary-border-hover);
 }
 
+/* Shared semantic surfaces for server, channel, and category settings. */
+.modal-server-settings {
+  --settings-border: rgba(var(--ui-contrast-rgb), 0.1);
+  --settings-border-strong: rgba(var(--ui-contrast-rgb), 0.16);
+  --settings-overlay: rgba(var(--ui-contrast-rgb), 0.035);
+  --settings-overlay-hover: rgba(var(--ui-contrast-rgb), 0.07);
+  --settings-recessed: color-mix(in srgb, var(--bg-input) 78%, var(--bg-surface));
+  --settings-accent-soft: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  --settings-accent-border: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+  border-color: var(--settings-border);
+  background:
+    radial-gradient(130% 130% at 0% 0%, color-mix(in srgb, var(--accent-primary) 12%, transparent) 0%, transparent 52%),
+    color-mix(in srgb, var(--bg-surface) 95%, var(--bg-primary));
+  box-shadow: var(--shadow-high);
+}
+
+.modal-server-settings .server-settings-header {
+  background: linear-gradient(180deg, var(--settings-overlay), transparent);
+}
+
+.modal-server-settings .server-settings-header__hint {
+  color: var(--text-muted);
+}
+
+.modal-server-settings .server-settings-close-btn,
+.modal-server-settings .server-settings-nav__icon,
+.modal-server-settings .server-settings-section-intro__icon,
+.modal-server-settings .server-settings-subcard-badge {
+  border-color: var(--settings-border);
+  background: var(--settings-overlay);
+}
+
+.modal-server-settings .server-settings-close-btn:hover,
+.modal-server-settings .server-settings-nav__item:hover:not(:disabled),
+.modal-server-settings .server-settings-subnav__item:hover,
+.modal-server-settings .server-role-list-item:hover:not(:disabled) {
+  border-color: var(--settings-border-strong);
+  background: var(--settings-overlay-hover);
+}
+
+.modal-server-settings .server-settings-nav {
+  border-color: var(--settings-border);
+  background:
+    linear-gradient(180deg, var(--settings-overlay), transparent),
+    color-mix(in srgb, var(--bg-primary) 68%, var(--bg-surface));
+  box-shadow: inset 0 1px rgba(var(--ui-contrast-rgb), 0.05);
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.modal-server-settings .server-settings-subnav {
+  border-color: var(--settings-border);
+  background: color-mix(in srgb, var(--bg-input) 54%, transparent);
+}
+
+.modal-server-settings .server-settings-nav::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+.modal-server-settings .server-settings-nav__meta,
+.modal-server-settings .server-role-editor-actions,
+.modal-server-settings .server-settings-danger-zone {
+  border-color: var(--settings-border);
+}
+
+.modal-server-settings .server-settings-nav__item:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--settings-accent-border);
+}
+
+.modal-server-settings .server-settings-nav__item--active,
+.modal-server-settings .server-settings-subnav__item--active,
+.modal-server-settings .server-role-list-item--active {
+  border-color: var(--settings-accent-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 20%, transparent), var(--settings-accent-soft));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+}
+
+.modal-server-settings .server-settings-nav__item--active .server-settings-nav__icon,
+.modal-server-settings .server-rule-item__number {
+  border-color: var(--settings-accent-border);
+  background: var(--settings-accent-soft);
+  color: var(--text-primary);
+}
+
+.modal-server-settings .server-settings-content {
+  border-color: var(--settings-border);
+  background:
+    linear-gradient(180deg, var(--settings-overlay), transparent),
+    color-mix(in srgb, var(--bg-primary) 38%, var(--bg-surface));
+  box-shadow: inset 0 1px rgba(var(--ui-contrast-rgb), 0.04);
+}
+
+.modal-server-settings .server-settings-section-intro {
+  border-color: var(--settings-border);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent-primary) 12%, transparent), transparent 52%),
+    var(--settings-overlay);
+}
+
+.modal-server-settings .server-settings-icon-row,
+.modal-server-settings .server-overview-profile,
+.modal-server-settings .server-overview-invite,
+.modal-server-settings .server-settings-card,
+.modal-server-settings .server-settings-subcard,
+.modal-server-settings .server-settings-ban-row,
+.modal-server-settings .server-report-row,
+.modal-server-settings .server-roles-studio__head,
+.modal-server-settings .server-roles-toolbar,
+.modal-server-settings .server-rules-toolbar,
+.modal-server-settings .server-roles-detail-shell {
+  border-color: var(--settings-border);
+  background: linear-gradient(180deg, rgba(var(--ui-contrast-rgb), 0.045), rgba(var(--ui-contrast-rgb), 0.018));
+  box-shadow: inset 0 1px rgba(var(--ui-contrast-rgb), 0.035);
+}
+
+.modal-server-settings .server-settings-card--list-section {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal-server-settings .server-settings-card--danger {
+  border-color: var(--btn-danger-soft-border);
+  background: linear-gradient(180deg, var(--btn-danger-soft-bg-hover), var(--btn-danger-soft-bg));
+  box-shadow: none;
+}
+
+.modal-server-settings .server-settings-icon-tile,
+.modal-server-settings .server-settings-icon-placeholder,
+.modal-server-settings .server-settings-header__icon--placeholder,
+.modal-server-settings .server-overview-profile__icon,
+.modal-server-settings .server-role-editor-empty {
+  border-color: var(--settings-border);
+  background: linear-gradient(145deg, rgba(var(--ui-contrast-rgb), 0.09), rgba(var(--ui-contrast-rgb), 0.025));
+}
+
+.modal-server-settings .server-overview-invite__code-pill {
+  border-color: var(--settings-accent-border);
+  background: var(--settings-accent-soft);
+  color: var(--text-primary);
+}
+
+.modal-server-settings .server-overview-invite__body,
+.modal-server-settings .server-settings-audit-list,
+.modal-server-settings .server-settings-option-group,
+.modal-server-settings .server-rule-item,
+.modal-server-settings .server-roles-sidebar-list,
+.modal-server-settings .server-role-permission-group,
+.modal-server-settings .channel-settings-roles-list,
+.modal-server-settings .channel-settings-perm-col {
+  border-color: var(--settings-border);
+  background: var(--settings-recessed);
+}
+
+.modal-server-settings .server-settings-empty-state,
+.modal-server-settings .server-report-tag,
+.modal-server-settings .server-report-excerpt,
+.modal-server-settings .server-settings-check-row,
+.modal-server-settings .server-settings-check-item,
+.modal-server-settings .server-rules-loading,
+.modal-server-settings .server-rules-empty,
+.modal-server-settings .server-rules-add,
+.modal-server-settings .onboarding-enable-row,
+.modal-server-settings .onboarding-channel-option,
+.modal-server-settings .channel-permission-scope-btn,
+.modal-server-settings .channel-perm-switches {
+  border-color: var(--settings-border);
+  background: var(--settings-overlay);
+}
+
+.modal-server-settings .channel-perm-btn:hover {
+  background: var(--settings-overlay-hover);
+}
+
+.modal-server-settings .channel-permission-scope-btn.is-active,
+.modal-server-settings .channel-perm-btn.is-inherit,
+.modal-server-settings .onboarding-channel-option--selected {
+  border-color: var(--settings-accent-border);
+  background: var(--settings-accent-soft);
+  color: var(--text-primary);
+}
+
+.modal-server-settings input:not([type="checkbox"]):not([type="color"]),
+.modal-server-settings select,
+.modal-server-settings textarea,
+.modal-server-settings .server-rule-textarea,
+.modal-server-settings .server-role-editor-color-input,
+.modal-server-settings .onboarding-task-row input {
+  border-color: var(--settings-border-strong);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px rgba(var(--ui-contrast-rgb), 0.03);
+}
+
+.modal-server-settings input:not([type="checkbox"]):not([type="color"]):focus,
+.modal-server-settings select:focus,
+.modal-server-settings textarea:focus,
+.modal-server-settings .server-rule-textarea:focus,
+.modal-server-settings .onboarding-task-row input:focus {
+  border-color: var(--settings-accent-border);
+  background: color-mix(in srgb, var(--bg-input) 92%, var(--accent-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.modal-server-settings .btn.btn-primary:disabled,
+.modal-server-settings .copy-btn:disabled,
+.modal-server-settings .server-role-btn-save:disabled {
+  border-color: var(--settings-border-strong);
+  background: var(--settings-overlay-hover);
+  color: var(--text-muted);
+}
+
+.modal-server-settings .server-settings-footer {
+  background: color-mix(in srgb, var(--bg-primary) 56%, var(--bg-surface));
+}
+
 @media (max-width: 920px) {
   .modal-server-settings {
       width: min(96vw, 720px);
@@ -13060,6 +13272,329 @@ a.community-open-btn:hover {
 .toast-close:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
+}
+
+/* Appearance contract: interactive and elevated UI follows the active theme. */
+.shell-brand-release {
+  border-color: rgba(var(--ui-contrast-rgb), 0.16);
+  background: rgba(var(--ui-contrast-rgb), 0.04);
+  color: var(--text-secondary);
+}
+
+.shell-brand-release::before {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft-hover), var(--accent-glow);
+}
+
+.shell-brand-release-separator,
+.shell-brand-release-version {
+  color: var(--text-secondary);
+}
+
+.shell-quick-switch-btn,
+.shell-logout-btn,
+.shell-update-btn,
+.shell-update-btn--dock {
+  border-color: var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+}
+
+.shell-quick-switch-btn:hover,
+.shell-logout-btn:hover,
+.shell-update-btn:hover:not(:disabled),
+.shell-update-btn--dock:hover:not(:disabled) {
+  border-color: var(--btn-secondary-border-hover);
+  background: var(--btn-secondary-bg-hover);
+  color: var(--text-primary);
+}
+
+.shell-update-dock-title {
+  color: var(--text-primary);
+}
+
+.shell-quick-switch-shortcut {
+  border-color: rgba(var(--ui-contrast-rgb), 0.08);
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+}
+
+.server-sidebar {
+  --server-drop-line-color: var(--accent-primary);
+  --server-drop-line-shadow: 0 0 10px var(--accent-soft-strong);
+}
+
+.server-voice-indicator {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 10%, var(--bg-popover)), var(--bg-popover));
+}
+
+.channel-category-btn.is-channel-drop-target::after,
+.channel-item.drop-before::before,
+.channel-category-group.drop-before::before,
+.channel-item.drop-after::after,
+.channel-category-group.drop-after::after {
+  background: var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-soft-strong);
+}
+
+.channel-header-action,
+.channel-create-btn {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  color: var(--text-secondary);
+}
+
+.channel-header--clickable:hover .channel-header-action,
+.channel-create-btn:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.channel-header--clickable:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-border-strong);
+}
+
+.user-panel-icon-btn {
+  border-color: rgba(var(--ui-contrast-rgb), 0.1);
+  background: linear-gradient(180deg, rgba(var(--ui-contrast-rgb), 0.06), rgba(var(--ui-contrast-rgb), 0.03)), var(--bg-input);
+  color: var(--text-secondary);
+}
+
+.user-panel-icon-btn:hover {
+  border-color: var(--accent-border);
+  background: linear-gradient(180deg, var(--accent-soft-hover), rgba(var(--ui-contrast-rgb), 0.04)), var(--bg-input);
+  color: var(--text-primary);
+}
+
+.user-status-cue,
+.user-panel-icon-btn,
+.sensitivity-bar-subtitle,
+.sensitivity-bar-preview-label,
+.message-send-state,
+.message-input::placeholder,
+.screen-share-label,
+.active-call-title-btn {
+  color: var(--text-secondary);
+}
+
+.user-info-btn:focus-visible,
+.pw-input-wrap:focus-within,
+.delete-account-modal .delete-account-input-wrap:focus-within,
+.sensitivity-bar-track:focus-visible,
+.device-select-trigger.is-open,
+.user-select:focus,
+.home-member-main:focus-visible,
+.home-member-action:focus-visible,
+.home-add-row .home-search:focus {
+  border-color: var(--accent-border-strong);
+  outline-color: var(--accent-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.voice-settings-inline-value,
+.sensitivity-bar-db-chip,
+.profile-status-btn.is-active,
+.device-select-menu__item.is-active,
+.quick-switcher-item:hover,
+.quick-switcher-item.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-foreground);
+}
+
+.user-profile-preview-card,
+.quick-switcher {
+  background: radial-gradient(circle at top left, var(--accent-soft-hover), transparent 52%), var(--bg-popover);
+  border-color: rgba(var(--ui-contrast-rgb), 0.1);
+}
+
+.user-slider {
+  accent-color: var(--accent-primary);
+}
+
+.sensitivity-bar-preview-avatar.is-listening {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border-strong), 0 0 0 3px var(--accent-soft), 0 10px 22px rgba(0, 0, 0, 0.24);
+}
+
+.sensitivity-bar-indicator.is-listening,
+.device-select-menu__check {
+  color: var(--accent-foreground);
+}
+
+.sensitivity-bar-level,
+.sensitivity-bar-live-marker,
+.sensitivity-bar-threshold-handle,
+.sensitivity-bar-threshold-handle:hover {
+  box-shadow: 0 0 12px var(--accent-soft-strong);
+}
+
+.sensitivity-bar-live-marker {
+  background: linear-gradient(180deg, var(--text-primary), var(--accent-primary));
+}
+
+.chat-header-search-help-panel button:hover,
+.chat-header-pinned-btn[aria-expanded='true'],
+.chat-header-pinned-item:hover,
+.chat-header-pinned-goto:hover,
+.message-send-btn:hover:not(:disabled).is-ready,
+.chat-emoji-mode-tab.active,
+.chat-emoji-tab.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft-hover);
+  color: var(--text-primary);
+}
+
+.chat-header-pinned-item-content-wrap {
+  border-left-color: var(--accent-border-strong);
+}
+
+.message-unread-divider {
+  color: var(--accent-foreground);
+}
+
+.message-unread-divider::before,
+.message-unread-divider::after {
+  background: var(--accent-border-strong);
+}
+
+.message-unread-divider span,
+.mention-pill {
+  border-color: var(--accent-border);
+  background: var(--accent-soft-hover);
+  color: var(--accent-foreground);
+}
+
+.mention-pill-all {
+  background: var(--btn-danger-soft-bg);
+  color: var(--btn-danger-soft-text);
+}
+
+.message-author.moderator {
+  color: var(--accent-foreground);
+}
+
+.chat-jump-to-latest {
+  border-color: var(--accent-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 18%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 9%, var(--bg-popover)));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-medium), inset 0 1px rgba(var(--ui-contrast-rgb), 0.14), 0 0 0 1px var(--accent-soft-hover);
+}
+
+.chat-jump-to-latest:hover {
+  border-color: var(--accent-border-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 26%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 14%, var(--bg-popover)));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-high), inset 0 1px rgba(var(--ui-contrast-rgb), 0.18), 0 0 0 1px var(--accent-border);
+}
+
+.chat-jump-to-latest:active {
+  box-shadow: var(--shadow-low), inset 0 1px rgba(var(--ui-contrast-rgb), 0.12), 0 0 0 1px var(--accent-soft-hover);
+}
+
+.chat-gif-item:hover,
+.chat-sticker-item:hover,
+.dm-draft-attachment.is-uploading,
+.remote-screen-preview {
+  border-color: var(--accent-border);
+}
+
+.auth-page {
+  background: radial-gradient(ellipse at 20% 50%, var(--accent-soft) 0%, transparent 50%), radial-gradient(ellipse at 80% 50%, color-mix(in srgb, var(--accent-secondary) 12%, transparent) 0%, transparent 50%), var(--bg-primary);
+}
+
+.auth-card h1,
+.screen-share-label,
+.voice-stage-hidden-media-icon,
+.voice-stage-hidden-media-show {
+  color: var(--text-primary);
+}
+
+.auth-btn,
+.btn-primary:hover {
+  box-shadow: 0 8px 20px var(--accent-soft-strong);
+}
+
+.invite-preview-icon,
+.invite-rule-number,
+.invite-rules-accept,
+.home-onboarding-card,
+.home-onboarding-btn,
+.voice-stage-hidden-media-icon,
+.voice-stage-hidden-media-show,
+.dm-draft-attachment {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.home-onboarding-btn:hover,
+.voice-stage-hidden-media-show:hover {
+  border-color: var(--accent-border-strong);
+  background: var(--accent-soft-hover);
+}
+
+.home-member-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+}
+
+.home-presence-pill-offline {
+  color: var(--status-offline);
+}
+
+.voice-join-modal {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 92%, var(--accent-primary) 8%), var(--bg-surface));
+}
+
+.server-welcome-guide {
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, var(--bg-surface)), color-mix(in srgb, var(--text-positive) 10%, var(--bg-surface)));
+}
+
+.server-welcome-guide__dismiss {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background: color-mix(in srgb, var(--bg-primary) 62%, transparent);
+  color: var(--text-secondary);
+}
+
+.server-welcome-guide__copy h2,
+.server-welcome-guide__copy p {
+  color: var(--text-primary);
+}
+
+.modal,
+.quick-switcher,
+.server-context-menu,
+.member-context-menu,
+.user-status-popover,
+.device-select-menu,
+.chat-header-search-help-panel,
+.chat-header-pinned-dropdown,
+.chat-emoji-picker {
+  border-color: rgba(var(--ui-contrast-rgb), 0.1);
+  background-color: var(--bg-popover);
+  color: var(--text-primary);
+}
+
+.toast-item {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background-color: var(--bg-popover);
+}
+
+.toast-close:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+}
+
+.server-context-menu-item:hover,
+.user-status-popover-profile-link:hover,
+.pw-modal-footer .btn:disabled,
+.user-settings-modal .btn.btn-primary:disabled,
+.server-delete-confirm-modal .btn:disabled {
+  border-color: rgba(var(--ui-contrast-rgb), 0.14);
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+}
+
+.delete-account-modal .delete-account-input-wrap {
+  border-color: rgba(var(--ui-contrast-rgb), 0.16);
+  background: var(--bg-input);
 }
 
 /* ============================================

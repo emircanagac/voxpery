@@ -53,8 +53,27 @@ test.describe('mocked release and settings regressions', () => {
 
     const modal = page.locator('.user-settings-modal')
     await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+    await modal.getByRole('button', { name: /Rose/ }).click()
+    await page.evaluate(() => {
+      const probe = document.createElement('button')
+      probe.className = 'chat-jump-to-latest theme-contract-probe'
+      probe.textContent = 'Newest'
+      document.body.appendChild(probe)
+    })
+    const roseTheme = await readAppearanceThemeSnapshot(page)
+
     await modal.getByRole('button', { name: /Light/ }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    const lightTheme = await readAppearanceThemeSnapshot(page)
+
+    expect(roseTheme.modalSurface).not.toBe(lightTheme.modalSurface)
+    expect(roseTheme.activeSettingsNavigation).not.toBe(lightTheme.activeSettingsNavigation)
+    expect(roseTheme.serverActions).not.toBe(lightTheme.serverActions)
+    expect(roseTheme.releaseBadge).not.toBe(lightTheme.releaseBadge)
+    expect(roseTheme.jumpToLatest).not.toBe(lightTheme.jumpToLatest)
+    await expect.poll(async () => {
+      return page.locator('.server-sidebar-actions').evaluate((element) => getComputedStyle(element).backgroundImage)
+    }).toContain('rgb(232, 235, 240)')
 
     const accentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
     await accentInput.fill('#2d8f70')
@@ -143,4 +162,22 @@ async function expectNoHorizontalOverflow(locator: import('@playwright/test').Lo
   await expect.poll(async () => {
     return locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
   }).toBe(true)
+}
+
+async function readAppearanceThemeSnapshot(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const backgroundOf = (selector: string) => {
+      const target = document.querySelector(selector)
+      if (!target) throw new Error(`Missing appearance theme target: ${selector}`)
+      return getComputedStyle(target).background
+    }
+
+    return {
+      modalSurface: backgroundOf('.user-settings-modal'),
+      activeSettingsNavigation: backgroundOf('.user-settings-nav__item--active'),
+      serverActions: backgroundOf('.server-sidebar-actions'),
+      releaseBadge: backgroundOf('.shell-brand-release'),
+      jumpToLatest: backgroundOf('.theme-contract-probe'),
+    }
+  })
 }

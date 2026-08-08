@@ -125,7 +125,7 @@ export default function LoginPage() {
                         {passwordResetEnabled && (
                             <a
                                 onClick={() => navigate(ROUTES.forgotPassword)}
-                                style={{ fontSize: '0.8em', cursor: 'pointer', color: '#89b4fa' }}
+                                style={{ fontSize: '0.8em', cursor: 'pointer', color: 'var(--text-link)' }}
                             >
                                 Forgot password?
                             </a>

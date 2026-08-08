@@ -41,6 +41,46 @@ async function openServerSettings(page: Page) {
 }
 
 test.describe('mocked server settings UI regressions', () => {
+  test('keeps member profile popout aligned with the active theme', async ({ page }) => {
+    const state = createServerSettingsState()
+    await installMockCoreApi(page, state)
+    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'rose'))
+
+    await page.goto('/servers')
+    await page.locator('.member-item', { hasText: 'Friend 01' }).click()
+    const popout = page.locator('.member-profile-popout')
+    await expect(popout).toBeVisible()
+
+    const rose = await readMemberProfileThemeSnapshot(popout)
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+    const light = await readMemberProfileThemeSnapshot(popout)
+
+    expect(rose.popoutBackground).not.toBe(light.popoutBackground)
+    expect(rose.sectionBackground).not.toBe(light.sectionBackground)
+    expect(rose.badgeBackground).not.toBe(light.badgeBackground)
+    expect(rose.popoutBorder).not.toBe(light.popoutBorder)
+  })
+
+  test('keeps server settings surfaces aligned with the active theme', async ({ page }) => {
+    const state = createServerSettingsState()
+    await installMockCoreApi(page, state)
+    await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'rose'))
+
+    await openServerSettings(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'rose')
+
+    const modal = page.locator('.modal-server-settings')
+    const rose = await readSettingsThemeSnapshot(modal)
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+    const light = await readSettingsThemeSnapshot(modal)
+
+    expect(rose.overlayBackground).not.toBe(light.overlayBackground)
+    expect(rose.modalBackground).not.toBe(light.modalBackground)
+    expect(rose.navigationBackground).not.toBe(light.navigationBackground)
+    expect(rose.activeNavigationBackground).not.toBe(light.activeNavigationBackground)
+    expect(rose.inputBackground).not.toBe(light.inputBackground)
+  })
+
   test('opens server settings and saves overview profile changes', async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
@@ -119,3 +159,37 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(page.getByText('Banned User', { exact: true })).toBeHidden()
   })
 })
+
+async function readSettingsThemeSnapshot(modal: import('@playwright/test').Locator) {
+  return modal.evaluate((element) => {
+    const styleOf = (selector: string) => {
+      const target = element.querySelector(selector)
+      if (!target) throw new Error(`Missing settings theme target: ${selector}`)
+      return getComputedStyle(target)
+    }
+
+    return {
+      overlayBackground: getComputedStyle(element.parentElement ?? element).backgroundColor,
+      modalBackground: getComputedStyle(element).backgroundImage,
+      navigationBackground: styleOf('.server-settings-nav').background,
+      activeNavigationBackground: styleOf('.server-settings-nav__item--active').background,
+      inputBackground: styleOf('input:not([type="checkbox"]):not([type="color"])').backgroundColor,
+    }
+  })
+}
+
+async function readMemberProfileThemeSnapshot(popout: import('@playwright/test').Locator) {
+  return popout.evaluate((element) => {
+    const section = element.querySelector('.member-profile-section')
+    const badge = element.querySelector('.member-profile-badge')
+    if (!section || !badge) throw new Error('Missing member profile theme target')
+
+    const popoutStyle = getComputedStyle(element)
+    return {
+      popoutBackground: popoutStyle.background,
+      popoutBorder: popoutStyle.borderColor,
+      sectionBackground: getComputedStyle(section).background,
+      badgeBackground: getComputedStyle(badge).background,
+    }
+  })
+}
