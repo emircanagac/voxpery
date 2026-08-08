@@ -65,7 +65,7 @@ export default function ResetPasswordPage() {
                     <p>Password reset is not available because this server has not configured email delivery.</p>
 
                     <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
-                        <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: '#89b4fa' }}>
+                        <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: 'var(--text-link)' }}>
                             Back to Login
                         </a>
                     </div>
@@ -87,7 +87,7 @@ export default function ResetPasswordPage() {
                     </div>
                 )}
                 {message && (
-                    <div style={{ padding: '0.75rem', backgroundColor: 'rgba(166, 227, 161, 0.1)', color: '#a6e3a1', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.9em' }}>
+                    <div style={{ padding: '0.75rem', backgroundColor: 'color-mix(in srgb, var(--text-positive) 10%, transparent)', color: 'var(--text-positive)', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.9em' }}>
                         {message}
                     </div>
                 )}
@@ -121,7 +121,7 @@ export default function ResetPasswordPage() {
                 </button>
 
                 <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
-                    <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: '#89b4fa' }}>
+                    <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: 'var(--text-link)' }}>
                         Back to Login
                     </a>
                 </div>

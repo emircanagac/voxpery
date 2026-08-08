@@ -8,6 +8,7 @@ This folder is the source of truth for architecture, development, deployment, ro
 
 - **[../README.md](../README.md)** - Product overview and quick start
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Local development setup and scripts
+- **[THEMING.md](THEMING.md)** - Appearance themes, custom accents, and styling rules
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment (current repo structure)
 - **[ROADMAP.md](ROADMAP.md)** - Product direction, pillars, completed work, and current priorities
 

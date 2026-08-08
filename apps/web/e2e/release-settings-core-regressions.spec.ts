@@ -34,12 +34,57 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
 
     const modal = page.locator('.user-settings-modal')
-    await expect(modal.locator('.user-settings-subtitle')).toContainText('account, communication, voice, and privacy')
+    await expect(modal.locator('.user-settings-subtitle')).toContainText('account, appearance, communication, voice, and privacy')
     await expect(modal.locator('.user-settings-subtitle')).not.toContainText('desktop')
     await page.getByRole('button', { name: 'Communication' }).click()
     await expect(modal.getByText('Browser notifications', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Voice & Audio' }).click()
     await expect(modal.getByText('Benchmark diagnostics', { exact: true })).toHaveCount(0)
+  })
+
+  test('persists theme and accent preferences without layout overflow', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Appearance' }).click()
+
+    const modal = page.locator('.user-settings-modal')
+    await expect(modal.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+    await modal.getByRole('button', { name: /Rose/ }).click()
+    await page.evaluate(() => {
+      const probe = document.createElement('button')
+      probe.className = 'chat-jump-to-latest theme-contract-probe'
+      probe.textContent = 'Newest'
+      document.body.appendChild(probe)
+    })
+    const roseTheme = await readAppearanceThemeSnapshot(page)
+
+    await modal.getByRole('button', { name: /Light/ }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    const lightTheme = await readAppearanceThemeSnapshot(page)
+
+    expect(roseTheme.modalSurface).not.toBe(lightTheme.modalSurface)
+    expect(roseTheme.activeSettingsNavigation).not.toBe(lightTheme.activeSettingsNavigation)
+    expect(roseTheme.serverActions).not.toBe(lightTheme.serverActions)
+    expect(roseTheme.releaseBadge).not.toBe(lightTheme.releaseBadge)
+    expect(roseTheme.jumpToLatest).not.toBe(lightTheme.jumpToLatest)
+    await expect.poll(async () => {
+      return page.locator('.server-sidebar-actions').evaluate((element) => getComputedStyle(element).backgroundImage)
+    }).toContain('rgb(232, 235, 240)')
+
+    const accentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
+    await accentInput.fill('#2d8f70')
+    await accentInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
+    await expectNoHorizontalOverflow(modal)
+
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    await expect(page.locator('html')).toHaveCSS('--user-accent', '#2d8f70')
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(244, 246, 248)')
   })
 
   test('keeps profile password modal validation and submission wired', async ({ page }) => {
@@ -112,3 +157,27 @@ test.describe('mocked release and settings regressions', () => {
     expect(state.lastDeleteAccountConfirm).toBe('DELETE')
   })
 })
+
+async function expectNoHorizontalOverflow(locator: import('@playwright/test').Locator) {
+  await expect.poll(async () => {
+    return locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+  }).toBe(true)
+}
+
+async function readAppearanceThemeSnapshot(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const backgroundOf = (selector: string) => {
+      const target = document.querySelector(selector)
+      if (!target) throw new Error(`Missing appearance theme target: ${selector}`)
+      return getComputedStyle(target).background
+    }
+
+    return {
+      modalSurface: backgroundOf('.user-settings-modal'),
+      activeSettingsNavigation: backgroundOf('.user-settings-nav__item--active'),
+      serverActions: backgroundOf('.server-sidebar-actions'),
+      releaseBadge: backgroundOf('.shell-brand-release'),
+      jumpToLatest: backgroundOf('.theme-contract-probe'),
+    }
+  })
+}

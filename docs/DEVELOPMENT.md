@@ -86,6 +86,8 @@ npm run load:realtime
 npm run rate-limit:check
 ```
 
+Appearance changes must follow the semantic token and startup rules in [THEMING.md](THEMING.md).
+
 ## CI Workflows
 
 ### `.github/workflows/ci.yml`
@@ -110,4 +112,4 @@ Runs every Monday at 04:00 UTC, on manual dispatch, and on every PR:
 
 ---
 
-Last verified against code on 2026-08-02.
+Last verified against code on 2026-08-08.
