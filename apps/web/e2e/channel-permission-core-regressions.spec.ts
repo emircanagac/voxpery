@@ -160,7 +160,9 @@ test.describe('mocked channel permission regressions', () => {
 
     await page.goto('/servers')
 
-    await expect(page.getByTitle('Create Channel')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create channel in GENERAL' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create channel in VOICE' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create channels and categories' })).toHaveCount(0)
 
     const row = page.locator('[data-message-id="moderated-message"]')
     await row.hover()
