@@ -142,6 +142,8 @@ Legacy custom signaling event.
 ### Friends
 
 - `FriendUpdate`
+  - Targeted to each affected user after request, accept, reject, cancel, or remove operations.
+  - Clients refresh friend/request snapshots from this event, with reconnect, foreground, and a five-minute visible-session fallback for recovery; do not add short-interval polling.
 
 ### Server Membership / Roles / Channels
 

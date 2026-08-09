@@ -88,6 +88,9 @@ npm run rate-limit:check
 
 Appearance changes must follow the semantic token and startup rules in [THEMING.md](THEMING.md).
 
+Desktop bandwidth investigations must use the scenario controls and diagnostics
+in [NETWORK_USAGE_BENCHMARK.md](NETWORK_USAGE_BENCHMARK.md).
+
 ## CI Workflows
 
 ### `.github/workflows/ci.yml`

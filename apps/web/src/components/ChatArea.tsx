@@ -2469,6 +2469,7 @@ export default function ChatArea({
                         ref={textareaRef}
                         className="message-input"
                         value={messageInput}
+                        maxLength={4000}
                         disabled={!canSendMessages}
                         onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
                         onKeyDown={handleKeyDown}

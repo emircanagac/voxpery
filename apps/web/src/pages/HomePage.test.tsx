@@ -8,6 +8,11 @@ import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { clearDmMessageCacheForTests } from '../dmMessageCache'
+import {
+  flushMessageDrafts,
+  resetMessageDraftCacheForTests,
+  saveMessageDraft,
+} from '../messageDrafts'
 import HomePage from './HomePage'
 
 const apiMocks = vi.hoisted(() => ({
@@ -70,11 +75,12 @@ vi.mock('../api', () => ({
 }))
 
 vi.mock('../components/ChatArea', () => ({
-  default: ({ loading, messages }: { loading?: boolean; messages: unknown[] }) => (
+  default: ({ loading, messages, messageInput }: { loading?: boolean; messages: unknown[]; messageInput: string }) => (
     <div
       data-testid="dm-chat"
       data-loading={String(!!loading)}
       data-message-count={String(messages.length)}
+      data-message-input={messageInput}
     >
       DM chat
     </div>
@@ -132,6 +138,7 @@ describe('HomePage friends list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clearDmMessageCacheForTests()
+    resetMessageDraftCacheForTests()
     localStorage.clear()
     sessionStorage.clear()
     window.scrollTo = vi.fn()
@@ -181,6 +188,20 @@ describe('HomePage friends list', () => {
     })
     expect(useAppStore.getState().dmChannels[0]?.id).toBe('dm-cilo')
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
+  })
+
+  it('restores the current user draft when a DM is opened', async () => {
+    apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
+    saveMessageDraft('user-1', 'dm', 'dm-cilo', 'remember this locally')
+    flushMessageDrafts()
+    resetMessageDraftCacheForTests()
+
+    renderHomePage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Message cilo' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-chat').getAttribute('data-message-input')).toBe('remember this locally')
+    })
   })
 
   it('opens a DM from the friend action button', async () => {

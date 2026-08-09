@@ -154,7 +154,8 @@ describe('AppShell social refresh', () => {
       expect(apiMocks.listDmChannels).toHaveBeenCalledTimes(1)
       expect(apiMocks.listFriends).toHaveBeenCalledTimes(1)
     })
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5 * 60_000)
+    expect(setIntervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 6_000)
     expect(useAppStore.getState().socialDataReady).toBe(true)
 
     act(() => {

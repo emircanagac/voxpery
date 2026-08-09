@@ -34,6 +34,8 @@ import { setPersistedSocialView } from '../socialView'
 import { formatAppVersionBadge } from '../appVersion'
 
 const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const SOCIAL_FALLBACK_SYNC_INTERVAL_MS = 5 * 60 * 1000
+const SOCIAL_FOREGROUND_STALE_MS = 30 * 1000
 const BUILD_APP_VERSION = formatAppVersionBadge(import.meta.env.VITE_APP_VERSION)
 
 export default function AppShell() {
@@ -102,6 +104,9 @@ export default function AppShell() {
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const appVersionBadge = BUILD_APP_VERSION ?? desktopAppVersion
+  const socialSyncInFlightRef = useRef<Promise<void> | null>(null)
+  const socialSyncQueuedRef = useRef(false)
+  const lastSocialSyncAtRef = useRef(0)
 
   useEffect(() => {
     if (BUILD_APP_VERSION || !isTauri()) return
@@ -244,35 +249,49 @@ export default function AppShell() {
     return () => unsubscribe()
   }, [])
 
-  const syncSocial = useCallback(async () => {
+  const syncSocial = useCallback(async function runSocialSync(force = false) {
     if (!userId) return
-    try {
-      const [channels, friendList] = await Promise.all([
-        dmApi.listChannels(token),
-        friendApi.list(token),
-      ])
+    if (!force && Date.now() - lastSocialSyncAtRef.current < SOCIAL_FOREGROUND_STALE_MS) return
+    if (socialSyncInFlightRef.current) {
+      if (force) socialSyncQueuedRef.current = true
+      return socialSyncInFlightRef.current
+    }
+
+    const request = Promise.all([
+      dmApi.listChannels(token),
+      friendApi.list(token),
+    ]).then(([channels, friendList]) => {
       setDmChannelIds(channels.map((c) => c.id))
       setDmChannels(channels)
       setDmUnreadFromChannels(channels)
       setFriends(friendList)
       setSocialDataReady(true)
-    } catch {
-      // ignore transient failures
-    }
+      lastSocialSyncAtRef.current = Date.now()
+    }).catch(() => {
+      // Keep the latest snapshot on transient failures.
+    }).finally(() => {
+      if (socialSyncInFlightRef.current === request) socialSyncInFlightRef.current = null
+      if (socialSyncQueuedRef.current) {
+        socialSyncQueuedRef.current = false
+        window.setTimeout(() => { void runSocialSync(true) }, 0)
+      }
+    })
+    socialSyncInFlightRef.current = request
+    return request
   }, [setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setSocialDataReady, token, userId])
 
   useEffect(() => {
     if (!userId) return
-    void syncSocial()
+    void syncSocial(true)
     const id = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return
       void syncSocial()
-    }, 60000)
+    }, SOCIAL_FALLBACK_SYNC_INTERVAL_MS)
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') void syncSocial()
     }
     const unsubscribeReconnect = onReconnect(() => {
-      void syncSocial()
+      void syncSocial(true)
     })
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
@@ -412,7 +431,7 @@ export default function AppShell() {
         if (e?.type === 'FriendUpdate') {
           const payload = e.data as { user_id?: string }
           if (!payload.user_id || payload.user_id === userId) {
-            void syncSocial()
+            void syncSocial(true)
           }
         }
         if (e?.type === 'NewMessage') {

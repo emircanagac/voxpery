@@ -29,7 +29,7 @@ export default function UnifiedLayout() {
   const { user, token } = useAuthStore()
   const userId = user?.id ?? null
   const userStatus = user?.status
-  const { onReconnect } = useSocketStore()
+  const { onReconnect, subscribe } = useSocketStore()
   const {
     activeServerId,
     setActiveServer,
@@ -92,10 +92,18 @@ export default function UnifiedLayout() {
       return
     }
     let cancelled = false
-    const refresh = async () => {
-      try {
-        const req = await friendApi.requests(token)
+    let inFlight: Promise<void> | null = null
+    let refreshQueued = false
+    let lastRefreshAt = 0
+    function refresh(force = false): Promise<void> {
+      if (!force && Date.now() - lastRefreshAt < 30_000) return Promise.resolve()
+      if (inFlight) {
+        if (force) refreshQueued = true
+        return inFlight
+      }
+      inFlight = friendApi.requests(token).then((req) => {
         if (cancelled) return
+        lastRefreshAt = Date.now()
         setIncomingRequestCount(req.incoming.length)
         if (req.incoming.length > previousIncomingCountRef.current) {
           if (shouldPlayNotificationSound(userStatus)) {
@@ -112,29 +120,38 @@ export default function UnifiedLayout() {
           }
         }
         previousIncomingCountRef.current = req.incoming.length
-      } catch {
-        if (!cancelled) resetIncomingRequestCount()
-      }
+      }).catch(() => {
+        // Keep the latest count on transient network failures.
+      }).finally(() => {
+        inFlight = null
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false
+          void refresh(true)
+        }
+      })
+      return inFlight
     }
-    void refresh()
-    const id = window.setInterval(() => {
-      void refresh()
-    }, 6000)
+    void refresh(true)
+    const unsubscribeEvents = subscribe((event: unknown) => {
+      const message = event as { type?: string; data?: { user_id?: string } }
+      if (message.type !== 'FriendUpdate') return
+      if (message.data?.user_id && message.data.user_id !== userId) return
+      void refresh(true)
+    })
+    const unsubscribeReconnect = onReconnect(() => {
+      void refresh(true)
+    })
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       cancelled = true
-      window.clearInterval(id)
+      unsubscribeEvents()
+      unsubscribeReconnect()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [resetIncomingRequestCount, setIncomingRequestCount, token, userId, userStatus])
-
-  useEffect(() => {
-    if (!userId) return
-    const unsubscribe = onReconnect(() => {
-      friendApi.requests(token)
-        .then((req) => setIncomingRequestCount(req.incoming.length))
-        .catch(() => {})
-    })
-    return () => unsubscribe()
-  }, [onReconnect, setIncomingRequestCount, token, userId])
+  }, [onReconnect, resetIncomingRequestCount, setIncomingRequestCount, subscribe, token, userId, userStatus])
 
   const handleOpenServerSettings = (id: string, initialTab: ServerSettingsTab = 'overview') => {
     setOpenServerSettingsForServerTab(initialTab)
