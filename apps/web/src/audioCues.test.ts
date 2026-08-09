@@ -19,14 +19,16 @@ describe('voice cue catalog', () => {
     expect(new Set(signatures).size).toBe(cueKinds.length)
   })
 
-  it('keeps camera cues short and high while screen-share cues use a lower sweep', () => {
+  it('keeps camera cues percussive while screen-share cues use a sustained chord', () => {
     const cameraStart = VOICE_CUE_TONES['camera-start']
     const screenStart = VOICE_CUE_TONES['screen-start']
 
     expect(Math.min(...cameraStart.map((tone) => tone.from))).toBeGreaterThan(1000)
-    expect(Math.max(...cameraStart.map((tone) => tone.durationSec))).toBeLessThan(0.08)
+    expect(Math.max(...cameraStart.map((tone) => tone.durationSec))).toBeLessThan(0.04)
     expect(Math.max(...screenStart.map((tone) => tone.from))).toBeLessThan(1000)
     expect(screenStart.length).toBeGreaterThan(cameraStart.length)
+    expect(screenStart.filter((tone) => (tone.offsetSec ?? 0) === 0)).toHaveLength(2)
+    expect(Math.max(...screenStart.map((tone) => tone.durationSec))).toBeGreaterThanOrEqual(0.2)
   })
 
   it('uses separate start and stop confirmations for camera and screen share', () => {

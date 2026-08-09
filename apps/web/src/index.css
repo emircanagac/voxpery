@@ -6577,6 +6577,11 @@ body {
 
 .feedback-card {
   width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
   border-radius: var(--border-radius-md);
   background: color-mix(in srgb, var(--bg-surface) 92%, var(--accent-primary) 8%);
@@ -9168,7 +9173,7 @@ a.community-open-btn:hover {
   z-index: 131;
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 8px;
   box-sizing: border-box;
   background: var(--bg-surface);
   border-top: var(--border-subtle);
@@ -9617,11 +9622,6 @@ a.community-open-btn:hover {
 .voice-stage-hidden-media-show:hover {
   background: rgba(59, 130, 246, 0.22);
   border-color: rgba(147, 197, 253, 0.48);
-}
-
-.voice-stage-hidden-media-show:disabled {
-  cursor: wait;
-  opacity: 0.72;
 }
 
 .active-call-bar {

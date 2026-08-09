@@ -158,52 +158,27 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
-  it('keeps remote screen share restorable after LiveKit unsubscribes the hidden track', () => {
+  it('hides and restores a remote screen share locally without changing its subscription', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])
 
-    const { voice, rerender } = renderActiveCallBar({
+    const { voice } = renderActiveCallBar({
       remoteStreams: new Map([['peer-1', remoteStream]]),
       remoteScreenTrackIds: new Set(['screen-track']),
     })
 
-    fireEvent.click(screen.getByTitle('Stop watching screen'))
+    fireEvent.click(screen.getByTitle('Hide screen share'))
 
-    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
     expect(screen.getByText('Screen share hidden')).not.toBeNull()
     expect(screen.getAllByText('admin')).toHaveLength(2)
-
-    voice.state = voiceState({
-      remoteStreams: new Map([['peer-1', new MediaStream()]]),
-      remoteScreenTrackIds: new Set(),
-    })
-    rerender(
-      <MemoryRouter>
-        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
-      </MemoryRouter>
-    )
-
-    expect(screen.getByText('Screen share hidden')).not.toBeNull()
+    expect(screen.queryByTitle('Hide screen share')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /show/i }))
 
-    expect(voice.setRemoteMediaSubscribed).toHaveBeenLastCalledWith('peer-1', 'screen', true)
-    expect(screen.getByText('Restoring screen share')).not.toBeNull()
-    expect(screen.getByRole('button', { name: 'Restoring…' })).toBeDisabled()
-
-    voice.state = voiceState({
-      remoteStreams: new Map([['peer-1', remoteStream]]),
-      remoteScreenTrackIds: new Set(['screen-track']),
-    })
-    rerender(
-      <MemoryRouter>
-        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
-      </MemoryRouter>
-    )
-
-    expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+    expect(screen.getByTitle('Hide screen share')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
-    expect(screen.queryByText('Restoring screen share')).toBeNull()
   })
 
   it('reasserts remote microphone playback after the macOS share picker returns', () => {

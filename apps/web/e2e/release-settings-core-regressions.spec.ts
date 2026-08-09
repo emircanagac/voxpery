@@ -309,10 +309,14 @@ async function expectCompactFeedbackDock(page: import('@playwright/test').Page) 
 
   expect(dockBox.width).toBe(240)
   expect(dockBox.height).toBe(80)
-  expect(cardBox.x - dockBox.x).toBeGreaterThanOrEqual(10)
-  expect(dockBox.x + dockBox.width - cardBox.x - cardBox.width).toBeGreaterThanOrEqual(10)
-  expect(cardBox.y - dockBox.y).toBeGreaterThanOrEqual(8)
-  expect(dockBox.y + dockBox.height - cardBox.y - cardBox.height).toBeGreaterThanOrEqual(8)
+  const insets = [
+    cardBox.x - dockBox.x,
+    dockBox.x + dockBox.width - cardBox.x - cardBox.width,
+    cardBox.y - dockBox.y,
+    dockBox.y + dockBox.height - cardBox.y - cardBox.height,
+  ]
+  expect(Math.min(...insets)).toBeGreaterThanOrEqual(7)
+  expect(Math.max(...insets) - Math.min(...insets)).toBeLessThanOrEqual(1)
 }
 
 async function readAppearanceThemeSnapshot(page: import('@playwright/test').Page) {

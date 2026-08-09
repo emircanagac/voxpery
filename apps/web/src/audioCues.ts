@@ -47,21 +47,21 @@ export const VOICE_CUE_TONES: Readonly<Record<VoiceCueKind, readonly CueTone[]>>
     { from: 430, to: 640, offsetSec: 0.065, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.2, filterHz: 2400, q: 0.9 },
   ],
   'camera-start': [
-    { from: 1680, to: 1220, durationSec: 0.04, peak: 0.018, type: 'square', overtoneGain: 0.03, filterHz: 3600, q: 1.1 },
-    { from: 2100, to: 1540, offsetSec: 0.065, durationSec: 0.055, peak: 0.015, type: 'triangle', overtoneGain: 0.05, filterHz: 4200, q: 0.9 },
+    { from: 3100, to: 980, durationSec: 0.026, peak: 0.016, type: 'square', overtoneGain: 0.02, filterHz: 5200, q: 1.4 },
+    { from: 3600, to: 1250, offsetSec: 0.052, durationSec: 0.03, peak: 0.014, type: 'sawtooth', overtoneGain: 0.015, filterHz: 5800, q: 1.2 },
   ],
   'camera-stop': [
-    { from: 1520, to: 1080, durationSec: 0.05, peak: 0.016, type: 'triangle', overtoneGain: 0.04, filterHz: 3300, q: 1 },
-    { from: 940, to: 720, offsetSec: 0.055, durationSec: 0.065, peak: 0.014, type: 'sine', overtoneGain: 0.03, filterHz: 2400, q: 0.8 },
+    { from: 1700, to: 420, durationSec: 0.032, peak: 0.015, type: 'square', overtoneGain: 0.02, filterHz: 3600, q: 1.2 },
+    { from: 900, to: 260, offsetSec: 0.048, durationSec: 0.038, peak: 0.012, type: 'triangle', overtoneGain: 0.02, filterHz: 2200, q: 1 },
   ],
   'screen-start': [
-    { from: 250, to: 390, durationSec: 0.09, peak: 0.022, type: 'square', overtoneGain: 0.04, filterHz: 1200, q: 0.72 },
-    { from: 430, to: 650, offsetSec: 0.075, durationSec: 0.13, peak: 0.021, type: 'triangle', overtoneGain: 0.12, filterHz: 2100, q: 0.75 },
-    { from: 760, to: 980, offsetSec: 0.17, durationSec: 0.12, peak: 0.018, type: 'sine', overtoneGain: 0.06, filterHz: 3000, q: 0.7 },
+    { from: 180, durationSec: 0.22, peak: 0.017, type: 'square', overtoneGain: 0.025, filterHz: 900, q: 0.72 },
+    { from: 360, to: 540, durationSec: 0.22, peak: 0.019, type: 'triangle', overtoneGain: 0.08, filterHz: 1800, q: 0.75 },
+    { from: 980, offsetSec: 0.2, durationSec: 0.08, peak: 0.016, type: 'sine', overtoneGain: 0.03, filterHz: 3000, q: 0.7 },
   ],
   'screen-stop': [
-    { from: 820, to: 560, durationSec: 0.09, peak: 0.021, type: 'square', overtoneGain: 0.04, filterHz: 2200, q: 0.8 },
-    { from: 430, to: 240, offsetSec: 0.085, durationSec: 0.15, peak: 0.018, type: 'sine', overtoneGain: 0.05, filterHz: 1200, q: 0.75 },
+    { from: 540, to: 180, durationSec: 0.19, peak: 0.018, type: 'square', overtoneGain: 0.025, filterHz: 1600, q: 0.8 },
+    { from: 270, to: 135, durationSec: 0.19, peak: 0.015, type: 'sine', overtoneGain: 0.035, filterHz: 900, q: 0.75 },
   ],
 }
 
