@@ -63,17 +63,40 @@ function assetUrls(html, webBase) {
   return [...urls]
 }
 
+function cacheControl(response) {
+  return response.headers.get('cache-control')?.toLowerCase() || ''
+}
+
+function assertRevalidated(response, label) {
+  const value = cacheControl(response)
+  assert(
+    value.includes('no-cache') || value.includes('no-store') || /(?:^|,)\s*max-age=0(?:\s*,|$)/.test(value),
+    `${label} must be revalidated on normal reload; received Cache-Control: ${value || '<missing>'}`
+  )
+}
+
+function assertLongLived(response, label) {
+  const value = cacheControl(response)
+  const maxAge = Number(value.match(/(?:^|,)\s*max-age=(\d+)/)?.[1] || 0)
+  assert(maxAge >= 31_536_000, `${label} must use long-lived caching; received Cache-Control: ${value || '<missing>'}`)
+}
+
 async function checkVersionInDeployedAssets() {
   const rootRes = await getOk(`${WEB_BASE}/`, 'web root')
+  assertRevalidated(rootRes, 'web root')
   const html = await rootRes.text()
   const assets = assetUrls(html, WEB_BASE)
   assert(assets.length > 0, 'No JS/CSS assets found in deployed web root')
+
+  const serviceWorkerRes = await getOk(`${WEB_BASE}/sw.js`, 'service worker')
+  assertRevalidated(serviceWorkerRes, 'service worker')
 
   const needles = [EXPECTED_BADGE, EXPECTED_IMAGE_TAG].filter(Boolean)
   const seen = new Set()
 
   for (const asset of assets) {
     const res = await getOk(asset, `asset ${asset}`)
+    assertLongLived(res, `asset ${asset}`)
     const text = await res.text()
     for (const needle of needles) {
       if (text.includes(needle)) seen.add(needle)

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made normal browser reloads revalidate the web app shell, service worker, and stable RNNoise worklet URL so newly deployed releases no longer require a hard refresh, while retaining long-lived caching for fingerprinted assets.
+
 ## [0.2.6] - 2026-08-09
 
 ### Added

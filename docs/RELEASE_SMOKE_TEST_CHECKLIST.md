@@ -76,7 +76,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Appearance offers Default, Dark, Light, and Custom choices; Custom generates a readable palette from one valid hex color, persists after reload, and `Reset defaults` restores the original Voxpery palette without horizontal overflow on desktop or mobile.
 - [ ] The fixed bottom-right feedback dock shows theme-aligned `Report a bug` and `Request a feature` actions that open the matching GitHub issue templates on web and desktop; it stays outside information sidebars and is hidden on mobile so chat/composer width is unchanged.
 - [ ] Login and registration do not open a native notification permission prompt; the delayed in-app prompt requests permission only after the user selects `Enable`, and `Not now` suppresses it during the snooze window.
-- [ ] Web app is installable as a PWA and the service worker does not cache API, auth, WebSocket, or navigation responses.
+- [ ] Web app is installable as a PWA; a normal reload (without `Ctrl+F5`) discovers the current release; the app shell and `/sw.js` require revalidation; and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 - [ ] Uploaded chat image attachments render inline after channel/server navigation and open only in the in-app preview modal on web and desktop, with no external tab/browser navigation.
 - [ ] Automated core UI smoke includes invite/join, server settings, social/friend, auth/account, release/settings, permission, and desktop-runtime regressions.
