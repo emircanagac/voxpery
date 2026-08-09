@@ -48,6 +48,7 @@ export interface MockCoreState {
   raidEventEntriesByServerId: Record<string, RaidEventEntry[]>
   autoModRulesByServerId: Record<string, AutoModRule[]>
   messagesByChannelId: Record<string, MessageWithAuthor[]>
+  serverMessageSendDelayMs: number
   pinnedMessageIdsByChannelId: Record<string, string[]>
   serverUpdateCount: number
   serverJoinCount: number
@@ -342,6 +343,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     raidEventEntriesByServerId: {},
     autoModRulesByServerId: {},
     messagesByChannelId: {},
+    serverMessageSendDelayMs: 0,
     pinnedMessageIdsByChannelId: {},
     serverUpdateCount: 0,
     serverJoinCount: 0,
@@ -1192,6 +1194,9 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   if (serverMessagesMatch && method === 'POST') {
     const channelId = serverMessagesMatch[1]
     const body = parseJsonBody<{ content?: string; attachments?: unknown[] }>(request)
+    if (state.serverMessageSendDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, state.serverMessageSendDelayMs))
+    }
     const message = createServerMessage(state, channelId, body.content ?? '', body.attachments ?? [])
     state.messagesByChannelId[channelId] = [
       ...(state.messagesByChannelId[channelId] ?? []),

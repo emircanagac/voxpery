@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   buildCoreChannels,
   buildCoreMembers,
@@ -141,6 +141,42 @@ test.describe('mocked core UI smoke', () => {
       return element.scrollWidth > element.clientWidth + 1
     })
     expect(hasHorizontalOverflow).toBe(false)
+  })
+
+  test('keeps first-message text fixed while optimistic delivery is confirmed', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [] },
+      serverMessageSendDelayMs: 300,
+    })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+    await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
+    const content = `Delayed first message ${Date.now()}`
+    await startMessageGeometrySampling(page, content)
+    const messageInput = page.getByPlaceholder('Message #general')
+    await messageInput.fill(content)
+    await messageInput.press('Enter')
+
+    const messageRow = page.locator('.virtual-list-item', { hasText: content })
+    await expect(messageRow).toBeVisible()
+    await expect(messageRow.locator('.message-inline-actions')).toBeAttached()
+    await page.waitForTimeout(400)
+    const samples = await readMessageGeometrySamples(page)
+    expect(samples.length).toBeGreaterThan(1)
+    expect(samples.some((sample) => !sample.hasActions)).toBe(true)
+    expect(samples.some((sample) => sample.hasActions)).toBe(true)
+    expect(geometryRange(samples, 'avatarY')).toBeLessThan(0.25)
+    expect(geometryRange(samples, 'authorY')).toBeLessThan(0.25)
+    expect(geometryRange(samples, 'bodyY')).toBeLessThan(0.25)
   })
 
   test('creates a channel from the sidebar and makes it selectable', async ({ page }) => {
@@ -426,6 +462,55 @@ async function expectScrollable(locator: Locator) {
   await expect.poll(async () => {
     return locator.evaluate((element) => element.scrollHeight > element.clientHeight)
   }).toBe(true)
+}
+
+type MessageGeometrySample = {
+  avatarY: number
+  authorY: number
+  bodyY: number
+  hasActions: boolean
+}
+
+async function startMessageGeometrySampling(page: Page, messageText: string) {
+  await page.evaluate((targetMessageText) => {
+    const samples: MessageGeometrySample[] = []
+    Object.defineProperty(window, '__messageGeometrySamples', {
+      configurable: true,
+      value: samples,
+    })
+    let frame = 0
+    const sample = () => {
+      const row = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'))
+        .find((candidate) => candidate.querySelector('.message-text')?.textContent === targetMessageText)
+      const avatar = row?.querySelector<HTMLElement>('.message-avatar')
+      const author = row?.querySelector<HTMLElement>('.message-author')
+      const body = row?.querySelector<HTMLElement>('.message-text')
+      if (avatar && author && body) {
+        samples.push({
+          avatarY: avatar.getBoundingClientRect().y,
+          authorY: author.getBoundingClientRect().y,
+          bodyY: body.getBoundingClientRect().y,
+          hasActions: !!row?.querySelector('.message-inline-actions'),
+        })
+      }
+      frame += 1
+      if (frame < 60) window.requestAnimationFrame(sample)
+    }
+    window.requestAnimationFrame(sample)
+  }, messageText)
+}
+
+async function readMessageGeometrySamples(page: Page): Promise<MessageGeometrySample[]> {
+  return page.evaluate(() => {
+    return (window as typeof window & {
+      __messageGeometrySamples?: MessageGeometrySample[]
+    }).__messageGeometrySamples ?? []
+  })
+}
+
+function geometryRange(samples: MessageGeometrySample[], key: 'avatarY' | 'authorY' | 'bodyY') {
+  const values = samples.map((sample) => sample[key])
+  return Math.max(...values) - Math.min(...values)
 }
 
 async function expectVirtualMessageHeight(locator: Locator, expectedHeight: number) {
