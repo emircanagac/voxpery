@@ -35,6 +35,7 @@ if (import.meta.env.PROD) {
 
 type PeerId = string
 type RemoteMediaStartCueKind = 'camera' | 'screen'
+type RemoteMediaCuePhase = 'start' | 'stop'
 
 type VoiceControlState = {
   muted?: boolean
@@ -132,6 +133,24 @@ export function shouldPlayRemoteMediaStartCue(
   return cueReady
 }
 
+export function remoteMediaVoiceCue(
+  kind: RemoteMediaStartCueKind,
+  phase: RemoteMediaCuePhase,
+): 'screen-start' | 'screen-stop' | null {
+  if (kind !== 'screen') return null
+  return phase === 'start' ? 'screen-start' : 'screen-stop'
+}
+
+export function shouldPlayRemoteMediaStopCue(
+  seenKeys: Set<string>,
+  peerId: string,
+  kind: RemoteMediaStartCueKind,
+  cueReady: boolean,
+): boolean {
+  const wasActive = seenKeys.delete(remoteMediaStartCueKey(peerId, kind))
+  return wasActive && cueReady
+}
+
 export function clearRemoteMediaStartCue(
   seenKeys: Set<string>,
   peerId: string,
@@ -192,6 +211,7 @@ export function useLiveKitVoice() {
   const remoteMonitorCleanupsRef = useRef<Map<PeerId, () => void>>(new Map())
   const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
   const remoteMediaStartCueReadyRef = useRef(false)
+  const remoteScreenStopCueTimersRef = useRef<Map<PeerId, ReturnType<typeof setTimeout>>>(new Map())
   const visibilitySuppressedTrackSidsRef = useRef<Set<string>>(new Set())
   const userHiddenRemoteMediaKeysRef = useRef<Set<string>>(new Set())
   const resumedTrackSidsRef = useRef<Set<string>>(new Set())
@@ -490,8 +510,17 @@ export function useLiveKitVoice() {
     await rebuildPublishedMicrophoneTrack({ forceNewDeviceStream: true })
   }, [rebuildPublishedMicrophoneTrack])
 
-  const closePeer = useCallback((peerId: PeerId) => {
-    clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId)
+  const cancelRemoteScreenStopCue = useCallback((peerId: PeerId) => {
+    const timer = remoteScreenStopCueTimersRef.current.get(peerId)
+    if (timer) clearTimeout(timer)
+    remoteScreenStopCueTimersRef.current.delete(peerId)
+  }, [])
+
+  const closePeer = useCallback((peerId: PeerId, options?: { preserveMediaCue?: boolean }) => {
+    if (!options?.preserveMediaCue) {
+      cancelRemoteScreenStopCue(peerId)
+      clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId)
+    }
     remoteMonitorCleanupsRef.current.get(peerId)?.()
     remoteMonitorCleanupsRef.current.delete(peerId)
     const current = remoteStreamsRef.current.get(peerId)
@@ -509,7 +538,7 @@ export function useLiveKitVoice() {
     if (existingControl) {
       store.setVoiceControl(peerId, !!existingControl.muted, !!existingControl.deafened, false)
     }
-  }, [])
+  }, [cancelRemoteScreenStopCue])
 
   const syncParticipantMediaState = useCallback((participant: RemoteParticipant) => {
     let hasCamera = false
@@ -532,9 +561,6 @@ export function useLiveKitVoice() {
 
   const rememberExistingRemoteMedia = useCallback((participant: RemoteParticipant) => {
     participant.trackPublications.forEach((publication) => {
-      if (publication.source === Track.Source.Camera) {
-        remoteMediaStartCueKeysRef.current.add(remoteMediaStartCueKey(participant.identity, 'camera'))
-      }
       if (publication.source === Track.Source.ScreenShare) {
         remoteMediaStartCueKeysRef.current.add(remoteMediaStartCueKey(participant.identity, 'screen'))
       }
@@ -542,6 +568,9 @@ export function useLiveKitVoice() {
   }, [])
 
   const playRemoteMediaStartCue = useCallback((participant: RemoteParticipant, kind: RemoteMediaStartCueKind) => {
+    const cue = remoteMediaVoiceCue(kind, 'start')
+    if (!cue) return
+    cancelRemoteScreenStopCue(participant.identity)
     const shouldPlay = shouldPlayRemoteMediaStartCue(
       remoteMediaStartCueKeysRef.current,
       participant.identity,
@@ -549,8 +578,27 @@ export function useLiveKitVoice() {
       remoteMediaStartCueReadyRef.current,
     )
     if (!shouldPlay) return
-    playVoiceCue(kind === 'camera' ? 'camera-start' : 'screen-start')
-  }, [playVoiceCue])
+    playVoiceCue(cue)
+  }, [cancelRemoteScreenStopCue, playVoiceCue])
+
+  const scheduleRemoteMediaStopCue = useCallback((participant: RemoteParticipant, kind: RemoteMediaStartCueKind) => {
+    const cue = remoteMediaVoiceCue(kind, 'stop')
+    if (!cue) return
+    const shouldPlay = shouldPlayRemoteMediaStopCue(
+      remoteMediaStartCueKeysRef.current,
+      participant.identity,
+      kind,
+      remoteMediaStartCueReadyRef.current,
+    )
+    if (!shouldPlay) return
+
+    cancelRemoteScreenStopCue(participant.identity)
+    const timer = setTimeout(() => {
+      remoteScreenStopCueTimersRef.current.delete(participant.identity)
+      playVoiceCue(cue)
+    }, 0)
+    remoteScreenStopCueTimersRef.current.set(participant.identity, timer)
+  }, [cancelRemoteScreenStopCue, playVoiceCue])
 
   const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
     if (!isConnected) throw new Error('WebSocket is not connected')
@@ -633,6 +681,8 @@ export function useLiveKitVoice() {
       roomRef.current = room
       remoteMediaStartCueKeysRef.current.clear()
       remoteMediaStartCueReadyRef.current = false
+      remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
+      remoteScreenStopCueTimersRef.current.clear()
 
       const iceServers: RTCIceServer[] = [
         { urls: ['stun:stun.l.google.com:19302'] },
@@ -675,14 +725,11 @@ export function useLiveKitVoice() {
           } else if (pub.source === Track.Source.Camera) {
             Object.defineProperty(mediaTrack, '__voxpery_isCamera', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.delete(mediaTrack.id)
-            if (!resumedAfterPause) playRemoteMediaStartCue(participant, 'camera')
           }
 
           mediaTrack.onmute = () => { syncParticipantMediaState(participant); bumpRemote() }
           mediaTrack.onunmute = () => { syncParticipantMediaState(participant); bumpRemote() }
           mediaTrack.onended = () => {
-            if (pub.source === Track.Source.Camera) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'camera')
-            if (pub.source === Track.Source.ScreenShare) clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'screen')
             syncParticipantMediaState(participant)
             bumpRemote()
           }
@@ -706,14 +753,15 @@ export function useLiveKitVoice() {
           syncParticipantMediaState(participant)
           updateRoomStats()
         })
+        .on(RoomEvent.TrackUnpublished, (publication, participant) => {
+          if (publication.source === Track.Source.ScreenShare) {
+            scheduleRemoteMediaStopCue(participant, 'screen')
+          }
+          syncParticipantMediaState(participant)
+          updateRoomStats()
+        })
         .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
           const peerId = participant.identity
-          const mediaKind = remoteMediaKindForSource(_pub.source)
-          const pausedForVisibility = visibilitySuppressedTrackSidsRef.current.has(_pub.trackSid)
-          const pausedByUser = mediaKind
-            ? userHiddenRemoteMediaKeysRef.current.has(remoteMediaSubscriptionKey(peerId, mediaKind))
-            : false
-          const pausedIntentionally = pausedForVisibility || pausedByUser
           const stream = remoteStreamsRef.current.get(peerId)
           if (!stream) return
           const mediaTrack = track.mediaStreamTrack
@@ -722,13 +770,7 @@ export function useLiveKitVoice() {
             stream.removeTrack(existing)
             remoteScreenTrackIdsRef.current.delete(existing.id)
           }
-          if (!pausedIntentionally && _pub.source === Track.Source.Camera) {
-            clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'camera')
-          }
-          if (!pausedIntentionally && _pub.source === Track.Source.ScreenShare) {
-            clearRemoteMediaStartCue(remoteMediaStartCueKeysRef.current, peerId, 'screen')
-          }
-          if (stream.getTracks().length === 0) closePeer(peerId)
+          if (stream.getTracks().length === 0) closePeer(peerId, { preserveMediaCue: true })
           else bumpRemote()
 
           syncParticipantMediaState(participant)
@@ -852,13 +894,15 @@ export function useLiveKitVoice() {
       setLastError(msg)
       remoteMediaStartCueReadyRef.current = false
       remoteMediaStartCueKeysRef.current.clear()
+      remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
+      remoteScreenStopCueTimersRef.current.clear()
       if (!micPublished) cleanupLocalMedia()
       throw e
     } finally {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
@@ -868,6 +912,8 @@ export function useLiveKitVoice() {
     joinedChannelIdRef.current = null
     remoteMediaStartCueReadyRef.current = false
     remoteMediaStartCueKeysRef.current.clear()
+    remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
+    remoteScreenStopCueTimersRef.current.clear()
     visibilitySuppressedTrackSidsRef.current.clear()
     userHiddenRemoteMediaKeysRef.current.clear()
     resumedTrackSidsRef.current.clear()

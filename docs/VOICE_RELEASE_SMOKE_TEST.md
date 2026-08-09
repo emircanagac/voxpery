@@ -37,10 +37,10 @@ The goal is to verify the real user path, not every implementation detail. Run t
 ## 3. Camera
 
 - [ ] User A starts camera; User B sees the camera tile.
-- [ ] User B hears the camera-start cue only when A starts camera while B is already in the channel.
+- [ ] User A hears the local camera-start cue; User B does not hear a channel-wide camera cue.
 - [ ] User B hides the remote camera tile and can show it again.
-- [ ] User A stops camera; User B does not hear a stop cue.
-- [ ] Starting camera again after stopping plays the camera-start cue once.
+- [ ] User A hears the local camera-stop cue; User B does not hear a channel-wide camera cue.
+- [ ] Starting camera again plays one local camera-start cue for User A.
 - [ ] Switching from voice to a text channel and back keeps camera UI stable.
 
 ## 4. Screen Share
@@ -61,7 +61,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
 - [ ] User B shows the screen share again and audio behavior returns with the visible media.
 - [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera/screen video traffic while microphone and screen-share audio continue; restoring the window resumes video without replaying start cues.
-- [ ] User A stops screen share; User B does not hear a stop cue.
+- [ ] User A stops screen share; User B hears the screen-stop cue once.
+- [ ] User A leaves while sharing; User B hears the leave cue without an additional screen-stop cue.
 
 ## 5. Noise Suppression
 

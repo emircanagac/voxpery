@@ -5,9 +5,11 @@ import {
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
   remoteMediaStartCueKey,
+  remoteMediaVoiceCue,
   resyncVoiceStateAfterReconnect,
   shouldSubscribeRemoteTrack,
   shouldPlayRemoteMediaStartCue,
+  shouldPlayRemoteMediaStopCue,
 } from './useLiveKitVoice'
 import { AudioPresets, Track } from 'livekit-client'
 
@@ -197,8 +199,8 @@ describe('remote media start cues', () => {
   it('does not play during initial remote media hydration', () => {
     const seen = new Set<string>()
 
-    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', false)).toBe(false)
-    expect(seen.has('user-1:camera')).toBe(true)
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', false)).toBe(false)
+    expect(seen.has('user-1:screen')).toBe(true)
   })
 
   it('plays once when remote media starts after voice is ready', () => {
@@ -208,12 +210,33 @@ describe('remote media start cues', () => {
     expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', true)).toBe(false)
   })
 
+  it('keeps camera cues local and broadcasts only screen-share cues', () => {
+    expect(remoteMediaVoiceCue('camera', 'start')).toBeNull()
+    expect(remoteMediaVoiceCue('camera', 'stop')).toBeNull()
+    expect(remoteMediaVoiceCue('screen', 'start')).toBe('screen-start')
+    expect(remoteMediaVoiceCue('screen', 'stop')).toBe('screen-stop')
+  })
+
+  it('plays a remote screen-stop cue once after an active share ends', () => {
+    const seen = new Set<string>(['user-1:screen'])
+
+    expect(shouldPlayRemoteMediaStopCue(seen, 'user-1', 'screen', true)).toBe(true)
+    expect(shouldPlayRemoteMediaStopCue(seen, 'user-1', 'screen', true)).toBe(false)
+  })
+
+  it('clears initial screen-share state without a stop cue before voice is ready', () => {
+    const seen = new Set<string>(['user-1:screen'])
+
+    expect(shouldPlayRemoteMediaStopCue(seen, 'user-1', 'screen', false)).toBe(false)
+    expect(seen.has('user-1:screen')).toBe(false)
+  })
+
   it('can play again after the remote media key is cleared', () => {
     const seen = new Set<string>()
 
-    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', true)).toBe(true)
-    clearRemoteMediaStartCue(seen, 'user-1', 'camera')
-    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'camera', true)).toBe(true)
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', true)).toBe(true)
+    clearRemoteMediaStartCue(seen, 'user-1', 'screen')
+    expect(shouldPlayRemoteMediaStartCue(seen, 'user-1', 'screen', true)).toBe(true)
   })
 
   it('clears all media cue keys for a peer', () => {
