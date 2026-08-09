@@ -98,6 +98,7 @@ test.describe('mocked release and settings regressions', () => {
     const modal = page.locator('.user-settings-modal')
     const themeGroup = modal.getByRole('group', { name: 'Theme' })
     await expect(themeGroup.locator('.theme-option')).toHaveCount(4)
+    await expect(themeGroup.locator('.theme-option-label')).toHaveText(['Default', 'Custom', 'Dark', 'Light'])
     await expect(themeGroup.getByRole('button', { name: /Default/ })).toBeVisible()
     await expect(themeGroup.getByRole('button', { name: /Dark/ })).toBeVisible()
     await expect(themeGroup.getByRole('button', { name: /Light/ })).toBeVisible()
@@ -124,6 +125,68 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
     await expect(page.locator('html')).toHaveCSS('--user-theme-bg-primary', generatedBackground)
+  })
+
+  test('keeps member, voice, callbar, and image-preview chrome readable across themes', async ({ page }) => {
+    const state = createMockCoreState({ friends: buildFriends(2) })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await page.goto('/social')
+    await page.evaluate(() => {
+      const fixture = document.createElement('div')
+      fixture.id = 'appearance-contract-fixture'
+      fixture.style.cssText = 'position:fixed;left:-10000px;top:0;width:480px;'
+      fixture.innerHTML = `
+        <span class="appearance-primary-reference">Primary</span>
+        <span class="appearance-secondary-reference">Secondary</span>
+        <aside class="member-sidebar">
+          <div class="member-item"><span class="member-name">Readable member</span></div>
+        </aside>
+        <div class="voice-stage-tile">
+          <span class="voice-stage-name">Voice member</span>
+          <span class="voice-stage-sub">In voice</span>
+        </div>
+        <div class="active-call-bar">
+          <button class="active-call-title-btn">Voice channel</button>
+          <button class="callbar-control-btn">Control</button>
+        </div>
+        <div class="chat-image-preview-modal">
+          <div class="chat-image-preview-toolbar">
+            <span class="chat-image-preview-title">Image preview</span>
+          </div>
+          <div class="chat-image-preview-stage"></div>
+        </div>
+      `
+      fixture.querySelector<HTMLElement>('.appearance-primary-reference')!.style.color = 'var(--text-primary)'
+      fixture.querySelector<HTMLElement>('.appearance-secondary-reference')!.style.color = 'var(--text-secondary)'
+      document.body.appendChild(fixture)
+    })
+
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Appearance' }).click()
+    const modal = page.locator('.user-settings-modal')
+
+    await modal.locator('.theme-option', { hasText: 'Dark' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    const dark = await readSettledSemanticThemeSnapshot(page)
+
+    await modal.locator('.theme-option', { hasText: 'Light' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    const light = await readSettledSemanticThemeSnapshot(page)
+
+    await modal.getByRole('button', { name: /Custom/ }).click()
+    const customInput = modal.getByRole('textbox', { name: 'Custom theme hex color' })
+    await customInput.fill('#8d50ca')
+    await customInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    const custom = await readSettledSemanticThemeSnapshot(page)
+
+    expect(light.memberSurface).not.toBe(dark.memberSurface)
+    expect(light.voiceSurface).not.toBe(dark.voiceSurface)
+    expect(light.callbarSurface).not.toBe(dark.callbarSurface)
+    expect(light.previewSurface).not.toBe(dark.previewSurface)
+    expect(custom.voiceSurface).not.toBe(dark.voiceSurface)
   })
 
   test('shows feedback entry points on Social without replacing conversation content', async ({ page }) => {
@@ -240,4 +303,51 @@ async function readAppearanceThemeSnapshot(page: import('@playwright/test').Page
       jumpToLatest: backgroundOf('.theme-contract-probe'),
     }
   })
+}
+
+type SemanticThemeSnapshot = Awaited<ReturnType<typeof readSemanticThemeSnapshot>>
+
+async function readSemanticThemeSnapshot(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const style = (selector: string) => {
+      const target = document.querySelector(selector)
+      if (!target) throw new Error(`Missing semantic theme target: ${selector}`)
+      return getComputedStyle(target)
+    }
+    return {
+      primary: style('.appearance-primary-reference').color,
+      secondary: style('.appearance-secondary-reference').color,
+      memberText: style('#appearance-contract-fixture .member-name').color,
+      voiceName: style('#appearance-contract-fixture .voice-stage-name').color,
+      voiceSub: style('#appearance-contract-fixture .voice-stage-sub').color,
+      callbarText: style('#appearance-contract-fixture .active-call-title-btn').color,
+      previewText: style('#appearance-contract-fixture .chat-image-preview-title').color,
+      memberSurface: style('#appearance-contract-fixture .member-item').background,
+      voiceSurface: style('#appearance-contract-fixture .voice-stage-tile').background,
+      callbarSurface: style('#appearance-contract-fixture .active-call-bar').background,
+      previewSurface: style('#appearance-contract-fixture .chat-image-preview-modal').background,
+    }
+  })
+}
+
+function assertSemanticTextContract(snapshot: SemanticThemeSnapshot) {
+  expect(snapshot.memberText).toBe(snapshot.primary)
+  expect(snapshot.voiceName).toBe(snapshot.primary)
+  expect(snapshot.voiceSub).toBe(snapshot.secondary)
+  expect(snapshot.callbarText).toBe(snapshot.secondary)
+  expect(snapshot.previewText).toBe(snapshot.secondary)
+}
+
+async function readSettledSemanticThemeSnapshot(page: import('@playwright/test').Page) {
+  await expect.poll(async () => {
+    const snapshot = await readSemanticThemeSnapshot(page)
+    return snapshot.memberText === snapshot.primary
+      && snapshot.voiceName === snapshot.primary
+      && snapshot.voiceSub === snapshot.secondary
+      && snapshot.callbarText === snapshot.secondary
+      && snapshot.previewText === snapshot.secondary
+  }).toBe(true)
+  const snapshot = await readSemanticThemeSnapshot(page)
+  assertSemanticTextContract(snapshot)
+  return snapshot
 }

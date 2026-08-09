@@ -13789,6 +13789,151 @@ a.community-open-btn:hover {
   color: var(--text-secondary);
 }
 
+/* Member surfaces must remain readable in light and generated themes. */
+.member-sidebar:not(.member-sidebar--sheet) .member-category,
+.member-sidebar:not(.member-sidebar--sheet) .member-category-offline,
+.member-sidebar--sheet .member-category,
+.member-sidebar--sheet .member-category-offline {
+  background: rgba(var(--ui-contrast-rgb), 0.045);
+}
+
+.member-sidebar:not(.member-sidebar--sheet) .member-item,
+.member-sidebar--sheet .member-item {
+  border-color: rgba(var(--ui-contrast-rgb), 0.05);
+  background: rgba(var(--ui-contrast-rgb), 0.03);
+  box-shadow: inset 0 1px rgba(var(--ui-contrast-rgb), 0.02);
+}
+
+.member-sidebar:not(.member-sidebar--sheet) .member-item:hover,
+.member-sidebar--sheet .member-item:hover {
+  border-color: rgba(var(--ui-contrast-rgb), 0.09);
+  background: rgba(var(--ui-contrast-rgb), 0.065);
+}
+
+.member-sidebar:not(.member-sidebar--sheet) .member-name {
+  color: var(--text-primary);
+}
+
+.member-role-btn {
+  border-color: rgba(var(--ui-contrast-rgb), 0.16);
+}
+
+.mobile-member-sheet {
+  border-color: rgba(var(--ui-contrast-rgb), 0.1);
+  background: color-mix(in srgb, var(--bg-popover) 96%, var(--accent-primary) 4%);
+  box-shadow: var(--shadow-high);
+}
+
+.mobile-member-sheet-header {
+  border-color: rgba(var(--ui-contrast-rgb), 0.08);
+  background: rgba(var(--ui-contrast-rgb), 0.025);
+}
+
+.mobile-member-sheet-copy p,
+.mobile-member-sheet-close {
+  border-color: rgba(var(--ui-contrast-rgb), 0.08);
+  background: rgba(var(--ui-contrast-rgb), 0.05);
+}
+
+/* Voice stage and call controls use the same semantic surfaces as the app shell. */
+.voice-stage-tile {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 7%, var(--bg-elevated)), var(--bg-surface));
+  box-shadow: var(--shadow-medium);
+}
+
+.voice-stage-avatar {
+  color: var(--btn-primary-text);
+}
+
+.voice-stage-hidden-media-tile {
+  border-color: rgba(var(--ui-contrast-rgb), 0.2);
+  background: linear-gradient(180deg, var(--bg-elevated), var(--bg-surface));
+  color: var(--text-secondary);
+}
+
+.active-call-bar {
+  border-color: color-mix(in srgb, var(--text-positive) 34%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--text-positive) 5%, var(--bg-popover)), var(--bg-popover));
+  box-shadow: var(--shadow-medium), inset 0 0 0 1px color-mix(in srgb, var(--text-positive) 7%, transparent);
+}
+
+.active-call-title-btn {
+  color: var(--text-secondary);
+}
+
+.active-call-subtitle::before {
+  background: rgba(var(--ui-contrast-rgb), 0.3);
+}
+
+.callbar-ping-chip,
+.callbar-control-btn {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background: rgba(var(--ui-contrast-rgb), 0.06);
+  color: var(--text-secondary);
+}
+
+.callbar-controls-center {
+  background: rgba(var(--ui-contrast-rgb), 0.04);
+}
+
+.callbar-control-btn:hover:not(:disabled) {
+  border-color: rgba(var(--ui-contrast-rgb), 0.3);
+  background: rgba(var(--ui-contrast-rgb), 0.14);
+  color: var(--text-primary);
+}
+
+.callbar-control-btn.is-live,
+.callbar-control-btn.danger,
+.callbar-control-btn.is-off {
+  border-color: color-mix(in srgb, var(--text-danger) 65%, transparent);
+  background: color-mix(in srgb, var(--text-danger) 22%, transparent);
+  color: var(--text-danger);
+}
+
+.callbar-control-btn.media-control.is-live {
+  border-color: color-mix(in srgb, var(--text-positive) 62%, transparent);
+  background: color-mix(in srgb, var(--text-positive) 20%, transparent);
+  color: var(--text-positive);
+}
+
+.callbar-control-btn.is-server-off {
+  border-color: color-mix(in srgb, var(--text-warning) 58%, transparent);
+  background: color-mix(in srgb, var(--text-warning) 22%, transparent);
+  color: var(--text-warning);
+}
+
+/* Image preview chrome follows the selected palette; only the media remains neutral. */
+.chat-image-preview-backdrop {
+  background: var(--overlay-backdrop);
+}
+
+.chat-image-preview-modal {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background: var(--bg-popover);
+  box-shadow: var(--shadow-high);
+}
+
+.chat-image-preview-toolbar {
+  border-color: rgba(var(--ui-contrast-rgb), 0.1);
+}
+
+.chat-image-preview-stage,
+.chat-image-preview-image {
+  background: var(--bg-chat);
+}
+
+.chat-image-preview-close {
+  border-color: rgba(var(--ui-contrast-rgb), 0.12);
+  background: rgba(var(--ui-contrast-rgb), 0.06);
+  color: var(--text-secondary);
+}
+
+.chat-image-preview-close:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.1);
+  color: var(--text-primary);
+}
+
 .server-welcome-guide__copy h2,
 .server-welcome-guide__copy p {
   color: var(--text-primary);
