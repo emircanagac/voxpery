@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { createRnnoiseNode, type RnnoiseNode } from '../rnnoise'
-import { getOrCreateAudioContext, playCueStack } from '../../audioCues'
+import { getOrCreateAudioContext, playVoiceCueStack, type VoiceCueKind } from '../../audioCues'
 import {
     getSliderFromStorage,
     getStoredSpeakingPreset,
@@ -169,16 +169,6 @@ function isLikelySpeechFrame(
         && !boomy
         && (!aggressiveIsolation || suppressionTuning !== 'high' || !noiseDominant)
 }
-
-export type VoiceCueKind =
-    | 'join'
-    | 'leave'
-    | 'mute'
-    | 'unmute'
-    | 'deafen'
-    | 'undeafen'
-    | 'camera-start'
-    | 'screen-start'
 
 export interface LiveSuppressionConfig {
     aggressiveIsolation: boolean
@@ -391,55 +381,7 @@ export function useAudioEngine() {
         const ctx = getAudioContext()
         if (!ctx) return
 
-        switch (kind) {
-            case 'join':
-                playCueStack(ctx, [
-                    { from: 430, to: 520, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.12, filterHz: 1800, q: 0.9 },
-                    { from: 640, to: 780, offsetSec: 0.07, durationSec: 0.1, peak: 0.023, type: 'triangle', overtoneGain: 0.14, filterHz: 2400, q: 0.9 },
-                    { from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, peak: 0.026, type: 'sine', overtoneGain: 0.08, filterHz: 3200, q: 0.75 },
-                ])
-                break
-            case 'leave':
-                playCueStack(ctx, [
-                    { from: 900, to: 650, durationSec: 0.13, peak: 0.032, type: 'triangle', overtoneGain: 0.12, filterHz: 2400, q: 0.9 },
-                    { from: 520, to: 320, offsetSec: 0.105, durationSec: 0.18, peak: 0.028, type: 'sine', overtoneGain: 0.06, filterHz: 1300, q: 0.78 },
-                ])
-                break
-            case 'mute':
-                playCueStack(ctx, [
-                    { from: 520, to: 410, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.14, filterHz: 1700, q: 1.1 },
-                ])
-                break
-            case 'unmute':
-                playCueStack(ctx, [
-                    { from: 390, to: 560, durationSec: 0.09, peak: 0.022, type: 'triangle', overtoneGain: 0.18, filterHz: 2200, q: 0.9 },
-                ])
-                break
-            case 'deafen':
-                playCueStack(ctx, [
-                    { from: 480, to: 360, durationSec: 0.08, peak: 0.019, type: 'triangle', overtoneGain: 0.12, filterHz: 1600, q: 1.2 },
-                    { from: 300, to: 230, offsetSec: 0.07, durationSec: 0.105, peak: 0.016, type: 'sine', overtoneGain: 0.06, filterHz: 1100, q: 0.8 },
-                ])
-                break
-            case 'undeafen':
-                playCueStack(ctx, [
-                    { from: 270, to: 340, durationSec: 0.08, peak: 0.018, type: 'sine', overtoneGain: 0.08, filterHz: 1400, q: 0.8 },
-                    { from: 430, to: 640, offsetSec: 0.065, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.2, filterHz: 2400, q: 0.9 },
-                ])
-                break
-            case 'camera-start':
-                playCueStack(ctx, [
-                    { from: 1180, to: 1180, durationSec: 0.052, peak: 0.017, type: 'sine', overtoneGain: 0.04, filterHz: 3400, q: 0.65 },
-                    { from: 820, to: 1040, offsetSec: 0.055, durationSec: 0.075, peak: 0.016, type: 'triangle', overtoneGain: 0.07, filterHz: 2900, q: 0.75 },
-                ])
-                break
-            case 'screen-start':
-                playCueStack(ctx, [
-                    { from: 520, to: 520, durationSec: 0.075, peak: 0.023, type: 'square', overtoneGain: 0.04, filterHz: 1700, q: 0.8 },
-                    { from: 410, to: 680, offsetSec: 0.09, durationSec: 0.15, peak: 0.021, type: 'triangle', overtoneGain: 0.14, filterHz: 2300, q: 0.72 },
-                ])
-                break
-        }
+        playVoiceCueStack(ctx, kind)
     }, [getAudioContext, isSoundEnabled])
 
     const disconnectAudioContext = useCallback(() => {

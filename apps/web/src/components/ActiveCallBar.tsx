@@ -47,6 +47,14 @@ interface VoxperyHTMLDivElement extends HTMLDivElement {
 
 type RemoteAudioKind = 'mic' | 'screen'
 
+type RemoteMediaPlaceholder = {
+  key: string
+  peerId: string
+  kind: RemoteMediaKind
+  label: string
+  restoring: boolean
+}
+
 interface ActiveCallBarProps {
   selectedVoiceChannelId: string | null
   /** Only show the voice stage (participants grid) when user has this channel selected (e.g. clicked voice channel in sidebar). */
@@ -208,6 +216,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   })
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
+  const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
   const lastVoiceQualityWarningRef = useRef<string | null>(null)
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -501,6 +510,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const currentVoiceChannelId = state.joinedChannelId
   useEffect(() => {
     setHiddenRemoteMediaKeys(new Set())
+    setRemoteMediaPlaceholders(new Map())
   }, [currentVoiceChannelId])
 
   const getRemoteMediaKey = useCallback((peerId: string, kind: RemoteMediaKind) => {
@@ -513,7 +523,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return !!key && hiddenRemoteMediaKeys.has(key)
   }, [getRemoteMediaKey, hiddenRemoteMediaKeys])
 
-  const setRemoteMediaHidden = useCallback((peerId: string, kind: RemoteMediaKind, hidden: boolean) => {
+  const setRemoteMediaHidden = useCallback((peerId: string, kind: RemoteMediaKind, hidden: boolean, label?: string) => {
     const key = getRemoteMediaKey(peerId, kind)
     if (!key) return
     setRemoteMediaSubscribed(peerId, kind, !hidden)
@@ -521,6 +531,22 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       const next = new Set(current)
       if (hidden) next.add(key)
       else next.delete(key)
+      return next
+    })
+    setRemoteMediaPlaceholders((current) => {
+      const next = new Map(current)
+      if (hidden) {
+        next.set(key, {
+          key,
+          peerId,
+          kind,
+          label: label ?? (kind === 'screen' ? 'Screen share' : 'Camera'),
+          restoring: false,
+        })
+      } else {
+        const placeholder = next.get(key)
+        if (placeholder) next.set(key, { ...placeholder, restoring: true })
+      }
       return next
     })
   }, [getRemoteMediaKey, setRemoteMediaSubscribed])
@@ -560,15 +586,42 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return entries
   }, [remoteEntries, state.remoteScreenTrackIds])
+  const activeRemoteMediaKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const entry of remoteVideoTrackEntries) {
+      const key = getRemoteMediaKey(entry.peerId, entry.kind)
+      if (key) keys.add(key)
+    }
+    return keys
+  }, [getRemoteMediaKey, remoteVideoTrackEntries])
+  useEffect(() => {
+    setRemoteMediaPlaceholders((current) => {
+      let changed = false
+      const next = new Map(current)
+      for (const [key, placeholder] of next) {
+        if (placeholder.restoring && activeRemoteMediaKeys.has(key)) {
+          next.delete(key)
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
+  }, [activeRemoteMediaKeys])
+  const remoteMediaPlaceholdersToRender = useMemo(() => (
+    Array.from(remoteMediaPlaceholders.values()).filter((placeholder) => (
+      isRemoteMediaHidden(placeholder.peerId, placeholder.kind)
+      || !activeRemoteMediaKeys.has(placeholder.key)
+    ))
+  ), [activeRemoteMediaKeys, isRemoteMediaHidden, remoteMediaPlaceholders])
   const hiddenScreenSharePeerIds = useMemo(() => {
     const hidden = new Set<string>()
-    for (const entry of remoteVideoTrackEntries) {
-      if (entry.kind === 'screen' && isRemoteMediaHidden(entry.peerId, 'screen')) {
-        hidden.add(entry.peerId)
+    for (const placeholder of remoteMediaPlaceholders.values()) {
+      if (placeholder.kind === 'screen' && isRemoteMediaHidden(placeholder.peerId, 'screen')) {
+        hidden.add(placeholder.peerId)
       }
     }
     return hidden
-  }, [isRemoteMediaHidden, remoteVideoTrackEntries])
+  }, [isRemoteMediaHidden, remoteMediaPlaceholders])
   useEffect(() => {
     hiddenScreenSharePeerIdsRef.current = hiddenScreenSharePeerIds
     applyOutputVolumeToElements(outputVolumeRef.current / 100)
@@ -619,6 +672,33 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!currentVoiceChannelId) return []
     return members.filter((m) => voiceStates[m.user_id] === currentVoiceChannelId)
   }, [currentVoiceChannelId, members, voiceStates])
+  useEffect(() => {
+    if (remoteMediaPlaceholders.size === 0) return
+    const participantIds = new Set(channelParticipants.map((participant) => participant.user_id))
+    const staleKeys = new Set<string>()
+    for (const placeholder of remoteMediaPlaceholders.values()) {
+      const participantId = resolvePeerVolumeKey(placeholder.peerId)
+      const control = voiceControls[participantId]
+      const mediaStopped = !activeRemoteMediaKeys.has(placeholder.key) && (
+        placeholder.kind === 'screen'
+          ? control?.screenSharing === false
+          : control?.cameraOn === false
+      )
+      const participantLeft = channelParticipants.length > 0 && !participantIds.has(participantId)
+      if (mediaStopped || participantLeft) staleKeys.add(placeholder.key)
+    }
+    if (staleKeys.size === 0) return
+    setRemoteMediaPlaceholders((current) => {
+      const next = new Map(current)
+      staleKeys.forEach((key) => next.delete(key))
+      return next
+    })
+    setHiddenRemoteMediaKeys((current) => {
+      const next = new Set(current)
+      staleKeys.forEach((key) => next.delete(key))
+      return next
+    })
+  }, [activeRemoteMediaKeys, channelParticipants, remoteMediaPlaceholders, resolvePeerVolumeKey, voiceControls])
 
   const isInThisChannel = useMemo(() => {
     return !!selectedVoiceChannelId && state.joinedChannelId === selectedVoiceChannelId
@@ -898,6 +978,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!state.joinedChannelId) return
     if (state.isScreenSharing) {
       stopScreenShare()
+      playVoiceCue('screen-stop')
       return
     }
     setScreenShareQuality(readScreenShareQuality())
@@ -914,6 +995,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     try {
       await startScreenShare()
+      playVoiceCue('screen-start')
     } catch (e) {
       const permissionDenied = isMediaPermissionDeniedError(e, 'screen')
       const message = permissionDenied
@@ -929,6 +1011,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!state.joinedChannelId) return
     if (state.cameraStream) {
       stopCamera()
+      playVoiceCue('camera-stop')
       return
     }
     setShowCameraConfirm(true)
@@ -962,6 +1045,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     setShowCameraConfirm(false)
     try {
       await startCamera()
+      playVoiceCue('camera-start')
     } catch (e) {
       if (isMediaPermissionDeniedError(e, 'camera')) {
         void openDesktopMediaPermissionSettings('camera')
@@ -991,7 +1075,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const localInitial = (user?.username?.charAt(0) || 'Y').toUpperCase()
   const remoteShareOwner = (peerId: string) => members.find((m) => m.user_id === peerId)?.username ?? 'User'
   const localFallbackTileCount = currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) ? 1 : 0
-  const totalStageTiles = channelParticipants.length + localFallbackTileCount + (state.isScreenSharing && state.screenStream ? 1 : 0) + (state.cameraStream ? 1 : 0) + remoteVideoTrackEntries.length
+  const visibleRemoteMediaTileCount = remoteVideoTrackEntries.filter((entry) => !isRemoteMediaHidden(entry.peerId, entry.kind)).length
+  const totalStageTiles = channelParticipants.length
+    + localFallbackTileCount
+    + (state.isScreenSharing && state.screenStream ? 1 : 0)
+    + (state.cameraStream ? 1 : 0)
+    + visibleRemoteMediaTileCount
+    + remoteMediaPlaceholdersToRender.length
   const stageColumns = getStageColumns(totalStageTiles)
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
@@ -1159,6 +1249,26 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </div>
                 </div>
               )}
+              {remoteMediaPlaceholdersToRender.map((placeholder) => (
+                <div key={`hidden-${placeholder.key}`} className="voice-stage-hidden-media-tile">
+                  <div className="voice-stage-hidden-media-icon">
+                    <EyeOff size={18} />
+                  </div>
+                  <div className="voice-stage-hidden-media-title">
+                    {placeholder.restoring ? `Restoring ${placeholder.label.toLowerCase()}` : `${placeholder.label} hidden`}
+                  </div>
+                  <div className="voice-stage-hidden-media-sub">{remoteShareOwner(placeholder.peerId)}</div>
+                  <button
+                    type="button"
+                    className="voice-stage-hidden-media-show"
+                    disabled={placeholder.restoring}
+                    onClick={() => setRemoteMediaHidden(placeholder.peerId, placeholder.kind, false)}
+                  >
+                    <Eye size={14} />
+                    {placeholder.restoring ? 'Restoring…' : 'Show'}
+                  </button>
+                </div>
+              ))}
               {remoteVideoTrackEntries.map(({ peerId, track, label, kind }) => {
                 const volumeKey = resolvePeerVolumeKey(peerId)
                 const screenVolumeKey = `screen:${volumeKey}`
@@ -1166,21 +1276,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 const tileKey = `${peerId}-${track.id}`
                 const owner = remoteShareOwner(peerId)
                 const isHidden = isRemoteMediaHidden(peerId, kind)
-                if (isHidden) {
-                  return (
-                    <div key={tileKey} className="voice-stage-hidden-media-tile">
-                      <div className="voice-stage-hidden-media-icon">
-                        <EyeOff size={18} />
-                      </div>
-                      <div className="voice-stage-hidden-media-title">{label} hidden</div>
-                      <div className="voice-stage-hidden-media-sub">{owner}</div>
-                      <button type="button" className="voice-stage-hidden-media-show" onClick={() => setRemoteMediaHidden(peerId, kind, false)}>
-                        <Eye size={14} />
-                        Show
-                      </button>
-                    </div>
-                  )
-                }
+                if (isHidden) return null
                 return (
                   <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <video autoPlay muted playsInline ref={(el) => { if (!el) return; let stream = remoteVideoStreamByTrackIdRef.current.get(track.id); if (!stream) { stream = new MediaStream([track]); remoteVideoStreamByTrackIdRef.current.set(track.id, stream) }; if (el.srcObject !== stream) el.srcObject = stream; void el.play().catch(() => { }) }} />
@@ -1222,7 +1318,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         )}
                       </div>
                       <div className="screen-share-controls-right">
-                        <button type="button" className="screen-share-controls-btn" title={kind === 'screen' ? 'Stop watching screen' : 'Hide camera'} onClick={() => setRemoteMediaHidden(peerId, kind, true)}>
+                        <button type="button" className="screen-share-controls-btn" title={kind === 'screen' ? 'Stop watching screen' : 'Hide camera'} onClick={() => setRemoteMediaHidden(peerId, kind, true, label)}>
                           <EyeOff size={16} />
                         </button>
                         <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberInfo } from '../api'
@@ -158,11 +158,11 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
-  it('keeps remote screen share hide and show available in the voice stage', () => {
+  it('keeps remote screen share restorable after LiveKit unsubscribes the hidden track', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])
 
-    const { voice } = renderActiveCallBar({
+    const { voice, rerender } = renderActiveCallBar({
       remoteStreams: new Map([['peer-1', remoteStream]]),
       remoteScreenTrackIds: new Set(['screen-track']),
     })
@@ -173,11 +173,37 @@ describe('ActiveCallBar regressions', () => {
     expect(screen.getByText('Screen share hidden')).not.toBeNull()
     expect(screen.getAllByText('admin')).toHaveLength(2)
 
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', new MediaStream()]]),
+      remoteScreenTrackIds: new Set(),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Screen share hidden')).not.toBeNull()
+
     fireEvent.click(screen.getByRole('button', { name: /show/i }))
 
     expect(voice.setRemoteMediaSubscribed).toHaveBeenLastCalledWith('peer-1', 'screen', true)
+    expect(screen.getByText('Restoring screen share')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Restoring…' })).toBeDisabled()
+
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
+      </MemoryRouter>
+    )
+
     expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
+    expect(screen.queryByText('Restoring screen share')).toBeNull()
   })
 
   it('reasserts remote microphone playback after the macOS share picker returns', () => {
@@ -193,6 +219,36 @@ describe('ActiveCallBar regressions', () => {
     window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
 
     expect(play).toHaveBeenCalledOnce()
+  })
+
+  it('plays distinct confirmations when local camera and screen sharing start', async () => {
+    const { voice } = renderActiveCallBar()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on camera' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Turn on camera' }).at(-1)!)
+    await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('camera-start'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share screen' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Share screen' }).at(-1)!)
+    await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-start'))
+  })
+
+  it('plays separate confirmations when local camera and screen sharing stop', () => {
+    const cameraTrack = mediaTrack('video', 'local-camera')
+    const screenTrack = mediaTrack('video', 'local-screen')
+    const { voice } = renderActiveCallBar({
+      cameraStream: new MediaStream([cameraTrack]),
+      screenStream: new MediaStream([screenTrack]),
+      isScreenSharing: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off camera' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }))
+
+    expect(voice.stopCamera).toHaveBeenCalledOnce()
+    expect(voice.stopScreenShare).toHaveBeenCalledOnce()
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('camera-stop')
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-stop')
   })
 
   it('keeps mute, deafen, and leave controls wired to the joined voice session', () => {

@@ -234,11 +234,18 @@ await room.localParticipant.publishTrack(videoTrack, {
 
 - Remote camera and screen-share tiles can be hidden per viewer without leaving the voice channel.
 - Hidden media stays as a compact placeholder with a `Show` action; its remote camera or screen publications are unsubscribed until the user resumes watching.
+- The placeholder is owned by viewer state rather than the subscribed track, so it remains visible while LiveKit removes the hidden track and shows a restoring state until the subscription returns.
 - Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
 - Hiding a screen share unsubscribes both its video and screen-share audio publications; the participant's microphone audio continues normally.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
 - When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, WebAudio state, and remote playback without changing per-user volume settings.
+
+### Voice Event Cues
+
+- Join, leave, mute, deafen, camera, and screen-share events use one shared synthesized cue catalog across LiveKit and the legacy WebRTC fallback.
+- Camera confirmations use short high-frequency shutter-like tones; screen-share confirmations use longer low-to-high sweeps so the two media actions are audibly distinct.
+- Camera and screen-share stop actions have separate descending confirmations and all cues respect the existing notification-sounds preference.
 
 ## Camera
 

@@ -6,6 +6,7 @@ import { useSocketStore } from '../stores/socket'
 import type { SignalingMessage } from '../types'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
 import { getPreferredMicrophoneStream } from '../voiceDevices'
+import { getOrCreateAudioContext, playVoiceCueStack, type VoiceCueKind } from '../audioCues'
 
 type PeerId = string
 /** getStats() forEach callback: each entry is a map of stat properties. */
@@ -334,98 +335,11 @@ export function useWebRTCVoice() {
 
   const isSoundEnabled = useCallback(() => localStorage.getItem(SOUND_KEY) !== '0', [])
 
-  type VoiceCueKind =
-    | 'join'
-    | 'leave'
-    | 'mute'
-    | 'unmute'
-    | 'deafen'
-    | 'undeafen'
-    | 'camera-start'
-    | 'screen-start'
-
   const playVoiceCue = useCallback((kind: VoiceCueKind) => {
     if (!isSoundEnabled()) return
-    const AudioCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!AudioCtor) return
-    if (!audioCtxRef.current) audioCtxRef.current = new AudioCtor()
-    const ctx = audioCtxRef.current
+    const ctx = getOrCreateAudioContext(audioCtxRef)
     if (!ctx) return
-    if (ctx.state === 'suspended') {
-      void ctx.resume().catch(() => { })
-    }
-
-    const playTone = (opts: {
-      from: number
-      to?: number
-      offsetSec: number
-      durationSec: number
-      wave?: OscillatorType
-      peak?: number
-    }) => {
-      const {
-        from,
-        to,
-        offsetSec,
-        durationSec,
-        wave = 'sine',
-        peak = 0.026,
-      } = opts
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      const startAt = ctx.currentTime + offsetSec
-      const endAt = startAt + durationSec
-      const attack = Math.max(0.006, Math.min(0.012, durationSec * 0.3))
-      const releaseAt = startAt + Math.max(attack + 0.004, durationSec * 0.45)
-
-      osc.type = wave
-      osc.frequency.setValueAtTime(from, startAt)
-      if (typeof to === 'number' && Number.isFinite(to) && to > 0) {
-        osc.frequency.exponentialRampToValueAtTime(to, endAt)
-      }
-      gain.gain.setValueAtTime(0.0001, startAt)
-      gain.gain.exponentialRampToValueAtTime(peak, startAt + attack)
-      gain.gain.setValueAtTime(peak * 0.92, releaseAt)
-      gain.gain.exponentialRampToValueAtTime(0.0001, endAt)
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.start(startAt)
-      osc.stop(endAt)
-    }
-
-    switch (kind) {
-      case 'join':
-        playTone({ from: 430, to: 520, offsetSec: 0, durationSec: 0.085, wave: 'triangle', peak: 0.02 })
-        playTone({ from: 640, to: 780, offsetSec: 0.07, durationSec: 0.1, wave: 'triangle', peak: 0.023 })
-        playTone({ from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, wave: 'sine', peak: 0.026 })
-        break
-      case 'leave':
-        playTone({ from: 900, to: 650, offsetSec: 0, durationSec: 0.13, wave: 'triangle', peak: 0.032 })
-        playTone({ from: 520, to: 320, offsetSec: 0.105, durationSec: 0.18, wave: 'sine', peak: 0.028 })
-        break
-      case 'mute':
-        playTone({ from: 430, to: 350, offsetSec: 0, durationSec: 0.07, wave: 'square', peak: 0.019 })
-        break
-      case 'unmute':
-        playTone({ from: 360, to: 520, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.023 })
-        break
-      case 'deafen':
-        playTone({ from: 420, to: 330, offsetSec: 0, durationSec: 0.075, wave: 'sawtooth', peak: 0.02 })
-        playTone({ from: 280, to: 220, offsetSec: 0.078, durationSec: 0.09, wave: 'sine', peak: 0.018 })
-        break
-      case 'undeafen':
-        playTone({ from: 250, to: 320, offsetSec: 0, durationSec: 0.075, wave: 'triangle', peak: 0.02 })
-        playTone({ from: 420, to: 590, offsetSec: 0.078, durationSec: 0.095, wave: 'triangle', peak: 0.024 })
-        break
-      case 'camera-start':
-        playTone({ from: 1180, to: 1180, offsetSec: 0, durationSec: 0.052, wave: 'sine', peak: 0.017 })
-        playTone({ from: 820, to: 1040, offsetSec: 0.055, durationSec: 0.075, wave: 'triangle', peak: 0.016 })
-        break
-      case 'screen-start':
-        playTone({ from: 520, to: 520, offsetSec: 0, durationSec: 0.075, wave: 'square', peak: 0.023 })
-        playTone({ from: 410, to: 680, offsetSec: 0.09, durationSec: 0.15, wave: 'triangle', peak: 0.021 })
-        break
-    }
+    playVoiceCueStack(ctx, kind)
   }, [isSoundEnabled])
 
   const applyPushToTalkGate = useCallback(() => {
