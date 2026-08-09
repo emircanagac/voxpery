@@ -186,7 +186,7 @@ Speaker
 - **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-200%
 - **Amplification >100%**: Routed through WebAudio GainNode (gain > 1.0)
 - **Deafen**: Sets `audio.muted = true` on all remote elements
-- **Stop watching screen**: Hiding a remote screen share removes its screen-share audio track from playback while keeping the peer's normal microphone audio active.
+- **Hide screen share**: Hiding a remote screen share suppresses its tile and screen-share audio locally while keeping both the LiveKit subscription and the peer's normal microphone audio active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
 ### Input and Output Device Selection
@@ -233,12 +233,22 @@ await room.localParticipant.publishTrack(videoTrack, {
 ### Remote Viewing Controls
 
 - Remote camera and screen-share tiles can be hidden per viewer without leaving the voice channel.
-- Hidden media stays as a compact placeholder with a `Show` action; its remote camera or screen publications are unsubscribed until the user resumes watching.
+- Hidden media stays subscribed and is replaced by a compact placeholder with a `Show` action, so the viewer can resume it immediately without waiting for LiveKit to resubscribe.
+- The placeholder is owned by viewer state and the publisher's `LIVE` or camera presence remains unchanged for every other participant.
 - Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
-- Hiding a screen share unsubscribes both its video and screen-share audio publications; the participant's microphone audio continues normally.
+- Hiding a screen share locally suppresses both its video and screen-share audio playback; the participant's microphone audio continues normally.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
 - When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, WebAudio state, and remote playback without changing per-user volume settings.
+
+### Voice Event Cues
+
+- Join, leave, mute, deafen, camera, and screen-share events use one shared synthesized cue catalog across LiveKit and the legacy WebRTC fallback.
+- Camera start and stop confirmations are local to the member changing their camera. Remote participants see camera state without receiving a channel-wide camera cue.
+- Screen-share start and stop cues are heard by members already in the voice channel. Existing shares remain silent during initial room hydration, subscription resume, and local hide/show actions.
+- Screen-share stop is suppressed when the publisher disconnects so the normal leave cue remains the single channel departure sound.
+- Voxpery auto-subscribes voice members to visible shares, so it does not emit viewer join/leave sounds without an explicit watch session.
+- Camera confirmations use short high-frequency shutter-like clicks; screen-share confirmations use sustained digital chords so neither resembles voice join or leave cues, and all cues respect the existing notification-sounds preference.
 
 ## Camera
 
@@ -304,8 +314,10 @@ When debugging a production voice report, capture:
 - Join and leave cues are intentionally different so members can identify someone entering or leaving without watching the channel list.
 - Join uses a short rising three-note motif.
 - Leave uses a lower descending two-note motif.
-- Remote camera and screen-share starts use their own short cues so members can tell when someone begins broadcasting media.
-- Existing remote media does not play a start cue when joining a channel; cues only play for media that starts while the user is already present.
+- Camera start and stop cues are local confirmations for the member controlling their camera.
+- Remote screen-share start and stop use their own cues so members can tell when a broadcast begins or ends.
+- Existing remote screen shares do not play a start cue when joining a channel; cues only play for shares that start while the user is already present.
+- Hiding, showing, pausing, or resubscribing remote media does not replay broadcast cues.
 - Mute, unmute, deafen, and undeafen keep shorter local-only cues.
 
 ### Echo or feedback

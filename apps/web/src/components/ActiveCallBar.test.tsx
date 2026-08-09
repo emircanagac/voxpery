@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberInfo } from '../api'
@@ -158,7 +158,7 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
-  it('keeps remote screen share hide and show available in the voice stage', () => {
+  it('hides and restores a remote screen share locally without changing its subscription', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])
 
@@ -167,16 +167,17 @@ describe('ActiveCallBar regressions', () => {
       remoteScreenTrackIds: new Set(['screen-track']),
     })
 
-    fireEvent.click(screen.getByTitle('Stop watching screen'))
+    fireEvent.click(screen.getByTitle('Hide screen share'))
 
-    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
     expect(screen.getByText('Screen share hidden')).not.toBeNull()
     expect(screen.getAllByText('admin')).toHaveLength(2)
+    expect(screen.queryByTitle('Hide screen share')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /show/i }))
 
-    expect(voice.setRemoteMediaSubscribed).toHaveBeenLastCalledWith('peer-1', 'screen', true)
-    expect(screen.getByTitle('Stop watching screen')).not.toBeNull()
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+    expect(screen.getByTitle('Hide screen share')).not.toBeNull()
     expect(screen.queryByText('Screen share hidden')).toBeNull()
   })
 
@@ -193,6 +194,36 @@ describe('ActiveCallBar regressions', () => {
     window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
 
     expect(play).toHaveBeenCalledOnce()
+  })
+
+  it('plays distinct confirmations when local camera and screen sharing start', async () => {
+    const { voice } = renderActiveCallBar()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on camera' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Turn on camera' }).at(-1)!)
+    await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('camera-start'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share screen' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Share screen' }).at(-1)!)
+    await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-start'))
+  })
+
+  it('plays separate confirmations when local camera and screen sharing stop', () => {
+    const cameraTrack = mediaTrack('video', 'local-camera')
+    const screenTrack = mediaTrack('video', 'local-screen')
+    const { voice } = renderActiveCallBar({
+      cameraStream: new MediaStream([cameraTrack]),
+      screenStream: new MediaStream([screenTrack]),
+      isScreenSharing: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off camera' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }))
+
+    expect(voice.stopCamera).toHaveBeenCalledOnce()
+    expect(voice.stopScreenShare).toHaveBeenCalledOnce()
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('camera-stop')
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-stop')
   })
 
   it('keeps mute, deafen, and leave controls wired to the joined voice session', () => {

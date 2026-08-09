@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 import {
+  buildCoreChannels,
+  buildCoreMembers,
+  buildCoreServer,
   buildFriends,
   createMockCoreState,
   installMockCoreApi,
@@ -189,10 +192,16 @@ test.describe('mocked release and settings regressions', () => {
     expect(custom.voiceSurface).not.toBe(dark.voiceSurface)
   })
 
-  test('shows feedback entry points on Social without replacing conversation content', async ({ page }) => {
-    const state = createMockCoreState({ friends: buildFriends(2) })
+  test('keeps the compact feedback dock inside its fixed area on Social and server views', async ({ page }) => {
+    const server = buildCoreServer()
+    const state = createMockCoreState({
+      friends: buildFriends(2),
+      servers: [server],
+      channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+    })
     await installMockCoreApi(page, state)
-    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.setViewportSize({ width: 1366, height: 620 })
 
     await page.goto('/social')
 
@@ -202,12 +211,11 @@ test.describe('mocked release and settings regressions', () => {
     await expect(feedbackCard.getByRole('button', { name: 'Request a feature' })).toBeVisible()
     await expect(page.locator('.home-side .feedback-card')).toHaveCount(0)
 
-    const dockBox = await page.locator('.feedback-dock').boundingBox()
-    expect(dockBox).not.toBeNull()
-    expect(dockBox?.width).toBe(240)
-    expect(dockBox?.height).toBe(80)
-    expect(dockBox?.x).toBe(1126)
-    expect(dockBox?.y).toBe(688)
+    await expectCompactFeedbackDock(page)
+
+    await page.goto('/servers')
+    await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
+    await expectCompactFeedbackDock(page)
   })
 
   test('keeps profile password modal validation and submission wired', async ({ page }) => {
@@ -285,6 +293,30 @@ async function expectNoHorizontalOverflow(locator: import('@playwright/test').Lo
   await expect.poll(async () => {
     return locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
   }).toBe(true)
+}
+
+async function expectCompactFeedbackDock(page: import('@playwright/test').Page) {
+  const dock = page.locator('.feedback-dock')
+  const card = dock.locator('.feedback-card')
+  await expect(dock).toBeVisible()
+  await expect(card).toBeVisible()
+
+  const boxes = await Promise.all([dock.boundingBox(), card.boundingBox()])
+  const [dockBox, cardBox] = boxes
+  expect(dockBox).not.toBeNull()
+  expect(cardBox).not.toBeNull()
+  if (!dockBox || !cardBox) return
+
+  expect(dockBox.width).toBe(240)
+  expect(dockBox.height).toBe(80)
+  const insets = [
+    cardBox.x - dockBox.x,
+    dockBox.x + dockBox.width - cardBox.x - cardBox.width,
+    cardBox.y - dockBox.y,
+    dockBox.y + dockBox.height - cardBox.y - cardBox.height,
+  ]
+  expect(Math.min(...insets)).toBeGreaterThanOrEqual(7)
+  expect(Math.max(...insets) - Math.min(...insets)).toBeLessThanOrEqual(1)
 }
 
 async function readAppearanceThemeSnapshot(page: import('@playwright/test').Page) {
