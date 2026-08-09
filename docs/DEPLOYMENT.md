@@ -268,6 +268,14 @@ deployed main candidates). For manual image builds, pass
 `--build-arg VITE_APP_VERSION=<tag>` to keep the visible badge aligned with the
 image tag.
 
+The web container requires release entry points (`/`, `/index.html`, and
+`/sw.js`) and the stable RNNoise worklet URL to be revalidated on every normal
+reload. Fingerprinted `/assets/` files are cached for one year because a new
+build produces new URLs. Do not override the entry-point headers with a CDN
+browser-cache rule: the release smoke workflow verifies that the app shell and
+service worker return a revalidation policy, preventing stale releases from
+requiring `Ctrl+F5`.
+
 ## 8) Backups
 
 ```bash

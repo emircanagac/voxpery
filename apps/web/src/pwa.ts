@@ -7,8 +7,11 @@ export function registerPwaServiceWorker(): void {
   if (isTauri()) return
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // PWA support should never block the authenticated app shell.
-    })
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => {
+        // PWA support should never block the authenticated app shell.
+      })
   })
 }

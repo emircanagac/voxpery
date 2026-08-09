@@ -17,6 +17,24 @@ function requireText(label, text, expected) {
   if (!text.includes(expected)) failures.push(`${label} must include: ${expected}`)
 }
 
+function locationBlock(config, location) {
+  const marker = `location ${location} {`
+  const start = config.indexOf(marker)
+  if (start < 0) return ''
+  const bodyStart = start + marker.length
+  const bodyEnd = config.indexOf('}', bodyStart)
+  return bodyEnd < 0 ? '' : config.slice(bodyStart, bodyEnd)
+}
+
+function requireLocationText(label, config, location, expected) {
+  const block = locationBlock(config, location)
+  if (!block) {
+    failures.push(`${label} must include location ${location}`)
+    return
+  }
+  requireText(`${label} location ${location}`, block, expected)
+}
+
 function includesLocalBackendTarget(value) {
   return /(^|[^a-z0-9.-])(localhost|127\.0\.0\.1)(?::|\/|\\|\*|"|$)/i.test(value)
 }
@@ -35,6 +53,16 @@ function validateNginx(path, { production }) {
   requireText(label, config, "script-src 'self' 'wasm-unsafe-eval'")
   requireText(label, config, 'location = /healthz {')
   requireText(label, config, 'default_type text/plain;')
+  requireLocationText(label, config, '= /index.html', 'expires -1;')
+  requireLocationText(label, config, '= /index.html', 'try_files $uri =404;')
+  requireLocationText(label, config, '= /sw.js', 'expires -1;')
+  requireLocationText(label, config, '= /sw.js', 'try_files $uri =404;')
+  requireLocationText(label, config, '= /assets/rnnoise-worklet.js', 'expires -1;')
+  requireLocationText(label, config, '= /assets/rnnoise-worklet.js', 'try_files $uri =404;')
+  requireLocationText(label, config, '^~ /assets/', 'expires 1y;')
+  requireLocationText(label, config, '^~ /assets/', 'try_files $uri =404;')
+  requireLocationText(label, config, '/', 'expires -1;')
+  requireLocationText(label, config, '/', 'try_files $uri $uri/ /index.html;')
 
   if (production) {
     requireText(label, config, 'add_header Strict-Transport-Security "max-age=31536000" always;')
@@ -80,6 +108,10 @@ validateNginx('apps/web/nginx.production.conf', { production: true })
 validateNginx('apps/web/nginx.development.conf', { production: false })
 validateTauri('apps/desktop/src-tauri/tauri.conf.json', { production: true })
 validateTauri('apps/desktop/src-tauri/tauri.dev.conf.json', { production: false })
+
+const pwaRegistration = read('apps/web/src/pwa.ts')
+requireText('apps/web/src/pwa.ts', pwaRegistration, "register('/sw.js', { updateViaCache: 'none' })")
+requireText('apps/web/src/pwa.ts', pwaRegistration, 'registration.update()')
 
 const apiFixture = new Response(null, {
   headers: {
