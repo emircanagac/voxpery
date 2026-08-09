@@ -6,12 +6,14 @@ use image::{
 };
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::Manager;
 
 struct DesktopRuntimeState {
     minimize_to_tray_on_close: AtomicBool,
     allow_close_for_update: AtomicBool,
     tray_icon_variant: AtomicBool,
+    pending_deep_links: Mutex<Vec<String>>,
 }
 
 impl Default for DesktopRuntimeState {
@@ -20,6 +22,7 @@ impl Default for DesktopRuntimeState {
             minimize_to_tray_on_close: AtomicBool::new(true),
             allow_close_for_update: AtomicBool::new(false),
             tray_icon_variant: AtomicBool::new(false),
+            pending_deep_links: Mutex::new(Vec::new()),
         }
     }
 }
@@ -226,6 +229,17 @@ fn desktop_prepare_for_update_install(state: tauri::State<'_, DesktopRuntimeStat
 }
 
 #[tauri::command]
+fn desktop_take_pending_deep_links(
+    state: tauri::State<'_, DesktopRuntimeState>,
+) -> Vec<String> {
+    state
+        .pending_deep_links
+        .lock()
+        .map(|mut pending| std::mem::take(&mut *pending))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
 fn desktop_update_unread_feedback(
     unread_count: u32,
     unread_increased: bool,
@@ -314,6 +328,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             desktop_set_minimize_to_tray_on_close,
             desktop_prepare_for_update_install,
+            desktop_take_pending_deep_links,
             desktop_update_unread_feedback,
             desktop_open_media_permission_settings
         ]);
@@ -329,6 +344,34 @@ fn main() {
         let window_state_flags = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
 
         builder = builder
+            // Register single-instance handling before the other desktop plugins so an OAuth
+            // protocol launch cannot race the webview's JavaScript listener during startup.
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                let deep_link = args
+                    .iter()
+                    .find(|arg| arg.starts_with("voxpery://auth/"))
+                    .cloned();
+                let is_startup_instance = args.iter().any(|arg| arg == "--autostart");
+
+                if deep_link.is_some() || !is_startup_instance {
+                    show_main_window(app);
+                }
+
+                if let Some(url) = deep_link {
+                    if let Ok(mut pending) = app
+                        .state::<DesktopRuntimeState>()
+                        .pending_deep_links
+                        .lock()
+                    {
+                        if !pending.contains(&url) {
+                            pending.push(url.clone());
+                        }
+                    }
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("custom-deep-link", url);
+                    }
+                }
+            }))
             .plugin(tauri_plugin_http::init())
             .plugin(tauri_plugin_secure_storage::init())
             .plugin(tauri_plugin_opener::init())
@@ -346,26 +389,6 @@ fn main() {
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                     Some(vec!["--autostart"]),
                 ))?;
-
-                let _ =
-                    app.handle()
-                        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-                            let deep_link = args
-                                .iter()
-                                .find(|arg| arg.starts_with("voxpery://"))
-                                .cloned();
-                            let is_startup_instance = args.iter().any(|arg| arg == "--autostart");
-
-                            if deep_link.is_some() || !is_startup_instance {
-                                show_main_window(app);
-                            }
-
-                            if let Some(w) = app.get_webview_window("main") {
-                                if let Some(arg) = deep_link {
-                                    let _ = w.emit("custom-deep-link", arg);
-                                }
-                            }
-                        }));
 
                 // System tray: icon + menu (Show, Quit)
                 let show_i = MenuItem::with_id(app, "show", "Show Voxpery", true, None::<&str>)?;

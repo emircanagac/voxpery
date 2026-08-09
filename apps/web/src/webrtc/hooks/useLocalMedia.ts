@@ -5,6 +5,10 @@ import {
     getStoredVoiceInputDeviceId,
 } from '../../voiceDevices'
 import { reportObservabilityEvent } from '../../observability'
+import {
+    updateVoiceDiagnostics,
+    type ScreenShareCaptureDiagnostics,
+} from '../voiceDiagnostics'
 
 export const SCREEN_SHARE_QUALITY_KEY = 'voxpery-settings-screen-share-quality'
 export const SCREEN_SHARE_CAPTURE_READY_EVENT = 'voxpery-screen-share-capture-ready'
@@ -25,6 +29,11 @@ export type ScreenShareProfile = {
     degradationPreference: ScreenShareDegradationPreference
 }
 
+export type ScreenShareCaptureResult = {
+    stream: MediaStream
+    diagnostics: ScreenShareCaptureDiagnostics
+}
+
 export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'auto'>, ScreenShareProfile> = {
     presentation: {
         resolution: '1080p',
@@ -36,14 +45,14 @@ export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'au
     video: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 6_000_000,
+        bitrate: 8_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },
     gaming: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 8_000_000,
+        bitrate: 12_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },
@@ -94,6 +103,37 @@ export function toScreenShareDisplayMediaOptions(
     }
 }
 
+function finiteSetting(value: number | undefined): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export function toScreenShareCaptureDiagnostics(
+    profile: ScreenShareProfile,
+    videoTrack: MediaStreamTrack,
+    audioCaptured: boolean,
+    constraintsApplied: boolean,
+): ScreenShareCaptureDiagnostics {
+    const settings = videoTrack.getSettings?.() ?? {}
+    const requested = toScreenShareConstraintsForProfile(profile)
+    const requestedWidth = requested.width as { ideal?: number } | undefined
+    const requestedHeight = requested.height as { ideal?: number } | undefined
+    const requestedFrameRate = requested.frameRate as { ideal?: number } | undefined
+    return {
+        requestedWidth: finiteSetting(requestedWidth?.ideal),
+        requestedHeight: finiteSetting(requestedHeight?.ideal),
+        requestedFramerate: finiteSetting(requestedFrameRate?.ideal),
+        actualWidth: finiteSetting(settings.width),
+        actualHeight: finiteSetting(settings.height),
+        actualFramerate: finiteSetting(settings.frameRate),
+        displaySurface: settings.displaySurface,
+        constraintsApplied,
+        audioCaptured,
+        videoPublished: false,
+        audioPublished: false,
+        simulcast: true,
+    }
+}
+
 export function useLocalMedia() {
     const cachedMicStreamRef = useRef<MediaStream | null>(null)
     const cachedMicDeviceIdRef = useRef<string>('')
@@ -122,17 +162,18 @@ export function useLocalMedia() {
         return toScreenShareConstraints(profile)
     }, [resolveQualityMode, resolveScreenShareProfile, toScreenShareConstraints])
 
-    const applyScreenShareTrackProfile = useCallback(async (videoTrack: MediaStreamTrack | undefined) => {
-        if (!videoTrack) return
+    const applyScreenShareTrackProfile = useCallback(async (videoTrack: MediaStreamTrack) => {
         const profile = resolveScreenShareProfile(videoTrack.getSettings?.().displaySurface)
         if ('contentHint' in videoTrack) {
             try { videoTrack.contentHint = profile.contentHint } catch { /* ignore */ }
         }
+        let constraintsApplied = true
         try {
             await videoTrack.applyConstraints(toScreenShareConstraints(profile))
         } catch {
-            // Browsers may refuse post-selection display constraints; publish encoding still caps bandwidth/FPS.
+            constraintsApplied = false
         }
+        return { profile, constraintsApplied }
     }, [resolveScreenShareProfile, toScreenShareConstraints])
 
     // Apply browser-level mic constraints.
@@ -231,11 +272,22 @@ export function useLocalMedia() {
         throw new Error('Unable to access camera')
     }, [])
 
-    const getScreenStream = useCallback(async (): Promise<MediaStream> => {
+    const getScreenStream = useCallback(async (): Promise<ScreenShareCaptureResult> => {
         const cached = cachedScreenStreamRef.current
         if (cached) {
             const video = cached.getVideoTracks()[0]
-            if (video?.readyState === 'live') return cached
+            if (video?.readyState === 'live') {
+                const profile = resolveScreenShareProfile(video.getSettings?.().displaySurface)
+                return {
+                    stream: cached,
+                    diagnostics: toScreenShareCaptureDiagnostics(
+                        profile,
+                        video,
+                        cached.getAudioTracks().some((track) => track.readyState === 'live'),
+                        true,
+                    ),
+                }
+            }
             cached.getTracks().forEach((t) => t.stop())
             cachedScreenStreamRef.current = null
         }
@@ -244,16 +296,28 @@ export function useLocalMedia() {
             const stream = await navigator.mediaDevices.getDisplayMedia(
                 toScreenShareDisplayMediaOptions(videoConstraints),
             )
-            await applyScreenShareTrackProfile(stream.getVideoTracks()[0])
+            const videoTrack = stream.getVideoTracks()[0]
+            if (!videoTrack) {
+                stream.getTracks().forEach((track) => track.stop())
+                throw new Error('No screen video track was captured')
+            }
+            const { profile, constraintsApplied } = await applyScreenShareTrackProfile(videoTrack)
+            const diagnostics = toScreenShareCaptureDiagnostics(
+                profile,
+                videoTrack,
+                stream.getAudioTracks().some((track) => track.readyState === 'live'),
+                constraintsApplied,
+            )
             cachedScreenStreamRef.current = stream
             window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))
             reportObservabilityEvent('media_screen_share_started')
-            return stream
+            updateVoiceDiagnostics({ screenShare: diagnostics })
+            return { stream, diagnostics }
         } catch (error) {
             reportObservabilityEvent('media_screen_share_failed')
             throw error
         }
-    }, [applyScreenShareTrackProfile, getScreenShareConstraints])
+    }, [applyScreenShareTrackProfile, getScreenShareConstraints, resolveScreenShareProfile])
 
     /** Returns LiveKit-compatible videoEncoding and content hint based on quality mode. */
     const getScreenShareEncoding = useCallback((videoTrack?: MediaStreamTrack): {

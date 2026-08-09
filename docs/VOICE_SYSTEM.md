@@ -128,6 +128,7 @@ Room.localParticipant.publishTrack
   - The processed microphone track is published with LiveKit's high-quality mono Opus preset.
   - DTX remains enabled to avoid sending unnecessary silence, and RED remains enabled for packet-loss resilience.
   - Stereo is forced off for microphone audio so bitrate stays focused on voice clarity rather than duplicate channels.
+  - If the raw capture track ends or the operating-system default input changes during a call, Voxpery re-captures the preferred/default device and atomically replaces the existing LiveKit sender track. The working publication remains in place until the replacement is ready.
 - **Why RNNoise?**
   - Browser native `noiseSuppression` is too weak for noisy backgrounds
   - Krisp required LiveKit Cloud (self-hosted setups can't use it)
@@ -194,6 +195,7 @@ Speaker
 - New users and users who leave device selection on `Windows Default` follow the current system default microphone and speaker.
 - Explicit microphone and speaker selections remain stored and are reused while those devices are available.
 - If a stored custom device is unplugged, removed, or no longer exposed by the browser, Voxpery clears only that stale preference and silently retries with the system default.
+- Device changes are reconciled during an active call. Existing custom inputs remain selected while available; a removed custom input or changed system default triggers a debounced capture rebuild.
 - Permission failures, devices that are temporarily busy, and output-selection policy failures do not overwrite a valid custom preference.
 - The same microphone fallback is used by call preflight, LiveKit capture, the microphone test, and the legacy WebRTC path.
 
@@ -203,10 +205,10 @@ Speaker
 
 | Preset        | Resolution | FPS | Bitrate (Mbps) | Use Case         |
 |---------------|------------|-----|----------------|------------------|
-| Auto          | 1080p      | 30/60 | 4-6          | Balanced selection by shared surface |
+| Auto          | 1080p      | 30/60 | 4-8          | Balanced selection by shared surface |
 | Presentation  | 1080p      | 30  | 4.0            | Slides, docs, IDEs |
-| Video         | 1080p      | 60  | 6.0            | Browser tabs, monitors, and video |
-| Gaming        | 1080p      | 60  | 8.0            | Explicit high-motion mode |
+| Video         | 1080p      | 60  | 8.0            | Browser tabs, monitors, and video |
+| Gaming        | 1080p      | 60  | 12.0           | Explicit high-motion mode |
 
 ### Implementation
 
@@ -217,18 +219,28 @@ const stream = await navigator.mediaDevices.getDisplayMedia({
 })
 await room.localParticipant.publishTrack(videoTrack, {
   source: Track.Source.ScreenShare,
-  screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 60 },
-  simulcast: false  // Full quality, no layering
+  screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+  videoCodec: supportsVP9() ? 'vp9' : 'vp8',
+  scalabilityMode: supportsVP9() ? 'L3T3_KEY' : undefined,
+  simulcast: !supportsVP9(),
+  screenShareSimulcastLayers: supportsVP9()
+    ? undefined
+    : [screenShare360p30, screenShare720p60]
 })
 ```
+
+Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path.
 
 ### Content Hints
 
 - **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
 - **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
-- **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with a balanced 6 Mbps cap and `maintain-framerate` degradation.
-- **Gaming share**: Explicit 1080p60 high-motion mode with an 8 Mbps cap for users who prefer quality over bandwidth.
+- **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
+- **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
+- A share is not published without a live video track. If the selected platform/source does not provide a system or tab audio track, video sharing continues and the sender receives a non-fatal `Sharing without audio` notice with source-picker guidance.
+- Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
+- Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio capture/publication, codec/scalability mode, simulcast state, and outbound resolution/FPS/bitrate/packet/quality-limitation samples without device identifiers.
 
 ### Remote Viewing Controls
 
@@ -306,7 +318,7 @@ When debugging a production voice report, capture:
 
 1. The call bar ping color and visible ping.
 2. Whether the room was connected, connecting, or reconnecting.
-3. Enable temporary diagnostics with `localStorage.setItem("voxperyVoiceDiagnostics", "1")`, reload, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active.
+3. Enable temporary diagnostics with `localStorage.setItem("voxperyVoiceDiagnostics", "1")`, reload, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active. During screen share, `screenShare` and `screenShareOutbound` show actual capture/publish quality and network limitation signals.
 4. Whether the user recently changed microphone, camera, VPN, firewall, or network.
 
 ### Voice cues

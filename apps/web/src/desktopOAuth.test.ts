@@ -89,6 +89,7 @@ describe('desktop OAuth deep links', () => {
     const disposeCustom = vi.fn()
     const sources: DesktopOAuthDeepLinkSources = {
       getCurrent: vi.fn().mockResolvedValue([`voxpery://auth/servers?code=${code}`]),
+      getPending: vi.fn().mockResolvedValue([]),
       onOpenUrl: vi.fn(async (handler) => {
         opened = handler
         return disposeOpen
@@ -110,5 +111,21 @@ describe('desktop OAuth deep links', () => {
     dispose()
     expect(disposeOpen).toHaveBeenCalledTimes(1)
     expect(disposeCustom).toHaveBeenCalledTimes(1)
+  })
+
+  it('drains deep links received before the webview listener was ready', async () => {
+    const pendingUrl = `voxpery://auth/servers?code=${code}`
+    const sources: DesktopOAuthDeepLinkSources = {
+      getCurrent: vi.fn().mockResolvedValue([]),
+      getPending: vi.fn().mockResolvedValue([pendingUrl]),
+      onOpenUrl: vi.fn().mockResolvedValue(vi.fn()),
+      listenCustom: vi.fn().mockResolvedValue(vi.fn()),
+    }
+    const handler = vi.fn().mockResolvedValue(true)
+
+    await registerDesktopOAuthDeepLinks(sources, handler)
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler).toHaveBeenCalledWith(pendingUrl)
   })
 })

@@ -20,6 +20,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] A new/default user joins with the operating system's current default microphone and speaker.
 - [ ] A valid custom microphone and speaker remain selected after reload and voice rejoin.
 - [ ] After a selected custom microphone or speaker is disconnected, the next capture/playback attempt silently uses the system default and Voice Settings shows `Windows Default`.
+- [ ] While already joined, unplugging the active microphone or changing the operating-system default input recovers capture without leaving/rejoining and without removing the existing LiveKit microphone publication first.
 - [ ] In desktop builds, the configured mute shortcut also works while Voxpery is unfocused, minimized, or running in the tray.
 - [ ] On a clean macOS install, the first voice join prompts for microphone access and Voxpery appears in Privacy & Security -> Microphone after the decision.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
@@ -50,7 +51,13 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] `Gaming` profile publishes at the UI-described 1080p60 behavior with the higher bitrate profile.
 - [ ] `Auto` chooses a balanced profile by shared surface: monitor/browser -> video, window/unknown -> presentation.
 - [ ] Monitor/game and browser/video shares stay motion-first under load: frame pacing remains smooth before sharpness is preserved.
+- [ ] A VP9-capable Chromium/WebView2 publisher reports `codec: vp9` and `scalabilityMode: L3T3_KEY`; a fallback runtime reports `codec: vp8`.
+- [ ] Resizing and fullscreening User B's remote share tile upgrades the received adaptive layer without restarting the share.
 - [ ] User A starts screen share; User B sees the screen tile.
+- [ ] Sharing a supported browser tab/system-audio source publishes both `ScreenShare` and `ScreenShareAudio`; User B hears the shared audio independently from User A's microphone.
+- [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.
+- [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio capture/publication, simulcast, outbound bitrate/FPS, packet loss, and quality limitation reason are present without device identifiers.
+- [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.
 - [ ] On a clean macOS install, starting screen share prompts for Screen & System Audio Recording access and Voxpery appears in that Privacy & Security list.
 - [ ] On macOS, opening and closing the native share picker does not lower remote microphone audio; the same level continues without clicking Voxpery again.
 - [ ] User B hears the screen-start cue only once for the screen video track.

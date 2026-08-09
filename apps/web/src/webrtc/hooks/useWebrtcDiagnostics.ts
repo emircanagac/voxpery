@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Room } from 'livekit-client'
-import { updateVoiceDiagnostics } from '../voiceDiagnostics'
+import { Room, Track } from 'livekit-client'
+import {
+    updateVoiceDiagnostics,
+    type ScreenShareOutboundDiagnostics,
+} from '../voiceDiagnostics'
 
 const PING_WINDOW_SIZE = 7
 const RTC_BURST_SAMPLE_COUNT = 6
@@ -9,6 +12,87 @@ const RTC_STEADY_INTERVAL_MS = 2500
 const WS_PING_INTERVAL_MS = 2500
 
 type PingSource = 'rtc' | 'ws' | null
+
+export interface ScreenShareOutboundSample extends ScreenShareOutboundDiagnostics {
+    bytesSent?: number
+    timestamp?: number
+}
+
+function finiteNumber(value: unknown): number | undefined {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : undefined
+}
+
+export function extractScreenShareOutboundSample(
+    reports: RTCStats[],
+    trackIdentifier: string,
+): ScreenShareOutboundSample | null {
+    const byId = new Map(reports.map((report) => [report.id, report]))
+    const matches: ScreenShareOutboundSample[] = []
+    for (const report of reports) {
+        if (report.type !== 'outbound-rtp') continue
+        const outbound = report as RTCOutboundRtpStreamStats & {
+            mediaType?: string
+            mediaSourceId?: string
+            trackId?: string
+            trackIdentifier?: string
+            qualityLimitationReason?: string
+            isRemote?: boolean
+        }
+        if ((outbound.kind ?? outbound.mediaType) !== 'video' || outbound.isRemote) continue
+
+        const source = outbound.mediaSourceId ? byId.get(outbound.mediaSourceId) : undefined
+        const legacyTrack = outbound.trackId ? byId.get(outbound.trackId) : undefined
+        const sourceIdentifier = String(
+            outbound.trackIdentifier
+            ?? (source as (RTCStats & { trackIdentifier?: string }) | undefined)?.trackIdentifier
+            ?? (legacyTrack as (RTCStats & { trackIdentifier?: string }) | undefined)?.trackIdentifier
+            ?? '',
+        )
+        if (sourceIdentifier !== trackIdentifier) continue
+
+        const remoteInbound = reports.find((candidate) => (
+            candidate.type === 'remote-inbound-rtp'
+            && (candidate as RTCStats & { localId?: string }).localId === outbound.id
+        )) as (RTCStats & { packetsLost?: number }) | undefined
+
+        matches.push({
+            width: finiteNumber(outbound.frameWidth),
+            height: finiteNumber(outbound.frameHeight),
+            framesPerSecond: finiteNumber(outbound.framesPerSecond),
+            packetsSent: finiteNumber(outbound.packetsSent),
+            packetsLost: finiteNumber(remoteInbound?.packetsLost),
+            qualityLimitationReason: outbound.qualityLimitationReason,
+            bytesSent: finiteNumber(outbound.bytesSent),
+            timestamp: finiteNumber(outbound.timestamp),
+        })
+    }
+    if (matches.length === 0) return null
+
+    const sum = (key: 'bytesSent' | 'packetsSent' | 'packetsLost') => {
+        const values = matches.map((match) => match[key]).filter((value): value is number => value != null)
+        return values.length > 0 ? values.reduce((total, value) => total + value, 0) : undefined
+    }
+    const max = (key: 'width' | 'height' | 'framesPerSecond' | 'timestamp') => {
+        const values = matches.map((match) => match[key]).filter((value): value is number => value != null)
+        return values.length > 0 ? Math.max(...values) : undefined
+    }
+    const limitation = matches
+        .map((match) => match.qualityLimitationReason)
+        .find((reason) => reason && reason !== 'none')
+        ?? matches[0]?.qualityLimitationReason
+
+    return {
+        width: max('width'),
+        height: max('height'),
+        framesPerSecond: max('framesPerSecond'),
+        packetsSent: sum('packetsSent'),
+        packetsLost: sum('packetsLost'),
+        qualityLimitationReason: limitation,
+        bytesSent: sum('bytesSent'),
+        timestamp: max('timestamp'),
+    }
+}
 
 const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value))
@@ -85,6 +169,7 @@ export function useWebrtcDiagnostics(options: {
     const rtcPingJitterMsRef = useRef<number | null>(null)
     const selectedPingSourceRef = useRef<PingSource>(null)
     const prevInboundTotalsRef = useRef<InboundTotals | null>(null)
+    const previousScreenShareOutboundRef = useRef<ScreenShareOutboundSample | null>(null)
 
     // WS ping/pong — kept as fallback while RTC path is unavailable.
     useEffect(() => {
@@ -146,6 +231,7 @@ export function useWebrtcDiagnostics(options: {
             rtcSmoothedRef.current = null
             rtcPingJitterMsRef.current = null
             prevInboundTotalsRef.current = null
+            previousScreenShareOutboundRef.current = null
             return
         }
 
@@ -185,6 +271,46 @@ export function useWebrtcDiagnostics(options: {
                     stats.forEach((report) => {
                         if (report?.id) byId.set(report.id, report)
                     })
+
+                    const screenPublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)
+                    const screenTrackIdentifier = screenPublication?.track?.mediaStreamTrack.id
+                    if (screenTrackIdentifier) {
+                        const sample = extractScreenShareOutboundSample(
+                            Array.from(stats.values()),
+                            screenTrackIdentifier,
+                        )
+                        if (sample) {
+                            const previous = previousScreenShareOutboundRef.current
+                            let bitrateKbps: number | undefined
+                            if (
+                                previous?.bytesSent != null
+                                && previous.timestamp != null
+                                && sample.bytesSent != null
+                                && sample.timestamp != null
+                                && sample.timestamp > previous.timestamp
+                                && sample.bytesSent >= previous.bytesSent
+                            ) {
+                                bitrateKbps = Math.round(
+                                    ((sample.bytesSent - previous.bytesSent) * 8)
+                                    / (sample.timestamp - previous.timestamp),
+                                )
+                            }
+                            previousScreenShareOutboundRef.current = sample
+                            updateVoiceDiagnostics({
+                                screenShareOutbound: {
+                                    width: sample.width,
+                                    height: sample.height,
+                                    framesPerSecond: sample.framesPerSecond,
+                                    bitrateKbps,
+                                    packetsSent: sample.packetsSent,
+                                    packetsLost: sample.packetsLost,
+                                    qualityLimitationReason: sample.qualityLimitationReason,
+                                },
+                            })
+                        }
+                    } else {
+                        previousScreenShareOutboundRef.current = null
+                    }
 
                     // Transport-selected candidate pair (Chromium/WebKit).
                     stats.forEach((report) => {

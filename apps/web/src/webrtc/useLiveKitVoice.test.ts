@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
+  getPreferredScreenShareCodec,
+  getScreenSharePublishOptions,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
   remoteMediaStartCueKey,
@@ -10,6 +12,7 @@ import {
   shouldSubscribeRemoteTrack,
   shouldPlayRemoteMediaStartCue,
   shouldPlayRemoteMediaStopCue,
+  shouldRecoverMicrophoneTrack,
 } from './useLiveKitVoice'
 import { AudioPresets, Track } from 'livekit-client'
 
@@ -22,6 +25,61 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+})
+
+describe('media reliability', () => {
+  it('keeps 60 FPS on the VP8 fallback layers instead of dropping motion to 30 FPS', () => {
+    const options = getScreenSharePublishOptions({
+      maxBitrate: 8_000_000,
+      maxFramerate: 60,
+      contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
+    }, 'vp8')
+
+    expect(options).toMatchObject({
+      source: Track.Source.ScreenShare,
+      simulcast: true,
+      videoCodec: 'vp8',
+      screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+    })
+    expect(options.screenShareSimulcastLayers).toHaveLength(2)
+    expect(options.screenShareSimulcastLayers?.map((preset) => ({
+      width: preset.width,
+      height: preset.height,
+      maxFramerate: preset.encoding.maxFramerate,
+    }))).toEqual([
+      { width: 640, height: 360, maxFramerate: 30 },
+      { width: 1280, height: 720, maxFramerate: 60 },
+    ])
+  })
+
+  it('uses VP9 SVC when supported and retains VP8 as the compatibility fallback', () => {
+    expect(getPreferredScreenShareCodec(true)).toBe('vp9')
+    expect(getPreferredScreenShareCodec(false)).toBe('vp8')
+
+    expect(getScreenSharePublishOptions({
+      maxBitrate: 8_000_000,
+      maxFramerate: 60,
+      contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
+    }, 'vp9')).toMatchObject({
+      videoCodec: 'vp9',
+      backupCodec: true,
+      scalabilityMode: 'L3T3_KEY',
+      simulcast: false,
+      screenShareSimulcastLayers: undefined,
+    })
+  })
+
+  it('recovers only the active ended microphone in a joined call', () => {
+    const activeTrack = { readyState: 'ended' } as MediaStreamTrack
+    const staleTrack = { readyState: 'ended' } as MediaStreamTrack
+
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, 'voice-1', false)).toBe(true)
+    expect(shouldRecoverMicrophoneTrack(staleTrack, activeTrack, 'voice-1', false)).toBe(false)
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, null, false)).toBe(false)
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, 'voice-1', true)).toBe(false)
   })
 })
 

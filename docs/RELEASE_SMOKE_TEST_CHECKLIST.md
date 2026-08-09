@@ -94,6 +94,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] With Voxpery closed, Google OAuth opens the browser, starts the desktop app via `voxpery://`, and completes sign-in without requiring a second callback click.
 - [ ] With Voxpery already running, Google OAuth returns to and focuses the existing desktop instance.
 - [ ] If the browser blocks automatic external-protocol navigation, the `Open Voxpery` fallback completes the same sign-in flow.
+- [ ] OAuth cancellation/failure renders the branded responsive handoff state, and `Return to Voxpery` opens the desktop login error state without exposing tokens or raw provider errors.
+- [ ] Repeating the same callback through native pending links, `getCurrent()`, and runtime events exchanges its one-time code only once.
 - [ ] Session is restored after OAuth callback, the one-time code is not exchanged twice, and the user lands on the requested authenticated route.
 - [ ] If updater artifacts are enabled, signing keys and updater pubkey are configured (see `docs/DESKTOP_RELEASE_HARDENING.md`).
 - [ ] Desktop release workflow ran against the exact release tag/ref, with `smoke_checklist_confirmed=yes`.

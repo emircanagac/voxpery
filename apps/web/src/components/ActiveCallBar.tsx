@@ -23,6 +23,10 @@ import { ROUTES } from '../routes'
 import { attachMediaStreamPreview } from '../mediaStreamPreview'
 import { resolveAvatarUrl } from '../api'
 import { createRemoteAudioKindPlaybackStream, remoteMediaVisibilityKey, type RemoteMediaKind } from '../webrtc/remoteMediaControls'
+import {
+  attachRemoteVideoElement,
+  type VoxperyMediaStreamTrack,
+} from '../webrtc/livekitVideoAttachment'
 import { isTauri } from '../secureStorage'
 import {
   getStoredGlobalMuteShortcut,
@@ -31,11 +35,7 @@ import {
   keyboardEventMatchesShortcut,
 } from '../globalMuteShortcut'
 
-interface VoxperyTrack extends MediaStreamTrack {
-  __voxpery_isCamera?: boolean
-  __voxpery_isScreenShare?: boolean
-  __voxpery_isScreenShareAudio?: boolean
-}
+type VoxperyTrack = VoxperyMediaStreamTrack
 
 interface VoxperyAudioElement extends HTMLAudioElement {
   __voxpery_trackIds?: string
@@ -70,9 +70,21 @@ function readScreenShareQuality(): ScreenShareQuality {
 
 function screenShareQualitySummary(mode: ScreenShareQuality) {
   if (mode === 'presentation') return '1080p30 · 4 Mbps · detail'
-  if (mode === 'video') return '1080p60 · 6 Mbps · motion'
-  if (mode === 'gaming') return '1080p60 · 8 Mbps · high motion'
-  return 'Auto uses a balanced profile up to 1080p60 · 6 Mbps.'
+  if (mode === 'video') return '1080p60 · 8 Mbps · motion'
+  if (mode === 'gaming') return '1080p60 · 12 Mbps · high motion'
+  return 'Auto uses an adaptive profile up to 1080p60 · 8 Mbps.'
+}
+
+function RemoteVideoTrack({ track }: { track: MediaStreamTrack }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element) return
+    return attachRemoteVideoElement(element, track)
+  }, [track])
+
+  return <video ref={videoRef} autoPlay muted playsInline />
 }
 
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
@@ -231,7 +243,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const micTestPrevMutedRef = useRef(false)
   const remoteAudioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteAudioRetryTimerRef = useRef<Map<string, number>>(new Map())
-  const remoteVideoStreamByTrackIdRef = useRef<Map<string, MediaStream>>(new Map())
   // Per-playback WebAudio nodes for amplification above 100% (GainNode allows gain > 1.0).
   // Microphone and screen-share audio are separate playback paths so their volumes cannot affect each other.
   const perPeerAudioCtxRef = useRef<Map<string, { ctx: AudioContext; source: MediaElementAudioSourceNode; gain: GainNode }>>(new Map())
@@ -637,13 +648,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
-    const remoteVideoStreams = remoteVideoStreamByTrackIdRef.current
     return () => {
       for (const t of retryTimers.values()) {
         window.clearTimeout(t)
       }
       retryTimers.clear()
-      remoteVideoStreams.clear()
     }
   }, [])
 
@@ -974,8 +983,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       void 0
     }
     try {
-      await startScreenShare()
+      const result = await startScreenShare()
       playVoiceCue('screen-start')
+      if (!result.audioPublished) {
+        pushToast({
+          level: 'info',
+          title: 'Sharing without audio',
+          message: 'No system or tab audio track was provided. Choose a supported tab or enable audio in the share picker to include sound.',
+        })
+      }
     } catch (e) {
       const permissionDenied = isMediaPermissionDeniedError(e, 'screen')
       const message = permissionDenied
@@ -1258,7 +1274,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 if (isHidden) return null
                 return (
                   <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
-                    <video autoPlay muted playsInline ref={(el) => { if (!el) return; let stream = remoteVideoStreamByTrackIdRef.current.get(track.id); if (!stream) { stream = new MediaStream([track]); remoteVideoStreamByTrackIdRef.current.set(track.id, stream) }; if (el.srcObject !== stream) el.srcObject = stream; void el.play().catch(() => { }) }} />
+                    <RemoteVideoTrack track={track} />
                     <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {owner}</span></div>
                     <div className="screen-share-controls-bar">
                       <div className="screen-share-controls-left">

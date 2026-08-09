@@ -66,6 +66,33 @@ export interface VoiceLivekitDiagnostics {
   microphoneForceStereo?: boolean
 }
 
+export interface ScreenShareCaptureDiagnostics {
+  requestedWidth?: number
+  requestedHeight?: number
+  requestedFramerate?: number
+  actualWidth?: number
+  actualHeight?: number
+  actualFramerate?: number
+  displaySurface?: string
+  constraintsApplied?: boolean
+  audioCaptured?: boolean
+  videoPublished?: boolean
+  audioPublished?: boolean
+  simulcast?: boolean
+  codec?: string
+  scalabilityMode?: string
+}
+
+export interface ScreenShareOutboundDiagnostics {
+  width?: number
+  height?: number
+  framesPerSecond?: number
+  bitrateKbps?: number
+  packetsSent?: number
+  packetsLost?: number
+  qualityLimitationReason?: string
+}
+
 export interface VoiceRuntimeDiagnostics {
   benchmarkSchemaVersion?: number
   rnnoiseStatus?: RnnoiseRuntimeStatus
@@ -87,6 +114,8 @@ export interface VoiceRuntimeDiagnostics {
   voiceActivity?: VoiceActivityDiagnostics
   network?: VoiceNetworkDiagnosticsSnapshot
   livekit?: VoiceLivekitDiagnostics
+  screenShare?: ScreenShareCaptureDiagnostics
+  screenShareOutbound?: ScreenShareOutboundDiagnostics
   updatedAt?: string
 }
 

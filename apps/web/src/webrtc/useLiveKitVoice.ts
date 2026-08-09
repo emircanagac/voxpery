@@ -5,10 +5,14 @@ import {
   RemoteParticipant,
   Room,
   RoomEvent,
+  ScreenSharePresets,
   setLogLevel,
+  supportsVP9,
   Track,
+  VideoPreset,
   type RemoteTrackPublication,
   type TrackPublishOptions,
+  type VideoCodec,
 } from 'livekit-client'
 import { webrtcApi } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -16,7 +20,7 @@ import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
 import { useAudioEngine } from './hooks/useAudioEngine'
-import { useLocalMedia } from './hooks/useLocalMedia'
+import { useLocalMedia, type ScreenShareCaptureResult } from './hooks/useLocalMedia'
 import { useVoiceActivity } from './hooks/useVoiceActivity'
 import { useWebrtcDiagnostics } from './hooks/useWebrtcDiagnostics'
 import { getStoredVoiceInputDeviceId, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
@@ -28,6 +32,7 @@ import {
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
 import type { RemoteMediaKind } from './remoteMediaControls'
 import { reportObservabilityEvent } from '../observability'
+import { associateLiveKitVideoTrack } from './livekitVideoAttachment'
 
 if (import.meta.env.PROD) {
   setLogLevel('silent')
@@ -52,6 +57,61 @@ export function getMicrophonePublishOptions(): TrackPublishOptions {
     red: true,
     forceStereo: false,
   }
+}
+
+type ScreenShareEncoding = {
+  maxBitrate: number
+  maxFramerate: number
+  contentHint: 'detail' | 'motion'
+  degradationPreference: 'maintain-resolution' | 'maintain-framerate'
+}
+
+export interface ScreenShareStartResult {
+  hasAudio: boolean
+  audioPublished: boolean
+}
+
+const SCREEN_SHARE_MOTION_360P = new VideoPreset(640, 360, 1_000_000, 30)
+const SCREEN_SHARE_MOTION_720P = new VideoPreset(1280, 720, 4_000_000, 60)
+
+export function getPreferredScreenShareCodec(vp9Supported = supportsVP9()): VideoCodec {
+  return vp9Supported ? 'vp9' : 'vp8'
+}
+
+export function getScreenSharePublishOptions(
+  encoding: ScreenShareEncoding,
+  codec: VideoCodec = getPreferredScreenShareCodec(),
+): TrackPublishOptions {
+  const usesSvc = codec === 'vp9' || codec === 'av1'
+  return {
+    source: Track.Source.ScreenShare,
+    screenShareEncoding: {
+      maxBitrate: encoding.maxBitrate,
+      maxFramerate: encoding.maxFramerate,
+    },
+    screenShareSimulcastLayers: usesSvc
+      ? undefined
+      : encoding.maxFramerate >= 50
+        ? [SCREEN_SHARE_MOTION_360P, SCREEN_SHARE_MOTION_720P]
+        : [ScreenSharePresets.h360fps15, ScreenSharePresets.h720fps30],
+    degradationPreference: encoding.degradationPreference,
+    videoCodec: codec,
+    backupCodec: usesSvc,
+    scalabilityMode: usesSvc ? 'L3T3_KEY' : undefined,
+    simulcast: !usesSvc,
+  }
+}
+
+export function shouldRecoverMicrophoneTrack(
+  endedTrack: MediaStreamTrack,
+  currentTrack: MediaStreamTrack | null,
+  joinedChannelId: string | null,
+  recoveryInFlight: boolean,
+): boolean {
+  return !!joinedChannelId
+    && endedTrack === currentTrack
+    && endedTrack.readyState === 'ended'
+    && !recoveryInFlight
 }
 
 export function shouldSubscribeRemoteTrack(
@@ -220,6 +280,9 @@ export function useLiveKitVoice() {
   const finalMediaDisconnectHandlerRef = useRef<(isCurrentRoom: boolean) => void>(() => undefined)
   const desiredMicMutedRef = useRef(false)
   const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
+  const microphoneRecoveryInFlightRef = useRef(false)
+  const microphoneEndedHandlerRef = useRef<(track: MediaStreamTrack) => void>(() => undefined)
+  const microphoneDeviceChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [joinedChannelId, setJoinedChannelId] = useState<string | null>(null)
   const isJoiningRef = useRef(false)
@@ -445,6 +508,7 @@ export function useLiveKitVoice() {
     let ownsSourceStream = false
     let nextTrack: MediaStreamTrack | null = null
     let nextGateCancel: (() => void) | null = null
+    let trackReplaced = false
 
     try {
       if (!forceNewDeviceStream && previousRawTrack && previousRawTrack.readyState === 'live') {
@@ -467,19 +531,22 @@ export function useLiveKitVoice() {
       )
       nextTrack = built.track
       nextGateCancel = built.cancelGate
+      const nextRawTrack = rawMicTrackRef.current
+      if (nextRawTrack) {
+        nextRawTrack.onended = () => microphoneEndedHandlerRef.current(nextRawTrack)
+      }
 
-      await room.localParticipant.unpublishTrack(previousTrack)
-      previousTrack.stop()
-
-      const publication = await room.localParticipant.publishTrack(nextTrack, getMicrophonePublishOptions())
+      await previousTrack.replaceTrack(nextTrack)
+      trackReplaced = true
       previousGateCancel?.()
       gateCancelRef.current = nextGateCancel
-      localAudioTrackRef.current = publication.track as LocalAudioTrack
+      localAudioTrackRef.current = previousTrack
       vadStreamRef.current = built.vadStream
 
       if (forceNewDeviceStream) {
         activeInputDeviceIdRef.current = getStoredVoiceInputDeviceId()
         if (previousRawTrack && previousRawTrack !== rawMicTrackRef.current) {
+          previousRawTrack.onended = null
           previousRawTrack.stop()
         }
       }
@@ -489,7 +556,7 @@ export function useLiveKitVoice() {
       await setLocalMicMuted(desiredMicMutedRef.current)
     } catch (error) {
       nextGateCancel?.()
-      if (nextTrack) {
+      if (nextTrack && !trackReplaced) {
         try {
           nextTrack.stop()
         } catch {
@@ -497,7 +564,10 @@ export function useLiveKitVoice() {
         }
       }
       if (ownsSourceStream) {
-        sourceStream?.getTracks().forEach((track) => track.stop())
+        sourceStream?.getTracks().forEach((track) => {
+          track.onended = null
+          track.stop()
+        })
       }
       rawMicTrackRef.current = previousRawTrack
       inputGainNodeRef.current = previousInputGainNode
@@ -509,6 +579,67 @@ export function useLiveKitVoice() {
   const switchMicrophoneDevice = useCallback(async () => {
     await rebuildPublishedMicrophoneTrack({ forceNewDeviceStream: true })
   }, [rebuildPublishedMicrophoneTrack])
+
+  const recoverMicrophoneCapture = useCallback(async () => {
+    if (microphoneRecoveryInFlightRef.current || !joinedChannelIdRef.current) return
+    microphoneRecoveryInFlightRef.current = true
+    try {
+      await rebuildPublishedMicrophoneTrack({ forceNewDeviceStream: true })
+    } finally {
+      microphoneRecoveryInFlightRef.current = false
+    }
+  }, [rebuildPublishedMicrophoneTrack])
+
+  useEffect(() => {
+    microphoneEndedHandlerRef.current = (endedTrack) => {
+      if (!shouldRecoverMicrophoneTrack(
+        endedTrack,
+        rawMicTrackRef.current,
+        joinedChannelIdRef.current,
+        microphoneRecoveryInFlightRef.current,
+      )) return
+      void recoverMicrophoneCapture()
+    }
+  }, [recoverMicrophoneCapture])
+
+  useEffect(() => {
+    const mediaDevices = navigator.mediaDevices
+    if (!mediaDevices?.addEventListener) return
+
+    const handleDeviceChange = () => {
+      if (!joinedChannelIdRef.current) return
+      if (microphoneDeviceChangeTimerRef.current) {
+        clearTimeout(microphoneDeviceChangeTimerRef.current)
+      }
+      microphoneDeviceChangeTimerRef.current = setTimeout(() => {
+        microphoneDeviceChangeTimerRef.current = null
+        void (async () => {
+          const preferredDeviceId = getStoredVoiceInputDeviceId()
+          if (preferredDeviceId && mediaDevices.enumerateDevices) {
+            try {
+              const devices = await mediaDevices.enumerateDevices()
+              const preferredStillExists = devices.some(
+                (device) => device.kind === 'audioinput' && device.deviceId === preferredDeviceId,
+              )
+              if (preferredStillExists) return
+            } catch {
+              // Re-capture below; getUserMedia provides the authoritative fallback result.
+            }
+          }
+          await recoverMicrophoneCapture()
+        })()
+      }, 350)
+    }
+
+    mediaDevices.addEventListener('devicechange', handleDeviceChange)
+    return () => {
+      mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+      if (microphoneDeviceChangeTimerRef.current) {
+        clearTimeout(microphoneDeviceChangeTimerRef.current)
+        microphoneDeviceChangeTimerRef.current = null
+      }
+    }
+  }, [recoverMicrophoneCapture])
 
   const cancelRemoteScreenStopCue = useCallback((peerId: PeerId) => {
     const timer = remoteScreenStopCueTimersRef.current.get(peerId)
@@ -650,6 +781,10 @@ export function useLiveKitVoice() {
         noiseSuppressionEnabled,
       )
       gateCancelRef.current = cancelGate
+      const activeRawMicTrack = rawMicTrackRef.current
+      if (activeRawMicTrack) {
+        activeRawMicTrack.onended = () => microphoneEndedHandlerRef.current(activeRawMicTrack)
+      }
 
       // Keep vadStream ref so we can pass it to the speaking monitor after room connect
       vadStreamRef.current = vadStream
@@ -657,7 +792,10 @@ export function useLiveKitVoice() {
       const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
 
       const room = new Room({
-        adaptiveStream: true,
+        adaptiveStream: {
+          pixelDensity: 'screen',
+          pauseVideoInBackground: true,
+        },
         dynacast: true,
         publishDefaults: {
           audioPreset: AudioPresets.musicHighQuality,
@@ -665,7 +803,10 @@ export function useLiveKitVoice() {
           red: true,
           forceStereo: false,
           screenShareEncoding: getScreenShareEncoding(),
-          screenShareSimulcastLayers: [],
+          screenShareSimulcastLayers: [
+            ScreenSharePresets.h360fps15,
+            ScreenSharePresets.h720fps30,
+          ],
           videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
         },
       })
@@ -715,6 +856,10 @@ export function useLiveKitVoice() {
 
           const combined = remoteStreamsRef.current.get(peerId) ?? new MediaStream()
           const mediaTrack = track.mediaStreamTrack
+
+          if (track.kind === Track.Kind.Video) {
+            associateLiveKitVideoTrack(mediaTrack, track)
+          }
 
           if (pub.source === Track.Source.ScreenShare) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
@@ -932,6 +1077,7 @@ export function useLiveKitVoice() {
     localAudioTrackRef.current?.stop()
     localAudioTrackRef.current = null
     destroyRnnoise()
+    if (rawMicTrackRef.current) rawMicTrackRef.current.onended = null
     rawMicTrackRef.current?.stop()
     rawMicTrackRef.current = null
     vadStreamRef.current = null
@@ -981,31 +1127,75 @@ export function useLiveKitVoice() {
     send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: false, camera_on: !!control?.cameraOn })
   }, [refreshLocalStreams, send, userId])
 
-  const startScreenShare = useCallback(async () => {
+  const startScreenShare = useCallback(async (): Promise<ScreenShareStartResult> => {
     const room = roomRef.current
     if (!room) throw new Error('Join a voice channel before sharing your screen')
     stopScreenShare()
 
-    const stream = await getScreenStream()
+    const capture: ScreenShareCaptureResult = await getScreenStream()
+    const { stream, diagnostics } = capture
     const tracks = stream.getTracks()
     localScreenTracksRef.current = tracks
+    const publishedTracks: MediaStreamTrack[] = []
+    let videoPublished = false
+    let audioPublished = false
+    let publishedCodec: string | undefined
+    let publishedScalabilityMode: string | undefined
+    let publishedWithSimulcast = false
 
-    for (const track of tracks) {
-      const source = track.kind === 'audio' ? Track.Source.ScreenShareAudio : Track.Source.ScreenShare
-      const screenVideo = track.kind === 'video' ? getScreenShareEncoding(track) : undefined
-      if (track.kind === 'video' && screenVideo && 'contentHint' in track) {
-        try { track.contentHint = screenVideo.contentHint } catch { /* ignore */ }
+    try {
+      for (const track of tracks) {
+        const source = track.kind === 'audio' ? Track.Source.ScreenShareAudio : Track.Source.ScreenShare
+        const screenVideo = track.kind === 'video' ? getScreenShareEncoding(track) : undefined
+        if (track.kind === 'video' && screenVideo && 'contentHint' in track) {
+          try { track.contentHint = screenVideo.contentHint } catch { /* ignore */ }
+        }
+        const options: TrackPublishOptions = screenVideo
+          ? getScreenSharePublishOptions(screenVideo)
+          : { source }
+        if (track.kind === 'video') {
+          publishedCodec = options.videoCodec
+          publishedScalabilityMode = options.scalabilityMode
+          publishedWithSimulcast = options.simulcast !== false
+        }
+        await room.localParticipant.publishTrack(track, options)
+        publishedTracks.push(track)
+        if (track.kind === 'video') videoPublished = true
+        if (track.kind === 'audio') audioPublished = true
       }
-      await room.localParticipant.publishTrack(track, {
-        source,
-        // Screen share tracks use screenShareEncoding (not videoEncoding)
-        screenShareEncoding: screenVideo
-          ? { maxBitrate: screenVideo.maxBitrate, maxFramerate: screenVideo.maxFramerate }
-          : undefined,
-        degradationPreference: screenVideo?.degradationPreference,
-        simulcast: false,  // Screen share: full quality, no simulcast layers
+    } catch (error) {
+      await Promise.allSettled(publishedTracks.map((track) => (
+        room.localParticipant.unpublishTrack(track)
+      )))
+      tracks.forEach((track) => {
+        track.onended = null
+        track.stop()
       })
+      localScreenTracksRef.current = []
+      updateVoiceDiagnostics({
+        screenShare: {
+          ...diagnostics,
+          videoPublished: false,
+          audioPublished: false,
+          simulcast: publishedWithSimulcast,
+          codec: publishedCodec,
+          scalabilityMode: publishedScalabilityMode,
+        },
+      })
+      refreshLocalStreams()
+      throw error
     }
+
+    updateVoiceDiagnostics({
+      screenShare: {
+        ...diagnostics,
+        videoPublished,
+        audioPublished,
+        simulcast: publishedWithSimulcast,
+        codec: publishedCodec,
+        scalabilityMode: publishedScalabilityMode,
+      },
+    })
     const videoTrack = stream.getVideoTracks()[0]
     if (videoTrack) {
       videoTrack.onended = () => {
@@ -1031,6 +1221,10 @@ export function useLiveKitVoice() {
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
     send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: true, camera_on: !!control?.cameraOn })
+    return {
+      hasAudio: diagnostics.audioCaptured === true,
+      audioPublished,
+    }
   }, [getScreenShareEncoding, getScreenStream, refreshLocalStreams, send, stopScreenShare, userId])
 
   const startCamera = useCallback(async () => {

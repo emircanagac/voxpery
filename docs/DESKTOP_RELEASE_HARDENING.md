@@ -24,8 +24,9 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Backend CORS allowlist must include `voxpery://auth`.
 - Desktop deep-link scheme in Tauri config must include `voxpery`.
 - The desktop client must process both cold-start URLs from the deep-link plugin's `getCurrent()` API and runtime URLs from `onOpenUrl`/single-instance events.
+- The single-instance plugin must be registered before other desktop plugins, and runtime links received before the webview listener is ready must be drained from the native pending-link queue.
 - OAuth callback codes are single-use. Duplicate delivery through multiple desktop event sources must be deduplicated before exchange.
-- The browser handoff page must attempt to open Voxpery automatically, keep an explicit user-gesture fallback, and safely encode the generated deep-link URL.
+- The responsive browser handoff page must attempt to open Voxpery automatically, keep an accessible explicit user-gesture fallback, safely encode the generated deep-link URL, and use the same branded status UI for success and failure callbacks.
 - Release preflight validates:
   - deep-link scheme setup
   - frontend OAuth origin behavior
