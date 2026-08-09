@@ -7,9 +7,12 @@ import {
   RoomEvent,
   ScreenSharePresets,
   setLogLevel,
+  supportsVP9,
   Track,
+  VideoPreset,
   type RemoteTrackPublication,
   type TrackPublishOptions,
+  type VideoCodec,
 } from 'livekit-client'
 import { webrtcApi } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -29,6 +32,7 @@ import {
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
 import type { RemoteMediaKind } from './remoteMediaControls'
 import { reportObservabilityEvent } from '../observability'
+import { associateLiveKitVideoTrack } from './livekitVideoAttachment'
 
 if (import.meta.env.PROD) {
   setLogLevel('silent')
@@ -67,20 +71,34 @@ export interface ScreenShareStartResult {
   audioPublished: boolean
 }
 
+const SCREEN_SHARE_MOTION_360P = new VideoPreset(640, 360, 1_000_000, 30)
+const SCREEN_SHARE_MOTION_720P = new VideoPreset(1280, 720, 4_000_000, 60)
+
+export function getPreferredScreenShareCodec(vp9Supported = supportsVP9()): VideoCodec {
+  return vp9Supported ? 'vp9' : 'vp8'
+}
+
 export function getScreenSharePublishOptions(
   encoding: ScreenShareEncoding,
+  codec: VideoCodec = getPreferredScreenShareCodec(),
 ): TrackPublishOptions {
+  const usesSvc = codec === 'vp9' || codec === 'av1'
   return {
     source: Track.Source.ScreenShare,
     screenShareEncoding: {
       maxBitrate: encoding.maxBitrate,
       maxFramerate: encoding.maxFramerate,
     },
-    screenShareSimulcastLayers: encoding.maxFramerate >= 50
-      ? [ScreenSharePresets.h360fps15, ScreenSharePresets.h720fps30]
-      : [ScreenSharePresets.h360fps15, ScreenSharePresets.h720fps15],
+    screenShareSimulcastLayers: usesSvc
+      ? undefined
+      : encoding.maxFramerate >= 50
+        ? [SCREEN_SHARE_MOTION_360P, SCREEN_SHARE_MOTION_720P]
+        : [ScreenSharePresets.h360fps15, ScreenSharePresets.h720fps30],
     degradationPreference: encoding.degradationPreference,
-    simulcast: true,
+    videoCodec: codec,
+    backupCodec: usesSvc,
+    scalabilityMode: usesSvc ? 'L3T3_KEY' : undefined,
+    simulcast: !usesSvc,
   }
 }
 
@@ -774,7 +792,10 @@ export function useLiveKitVoice() {
       const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
 
       const room = new Room({
-        adaptiveStream: true,
+        adaptiveStream: {
+          pixelDensity: 'screen',
+          pauseVideoInBackground: true,
+        },
         dynacast: true,
         publishDefaults: {
           audioPreset: AudioPresets.musicHighQuality,
@@ -784,7 +805,7 @@ export function useLiveKitVoice() {
           screenShareEncoding: getScreenShareEncoding(),
           screenShareSimulcastLayers: [
             ScreenSharePresets.h360fps15,
-            ScreenSharePresets.h720fps15,
+            ScreenSharePresets.h720fps30,
           ],
           videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
         },
@@ -835,6 +856,10 @@ export function useLiveKitVoice() {
 
           const combined = remoteStreamsRef.current.get(peerId) ?? new MediaStream()
           const mediaTrack = track.mediaStreamTrack
+
+          if (track.kind === Track.Kind.Video) {
+            associateLiveKitVideoTrack(mediaTrack, track)
+          }
 
           if (pub.source === Track.Source.ScreenShare) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
@@ -1114,6 +1139,9 @@ export function useLiveKitVoice() {
     const publishedTracks: MediaStreamTrack[] = []
     let videoPublished = false
     let audioPublished = false
+    let publishedCodec: string | undefined
+    let publishedScalabilityMode: string | undefined
+    let publishedWithSimulcast = false
 
     try {
       for (const track of tracks) {
@@ -1122,9 +1150,14 @@ export function useLiveKitVoice() {
         if (track.kind === 'video' && screenVideo && 'contentHint' in track) {
           try { track.contentHint = screenVideo.contentHint } catch { /* ignore */ }
         }
-        const options = screenVideo
+        const options: TrackPublishOptions = screenVideo
           ? getScreenSharePublishOptions(screenVideo)
           : { source }
+        if (track.kind === 'video') {
+          publishedCodec = options.videoCodec
+          publishedScalabilityMode = options.scalabilityMode
+          publishedWithSimulcast = options.simulcast !== false
+        }
         await room.localParticipant.publishTrack(track, options)
         publishedTracks.push(track)
         if (track.kind === 'video') videoPublished = true
@@ -1144,7 +1177,9 @@ export function useLiveKitVoice() {
           ...diagnostics,
           videoPublished: false,
           audioPublished: false,
-          simulcast: true,
+          simulcast: publishedWithSimulcast,
+          codec: publishedCodec,
+          scalabilityMode: publishedScalabilityMode,
         },
       })
       refreshLocalStreams()
@@ -1156,7 +1191,9 @@ export function useLiveKitVoice() {
         ...diagnostics,
         videoPublished,
         audioPublished,
-        simulcast: true,
+        simulcast: publishedWithSimulcast,
+        codec: publishedCodec,
+        scalabilityMode: publishedScalabilityMode,
       },
     })
     const videoTrack = stream.getVideoTracks()[0]

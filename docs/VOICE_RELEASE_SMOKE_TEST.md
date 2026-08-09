@@ -51,6 +51,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] `Gaming` profile publishes at the UI-described 1080p60 behavior with the higher bitrate profile.
 - [ ] `Auto` chooses a balanced profile by shared surface: monitor/browser -> video, window/unknown -> presentation.
 - [ ] Monitor/game and browser/video shares stay motion-first under load: frame pacing remains smooth before sharpness is preserved.
+- [ ] A VP9-capable Chromium/WebView2 publisher reports `codec: vp9` and `scalabilityMode: L3T3_KEY`; a fallback runtime reports `codec: vp8`.
+- [ ] Resizing and fullscreening User B's remote share tile upgrades the received adaptive layer without restarting the share.
 - [ ] User A starts screen share; User B sees the screen tile.
 - [ ] Sharing a supported browser tab/system-audio source publishes both `ScreenShare` and `ScreenShareAudio`; User B hears the shared audio independently from User A's microphone.
 - [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.

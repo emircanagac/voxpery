@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
+  getPreferredScreenShareCodec,
   getScreenSharePublishOptions,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
@@ -13,7 +14,7 @@ import {
   shouldPlayRemoteMediaStopCue,
   shouldRecoverMicrophoneTrack,
 } from './useLiveKitVoice'
-import { AudioPresets, ScreenSharePresets, Track } from 'livekit-client'
+import { AudioPresets, Track } from 'livekit-client'
 
 describe('microphone publish options', () => {
   it('uses a high-quality mono Opus profile with resilience enabled', () => {
@@ -28,20 +29,46 @@ describe('microphone publish options', () => {
 })
 
 describe('media reliability', () => {
-  it('publishes adaptive screen-share layers instead of one all-or-nothing layer', () => {
-    expect(getScreenSharePublishOptions({
-      maxBitrate: 6_000_000,
+  it('keeps 60 FPS on the VP8 fallback layers instead of dropping motion to 30 FPS', () => {
+    const options = getScreenSharePublishOptions({
+      maxBitrate: 8_000_000,
       maxFramerate: 60,
       contentHint: 'motion',
       degradationPreference: 'maintain-framerate',
-    })).toMatchObject({
+    }, 'vp8')
+
+    expect(options).toMatchObject({
       source: Track.Source.ScreenShare,
       simulcast: true,
-      screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 60 },
-      screenShareSimulcastLayers: [
-        ScreenSharePresets.h360fps15,
-        ScreenSharePresets.h720fps30,
-      ],
+      videoCodec: 'vp8',
+      screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+    })
+    expect(options.screenShareSimulcastLayers).toHaveLength(2)
+    expect(options.screenShareSimulcastLayers?.map((preset) => ({
+      width: preset.width,
+      height: preset.height,
+      maxFramerate: preset.encoding.maxFramerate,
+    }))).toEqual([
+      { width: 640, height: 360, maxFramerate: 30 },
+      { width: 1280, height: 720, maxFramerate: 60 },
+    ])
+  })
+
+  it('uses VP9 SVC when supported and retains VP8 as the compatibility fallback', () => {
+    expect(getPreferredScreenShareCodec(true)).toBe('vp9')
+    expect(getPreferredScreenShareCodec(false)).toBe('vp8')
+
+    expect(getScreenSharePublishOptions({
+      maxBitrate: 8_000_000,
+      maxFramerate: 60,
+      contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
+    }, 'vp9')).toMatchObject({
+      videoCodec: 'vp9',
+      backupCodec: true,
+      scalabilityMode: 'L3T3_KEY',
+      simulcast: false,
+      screenShareSimulcastLayers: undefined,
     })
   })
 

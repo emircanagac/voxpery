@@ -45,14 +45,14 @@ export const SCREEN_SHARE_PRESET_PROFILE: Record<Exclude<ScreenShareQuality, 'au
     video: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 6_000_000,
+        bitrate: 8_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },
     gaming: {
         resolution: '1080p',
         framerate: 60,
-        bitrate: 8_000_000,
+        bitrate: 12_000_000,
         contentHint: 'motion',
         degradationPreference: 'maintain-framerate',
     },

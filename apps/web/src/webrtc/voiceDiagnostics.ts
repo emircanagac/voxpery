@@ -79,6 +79,8 @@ export interface ScreenShareCaptureDiagnostics {
   videoPublished?: boolean
   audioPublished?: boolean
   simulcast?: boolean
+  codec?: string
+  scalabilityMode?: string
 }
 
 export interface ScreenShareOutboundDiagnostics {

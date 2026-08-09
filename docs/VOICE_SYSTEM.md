@@ -205,10 +205,10 @@ Speaker
 
 | Preset        | Resolution | FPS | Bitrate (Mbps) | Use Case         |
 |---------------|------------|-----|----------------|------------------|
-| Auto          | 1080p      | 30/60 | 4-6          | Balanced selection by shared surface |
+| Auto          | 1080p      | 30/60 | 4-8          | Balanced selection by shared surface |
 | Presentation  | 1080p      | 30  | 4.0            | Slides, docs, IDEs |
-| Video         | 1080p      | 60  | 6.0            | Browser tabs, monitors, and video |
-| Gaming        | 1080p      | 60  | 8.0            | Explicit high-motion mode |
+| Video         | 1080p      | 60  | 8.0            | Browser tabs, monitors, and video |
+| Gaming        | 1080p      | 60  | 12.0           | Explicit high-motion mode |
 
 ### Implementation
 
@@ -219,24 +219,28 @@ const stream = await navigator.mediaDevices.getDisplayMedia({
 })
 await room.localParticipant.publishTrack(videoTrack, {
   source: Track.Source.ScreenShare,
-  screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 60 },
-  simulcast: true,
-  screenShareSimulcastLayers: [ScreenSharePresets.h360fps15, ScreenSharePresets.h720fps30]
+  screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+  videoCodec: supportsVP9() ? 'vp9' : 'vp8',
+  scalabilityMode: supportsVP9() ? 'L3T3_KEY' : undefined,
+  simulcast: !supportsVP9(),
+  screenShareSimulcastLayers: supportsVP9()
+    ? undefined
+    : [screenShare360p30, screenShare720p60]
 })
 ```
 
-Screen publishing uses adaptive lower layers so LiveKit can preserve motion and continuity when bandwidth drops instead of relying on one all-or-nothing high-resolution layer. Firefox and runtimes for which LiveKit disables screen simulcast continue to use the SDK's platform fallback.
+Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path.
 
 ### Content Hints
 
 - **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
 - **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
-- **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with a balanced 6 Mbps cap and `maintain-framerate` degradation.
-- **Gaming share**: Explicit 1080p60 high-motion mode with an 8 Mbps cap for users who prefer quality over bandwidth.
+- **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
+- **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 - A share is not published without a live video track. If the selected platform/source does not provide a system or tab audio track, video sharing continues and the sender receives a non-fatal `Sharing without audio` notice with source-picker guidance.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
-- Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio capture/publication, simulcast state, and outbound resolution/FPS/bitrate/packet/quality-limitation samples without device identifiers.
+- Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio capture/publication, codec/scalability mode, simulcast state, and outbound resolution/FPS/bitrate/packet/quality-limitation samples without device identifiers.
 
 ### Remote Viewing Controls
 
