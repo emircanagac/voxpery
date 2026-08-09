@@ -5,6 +5,7 @@ import {
   SCREEN_SHARE_PRESET_PROFILE,
   SCREEN_SHARE_CAPTURE_READY_EVENT,
   toScreenShareDisplayMediaOptions,
+  toScreenShareCaptureDiagnostics,
   toScreenShareConstraintsForProfile,
 } from './useLocalMedia'
 
@@ -72,5 +73,37 @@ describe('screen share quality profiles', () => {
       },
     })
     expect(SCREEN_SHARE_CAPTURE_READY_EVENT).toBe('voxpery-screen-share-capture-ready')
+  })
+
+  it('records requested and actual capture quality without device identifiers', () => {
+    const track = {
+      getSettings: () => ({
+        width: 1440,
+        height: 900,
+        frameRate: 28,
+        displaySurface: 'window',
+        deviceId: 'private-display-id',
+      }),
+    } as unknown as MediaStreamTrack
+
+    expect(toScreenShareCaptureDiagnostics(
+      SCREEN_SHARE_PRESET_PROFILE.presentation,
+      track,
+      false,
+      false,
+    )).toEqual({
+      requestedWidth: 1920,
+      requestedHeight: 1080,
+      requestedFramerate: 30,
+      actualWidth: 1440,
+      actualHeight: 900,
+      actualFramerate: 28,
+      displaySurface: 'window',
+      constraintsApplied: false,
+      audioCaptured: false,
+      videoPublished: false,
+      audioPublished: false,
+      simulcast: true,
+    })
   })
 })

@@ -26,6 +26,7 @@ interface DesktopOAuthHandlerDependencies {
 
 export interface DesktopOAuthDeepLinkSources {
   getCurrent: () => Promise<string[] | null>
+  getPending: () => Promise<string[]>
   onOpenUrl: (handler: (urls: string[]) => void) => Promise<() => void>
   listenCustom: (handler: (url: string) => void) => Promise<() => void>
 }
@@ -143,6 +144,15 @@ export async function registerDesktopOAuthDeepLinks(
 
   try {
     cleanup.push(await sources.listenCustom(dispatch))
+  } catch (error) {
+    onError(error)
+  }
+
+  try {
+    const pendingUrls = await sources.getPending()
+    for (const url of pendingUrls) {
+      await handler(url)
+    }
   } catch (error) {
     onError(error)
   }

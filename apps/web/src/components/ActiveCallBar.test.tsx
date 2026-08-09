@@ -5,6 +5,7 @@ import type { MemberInfo } from '../api'
 import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import {
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -106,7 +107,7 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
     state: voiceState(overrides),
     joinVoice: vi.fn(),
     leaveVoice: vi.fn(),
-    startScreenShare: vi.fn(),
+    startScreenShare: vi.fn().mockResolvedValue({ hasAudio: true, audioPublished: true }),
     stopScreenShare: vi.fn(),
     startCamera: vi.fn(),
     stopCamera: vi.fn(),
@@ -133,6 +134,7 @@ describe('ActiveCallBar regressions', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    useToastStore.setState({ toasts: [] })
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
     Object.defineProperty(HTMLMediaElement.prototype, 'play', {
       configurable: true,
@@ -206,6 +208,23 @@ describe('ActiveCallBar regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Share screen' }))
     fireEvent.click(screen.getAllByRole('button', { name: 'Share screen' }).at(-1)!)
     await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-start'))
+  })
+
+  it('explains when the selected screen source has no publishable audio track', async () => {
+    const { voice } = renderActiveCallBar()
+    voice.startScreenShare.mockResolvedValueOnce({ hasAudio: false, audioPublished: false })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share screen' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Share screen' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts).toEqual([
+        expect.objectContaining({
+          level: 'info',
+          title: 'Sharing without audio',
+        }),
+      ])
+    })
   })
 
   it('plays separate confirmations when local camera and screen sharing stop', () => {

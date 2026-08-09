@@ -142,13 +142,15 @@ function App() {
 
       const bootstrapDesktopSession = async () => {
         await restoreSecureSession()
-        const [deepLink, event] = await Promise.all([
+        const [deepLink, event, core] = await Promise.all([
           import('@tauri-apps/plugin-deep-link'),
           import('@tauri-apps/api/event'),
+          import('@tauri-apps/api/core'),
         ])
         const cleanup = await registerDesktopOAuthDeepLinks(
           {
             getCurrent: deepLink.getCurrent,
+            getPending: () => core.invoke<string[]>('desktop_take_pending_deep_links'),
             onOpenUrl: deepLink.onOpenUrl,
             listenCustom: (handler) => event.listen<string>(
               'custom-deep-link',

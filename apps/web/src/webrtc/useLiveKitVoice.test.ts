@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
+  getScreenSharePublishOptions,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
   remoteMediaStartCueKey,
@@ -10,8 +11,9 @@ import {
   shouldSubscribeRemoteTrack,
   shouldPlayRemoteMediaStartCue,
   shouldPlayRemoteMediaStopCue,
+  shouldRecoverMicrophoneTrack,
 } from './useLiveKitVoice'
-import { AudioPresets, Track } from 'livekit-client'
+import { AudioPresets, ScreenSharePresets, Track } from 'livekit-client'
 
 describe('microphone publish options', () => {
   it('uses a high-quality mono Opus profile with resilience enabled', () => {
@@ -22,6 +24,35 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+})
+
+describe('media reliability', () => {
+  it('publishes adaptive screen-share layers instead of one all-or-nothing layer', () => {
+    expect(getScreenSharePublishOptions({
+      maxBitrate: 6_000_000,
+      maxFramerate: 60,
+      contentHint: 'motion',
+      degradationPreference: 'maintain-framerate',
+    })).toMatchObject({
+      source: Track.Source.ScreenShare,
+      simulcast: true,
+      screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 60 },
+      screenShareSimulcastLayers: [
+        ScreenSharePresets.h360fps15,
+        ScreenSharePresets.h720fps30,
+      ],
+    })
+  })
+
+  it('recovers only the active ended microphone in a joined call', () => {
+    const activeTrack = { readyState: 'ended' } as MediaStreamTrack
+    const staleTrack = { readyState: 'ended' } as MediaStreamTrack
+
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, 'voice-1', false)).toBe(true)
+    expect(shouldRecoverMicrophoneTrack(staleTrack, activeTrack, 'voice-1', false)).toBe(false)
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, null, false)).toBe(false)
+    expect(shouldRecoverMicrophoneTrack(activeTrack, activeTrack, 'voice-1', true)).toBe(false)
   })
 })
 

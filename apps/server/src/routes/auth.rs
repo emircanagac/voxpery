@@ -2,7 +2,7 @@ use axum::{
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware,
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
@@ -157,41 +157,90 @@ fn javascript_string_literal(value: &str) -> String {
         .replace('>', "\\u003e")
 }
 
-fn desktop_oauth_handoff_html(redirect_url: &str) -> String {
+fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
     let href = escape_html_attribute(redirect_url);
     let app_url = javascript_string_literal(redirect_url);
+    let (eyebrow, title, message, action) = if succeeded {
+        (
+            "Desktop sign-in",
+            "You are signed in",
+            "Voxpery should open automatically. Keep this page open until the desktop app appears.",
+            "Open Voxpery",
+        )
+    } else {
+        (
+            "Desktop sign-in",
+            "Sign-in could not be completed",
+            "Return to Voxpery to review the error and try again.",
+            "Return to Voxpery",
+        )
+    };
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Opening Voxpery...</title>
+<meta name="color-scheme" content="dark">
+<title>{title} - Voxpery</title>
 <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }}
-    .card {{ background: #313244; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 400px; }}
-    h1 {{ color: #89b4fa; margin-bottom: 1rem; }}
-    p {{ line-height: 1.5; color: #a6adc8; }}
-    .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #89b4fa; color: #1e1e2e; text-decoration: none; border-radius: 6px; font-weight: bold; transition: opacity 0.2s; }}
-    .btn:hover {{ opacity: 0.9; }}
+    :root {{ font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f4f7ff; background: #11182d; }}
+    * {{ box-sizing: border-box; }}
+    body {{ min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #11182d; }}
+    .card {{ width: min(100%, 460px); padding: 32px; border: 1px solid rgba(170, 196, 255, .18); border-radius: 8px; background: #1b2544; box-shadow: 0 22px 64px rgba(2, 7, 20, .45); text-align: left; }}
+    .brand {{ display: flex; align-items: center; gap: 10px; margin-bottom: 28px; font-weight: 800; font-size: 18px; }}
+    .mark {{ display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #4f7fd8; color: white; }}
+    .eyebrow {{ margin: 0 0 8px; color: #9fbae9; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0; }}
+    h1 {{ margin: 0; color: #ffffff; font-size: clamp(24px, 6vw, 32px); line-height: 1.15; }}
+    p {{ margin: 14px 0 0; color: #bdc9e3; line-height: 1.55; }}
+    .status {{ min-height: 20px; margin-top: 18px; color: #9fbae9; font-size: 13px; }}
+    .btn {{ display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin-top: 20px; padding: 10px 16px; border: 1px solid #8bb4ff; border-radius: 8px; background: #4f7fd8; color: #ffffff; text-decoration: none; font-weight: 800; transition: background .15s ease, border-color .15s ease; }}
+    .btn:hover {{ background: #6090e5; border-color: #b2ceff; }}
+    .btn:focus-visible {{ outline: 3px solid rgba(160, 197, 255, .55); outline-offset: 3px; }}
+    @media (max-width: 480px) {{ body {{ padding: 14px; }} .card {{ padding: 24px 20px; }} }}
 </style>
 </head>
 <body>
 <main class="card">
-    <h1>Login Successful!</h1>
-    <p>You are being redirected to the Voxpery desktop app.</p>
-    <p>If the app does not open automatically, use the button below.</p>
-    <a id="open-voxpery" href="{href}" class="btn">Open Voxpery</a>
+    <div class="brand"><span class="mark" aria-hidden="true">V</span><span>Voxpery</span></div>
+    <p class="eyebrow">{eyebrow}</p>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <p id="handoff-status" class="status" role="status" aria-live="polite">Opening the desktop app...</p>
+    <a id="open-voxpery" href="{href}" class="btn">{action}</a>
 </main>
 <script>
     const appUrl = {app_url};
-    window.addEventListener("load", () => {{
-        window.setTimeout(() => window.location.replace(appUrl), 100);
-    }}, {{ once: true }});
+    const status = document.getElementById("handoff-status");
+    const openButton = document.getElementById("open-voxpery");
+    const openDesktop = () => {{
+        window.location.assign(appUrl);
+    }};
+    openButton.addEventListener("click", () => {{
+        status.textContent = "Opening Voxpery...";
+    }});
+    openDesktop();
+    window.setTimeout(() => {{
+        if (document.visibilityState === "visible") {{
+            status.textContent = "If Voxpery did not open, use the button below.";
+        }}
+    }}, 900);
 </script>
 </body>
 </html>"#
     )
+}
+
+fn oauth_callback_response(origin: &str, redirect_path: &str, error: Option<&str>) -> Response {
+    let path = error
+        .map(|code| append_query_param(redirect_path, "error", code))
+        .unwrap_or_else(|| redirect_path.to_string());
+    let redirect_url = format!("{}{}", origin, path);
+    if is_desktop_oauth_origin(origin) {
+        Html(desktop_oauth_handoff_html(&redirect_url, error.is_none())).into_response()
+    } else {
+        Redirect::temporary(&redirect_url).into_response()
+    }
 }
 
 fn is_valid_pkce_component(value: &str) -> bool {
@@ -288,7 +337,7 @@ async fn consume_desktop_oauth_code(
 mod oauth_pkce_tests {
     use super::{
         constant_time_eq, desktop_oauth_handoff_html, is_valid_pkce_component,
-        normalize_oauth_username_seed, pkce_s256_challenge,
+        normalize_oauth_username_seed, oauth_callback_response, pkce_s256_challenge,
     };
 
     #[test]
@@ -343,13 +392,33 @@ mod oauth_pkce_tests {
     fn desktop_oauth_handoff_keeps_automatic_and_manual_open_paths_safe() {
         let html = desktop_oauth_handoff_html(
             "voxpery://auth/servers?next=\"</script><script>alert(1)</script>&code=abc",
+            true,
         );
 
         assert!(html.contains("id=\"open-voxpery\""));
-        assert!(html.contains("window.location.replace(appUrl)"));
+        assert!(html.contains("window.location.assign(appUrl)"));
+        assert!(html.contains("You are signed in"));
         assert!(html.contains("&quot;&lt;/script&gt;"));
         assert!(html.contains("\\u003c/script\\u003e"));
         assert!(!html.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn desktop_oauth_failure_uses_the_branded_handoff_page() {
+        let response = oauth_callback_response(
+            "voxpery://auth",
+            "/servers",
+            Some("oauth_failed"),
+        );
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/html; charset=utf-8")
+        );
     }
 }
 
@@ -1708,10 +1777,12 @@ async fn google_oauth_callback(
             "OAuth CSRF check failed (state mismatch or missing cookie). has_cookie_state={}",
             found_oauth_state.is_some()
         );
-        let redirect_error = format!("{}?error=oauth_failed_csrf", redirect_path);
         let clear_cookie = clear_oauth_state_cookie_header(&state);
-        let mut response =
-            Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        let mut response = oauth_callback_response(
+            &origin,
+            &redirect_path,
+            Some("oauth_failed_csrf"),
+        );
         if let Ok(v) = HeaderValue::from_str(&clear_cookie) {
             response.headers_mut().insert(header::SET_COOKIE, v);
         }
@@ -1731,8 +1802,7 @@ async fn google_oauth_callback(
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("Google token exchange failed: {}", e);
-            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
     if !token_res.status().is_success() {
@@ -1743,15 +1813,13 @@ async fn google_oauth_callback(
             status,
             body_len
         );
-        let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-        return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
     }
     let token_data: GoogleTokenResponse = match token_res.json().await {
         Ok(d) => d,
         Err(e) => {
             tracing::warn!("Google token parse failed: {}", e);
-            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
 
@@ -1765,15 +1833,12 @@ async fn google_oauth_callback(
             Ok(u) => u,
             Err(e) => {
                 tracing::warn!("Google userinfo parse failed: {}", e);
-                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
-                    .into_response();
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
         },
         _ => {
             tracing::warn!("Google userinfo request failed");
-            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
 
@@ -1789,8 +1854,11 @@ async fn google_oauth_callback(
             "Google OAuth login rejected: unverified email ({})",
             redact_email_for_log(&email)
         );
-        let redirect_error = format!("{}?error=oauth_unverified_email", redirect_path);
-        return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+        return oauth_callback_response(
+            &origin,
+            &redirect_path,
+            Some("oauth_unverified_email"),
+        );
     }
 
     let user = sqlx::query_as::<_, User>(
@@ -1864,8 +1932,7 @@ async fn google_oauth_callback(
             .await
             {
                 tracing::warn!("Google OAuth insert user failed: {}", e);
-                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
             let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1")
                 .bind(&google_id)
@@ -1874,9 +1941,7 @@ async fn google_oauth_callback(
             {
                 Ok(u) => u,
                 Err(_) => {
-                    let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                    return Redirect::temporary(&format!("{}{}", origin, redirect_error))
-                        .into_response();
+                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
                 }
             };
             if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
@@ -1886,8 +1951,7 @@ async fn google_oauth_callback(
         }
         Err(e) => {
             tracing::warn!("Google OAuth db lookup failed: {}", e);
-            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
 
@@ -1901,8 +1965,7 @@ async fn google_oauth_callback(
         Ok(t) => t,
         Err(e) => {
             tracing::warn!("JWT generate failed: {}", e);
-            let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-            return Redirect::temporary(&format!("{}{}", origin, redirect_error)).into_response();
+            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
 
@@ -1917,18 +1980,14 @@ async fn google_oauth_callback(
             Some(value) => value,
             None => {
                 tracing::warn!("Desktop OAuth callback missing PKCE challenge in state");
-                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
-                    .into_response();
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
         };
         let exchange_code = match issue_desktop_oauth_code(&state, &token, challenge).await {
             Ok(code) => code,
             Err(e) => {
                 tracing::warn!("Failed to issue desktop OAuth code: {}", e);
-                let redirect_error = format!("{}?error=oauth_failed", redirect_path);
-                return Redirect::temporary(&format!("{}{}", origin, redirect_error))
-                    .into_response();
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
         };
         let path_with_code = append_query_param(&redirect_path, "code", &exchange_code);
@@ -1938,7 +1997,7 @@ async fn google_oauth_callback(
     };
 
     let mut response = if is_desktop {
-        Html(desktop_oauth_handoff_html(&redirect_url)).into_response()
+        Html(desktop_oauth_handoff_html(&redirect_url, true)).into_response()
     } else {
         Redirect::temporary(&redirect_url).into_response()
     };

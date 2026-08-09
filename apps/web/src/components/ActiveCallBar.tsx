@@ -974,8 +974,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       void 0
     }
     try {
-      await startScreenShare()
+      const result = await startScreenShare()
       playVoiceCue('screen-start')
+      if (!result.audioPublished) {
+        pushToast({
+          level: 'info',
+          title: 'Sharing without audio',
+          message: 'No system or tab audio track was provided. Choose a supported tab or enable audio in the share picker to include sound.',
+        })
+      }
     } catch (e) {
       const permissionDenied = isMediaPermissionDeniedError(e, 'screen')
       const message = permissionDenied
