@@ -125,6 +125,9 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Production web CSP `connect-src` does not include `localhost` or `127.0.0.1` loopback targets.
 - [ ] Desktop release preflight confirms restrictive `object-src`, `base-uri`, `form-action`, `frame-ancestors`, and media CSP directives.
 - [ ] During the real production voice call, after enabling `localStorage.setItem("voxperyVoiceDiagnostics", "1")` and reloading, DevTools `window.__VOXPERY_VOICE_DIAGNOSTICS__` reports `rnnoiseStatus: "ready"` and `aggressiveIsolation: true` when suppression is on.
+- [ ] Unsent text restores independently after switching between two server channels and two DMs, survives reload/desktop restart for the same user, and is absent for another user on the same device.
+- [ ] A successful send clears only that conversation's text draft; a failed send preserves it, and file attachments are never restored as persistent drafts.
+- [ ] Desktop idle traffic follows [NETWORK_USAGE_BENCHMARK.md](NETWORK_USAGE_BENCHMARK.md): there is one WebSocket connection and no six-second friend-request polling.
 - [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` when suppression, CSP, service workers, build output, or production deployment config changed.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 

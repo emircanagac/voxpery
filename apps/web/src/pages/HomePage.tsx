@@ -30,6 +30,11 @@ import {
   type DraftAttachmentItem,
 } from '../draftAttachments'
 import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import {
+  clearMessageDraftIfUnchanged,
+  readMessageDraft,
+  saveMessageDraft,
+} from '../messageDrafts'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { createReplyContentSnippet } from '../replyPreview'
@@ -100,7 +105,7 @@ function OnboardingCard({
 export default function HomePage({ isMessagesView = true }: { isMessagesView?: boolean }) {
   const { token, user } = useAuthStore()
   const userId = user?.id ?? null
-  const { subscribe, send, isConnected, onReconnect } = useSocketStore()
+  const { subscribe, onReconnect } = useSocketStore()
   const {
     servers: storeServers,
     setServersLoading,
@@ -219,6 +224,16 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const pendingDmMessageFingerprintsRef = useRef(new Set<string>())
   const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
+
+  useEffect(() => {
+    setDmInput(readMessageDraft(userId, 'dm', activeDmChannelId))
+    setDmDraftAttachments([])
+  }, [activeDmChannelId, userId])
+
+  const handleDmInputChange = useCallback((value: string) => {
+    setDmInput(value)
+    saveMessageDraft(userId, 'dm', activeDmChannelId, value)
+  }, [activeDmChannelId, userId])
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
   useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
@@ -299,11 +314,19 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [setDmChannelIds, setDmUnreadFromChannels, setIncomingRequestCount, setServers, setServersLoading, setSocialDataReady, setStoreFriends, setStoreDmChannels, token, userId])
 
-  useEffect(() => {
+  const refreshFriendRequests = useCallback(async () => {
     if (!userId) return
+    const req = await friendApi.requests(token)
+    setIncomingRequests(req.incoming)
+    setIncomingRequestCount(req.incoming.length)
+    setOutgoingRequests(req.outgoing)
+  }, [setIncomingRequestCount, token, userId])
+
+  useEffect(() => {
+    if (!userId || !isMessagesView) return
     if (!useAppStore.getState().socialDataReady) setSocialBootstrapLoading(true)
     refreshServersAndFriends().catch(console.error)
-  }, [refreshServersAndFriends, userId])
+  }, [isMessagesView, refreshServersAndFriends, userId])
 
   const openOfficialCommunity = useCallback(async () => {
     if (voxperyServer) {
@@ -440,7 +463,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   useEffect(() => {
     if (!user) return
     const unsubscribe = onReconnect(() => {
-      void refreshServersAndFriends().catch(() => {})
+      if (isMessagesView) void refreshFriendRequests().catch(() => {})
 
       const currentDmChannelId = activeDmChannelIdRef.current
       if (currentDmChannelId) {
@@ -455,7 +478,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
     })
     return () => unsubscribe()
-  }, [onReconnect, refreshActiveDmConversation, refreshServersAndFriends, token, user])
+  }, [isMessagesView, onReconnect, refreshActiveDmConversation, refreshFriendRequests, token, user])
 
   const handlePinDmMessage = useCallback(async (messageId: string) => {
     if (!user || !activeDmChannelId) return
@@ -505,15 +528,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     window.scrollTo(0, 0)
       ; (document.activeElement as HTMLElement | null)?.blur()
   }, [view])
-
-  useEffect(() => {
-    if (!isConnected || dmChannels.length === 0) return
-    const ids = dmChannels.map((c) => c.id)
-    send('Subscribe', { channel_ids: ids })
-    return () => {
-      send('Unsubscribe', { channel_ids: ids })
-    }
-  }, [dmChannels, isConnected, send])
 
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
@@ -575,16 +589,16 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   // Instant social refresh when friend requests/friendships change on either side.
   useEffect(() => {
-    if (!userId) return
+    if (!userId || !isMessagesView) return
     const unsub = subscribe((evt: unknown) => {
       const e = evt as { type?: string; data?: { user_id?: string } }
       if (e?.type !== 'FriendUpdate') return
       const uid = e.data?.user_id
       if (uid !== userId) return
-      refreshServersAndFriends().catch(() => { })
+      refreshFriendRequests().catch(() => { })
     })
     return () => unsub()
-  }, [refreshServersAndFriends, subscribe, userId])
+  }, [isMessagesView, refreshFriendRequests, subscribe, userId])
 
   const openMessageForFriend = useCallback(async (friendId: string) => {
     if (!user || openingDmPeerId) return
@@ -640,7 +654,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const acceptRequest = async (requestId: string) => {
     if (!user) return
     await friendApi.acceptRequest(requestId, token)
-    await refreshServersAndFriends()
+    const [friendList] = await Promise.all([
+      friendApi.list(token),
+      refreshFriendRequests(),
+    ])
+    setStoreFriends(friendList)
   }
 
   const rejectRequest = async (requestId: string) => {
@@ -816,7 +834,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       })
       return
     }
-    const inputValue = typeof forceContent === 'string' ? forceContent : dmInput
+    const isForcedContent = typeof forceContent === 'string'
+    const inputValue = isForcedContent ? forceContent : dmInput
     const bodyText = inputValue.trim()
     const attachmentsToSend = getUploadedDraftAttachments(dmDraftAttachments)
     if (!bodyText && attachmentsToSend.length === 0) return
@@ -827,7 +846,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (pendingDmMessageFingerprintsRef.current.has(sendFingerprint)) return
     pendingDmMessageFingerprintsRef.current.add(sendFingerprint)
     setReplyingToDm(null)
-    setDmInput('')
+    if (!isForcedContent) setDmInput('')
     setDmDraftAttachments([])
     const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const optimisticId = `local-${clientId}`
@@ -869,6 +888,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       } else {
         rememberDmMessages(channelId, applySentDm(dmMessagesByChannelRef.current[channelId] ?? []))
       }
+      if (!isForcedContent) {
+        clearMessageDraftIfUnchanged(userId, 'dm', channelId, inputValue)
+      }
     } catch (err) {
       const applyFailedDm = (current: UiDmMessage[]) =>
         current.map((m) =>
@@ -884,6 +906,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         })
       } else {
         rememberDmMessages(channelId, applyFailedDm(dmMessagesByChannelRef.current[channelId] ?? []))
+      }
+      if (!isForcedContent && activeDmChannelIdRef.current === channelId) {
+        setDmInput((current) => current || inputValue)
       }
     } finally {
       pendingDmMessageFingerprintsRef.current.delete(sendFingerprint)
@@ -1408,7 +1433,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onPickAttachments={handleDmAttachmentPick}
                 onRemoveAttachment={(index) => setDmDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
                 onRetryAttachment={handleRetryDmAttachment}
-                onMessageInputChange={setDmInput}
+                onMessageInputChange={handleDmInputChange}
                 onSendMessage={handleSendDm}
                 onRetryMessage={handleRetryDmMessage}
                 onDeleteMessage={setDeleteDmConfirmMessageId}

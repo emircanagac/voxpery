@@ -31,6 +31,11 @@ import {
     type DraftAttachmentItem,
 } from '../draftAttachments'
 import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import {
+    clearMessageDraftIfUnchanged,
+    readMessageDraft,
+    saveMessageDraft,
+} from '../messageDrafts'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import {
     getServerNotificationPreference,
@@ -378,6 +383,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false,
     )
+
+    useEffect(() => {
+        setMessageInput(readMessageDraft(user?.id, 'channel', activeChannelId))
+        setDraftAttachments([])
+    }, [activeChannelId, user?.id])
+
+    const handleMessageInputChange = useCallback((value: string) => {
+        setMessageInput(value)
+        saveMessageDraft(user?.id, 'channel', activeChannelId, value)
+    }, [activeChannelId, user?.id])
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsDescription, setServerSettingsDescription] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
@@ -944,9 +959,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!activeChannelId) return
         const draft = sessionStorage.getItem('voxpery-draft-mention')
         if (!draft) return
-        setMessageInput((prev) => (prev.trim() ? prev : draft))
+        setMessageInput((prev) => {
+            if (prev.trim()) return prev
+            saveMessageDraft(user?.id, 'channel', activeChannelId, draft)
+            return draft
+        })
         sessionStorage.removeItem('voxpery-draft-mention')
-    }, [activeChannelId])
+    }, [activeChannelId, user?.id])
 
     // ─── WebSocket ─────────────────────────────
 
@@ -1275,7 +1294,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             return
         }
         const attachments = getUploadedDraftAttachments(draftAttachments)
-        const inputValue = typeof forceContent === 'string' ? forceContent : messageInput
+        const isForcedContent = typeof forceContent === 'string'
+        const inputValue = isForcedContent ? forceContent : messageInput
         if ((!inputValue.trim() && attachments.length === 0)) return
         const bodyText = inputValue.trim()
         const content = replyingTo
@@ -1303,7 +1323,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             clientId,
             clientStatus: 'sending',
         }
-        setMessageInput('')
+        if (!isForcedContent) setMessageInput('')
         setDraftAttachments([])
         setMessages((prev) => {
             const next = [...prev, optimistic]
@@ -1324,6 +1344,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             } else {
                 messagesByChannelRef.current[channelId] = applySentMessage(messagesByChannelRef.current[channelId] ?? [])
             }
+            if (!isForcedContent) {
+                clearMessageDraftIfUnchanged(user?.id, 'channel', channelId, inputValue)
+            }
         } catch (err) {
             console.error('Failed to send:', err)
             const applyFailedMessage = (current: UiMessage[]) =>
@@ -1340,6 +1363,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 })
             } else {
                 messagesByChannelRef.current[channelId] = applyFailedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
+            if (!isForcedContent && activeChannelIdRef.current === channelId) {
+                setMessageInput((current) => current || inputValue)
             }
         } finally {
             pendingMessageFingerprintsRef.current.delete(sendFingerprint)
@@ -2983,7 +3009,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onPickAttachments={handleAttachmentPick}
                 onRemoveAttachment={(index) => setDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
                 onRetryAttachment={handleRetryDraftAttachment}
-                onMessageInputChange={setMessageInput}
+                onMessageInputChange={handleMessageInputChange}
                 onSendMessage={handleSendMessage}
                 onRetryMessage={handleRetryMessage}
                 onDeleteMessage={(messageId) => setDeleteMessageConfirmId(messageId)}

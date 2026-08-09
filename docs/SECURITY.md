@@ -416,6 +416,11 @@ npm audit fix
 
 For privacy policy, see main README or project website.
 
+Unsent message text is stored only in browser/desktop local storage, scoped by
+user and channel/DM identity. Drafts are never sent to the backend, do not retain
+file attachments, are limited to 4,000 characters and 80 entries, and expire
+after 30 days.
+
 ---
 
 Last verified against code on 2026-05-12.
