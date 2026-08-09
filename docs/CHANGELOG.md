@@ -7,10 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-09
+
+### Added
+- Added persistent, user-scoped text drafts for server channels and direct messages, including safe restoration after reload or desktop restart.
+- Added release smoke coverage for draft isolation, failed-send preservation, and low-idle-traffic behavior.
+
 ### Changed
+- Reduced idle REST traffic by removing six-second friend-request polling, deduplicating DM subscriptions, and extending the event-driven fallback refresh interval.
+- Improved screen-share capture and publish adaptation for high-motion 1080p presets while retaining network-aware degradation behavior.
+- Updated voice media controls so hiding remote camera or screen share is local, reversible, and does not disconnect microphone audio.
+- Refined camera, screen-share, join, and leave audio cues so call events are easier to distinguish without adding stop-event noise.
+- Synchronized web, server, and desktop package metadata to `0.2.6` after the `v0.2.5` tag relied on tag-derived build versions.
+
+### Fixed
+- Completed desktop Google OAuth handoff recovery and made callback processing idempotent across startup and runtime deep-link delivery.
+- Improved microphone device recovery and remote-media attachment reliability across desktop, web, and reconnect paths.
+- Prevented first-message content from shifting after server confirmation.
+- Completed Light and custom theme contrast coverage across member lists, overlays, modals, and feedback surfaces.
+- Corrected attachment signature tampering coverage so the backend regression test always mutates the tested signature.
+
+## [0.2.5] - 2026-08-08
+
+### Added
+- Added Default, Dark, Light, and single-color Custom appearance themes with persistent preferences and reset-to-default behavior.
+- Added a compact, theme-aware feedback dock linking users to the matching GitHub bug and feature request templates.
+- Added privacy-safe, feature-gated operational observability with a fixed event schema.
+
+### Changed
+- Sorted open direct messages by recent activity, added persistent DM pinning, and moved pin actions into a compact context menu.
+- Reworked channel and category creation into Discord-style compact menus, category actions, and sidebar context menus.
+- Tuned the default voice suppression profiles for more natural speech while retaining the noisy-room option.
 - Migrated declarative routing imports to React Router 8 and updated the frontend lint dependency chain to ESLint 10.
 - Preserved original error causes when wrapping network and microphone-access failures for clearer diagnostics.
 - Reduced scheduled dependency audits from daily to weekly while retaining audits on every pull request and manual dispatch.
+
+### Fixed
+- Reconciled LiveKit disconnects with sidebar voice presence so departed users no longer remain visible in voice channels.
+- Fixed landing login/register navigation and completed the desktop OAuth return flow.
+- Stabilized first-message avatar and content alignment and aligned application surfaces with the selected appearance theme.
 
 ### Security
 - Updated React Router to `8.3.0` to address `GHSA-qwww-vcr4-c8h2`.
