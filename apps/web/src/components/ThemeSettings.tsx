@@ -12,7 +12,12 @@ import {
   type ThemePreference,
 } from '../theme'
 
-const VISIBLE_THEME_OPTIONS = THEME_OPTIONS.filter((option) => option.id !== 'rose')
+const THEME_GRID_OPTIONS = [
+  THEME_OPTIONS.find((option) => option.id === 'voxpery')!,
+  'custom',
+  THEME_OPTIONS.find((option) => option.id === 'dark')!,
+  THEME_OPTIONS.find((option) => option.id === 'light')!,
+] as const
 
 export default function ThemeSettings() {
   const [preference, setPreference] = useState<ThemePreference>(() => getStoredThemePreference())
@@ -94,7 +99,42 @@ export default function ThemeSettings() {
         </button>
       </div>
       <div className="theme-option-grid" role="group" aria-label="Theme">
-        {VISIBLE_THEME_OPTIONS.map((option) => {
+        {THEME_GRID_OPTIONS.map((option) => {
+          if (option === 'custom') {
+            return (
+              <button
+                key="custom"
+                type="button"
+                className={`theme-option ${preference.customThemeColor ? 'is-selected' : ''}`}
+                onClick={() => selectCustomThemeColor(themeColorDraft)}
+                aria-pressed={Boolean(preference.customThemeColor)}
+              >
+                <span
+                  className="theme-option-preview"
+                  style={{
+                    '--theme-preview-bg': customThemePalette.backgroundColor,
+                    '--theme-preview-surface': customThemePalette.surfaceColor,
+                    '--theme-preview-accent': customThemePalette.accentColor,
+                    '--theme-preview-text': customThemePalette.textColor,
+                  } as CSSProperties}
+                  aria-hidden
+                >
+                  <span className="theme-option-preview-sidebar" />
+                  <span className="theme-option-preview-content">
+                    <span />
+                    <span />
+                  </span>
+                </span>
+                <span className="theme-option-meta">
+                  <span className="theme-option-label">
+                    Custom
+                    {preference.customThemeColor && <Check size={14} aria-hidden />}
+                  </span>
+                  <span className="theme-option-description">Pick one color and Voxpery handles the rest.</span>
+                </span>
+              </button>
+            )
+          }
           const selected = !preference.customThemeColor && preference.theme === option.id
           return (
             <button
@@ -130,36 +170,6 @@ export default function ThemeSettings() {
             </button>
           )
         })}
-        <button
-          type="button"
-          className={`theme-option ${preference.customThemeColor ? 'is-selected' : ''}`}
-          onClick={() => selectCustomThemeColor(themeColorDraft)}
-          aria-pressed={Boolean(preference.customThemeColor)}
-        >
-          <span
-            className="theme-option-preview"
-            style={{
-              '--theme-preview-bg': customThemePalette.backgroundColor,
-              '--theme-preview-surface': customThemePalette.surfaceColor,
-              '--theme-preview-accent': customThemePalette.accentColor,
-              '--theme-preview-text': customThemePalette.textColor,
-            } as CSSProperties}
-            aria-hidden
-          >
-            <span className="theme-option-preview-sidebar" />
-            <span className="theme-option-preview-content">
-              <span />
-              <span />
-            </span>
-          </span>
-          <span className="theme-option-meta">
-            <span className="theme-option-label">
-              Custom
-              {preference.customThemeColor && <Check size={14} aria-hidden />}
-            </span>
-            <span className="theme-option-description">Pick one color and Voxpery handles the rest.</span>
-          </span>
-        </button>
       </div>
 
       {preference.customThemeColor && <div className="theme-custom-panel is-active" aria-label="Custom theme controls">
