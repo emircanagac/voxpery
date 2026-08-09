@@ -3202,7 +3202,8 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
     );
 
     let tampered_path = if let Some((prefix, sig)) = signed_path.rsplit_once("sig=") {
-        let bad_sig = format!("{}0", &sig[..sig.len().saturating_sub(1)]);
+        let replacement = if sig.ends_with('0') { '1' } else { '0' };
+        let bad_sig = format!("{}{replacement}", &sig[..sig.len().saturating_sub(1)]);
         format!("{prefix}sig={bad_sig}")
     } else {
         panic!("signed URL must include sig param");
