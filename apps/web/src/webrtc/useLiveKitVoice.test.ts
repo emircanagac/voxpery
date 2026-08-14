@@ -10,6 +10,7 @@ import {
   remoteMediaStartCueKey,
   remoteMediaVoiceCue,
   resyncVoiceStateAfterReconnect,
+  shouldSubscribeRemotePublication,
   shouldSubscribeRemoteTrack,
   shouldPlayRemoteMediaStartCue,
   shouldPlayRemoteMediaStopCue,
@@ -109,6 +110,15 @@ describe('remote media subscriptions', () => {
   it('keeps user-hidden media unsubscribed even while the app is visible', () => {
     expect(shouldSubscribeRemoteTrack(Track.Kind.Video, true, true)).toBe(false)
     expect(shouldSubscribeRemoteTrack(Track.Kind.Audio, true, true)).toBe(false)
+  })
+
+  it('requires an explicit watch action for screen video and audio', () => {
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShare, Track.Kind.Video, true, false, false)).toBe(false)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, true, false, false)).toBe(false)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShare, Track.Kind.Video, true, false, true)).toBe(true)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, true, false, true)).toBe(true)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, false, false, true)).toBe(false)
+    expect(shouldSubscribeRemotePublication(Track.Source.Microphone, Track.Kind.Audio, false)).toBe(true)
   })
 
   it('maps camera and screen publications to viewer controls', () => {

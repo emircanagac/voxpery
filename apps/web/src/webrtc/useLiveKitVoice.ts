@@ -133,6 +133,18 @@ export function shouldSubscribeRemoteTrack(
   return kind === Track.Kind.Audio || appVisible
 }
 
+export function shouldSubscribeRemotePublication(
+  source: Track.Source,
+  kind: Track.Kind,
+  appVisible: boolean,
+  userHidden = false,
+  screenShareWatched = false,
+): boolean {
+  const isScreenShare = source === Track.Source.ScreenShare || source === Track.Source.ScreenShareAudio
+  if (isScreenShare) return !userHidden && appVisible && screenShareWatched
+  return shouldSubscribeRemoteTrack(kind, appVisible, userHidden)
+}
+
 export function remoteMediaKindForSource(source: Track.Source): RemoteMediaKind | null {
   if (source === Track.Source.Camera) return 'camera'
   if (source === Track.Source.ScreenShare || source === Track.Source.ScreenShareAudio) return 'screen'
@@ -243,6 +255,7 @@ export interface UseLiveKitVoiceState {
   cameraStream: MediaStream | null
   remoteStreams: Map<PeerId, MediaStream>
   remoteScreenTrackIds: Set<string>
+  watchedRemoteScreenPeerIds: Set<PeerId>
   pingMs: number | null
   lastError: string | null
   livekit: {
@@ -282,9 +295,8 @@ export function useLiveKitVoice() {
   const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
   const remoteMediaStartCueReadyRef = useRef(false)
   const remoteScreenStopCueTimersRef = useRef<Map<PeerId, ReturnType<typeof setTimeout>>>(new Map())
-  const visibilitySuppressedTrackSidsRef = useRef<Set<string>>(new Set())
   const userHiddenRemoteMediaKeysRef = useRef<Set<string>>(new Set())
-  const resumedTrackSidsRef = useRef<Set<string>>(new Set())
+  const watchedRemoteScreenPeerIdsRef = useRef<Set<PeerId>>(new Set())
   const joinedChannelIdRef = useRef<string | null>(null)
   const finalMediaDisconnectReconciledRef = useRef(false)
   const finalMediaDisconnectHandlerRef = useRef<(isCurrentRoom: boolean) => void>(() => undefined)
@@ -305,6 +317,7 @@ export function useLiveKitVoice() {
 
   const [remoteStreamsVersion, setRemoteStreamsVersion] = useState(0)
   const [remoteScreenTrackIds, setRemoteScreenTrackIds] = useState<Set<string>>(new Set())
+  const [watchedRemoteScreenPeerIds, setWatchedRemoteScreenPeerIds] = useState<Set<PeerId>>(() => new Set())
   const bumpRemote = () => {
     setRemoteStreamsVersion((v) => v + 1)
     setRemoteScreenTrackIds(new Set(remoteScreenTrackIdsRef.current))
@@ -324,13 +337,15 @@ export function useLiveKitVoice() {
     const userHidden = mediaKind
       ? userHiddenRemoteMediaKeysRef.current.has(remoteMediaSubscriptionKey(peerId, mediaKind))
       : false
-    const shouldSubscribe = shouldSubscribeRemoteTrack(publication.kind, appVisible, userHidden)
+    const explicitlyWatched = watchedRemoteScreenPeerIdsRef.current.has(peerId)
+    const shouldSubscribe = shouldSubscribeRemotePublication(
+      publication.source,
+      publication.kind,
+      appVisible,
+      userHidden,
+      explicitlyWatched,
+    )
 
-    if (!shouldSubscribe && !userHidden && publication.kind === Track.Kind.Video) {
-      visibilitySuppressedTrackSidsRef.current.add(publication.trackSid)
-    } else if (shouldSubscribe && visibilitySuppressedTrackSidsRef.current.delete(publication.trackSid)) {
-      resumedTrackSidsRef.current.add(publication.trackSid)
-    }
     if (publication.isSubscribed !== shouldSubscribe) {
       publication.setSubscribed(shouldSubscribe)
     }
@@ -350,23 +365,35 @@ export function useLiveKitVoice() {
     subscribed: boolean,
   ) => {
     const key = remoteMediaSubscriptionKey(peerId, kind)
-    if (subscribed) userHiddenRemoteMediaKeysRef.current.delete(key)
-    else userHiddenRemoteMediaKeysRef.current.add(key)
+    if (kind === 'screen') {
+      if (subscribed) watchedRemoteScreenPeerIdsRef.current.add(peerId)
+      else watchedRemoteScreenPeerIdsRef.current.delete(peerId)
+      setWatchedRemoteScreenPeerIds(new Set(watchedRemoteScreenPeerIdsRef.current))
+      userHiddenRemoteMediaKeysRef.current.delete(key)
+    } else if (subscribed) {
+      userHiddenRemoteMediaKeysRef.current.delete(key)
+    } else {
+      userHiddenRemoteMediaKeysRef.current.add(key)
+    }
 
     const participant = roomRef.current?.remoteParticipants.get(peerId)
     participant?.trackPublications.forEach((publication) => {
       if (remoteMediaKindForSource(publication.source) !== kind) return
 
       if (!subscribed) {
-        visibilitySuppressedTrackSidsRef.current.delete(publication.trackSid)
         if (publication.isSubscribed) publication.setSubscribed(false)
         return
       }
 
       const appVisible = typeof document === 'undefined' || document.visibilityState !== 'hidden'
-      const shouldSubscribe = shouldSubscribeRemoteTrack(publication.kind, appVisible)
+      const shouldSubscribe = shouldSubscribeRemotePublication(
+        publication.source,
+        publication.kind,
+        appVisible,
+        false,
+        kind !== 'screen' || watchedRemoteScreenPeerIdsRef.current.has(peerId),
+      )
       if (shouldSubscribe && !publication.isSubscribed) {
-        resumedTrackSidsRef.current.add(publication.trackSid)
         publication.setSubscribed(true)
       }
     })
@@ -686,10 +713,7 @@ export function useLiveKitVoice() {
     let hasScreenShare = false
 
     participant.trackPublications.forEach((pub) => {
-      if (!pub.track || !pub.isSubscribed || pub.track.kind !== Track.Kind.Video) return
       if (pub.isMuted) return
-      const mediaTrack = pub.track.mediaStreamTrack
-      if (!mediaTrack || mediaTrack.readyState !== 'live' || mediaTrack.muted) return
       if (pub.source === Track.Source.Camera) hasCamera = true
       if (pub.source === Track.Source.ScreenShare) hasScreenShare = true
     })
@@ -855,14 +879,16 @@ export function useLiveKitVoice() {
       }
 
       room.on(RoomEvent.TrackPublished, (publication, participant) => {
+        if (publication.source === Track.Source.ScreenShare) {
+          playRemoteMediaStartCue(participant, 'screen')
+        }
         syncRemotePublicationSubscription(publication, participant.identity)
+        syncParticipantMediaState(participant)
       })
 
       room
         .on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
           const peerId = participant.identity
-          visibilitySuppressedTrackSidsRef.current.delete(pub.trackSid)
-          const resumedAfterPause = resumedTrackSidsRef.current.delete(pub.trackSid)
 
           const combined = remoteStreamsRef.current.get(peerId) ?? new MediaStream()
           const mediaTrack = track.mediaStreamTrack
@@ -874,7 +900,6 @@ export function useLiveKitVoice() {
           if (pub.source === Track.Source.ScreenShare) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.add(mediaTrack.id)
-            if (!resumedAfterPause) playRemoteMediaStartCue(participant, 'screen')
           } else if (pub.source === Track.Source.ScreenShareAudio) {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShareAudio', { value: true, writable: true, configurable: true })
           } else if (pub.source === Track.Source.Camera) {
@@ -911,6 +936,8 @@ export function useLiveKitVoice() {
         .on(RoomEvent.TrackUnpublished, (publication, participant) => {
           if (publication.source === Track.Source.ScreenShare) {
             scheduleRemoteMediaStopCue(participant, 'screen')
+            watchedRemoteScreenPeerIdsRef.current.delete(participant.identity)
+            setWatchedRemoteScreenPeerIds(new Set(watchedRemoteScreenPeerIdsRef.current))
           }
           syncParticipantMediaState(participant)
           updateRoomStats()
@@ -932,12 +959,10 @@ export function useLiveKitVoice() {
           updateRoomStats()
         })
         .on(RoomEvent.ParticipantDisconnected, (participant) => {
-          participant.trackPublications.forEach((publication) => {
-            visibilitySuppressedTrackSidsRef.current.delete(publication.trackSid)
-            resumedTrackSidsRef.current.delete(publication.trackSid)
-          })
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'camera'))
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'screen'))
+          watchedRemoteScreenPeerIdsRef.current.delete(participant.identity)
+          setWatchedRemoteScreenPeerIds(new Set(watchedRemoteScreenPeerIdsRef.current))
           closePeer(participant.identity)
           updateRoomStats()
           playVoiceCue('leave')
@@ -1069,9 +1094,9 @@ export function useLiveKitVoice() {
     remoteMediaStartCueKeysRef.current.clear()
     remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
     remoteScreenStopCueTimersRef.current.clear()
-    visibilitySuppressedTrackSidsRef.current.clear()
     userHiddenRemoteMediaKeysRef.current.clear()
-    resumedTrackSidsRef.current.clear()
+    watchedRemoteScreenPeerIdsRef.current.clear()
+    setWatchedRemoteScreenPeerIds(new Set())
     setJoinedChannelId(null)
     useAppStore.getState().setJoinedVoiceChannelId(null)
     if (userId) useAppStore.getState().setVoiceCamera(userId, false)
@@ -1444,6 +1469,7 @@ export function useLiveKitVoice() {
     cameraStream,
     remoteStreams,
     remoteScreenTrackIds,
+    watchedRemoteScreenPeerIds,
     pingMs,
     lastError,
     livekit: {
