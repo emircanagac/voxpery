@@ -1,5 +1,5 @@
-import { act, render, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DmChannel, Friend, User } from '../api'
 import { useAppStore } from '../stores/app'
@@ -11,6 +11,12 @@ const apiMocks = vi.hoisted(() => ({
   createWebSocket: vi.fn(),
   listDmChannels: vi.fn(),
   listFriends: vi.fn(),
+}))
+
+const pushMocks = vi.hoisted(() => ({
+  isAppBackgrounded: vi.fn(() => false),
+  shouldShowPushNotification: vi.fn(() => false),
+  showPushNotification: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -46,8 +52,9 @@ vi.mock('../notificationSound', () => ({
 }))
 
 vi.mock('../pushNotifications', () => ({
-  shouldShowPushNotification: vi.fn(() => false),
-  showPushNotification: vi.fn(),
+  isAppBackgrounded: pushMocks.isAppBackgrounded,
+  shouldShowPushNotification: pushMocks.shouldShowPushNotification,
+  showPushNotification: pushMocks.showPushNotification,
 }))
 
 vi.mock('../secureStorage', () => ({
@@ -92,12 +99,18 @@ function friend(id: string, username: string): Friend {
   }
 }
 
-function renderAppShell() {
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="shell-child" data-location-state={JSON.stringify(location.state)} />
+}
+
+function renderAppShell(initialEntry = '/channels/@me') {
   return render(
-    <MemoryRouter initialEntries={['/channels/@me']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/channels/@me" element={<div data-testid="shell-child" />} />
+          <Route path="/channels/@me" element={<LocationProbe />} />
+          <Route path="/social/dm" element={<LocationProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -120,6 +133,8 @@ describe('AppShell social refresh', () => {
     })
     apiMocks.listDmChannels.mockResolvedValue([dmChannel('dm-1')])
     apiMocks.listFriends.mockResolvedValue([friend('friend-1', 'friend')])
+    pushMocks.isAppBackgrounded.mockReturnValue(false)
+    pushMocks.shouldShowPushNotification.mockReturnValue(false)
 
     useAuthStore.setState({
       token: 'token',
@@ -185,5 +200,65 @@ describe('AppShell social refresh', () => {
       expect(apiMocks.listDmChannels).toHaveBeenCalledTimes(3)
       expect(apiMocks.listFriends).toHaveBeenCalledTimes(3)
     })
+  })
+
+  it('keeps a background DM unread until its notification target is opened', async () => {
+    const channel = dmChannel('dm-1')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      dmUnread: { [channel.id]: 0 },
+      socialDataReady: true,
+    })
+    pushMocks.isAppBackgrounded.mockReturnValue(true)
+    pushMocks.shouldShowPushNotification.mockReturnValue(true)
+
+    renderAppShell('/social/dm')
+
+    await waitFor(() => {
+      expect(apiMocks.listDmChannels).toHaveBeenCalled()
+      expect(useAppStore.getState().socialDataReady).toBe(true)
+    })
+
+    act(() => {
+      useSocketStore.getState().listeners.forEach((listener) => {
+        listener({
+          type: 'NewMessage',
+          data: {
+            channel_id: channel.id,
+            channel_type: 'dm',
+            message: {
+              id: 'message-notification',
+              created_at: '2026-08-14T12:00:00.000Z',
+              author: { user_id: 'friend-1', username: 'friend' },
+            },
+          },
+        })
+      })
+    })
+
+    await waitFor(() => {
+      expect(pushMocks.showPushNotification).toHaveBeenCalledTimes(1)
+      expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
+    })
+
+    const notification = pushMocks.showPushNotification.mock.calls[0]?.[0] as { onClick?: () => void }
+    act(() => notification.onClick?.())
+
+    await waitFor(() => {
+      expect(screen.getByTestId('shell-child')).toHaveAttribute(
+        'data-location-state',
+        JSON.stringify({
+          dmNotificationAnchor: {
+            channelId: channel.id,
+            messageId: 'message-notification',
+            notificationId: 'message-notification',
+          },
+        }),
+      )
+    })
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
   })
 })

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, type InitialEntry } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DmChannel, Friend } from '../api'
 import { ROUTES } from '../routes'
@@ -7,7 +7,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
-import { clearDmMessageCacheForTests } from '../dmMessageCache'
+import { clearDmMessageCacheForTests, setCachedDmMessages } from '../dmMessageCache'
 import {
   flushMessageDrafts,
   resetMessageDraftCacheForTests,
@@ -75,16 +75,40 @@ vi.mock('../api', () => ({
 }))
 
 vi.mock('../components/ChatArea', () => ({
-  default: ({ loading, messages, messageInput }: { loading?: boolean; messages: unknown[]; messageInput: string }) => (
+  default: ({
+    loading,
+    messages,
+    messageInput,
+    jumpToMessageId,
+    onJumpToMessageHandled,
+  }: {
+    loading?: boolean
+    messages: unknown[]
+    messageInput: string
+    jumpToMessageId?: string | null
+    onJumpToMessageHandled?: () => void
+  }) => (
     <div
       data-testid="dm-chat"
       data-loading={String(!!loading)}
       data-message-count={String(messages.length)}
       data-message-input={messageInput}
+      data-jump-message-id={jumpToMessageId ?? ''}
     >
       DM chat
+      {jumpToMessageId ? (
+        <button type="button" onClick={onJumpToMessageHandled}>Complete notification jump</button>
+      ) : null}
     </div>
   ),
+}))
+
+const backgroundMocks = vi.hoisted(() => ({
+  isAppBackgrounded: vi.fn(() => false),
+}))
+
+vi.mock('../pushNotifications', () => ({
+  isAppBackgrounded: backgroundMocks.isAppBackgrounded,
 }))
 
 function friend(id: string, username: string, status: string): Friend {
@@ -123,9 +147,9 @@ function dmMessage(id: string, channelId: string) {
   }
 }
 
-function renderHomePage() {
+function renderHomePage(initialEntry: InitialEntry = ROUTES.home) {
   return render(
-    <MemoryRouter initialEntries={[ROUTES.home]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path={ROUTES.home} element={<HomePage />} />
         <Route path={ROUTES.dm} element={<HomePage />} />
@@ -173,6 +197,7 @@ describe('HomePage friends list', () => {
     apiMocks.listDmPins.mockResolvedValue([])
     apiMocks.hideDmChannel.mockResolvedValue(undefined)
     apiMocks.updateDmChannelPreferences.mockResolvedValue({ pinned: true })
+    backgroundMocks.isAppBackgrounded.mockReturnValue(false)
   })
 
   it('opens a DM when a friend row is selected', async () => {
@@ -353,6 +378,124 @@ describe('HomePage friends list', () => {
       expect(chat).toHaveAttribute('data-loading', 'false')
       expect(chat).toHaveAttribute('data-message-count', '1')
     })
+  })
+
+  it('waits for refreshed notification history and visible anchor before clearing unread', async () => {
+    const channel = dmChannel('dm-cilo')
+    const cached = dmMessage('message-cached', channel.id)
+    const target = dmMessage('message-notification', channel.id)
+    let resolveMessages!: (messages: ReturnType<typeof dmMessage>[]) => void
+    const pendingMessages = new Promise<ReturnType<typeof dmMessage>[]>((resolve) => {
+      resolveMessages = resolve
+    })
+    setCachedDmMessages('user-1', channel.id, [cached])
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      dmUnread: { [channel.id]: 2 },
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockReturnValue(pendingMessages)
+
+    renderHomePage({
+      pathname: ROUTES.dm,
+      state: {
+        dmNotificationAnchor: {
+          channelId: channel.id,
+          messageId: target.id,
+          notificationId: target.id,
+        },
+      },
+    })
+
+    const chat = await screen.findByTestId('dm-chat')
+    expect(chat).toHaveAttribute('data-message-count', '1')
+    expect(chat).toHaveAttribute('data-loading', 'true')
+    expect(chat).toHaveAttribute('data-jump-message-id', '')
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(2)
+    expect(apiMocks.markDmRead).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveMessages([cached, target])
+      await pendingMessages
+    })
+
+    await waitFor(() => {
+      expect(chat).toHaveAttribute('data-jump-message-id', target.id)
+    })
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete notification jump' }))
+
+    await waitFor(() => {
+      expect(useAppStore.getState().dmUnread[channel.id]).toBe(0)
+      expect(apiMocks.markDmRead).toHaveBeenCalledWith(channel.id, null)
+    })
+  })
+
+  it('falls back to the refreshed latest message when a notification target is unavailable', async () => {
+    const channel = dmChannel('dm-cilo')
+    const latest = dmMessage('message-latest', channel.id)
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      dmUnread: { [channel.id]: 1 },
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockResolvedValue([latest])
+
+    renderHomePage({
+      pathname: ROUTES.dm,
+      state: {
+        dmNotificationAnchor: {
+          channelId: channel.id,
+          messageId: 'message-missing',
+          notificationId: 'message-missing',
+        },
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-chat')).toHaveAttribute('data-jump-message-id', latest.id)
+    })
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
+  })
+
+  it('does not mark the active DM read while the app is backgrounded', async () => {
+    const channel = dmChannel('dm-cilo')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockResolvedValue([])
+    backgroundMocks.isAppBackgrounded.mockReturnValue(true)
+
+    renderHomePage(ROUTES.dm)
+    await waitFor(() => expect(apiMocks.listDmMessages).toHaveBeenCalledWith(channel.id, null))
+    useAppStore.setState({ dmUnread: { [channel.id]: 1 } })
+
+    act(() => {
+      useSocketStore.getState().listeners.forEach((listener) => {
+        listener({
+          type: 'NewMessage',
+          data: {
+            channel_id: channel.id,
+            message: dmMessage('message-background', channel.id),
+          },
+        })
+      })
+    })
+
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
+    expect(apiMocks.markDmRead).not.toHaveBeenCalled()
   })
 
   it('prefetches DM history on hover and reuses the in-flight request on open', async () => {

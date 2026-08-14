@@ -1346,10 +1346,10 @@ export default function ChatArea({
         return isMessageGroupedAt(messages, index, firstUnreadIndex)
     }
 
-    const scrollToMessageId = useCallback((messageId: string) => {
+    const scrollToMessageId = useCallback((messageId: string, behavior: ScrollBehavior = 'smooth') => {
         const index = messages.findIndex((m) => m.id === messageId)
         if (index >= 0) {
-            rowVirtualizer.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
+            rowVirtualizer.scrollToIndex(index, { align: 'start', behavior })
             if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
             setHighlightedMessageId(messageId)
             highlightTimeoutRef.current = setTimeout(() => {
@@ -1364,16 +1364,39 @@ export default function ChatArea({
         if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
     }, [])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!jumpToMessageId || messages.length === 0) return
         const exists = messages.some((message) => message.id === jumpToMessageId)
         if (!exists) return
         shouldAutoScrollRef.current = false
-        scrollToMessageId(jumpToMessageId)
-        requestAnimationFrame(() => {
-            syncAutoScrollState()
-        })
-        onJumpToMessageHandled?.()
+        scrollToMessageId(jumpToMessageId, 'auto')
+        let cancelled = false
+        let attempts = 0
+        const confirmVisible = () => {
+            if (cancelled) return
+            const scroller = messagesScrollRef.current
+            const row = scroller
+                ? Array.from(scroller.querySelectorAll<HTMLElement>('[data-message-id]'))
+                    .find((candidate) => candidate.dataset.messageId === jumpToMessageId)
+                : null
+            if (scroller && row) {
+                const scrollerRect = scroller.getBoundingClientRect()
+                const rowRect = row.getBoundingClientRect()
+                if (rowRect.bottom > scrollerRect.top && rowRect.top < scrollerRect.bottom) {
+                    syncAutoScrollState()
+                    onJumpToMessageHandled?.()
+                    return
+                }
+            }
+            attempts += 1
+            if (attempts >= 12) return
+            scrollToMessageId(jumpToMessageId, 'auto')
+            requestAnimationFrame(confirmVisible)
+        }
+        requestAnimationFrame(confirmVisible)
+        return () => {
+            cancelled = true
+        }
     }, [jumpToMessageId, messages, onJumpToMessageHandled, scrollToMessageId, syncAutoScrollState])
 
     const closeMentionMenu = () => {

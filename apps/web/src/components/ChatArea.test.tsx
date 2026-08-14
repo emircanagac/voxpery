@@ -467,6 +467,30 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
+  it('handles a notification jump only after the target row is visible', async () => {
+    const handled = vi.fn()
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('chat-messages')) {
+        return { top: 0, bottom: 360, left: 0, right: 800, width: 800, height: 360, x: 0, y: 0, toJSON: () => ({}) }
+      }
+      if (this.dataset.messageId === 'message-2') {
+        return { top: 40, bottom: 100, left: 0, right: 800, width: 800, height: 60, x: 0, y: 40, toJSON: () => ({}) }
+      }
+      return { top: 400, bottom: 460, left: 0, right: 800, width: 800, height: 60, x: 0, y: 400, toJSON: () => ({}) }
+    })
+
+    renderChatArea({
+      jumpToMessageId: 'message-2',
+      onJumpToMessageHandled: handled,
+    })
+
+    await waitFor(() => {
+      expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'start', behavior: 'auto' })
+      expect(handled).toHaveBeenCalledTimes(1)
+    })
+    rectSpy.mockRestore()
+  })
+
   it('keeps the unread divider anchored to the original remote message', async () => {
     const localMessage = {
       ...message('message-local', 'my new message', 2),

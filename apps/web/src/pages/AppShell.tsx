@@ -16,9 +16,11 @@ import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import {
+  isAppBackgrounded,
   shouldShowPushNotification,
   showPushNotification,
 } from '../pushNotifications'
+import type { DmNotificationLocationState } from '../dmNotificationNavigation'
 import { isSocialDmViewVisible } from '../socialView'
 import { isTauri } from '../secureStorage'
 import {
@@ -435,7 +437,7 @@ export default function AppShell() {
           }
         }
         if (e?.type === 'NewMessage') {
-          const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { created_at?: string; author?: { user_id?: string; username?: string } } }
+          const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { id?: string; created_at?: string; author?: { user_id?: string; username?: string } } }
           const channelId = payload?.channel_id
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
@@ -497,6 +499,7 @@ export default function AppShell() {
             const canAutoReadActiveDm =
               isSocialWithVisibleDm
               && activeDmChannelId === channel.id
+              && !isAppBackgrounded()
 
             if (canAutoReadActiveDm) {
               clearDmUnread(channel.id)
@@ -517,10 +520,17 @@ export default function AppShell() {
                   body: 'sent you a direct message',
                   tag: `dm:${channel.id}`,
                   onClick: () => {
+                    const messageId = incomingMessage?.id ?? null
+                    const state: DmNotificationLocationState = {
+                      dmNotificationAnchor: {
+                        channelId: channel.id,
+                        messageId,
+                        notificationId: messageId ?? `${channel.id}:${Date.now()}`,
+                      },
+                    }
                     setPersistedSocialView('dm')
                     setActiveDmChannelId(channel.id)
-                    clearDmUnread(channel.id)
-                    navigate(ROUTES.dm)
+                    navigate(ROUTES.dm, { state })
                   },
                 })
               }

@@ -48,7 +48,7 @@ interface AppState {
     setDmChannels: (channels: DmChannel[]) => void
     setSocialDataReady: (ready: boolean) => void
     dmUnread: Record<string, number>
-    setDmUnreadFromChannels: (channels: DmChannel[]) => void
+    setDmUnreadFromChannels: (channels: DmChannel[], preserveChannelIds?: ReadonlySet<string>) => void
     incrementDmUnread: (channelId: string) => void
     clearDmUnread: (channelId: string) => void
     serverUnreadByChannel: Record<string, number>
@@ -223,12 +223,13 @@ export const useAppStore = create<AppState>()(
             setDmChannels: (channels) => set((s) => JSON.stringify(s.dmChannels) === JSON.stringify(channels) ? s : { dmChannels: channels }),
             setSocialDataReady: (ready) => set({ socialDataReady: ready }),
             dmUnread: {},
-            setDmUnreadFromChannels: (channels) =>
+            setDmUnreadFromChannels: (channels, preserveChannelIds) =>
                 set((s) => {
                     const next = { ...s.dmUnread }
                     let changed = false
 
                     channels.forEach((channel) => {
+                        if (preserveChannelIds?.has(channel.id)) return
                         const unreadCount = Number.isFinite(channel.unread_count)
                             ? Math.max(0, Math.trunc(channel.unread_count))
                             : 0
