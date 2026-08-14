@@ -187,7 +187,7 @@ Speaker
 - **Output volume**: Global 1-100%, per-peer microphone 0-100%, and per-screen-share audio 0-100%.
 - **Distortion-safe playback**: Remote media stays on the native media-element path. Legacy values above 100% are migrated to 100% so playback is not clipped or stranded on a closed Web Audio graph.
 - **Deafen**: Sets `audio.muted = true` on all remote elements
-- **Hide screen share**: Hiding a remote screen share suppresses its tile and screen-share audio locally while keeping both the LiveKit subscription and the peer's normal microphone audio active.
+- **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
 ### Input and Output Device Selection
@@ -238,7 +238,7 @@ await room.localParticipant.publishTrack(audioTrack, {
 })
 ```
 
-Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path.
+Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path. The local preview uses a separate `MediaStream` wrapper around the capture tracks, so entering or leaving fullscreen never rebinds or restarts the published capture.
 
 ### Content Hints
 
@@ -254,13 +254,12 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 
 ### Remote Viewing Controls
 
-- Remote camera and screen-share tiles can be hidden per viewer without leaving the voice channel.
-- Hidden media stays subscribed and is replaced by a compact placeholder with a `Show` action, so the viewer can resume it immediately without waiting for LiveKit to resubscribe.
-- The placeholder is owned by viewer state and the publisher's `LIVE` or camera presence remains unchanged for every other participant.
-- Hidden preferences are local to the current voice session and reset after leaving, refreshing, or switching voice channels.
-- Hiding a screen share locally suppresses both its video and screen-share audio playback; the participant's microphone audio continues normally.
+- Remote camera tiles can be hidden per viewer without leaving the voice channel.
+- A remote screen share appears first as a compact `Stream available` tile. `Watch stream` subscribes that viewer to both `ScreenShare` and `ScreenShareAudio`; `Stop watching` unsubscribes both while leaving microphone audio untouched.
+- Viewer subscription state is local to the current voice session, survives visibility changes and LiveKit reconnects, and resets when the share ends, the participant disconnects, or the viewer leaves voice.
+- Unwatched shares and shares in a hidden Voxpery window produce no incoming screen video or shared-audio traffic. Returning to a visible window restores only streams the user explicitly chose to watch.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
-- When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
+- When the Voxpery window is hidden or minimized, camera and watched screen-share subscriptions pause while microphone audio continues. Explicitly watched shares resume when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
 
 ### Voice Event Cues
@@ -269,7 +268,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Camera start and stop confirmations are local to the member changing their camera. Remote participants see camera state without receiving a channel-wide camera cue.
 - Screen-share start and stop cues are heard by members already in the voice channel. Existing shares remain silent during initial room hydration, subscription resume, and local hide/show actions.
 - Screen-share stop is suppressed when the publisher disconnects so the normal leave cue remains the single channel departure sound.
-- Voxpery auto-subscribes voice members to visible shares, so it does not emit viewer join/leave sounds without an explicit watch session.
+- Viewer watch and stop-watching actions are silent; channel-wide screen-share cues describe only publisher start and stop events.
 - Camera confirmations use short high-frequency shutter-like clicks; screen-share confirmations use sustained digital chords so neither resembles voice join or leave cues, and all cues respect the existing notification-sounds preference.
 
 ## Camera

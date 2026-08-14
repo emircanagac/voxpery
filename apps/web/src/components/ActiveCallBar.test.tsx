@@ -82,6 +82,7 @@ function voiceState(overrides?: Record<string, unknown>) {
     cameraStream: null,
     remoteStreams: new Map<string, MediaStream>(),
     remoteScreenTrackIds: new Set<string>(),
+    watchedRemoteScreenPeerIds: new Set<string>(),
     pingMs: 7,
     lastError: null,
     livekit: {
@@ -160,27 +161,43 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
-  it('hides and restores a remote screen share locally without changing its subscription', () => {
+  it('requires an explicit action before subscribing to an available screen share', () => {
+    useAppStore.getState().setVoiceControl('peer-1', false, false, true)
+
+    const { voice } = renderActiveCallBar()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Watch stream' }))
+
+    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', true)
+  })
+
+  it('stops only the viewer subscription for a watched screen share', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])
 
     const { voice } = renderActiveCallBar({
       remoteStreams: new Map([['peer-1', remoteStream]]),
       remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
     })
 
-    fireEvent.click(screen.getByTitle('Hide screen share'))
+    fireEvent.click(screen.getByTitle('Stop watching'))
 
-    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
-    expect(screen.getByText('Screen share hidden')).not.toBeNull()
-    expect(screen.getAllByText('admin')).toHaveLength(2)
-    expect(screen.queryByTitle('Hide screen share')).toBeNull()
+    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
+    expect(voice.leaveVoice).not.toHaveBeenCalled()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: /show/i }))
+  it('uses an isolated preview stream for the local screen share', () => {
+    const localScreen = new MediaStream([mediaTrack('video', 'local-screen')])
+    const { container } = renderActiveCallBar({
+      screenStream: localScreen,
+      isScreenSharing: true,
+    })
 
-    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
-    expect(screen.getByTitle('Hide screen share')).not.toBeNull()
-    expect(screen.queryByText('Screen share hidden')).toBeNull()
+    const preview = container.querySelector('[data-fullscreen-key="screen"] video') as HTMLVideoElement
+    expect(preview.srcObject).toBeInstanceOf(MediaStream)
+    expect(preview.srcObject).not.toBe(localScreen)
+    expect((preview.srcObject as MediaStream).getVideoTracks()).toEqual(localScreen.getVideoTracks())
   })
 
   it('reasserts remote microphone playback after the macOS share picker returns', () => {

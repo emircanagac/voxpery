@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Made normal browser reloads revalidate the web app shell, service worker, and stable RNNoise worklet URL so newly deployed releases no longer require a hard refresh, while retaining long-lived caching for fingerprinted assets.
 - Made background DM notifications preserve unread state until the refreshed target message is visibly anchored, with a latest-message fallback when the original target is unavailable.
+- Made remote screen sharing opt-in per viewer so unwatched video and shared audio consume no media bandwidth, while preserving microphone audio and reconnect behavior.
+- Isolated the local screen-share preview from the published capture stream so fullscreen transitions do not rebind or restart the capture track.
 
 ## [0.2.6] - 2026-08-09
 

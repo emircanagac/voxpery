@@ -105,6 +105,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     startCamera,
     stopCamera,
     setVoiceControls,
+    setRemoteMediaSubscribed,
     playVoiceCue,
   } = useLiveKitVoice()
   const { user } = useAuthStore()
@@ -241,6 +242,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const cameraPreviewCleanupRef = useRef<(() => void) | null>(null)
   const cameraKeepaliveVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraKeepaliveCleanupRef = useRef<(() => void) | null>(null)
+  const screenPreviewVideoRef = useRef<HTMLVideoElement | null>(null)
+  const screenPreviewCleanupRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     localStreamRef.current = state.localStream
   }, [state.localStream])
@@ -258,6 +261,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!video || !state.cameraStream) return
     cameraKeepaliveCleanupRef.current = attachMediaStreamPreview(video, state.cameraStream)
   }, [state.cameraStream])
+  const attachScreenPreviewElement = useCallback((video: HTMLVideoElement | null) => {
+    screenPreviewCleanupRef.current?.()
+    screenPreviewCleanupRef.current = null
+    screenPreviewVideoRef.current = video
+    if (!video || !state.screenStream) return
+    screenPreviewCleanupRef.current = attachMediaStreamPreview(video, state.screenStream)
+  }, [state.screenStream])
   useEffect(() => {
     const video = cameraVideoRef.current
     const stream = state.cameraStream
@@ -281,6 +291,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   }, [state.cameraStream])
   useEffect(() => {
+    const video = screenPreviewVideoRef.current
+    const stream = state.screenStream
+    if (!video || !stream) return
+    screenPreviewCleanupRef.current?.()
+    screenPreviewCleanupRef.current = attachMediaStreamPreview(video, stream)
+    return () => {
+      screenPreviewCleanupRef.current?.()
+      screenPreviewCleanupRef.current = null
+    }
+  }, [state.screenStream])
+  useEffect(() => {
     deafenedRef.current = deafened || serverDeafened
   }, [deafened, serverDeafened])
 
@@ -290,7 +311,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return member?.user_id ?? peerId
   }, [members, peerVolumeByUserId])
 
-  const hiddenScreenSharePeerIdsRef = useRef<Set<string>>(new Set())
   const remoteAudioPlaybackKey = useCallback((peerId: string, kind: RemoteAudioKind) => `${kind}:${peerId}`, [])
   const parseRemoteAudioPlaybackKey = useCallback((playbackKey: string): { peerId: string; kind: RemoteAudioKind } => {
     if (playbackKey.startsWith('screen:')) {
@@ -526,25 +546,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     () => Array.from(remoteMediaPlaceholders.values()),
     [remoteMediaPlaceholders],
   )
-  const hiddenScreenSharePeerIds = useMemo(() => {
-    const hidden = new Set<string>()
-    for (const placeholder of remoteMediaPlaceholders.values()) {
-      if (placeholder.kind === 'screen' && isRemoteMediaHidden(placeholder.peerId, 'screen')) {
-        hidden.add(placeholder.peerId)
-      }
-    }
-    return hidden
-  }, [isRemoteMediaHidden, remoteMediaPlaceholders])
-  useEffect(() => {
-    hiddenScreenSharePeerIdsRef.current = hiddenScreenSharePeerIds
-    applyOutputVolumeToElements(outputVolumeRef.current / 100)
-  }, [applyOutputVolumeToElements, hiddenScreenSharePeerIds])
+  const watchedRemoteScreenPeerIds = state.watchedRemoteScreenPeerIds
 
   useEffect(() => {
     for (const [peerId, stream] of state.remoteStreams.entries()) {
       const entries: Array<{ kind: RemoteAudioKind; include: boolean }> = [
         { kind: 'mic', include: true },
-        { kind: 'screen', include: !hiddenScreenSharePeerIds.has(peerId) },
+        { kind: 'screen', include: watchedRemoteScreenPeerIds.has(peerId) },
       ]
       for (const { kind, include } of entries) {
         const playbackKey = remoteAudioPlaybackKey(peerId, kind)
@@ -564,7 +572,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         }
       }
     }
-  }, [hiddenScreenSharePeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
+  }, [watchedRemoteScreenPeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
@@ -581,6 +589,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!currentVoiceChannelId) return []
     return members.filter((m) => voiceStates[m.user_id] === currentVoiceChannelId)
   }, [currentVoiceChannelId, members, voiceStates])
+  const availableRemoteScreenPeerIds = useMemo(() => (
+    channelParticipants
+      .filter((participant) => participant.user_id !== user?.id && voiceControls[participant.user_id]?.screenSharing)
+      .map((participant) => participant.user_id)
+  ), [channelParticipants, user?.id, voiceControls])
+  const activeRemoteScreenPeerIds = useMemo(() => new Set(
+    remoteVideoTrackEntries
+      .filter((entry) => entry.kind === 'screen')
+      .map((entry) => entry.peerId),
+  ), [remoteVideoTrackEntries])
+  const remoteScreenSharePlaceholders = useMemo(() => (
+    availableRemoteScreenPeerIds.filter((peerId) => (
+      !watchedRemoteScreenPeerIds.has(peerId) || !activeRemoteScreenPeerIds.has(peerId)
+    ))
+  ), [activeRemoteScreenPeerIds, availableRemoteScreenPeerIds, watchedRemoteScreenPeerIds])
   useEffect(() => {
     if (remoteMediaPlaceholders.size === 0) return
     const participantIds = new Set(channelParticipants.map((participant) => participant.user_id))
@@ -617,7 +640,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const showVoiceStage =
     isViewingVoiceChannel &&
     isInThisChannel &&
-    (channelParticipants.length > 0 || state.isScreenSharing || !!state.cameraStream || remoteVideoTrackEntries.length > 0)
+    (channelParticipants.length > 0 || state.isScreenSharing || !!state.cameraStream || remoteVideoTrackEntries.length > 0 || availableRemoteScreenPeerIds.length > 0)
 
   const getStageColumns = (tileCount: number) => {
     if (isMobileViewport) {
@@ -991,13 +1014,18 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const localInitial = (user?.username?.charAt(0) || 'Y').toUpperCase()
   const remoteShareOwner = (peerId: string) => members.find((m) => m.user_id === peerId)?.username ?? 'User'
   const localFallbackTileCount = currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) ? 1 : 0
-  const visibleRemoteMediaTileCount = remoteVideoTrackEntries.filter((entry) => !isRemoteMediaHidden(entry.peerId, entry.kind)).length
+  const visibleRemoteMediaTileCount = remoteVideoTrackEntries.filter((entry) => (
+    entry.kind === 'screen'
+      ? watchedRemoteScreenPeerIds.has(entry.peerId)
+      : !isRemoteMediaHidden(entry.peerId, entry.kind)
+  )).length
   const totalStageTiles = channelParticipants.length
     + localFallbackTileCount
     + (state.isScreenSharing && state.screenStream ? 1 : 0)
     + (state.cameraStream ? 1 : 0)
     + visibleRemoteMediaTileCount
     + remoteMediaPlaceholdersToRender.length
+    + remoteScreenSharePlaceholders.length
   const stageColumns = getStageColumns(totalStageTiles)
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
@@ -1148,7 +1176,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               )}
               {state.isScreenSharing && state.screenStream && (
                 <div className="screen-share-preview voice-stage-share-tile" data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
-                  <video autoPlay muted playsInline ref={(el) => { if (!el) return; if (el.srcObject !== state.screenStream) el.srcObject = state.screenStream; void el.play().catch(() => { }) }} />
+                  <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   <div className="screen-share-info-overlay"><span className="screen-share-info-text">Screen share · You</span></div>
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
@@ -1165,6 +1193,30 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </div>
                 </div>
               )}
+              {remoteScreenSharePlaceholders.map((peerId) => {
+                const isConnecting = watchedRemoteScreenPeerIds.has(peerId)
+                return (
+                  <div key={`screen-available-${peerId}`} className="voice-stage-hidden-media-tile">
+                    <div className="voice-stage-hidden-media-icon">
+                      <Monitor size={18} />
+                    </div>
+                    <div className="voice-stage-hidden-media-title">
+                      {isConnecting ? 'Connecting to stream' : 'Stream available'}
+                    </div>
+                    <div className="voice-stage-hidden-media-sub">{remoteShareOwner(peerId)}</div>
+                    {!isConnecting && (
+                      <button
+                        type="button"
+                        className="voice-stage-hidden-media-show"
+                        onClick={() => setRemoteMediaSubscribed(peerId, 'screen', true)}
+                      >
+                        <Eye size={14} />
+                        Watch stream
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
               {remoteMediaPlaceholdersToRender.map((placeholder) => (
                 <div key={`hidden-${placeholder.key}`} className="voice-stage-hidden-media-tile">
                   <div className="voice-stage-hidden-media-icon">
@@ -1193,7 +1245,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 const tileKey = `${peerId}-${track.id}`
                 const owner = remoteShareOwner(peerId)
                 const isHidden = isRemoteMediaHidden(peerId, kind)
-                if (isHidden) return null
+                if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
+                if (kind === 'camera' && isHidden) return null
                 return (
                   <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
@@ -1235,7 +1288,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         )}
                       </div>
                       <div className="screen-share-controls-right">
-                        <button type="button" className="screen-share-controls-btn" title={kind === 'screen' ? 'Hide screen share' : 'Hide camera'} onClick={() => setRemoteMediaHidden(peerId, kind, true, label)}>
+                        <button
+                          type="button"
+                          className="screen-share-controls-btn"
+                          title={kind === 'screen' ? 'Stop watching' : 'Hide camera'}
+                          onClick={() => {
+                            if (kind === 'screen') setRemoteMediaSubscribed(peerId, 'screen', false)
+                            else setRemoteMediaHidden(peerId, kind, true, label)
+                          }}
+                        >
                           <EyeOff size={16} />
                         </button>
                         <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
@@ -1266,7 +1327,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         if (el) {
                           const audioEl = el as VoxperyAudioElement
                           remoteAudioRefsRef.current.set(playbackKey, audioEl)
-                          const include = kind === 'mic' || !hiddenScreenSharePeerIds.has(peerId)
+                          const include = kind === 'mic' || watchedRemoteScreenPeerIds.has(peerId)
                           const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
                           const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
                           if (audioEl.__voxpery_trackIds !== currentTrackIds) {

@@ -53,8 +53,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Monitor/game and browser/video shares stay motion-first under load: frame pacing remains smooth before sharpness is preserved.
 - [ ] A VP9-capable Chromium/WebView2 publisher reports `codec: vp9` and `scalabilityMode: L3T3_KEY`; a fallback runtime reports `codec: vp8`.
 - [ ] Resizing and fullscreening User B's remote share tile upgrades the received adaptive layer without restarting the share.
-- [ ] User A starts screen share; User B sees the screen tile.
-- [ ] Sharing a supported browser tab/system-audio source publishes both `ScreenShare` and `ScreenShareAudio`; User B hears the shared audio independently from User A's microphone.
+- [ ] User A starts screen share; User B sees `Stream available` but receives no screen video or shared-audio traffic before choosing `Watch stream`.
+- [ ] User B chooses `Watch stream`; both `ScreenShare` and `ScreenShareAudio` subscribe, while User A's microphone remains continuously audible.
 - [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, and `dtx: false`.
 - [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.
 - [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
@@ -63,13 +63,13 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] On macOS, opening and closing the native share picker does not lower remote microphone audio; the same level continues without clicking Voxpery again.
 - [ ] User B hears the screen-start cue only once for the screen video track.
 - [ ] Sharing screen audio does not play a duplicate start cue.
-- [ ] User B hides the screen share; the screen tile collapses and its screen video/audio publications stop for that viewer.
-- [ ] While hidden by User B, the remote screen video and screen-share audio publications are unsubscribed; selecting `Show` restores them without replaying the start cue.
-- [ ] User A's normal microphone audio continues while the screen share is hidden.
+- [ ] User B chooses `Stop watching`; the screen tile returns to `Stream available` and its screen video/audio publications unsubscribe for that viewer.
+- [ ] User A's normal microphone audio continues while User B is not watching the stream.
 - [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
 - [ ] Per-user microphone and screen-share volume controls stay within 0-100%; repeated mute/unmute and 0/100 transitions do not cut out, clip, or change the selected output device.
-- [ ] User B shows the screen share again and audio behavior returns with the visible media.
-- [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera/screen video traffic while microphone and screen-share audio continue; restoring the window resumes video without replaying start cues.
+- [ ] User B chooses `Watch stream` again and screen video/audio return without replaying the publisher start cue.
+- [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera and watched screen video/audio traffic while microphone audio continues; restoring the window resumes only explicitly watched media without replaying start cues.
+- [ ] User A repeatedly enters and leaves fullscreen on the local screen preview; capture stays live, no green/frozen frame appears, and User B's remote stream does not restart.
 - [ ] User A stops screen share; User B hears the screen-stop cue once.
 - [ ] User A leaves while sharing; User B hears the leave cue without an additional screen-stop cue.
 
