@@ -3,6 +3,7 @@ import {
   clearRemoteMediaStartCue,
   getMicrophonePublishOptions,
   getPreferredScreenShareCodec,
+  getScreenShareAudioPublishOptions,
   getScreenSharePublishOptions,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
@@ -24,6 +25,18 @@ describe('microphone publish options', () => {
       dtx: true,
       red: true,
       forceStereo: false,
+    })
+  })
+})
+
+describe('screen-share audio publish options', () => {
+  it('preserves continuous system audio as high-quality stereo', () => {
+    expect(getScreenShareAudioPublishOptions()).toMatchObject({
+      source: Track.Source.ScreenShareAudio,
+      audioPreset: AudioPresets.musicHighQualityStereo,
+      dtx: false,
+      red: false,
+      forceStereo: true,
     })
   })
 })

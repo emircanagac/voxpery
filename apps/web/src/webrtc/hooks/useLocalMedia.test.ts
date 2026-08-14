@@ -68,11 +68,39 @@ describe('screen share quality profiles', () => {
 
     expect(toScreenShareDisplayMediaOptions(video)).toEqual({
       video,
+      systemAudio: 'include',
       audio: {
         suppressLocalAudioPlayback: false,
       },
     })
     expect(SCREEN_SHARE_CAPTURE_READY_EVENT).toBe('voxpery-screen-share-capture-ready')
+  })
+
+  it('records non-identifying screen audio quality settings', () => {
+    const videoTrack = {
+      getSettings: () => ({ width: 1920, height: 1080, frameRate: 60 }),
+    } as unknown as MediaStreamTrack
+    const audioTrack = {
+      contentHint: 'music',
+      getSettings: () => ({
+        sampleRate: 48000,
+        channelCount: 2,
+        deviceId: 'private-audio-id',
+      }),
+    } as unknown as MediaStreamTrack
+
+    expect(toScreenShareCaptureDiagnostics(
+      SCREEN_SHARE_PRESET_PROFILE.video,
+      videoTrack,
+      true,
+      true,
+      audioTrack,
+    )).toMatchObject({
+      audioCaptured: true,
+      audioSampleRate: 48000,
+      audioChannelCount: 2,
+      audioContentHint: 'music',
+    })
   })
 
   it('records requested and actual capture quality without device identifiers', () => {

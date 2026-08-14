@@ -91,11 +91,16 @@ type DisplayAudioConstraints = MediaTrackConstraints & {
     suppressLocalAudioPlayback: boolean
 }
 
+type ScreenShareDisplayMediaOptions = DisplayMediaStreamOptions & {
+    systemAudio: 'include'
+}
+
 export function toScreenShareDisplayMediaOptions(
     video: DisplayMediaStreamOptions['video'],
-): DisplayMediaStreamOptions {
+): ScreenShareDisplayMediaOptions {
     return {
         video,
+        systemAudio: 'include',
         audio: {
             // Keep the active call audible while the native/macOS share picker changes focus.
             suppressLocalAudioPlayback: false,
@@ -112,8 +117,10 @@ export function toScreenShareCaptureDiagnostics(
     videoTrack: MediaStreamTrack,
     audioCaptured: boolean,
     constraintsApplied: boolean,
+    audioTrack?: MediaStreamTrack,
 ): ScreenShareCaptureDiagnostics {
     const settings = videoTrack.getSettings?.() ?? {}
+    const audioSettings = audioTrack?.getSettings?.() ?? {}
     const requested = toScreenShareConstraintsForProfile(profile)
     const requestedWidth = requested.width as { ideal?: number } | undefined
     const requestedHeight = requested.height as { ideal?: number } | undefined
@@ -128,6 +135,11 @@ export function toScreenShareCaptureDiagnostics(
         displaySurface: settings.displaySurface,
         constraintsApplied,
         audioCaptured,
+        ...(audioTrack ? {
+            audioSampleRate: finiteSetting(audioSettings.sampleRate),
+            audioChannelCount: finiteSetting(audioSettings.channelCount),
+            audioContentHint: audioTrack.contentHint === 'music' ? 'music' as const : undefined,
+        } : {}),
         videoPublished: false,
         audioPublished: false,
         simulcast: true,
@@ -277,14 +289,19 @@ export function useLocalMedia() {
         if (cached) {
             const video = cached.getVideoTracks()[0]
             if (video?.readyState === 'live') {
+                const audio = cached.getAudioTracks().find((track) => track.readyState === 'live')
+                if (audio && 'contentHint' in audio) {
+                    try { audio.contentHint = 'music' } catch { /* ignore */ }
+                }
                 const profile = resolveScreenShareProfile(video.getSettings?.().displaySurface)
                 return {
                     stream: cached,
                     diagnostics: toScreenShareCaptureDiagnostics(
                         profile,
                         video,
-                        cached.getAudioTracks().some((track) => track.readyState === 'live'),
+                        !!audio,
                         true,
+                        audio,
                     ),
                 }
             }
@@ -302,11 +319,16 @@ export function useLocalMedia() {
                 throw new Error('No screen video track was captured')
             }
             const { profile, constraintsApplied } = await applyScreenShareTrackProfile(videoTrack)
+            const audioTrack = stream.getAudioTracks().find((track) => track.readyState === 'live')
+            if (audioTrack && 'contentHint' in audioTrack) {
+                try { audioTrack.contentHint = 'music' } catch { /* ignore */ }
+            }
             const diagnostics = toScreenShareCaptureDiagnostics(
                 profile,
                 videoTrack,
-                stream.getAudioTracks().some((track) => track.readyState === 'live'),
+                !!audioTrack,
                 constraintsApplied,
+                audioTrack,
             )
             cachedScreenStreamRef.current = stream
             window.dispatchEvent(new Event(SCREEN_SHARE_CAPTURE_READY_EVENT))

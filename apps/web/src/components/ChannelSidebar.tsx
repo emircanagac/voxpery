@@ -9,6 +9,12 @@ import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { formatVoiceChannelDuration } from '../voiceChannelDuration'
+import {
+    normalizeRemotePlaybackVolume,
+    readRemotePlaybackVolumes,
+    REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT,
+    writeRemotePlaybackVolumes,
+} from '../webrtc/remotePlaybackVolume'
 
 const PERM_CONNECT_VOICE = 1 << 10
 type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
@@ -91,21 +97,9 @@ export default function ChannelSidebar({
     const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
     const [dragOverCategoryForChannel, setDragOverCategoryForChannel] = useState<string | null>(null)
     const [durationNow, setDurationNow] = useState(() => Date.now())
-    const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
-        try {
-            const raw = localStorage.getItem('voxpery-voice-peer-volume')
-            if (!raw) return {}
-            const parsed = JSON.parse(raw) as Record<string, unknown>
-            const next: Record<string, number> = {}
-            for (const [key, value] of Object.entries(parsed)) {
-                if (typeof value !== 'number' || !Number.isFinite(value)) continue
-                next[key] = Math.min(200, Math.max(0, Math.round(value)))
-            }
-            return next
-        } catch {
-            return {}
-        }
-    })
+    const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(
+        () => readRemotePlaybackVolumes(),
+    )
     const menuRef = useRef<HTMLDivElement>(null)
     const participantMenuRef = useRef<HTMLDivElement>(null)
     const sidebarRef = useRef<HTMLDivElement>(null)
@@ -219,11 +213,12 @@ export default function ChannelSidebar({
     }, [voiceChannelActiveSince])
 
     const savePeerVolume = (userId: string, volume: number) => {
-        const bounded = Math.min(200, Math.max(0, Math.round(volume)))
-        const next = { ...peerVolumeByUserId, [userId]: bounded }
+        const next = writeRemotePlaybackVolumes({
+            ...peerVolumeByUserId,
+            [userId]: normalizeRemotePlaybackVolume(volume),
+        })
         setPeerVolumeByUserId(next)
-        localStorage.setItem('voxpery-voice-peer-volume', JSON.stringify(next))
-        window.dispatchEvent(new CustomEvent('voxpery-voice-peer-volume-changed'))
+        window.dispatchEvent(new CustomEvent(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT))
     }
 
     const handleJoinVoice = async (id: string) => {
@@ -789,7 +784,7 @@ export default function ChannelSidebar({
 
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
-                const currentVolume = peerVolumeByUserId[participantMenu.userId] ?? 100
+                const currentVolume = normalizeRemotePlaybackVolume(peerVolumeByUserId[participantMenu.userId])
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
                     deafened: false,
@@ -886,12 +881,12 @@ export default function ChannelSidebar({
                             </div>
                             <div className="member-volume-menu-section-hint">Only affects what you hear</div>
                             <div className="member-volume-menu-label">
-                                Volume: {currentVolume}%{currentVolume > 100 ? ' 🔊' : ''}
+                                Volume: {currentVolume}%
                             </div>
                             <input
                                 type="range"
                                 min={0}
-                                max={200}
+                                max={100}
                                 step={5}
                                 value={currentVolume}
                                 onChange={(e) => savePeerVolume(participantMenu.userId, Number(e.target.value))}

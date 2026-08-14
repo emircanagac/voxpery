@@ -59,6 +59,16 @@ export function getMicrophonePublishOptions(): TrackPublishOptions {
   }
 }
 
+export function getScreenShareAudioPublishOptions(): TrackPublishOptions {
+  return {
+    source: Track.Source.ScreenShareAudio,
+    audioPreset: AudioPresets.musicHighQualityStereo,
+    dtx: false,
+    red: false,
+    forceStereo: true,
+  }
+}
+
 type ScreenShareEncoding = {
   maxBitrate: number
   maxFramerate: number
@@ -1134,6 +1144,13 @@ export function useLiveKitVoice() {
 
     const capture: ScreenShareCaptureResult = await getScreenStream()
     const { stream, diagnostics } = capture
+    const screenShareAudioDiagnostics = diagnostics.audioCaptured ? {
+      audioPreset: 'musicHighQualityStereo' as const,
+      audioMaxBitrateKbps: 128 as const,
+      audioDtx: false as const,
+      audioRed: false as const,
+      audioForceStereo: true as const,
+    } : {}
     const tracks = stream.getTracks()
     localScreenTracksRef.current = tracks
     const publishedTracks: MediaStreamTrack[] = []
@@ -1145,14 +1162,16 @@ export function useLiveKitVoice() {
 
     try {
       for (const track of tracks) {
-        const source = track.kind === 'audio' ? Track.Source.ScreenShareAudio : Track.Source.ScreenShare
         const screenVideo = track.kind === 'video' ? getScreenShareEncoding(track) : undefined
         if (track.kind === 'video' && screenVideo && 'contentHint' in track) {
           try { track.contentHint = screenVideo.contentHint } catch { /* ignore */ }
         }
+        if (track.kind === 'audio' && 'contentHint' in track) {
+          try { track.contentHint = 'music' } catch { /* ignore */ }
+        }
         const options: TrackPublishOptions = screenVideo
           ? getScreenSharePublishOptions(screenVideo)
-          : { source }
+          : getScreenShareAudioPublishOptions()
         if (track.kind === 'video') {
           publishedCodec = options.videoCodec
           publishedScalabilityMode = options.scalabilityMode
@@ -1175,6 +1194,7 @@ export function useLiveKitVoice() {
       updateVoiceDiagnostics({
         screenShare: {
           ...diagnostics,
+          ...screenShareAudioDiagnostics,
           videoPublished: false,
           audioPublished: false,
           simulcast: publishedWithSimulcast,
@@ -1189,6 +1209,7 @@ export function useLiveKitVoice() {
     updateVoiceDiagnostics({
       screenShare: {
         ...diagnostics,
+        ...screenShareAudioDiagnostics,
         videoPublished,
         audioPublished,
         simulcast: publishedWithSimulcast,

@@ -177,15 +177,15 @@ LiveKit RemoteTrack
     |
 MediaStream
     |
-<audio> element (volume 0.0-1.0) + GainNode (> 100%)
+<audio> element (volume 0.0-1.0)
     |
 AudioContext analyser (speaking indicator)
     |
 Speaker
 ```
 
-- **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-200%
-- **Amplification >100%**: Routed through WebAudio GainNode (gain > 1.0)
+- **Output volume**: Global 1-100%, per-peer microphone 0-100%, and per-screen-share audio 0-100%.
+- **Distortion-safe playback**: Remote media stays on the native media-element path. Legacy values above 100% are migrated to 100% so playback is not clipped or stranded on a closed Web Audio graph.
 - **Deafen**: Sets `audio.muted = true` on all remote elements
 - **Hide screen share**: Hiding a remote screen share suppresses its tile and screen-share audio locally while keeping both the LiveKit subscription and the peer's normal microphone audio active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
@@ -215,6 +215,7 @@ Speaker
 ```typescript
 const stream = await navigator.mediaDevices.getDisplayMedia({
   video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
+  systemAudio: 'include',
   audio: { suppressLocalAudioPlayback: false }  // Shared audio without ducking the active call
 })
 await room.localParticipant.publishTrack(videoTrack, {
@@ -227,6 +228,14 @@ await room.localParticipant.publishTrack(videoTrack, {
     ? undefined
     : [screenShare360p30, screenShare720p60]
 })
+audioTrack.contentHint = 'music'
+await room.localParticipant.publishTrack(audioTrack, {
+  source: Track.Source.ScreenShareAudio,
+  audioPreset: AudioPresets.musicHighQualityStereo, // 128 kbps Opus
+  forceStereo: true,
+  dtx: false,
+  red: false,
+})
 ```
 
 Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path.
@@ -237,10 +246,11 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
 - **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
 - **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
+- **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, and continuous transmission (`dtx = false`) preserve system, game, and music audio independently from the mono speech microphone profile.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 - A share is not published without a live video track. If the selected platform/source does not provide a system or tab audio track, video sharing continues and the sender receives a non-fatal `Sharing without audio` notice with source-picker guidance.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
-- Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio capture/publication, codec/scalability mode, simulcast state, and outbound resolution/FPS/bitrate/packet/quality-limitation samples without device identifiers.
+- Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio sample rate/channel count/content hint/publish profile, codec/scalability mode, simulcast state, outbound video resolution/FPS/bitrate/packet/quality-limitation samples, and actual screen-audio Opus bitrate/channel/packet samples without device identifiers.
 
 ### Remote Viewing Controls
 
@@ -251,7 +261,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Hiding a screen share locally suppresses both its video and screen-share audio playback; the participant's microphone audio continues normally.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
 - When the Voxpery window is hidden or minimized, remote video subscriptions pause while microphone and screen-share audio continue. Video subscriptions resume when the app becomes visible, without replaying media-start cues.
-- Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, WebAudio state, and remote playback without changing per-user volume settings.
+- Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
 
 ### Voice Event Cues
 
@@ -318,7 +328,7 @@ When debugging a production voice report, capture:
 
 1. The call bar ping color and visible ping.
 2. Whether the room was connected, connecting, or reconnecting.
-3. Enable temporary diagnostics with `localStorage.setItem("voxperyVoiceDiagnostics", "1")`, reload, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active. During screen share, `screenShare` and `screenShareOutbound` show actual capture/publish quality and network limitation signals.
+3. Enable temporary diagnostics with `localStorage.setItem("voxperyVoiceDiagnostics", "1")`, reload, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__` from DevTools after joining voice; it should show `rnnoiseStatus: "ready"`, the active profile, suppression tuning, and whether aggressive isolation is active. During screen share, `screenShare` shows audio sample rate/channel count and the stereo music publish profile, `screenShareOutbound` shows actual video quality, and `screenShareAudioOutbound` shows actual Opus bitrate/channel/packet signals.
 4. Whether the user recently changed microphone, camera, VPN, firewall, or network.
 
 ### Voice cues
