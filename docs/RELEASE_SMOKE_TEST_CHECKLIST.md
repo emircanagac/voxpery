@@ -70,7 +70,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] AutoMod rule create/edit/enable/disable/delete works and blocked messages do not persist or broadcast, including blocked keywords split with invisible zero-width/bidi characters.
 - [ ] Raid protection records message bursts, invite spikes, and join burst signals in audit/moderation activity without exposing private secrets.
 - [ ] Category overrides work for `View Channel`, `Send Messages`, `Connect to Voice`.
-- [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop.
+- [ ] Unread badges, per-channel mute, server mention notifications, DM notifications, and friend request notifications behave correctly across refresh, PWA, and desktop; clicking a background DM notification opens and visibly anchors its target (or the refreshed latest message) before clearing unread state.
 - [ ] DM pins persist across refresh/login, pinned conversations stay above activity-sorted unpinned DMs, and a hidden DM returns only after explicit reopen or new message activity.
 - [ ] Channel managers can create channels from the compact header menu, a category `+`, and the category context menu; non-managers see none of these controls.
 - [ ] Appearance offers Default, Dark, Light, and Custom choices; Custom generates a readable palette from one valid hex color, persists after reload, and `Reset defaults` restores the original Voxpery palette without horizontal overflow on desktop or mobile.

@@ -40,4 +40,15 @@ describe('app store DM unread sync', () => {
 
         expect(useAppStore.getState().dmUnread).toEqual({ 'dm-b': 1 })
     })
+
+    it('preserves a notification channel until its visible message anchor is handled', () => {
+        useAppStore.setState({ dmUnread: { 'dm-a': 2 } })
+
+        useAppStore.getState().setDmUnreadFromChannels(
+            [dmChannel('dm-a', 0)],
+            new Set(['dm-a']),
+        )
+
+        expect(useAppStore.getState().dmUnread).toEqual({ 'dm-a': 2 })
+    })
 })

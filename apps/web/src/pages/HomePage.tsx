@@ -53,6 +53,11 @@ import {
   setCachedDmMessages,
   type CachedDmMessage,
 } from '../dmMessageCache'
+import { isAppBackgrounded } from '../pushNotifications'
+import {
+  readDmNotificationAnchor,
+  type DmNotificationAnchor,
+} from '../dmNotificationNavigation'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -151,6 +156,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
   const navigate = useNavigate()
   const location = useLocation()
+  const routeDmNotificationAnchor = readDmNotificationAnchor(location.state)
   const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
 
   const [view, setView] = useState<SocialView>('friends')
@@ -166,6 +172,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
   const [updatingDmPreferenceId, setUpdatingDmPreferenceId] = useState<string | null>(null)
   const [dmContextMenu, setDmContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
+  const [pendingDmNotificationAnchor, setPendingDmNotificationAnchor] = useState<DmNotificationAnchor | null>(null)
+  const pendingDmNotificationAnchorRef = useRef<DmNotificationAnchor | null>(null)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
   const friends = storeFriends
   const dmChannels = storeDmChannels
@@ -175,6 +183,19 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   useEffect(() => {
     const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
     if (!isSocialRoute) return
+    const notificationAnchor = routeDmNotificationAnchor
+    if (notificationAnchor) {
+      const channel = dmChannels.find((candidate) => candidate.id === notificationAnchor.channelId)
+      if (!channel) return
+      pendingDmNotificationAnchorRef.current = notificationAnchor
+      setPendingDmNotificationAnchor(notificationAnchor)
+      setDmSearch('')
+      setActiveDmChannelId(channel.id)
+      setView('dm')
+      setPersistedSocialView('dm')
+      navigate(ROUTES.dm, { replace: true, state: {} })
+      return
+    }
     const openDmUserId = (location.state as { openDmUserId?: string } | null)?.openDmUserId
     if (openDmUserId && dmChannels.length > 0) {
       const channel = isUuid(openDmUserId)
@@ -201,7 +222,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       navigate(ROUTES.home, { replace: true })
     }
     setView('friends')
-  }, [location.pathname, location.state, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
+  }, [location.pathname, location.state, routeDmNotificationAnchor, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
 
   const voxperyServer = useMemo(
     () => storeServers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') ?? null,
@@ -210,6 +231,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
   const [dmUnreadDividerCount, setDmUnreadDividerCount] = useState(0)
   const [dmConversationReady, setDmConversationReady] = useState(false)
+  const [dmConversationRefreshedChannelId, setDmConversationRefreshedChannelId] = useState<string | null>(null)
   const [dmInput, setDmInput] = useState('')
   const [dmSearch, setDmSearch] = useState('')
   const [dmSearchResults, setDmSearchResults] = useState<MessageWithAuthor[] | null>(null)
@@ -237,6 +259,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
   useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
+  useEffect(() => {
+    const anchor = pendingDmNotificationAnchorRef.current
+    if (!anchor || !activeDmChannelId || anchor.channelId === activeDmChannelId) return
+    pendingDmNotificationAnchorRef.current = null
+    setPendingDmNotificationAnchor(null)
+  }, [activeDmChannelId])
 
   useEffect(() => {
     if (!dmContextMenu) return
@@ -306,7 +334,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setIncomingRequestCount(req.incoming.length)
       setOutgoingRequests(req.outgoing)
       setStoreDmChannels(dms)
-      setDmUnreadFromChannels(dms)
+      const pendingChannelId = pendingDmNotificationAnchorRef.current?.channelId
+      setDmUnreadFromChannels(
+        dms,
+        pendingChannelId ? new Set([pendingChannelId]) : undefined,
+      )
       setDmChannelIds(dms.map((d) => d.id))
       setSocialDataReady(true)
     } finally {
@@ -358,7 +390,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (!user || !userId) return
     const requestId = ++dmMessagesRequestRef.current
     const cached = cachedDmMessages(channelId)
-    setDmConversationReady(!!cached)
+    const waitsForNotificationAnchor = pendingDmNotificationAnchorRef.current?.channelId === channelId
+    setDmConversationRefreshedChannelId((current) => current === channelId ? null : current)
+    setDmConversationReady(!!cached && !waitsForNotificationAnchor)
     setDmMessages(cached ?? [])
     try {
       const ui = await loadDmMessagesOnce(userId, channelId, () => dmApi.listMessages(channelId, token))
@@ -367,10 +401,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmMessages(merged)
         setDmConversationReady(true)
+        setDmConversationRefreshedChannelId(channelId)
       }
     } catch (err) {
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmConversationReady(true)
+        setDmConversationRefreshedChannelId(channelId)
       }
       if (isDmAccessForbidden(err)) {
         if (activeDmChannelIdRef.current === channelId) {
@@ -396,7 +432,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
     const unreadCount = useAppStore.getState().dmUnread[activeDmChannelId] ?? 0
     setDmUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
-    clearDmUnread(activeDmChannelId)
+    const notificationAnchor = pendingDmNotificationAnchorRef.current
+    if (notificationAnchor?.channelId !== activeDmChannelId) {
+      clearDmUnread(activeDmChannelId)
+    }
     void refreshActiveDmConversation(activeDmChannelId)
   }, [activeDmChannelId, clearDmUnread, isDmConversationVisible, refreshActiveDmConversation, user])
 
@@ -558,7 +597,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         rememberDmMessages(channelId, next)
         return next
       })
-      if (isDmConversationVisibleRef.current) {
+      const notificationAnchor = pendingDmNotificationAnchorRef.current
+      const isWaitingForNotificationAnchor = notificationAnchor?.channelId === channelId
+      if (isDmConversationVisibleRef.current && !isAppBackgrounded() && !isWaitingForNotificationAnchor) {
         clearDmUnread(channelId)
         void dmApi.markRead(channelId, token).catch(() => {
           // Best-effort read sync; the next conversation refresh will reconcile.
@@ -974,6 +1015,31 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   )
 
   const displayedDmMessages = dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages
+
+  const notificationJumpMessageId = useMemo(() => {
+    const anchor = pendingDmNotificationAnchor ?? routeDmNotificationAnchor
+    if (!anchor || anchor.channelId !== activeDmChannelId) return null
+    if (dmConversationRefreshedChannelId !== anchor.channelId || dmSearch.trim()) return null
+    if (anchor.messageId && dmMessages.some((message) => message.id === anchor.messageId)) {
+      return anchor.messageId
+    }
+    return dmMessages.at(-1)?.id ?? null
+  }, [activeDmChannelId, dmConversationRefreshedChannelId, dmMessages, dmSearch, pendingDmNotificationAnchor, routeDmNotificationAnchor])
+
+  const isNotificationHistoryPending =
+    pendingDmNotificationAnchor?.channelId === activeDmChannelId
+    && dmConversationRefreshedChannelId !== activeDmChannelId
+
+  const handleDmNotificationAnchorVisible = useCallback(() => {
+    const anchor = pendingDmNotificationAnchorRef.current
+    if (!anchor || anchor.channelId !== activeDmChannelIdRef.current) return
+    pendingDmNotificationAnchorRef.current = null
+    setPendingDmNotificationAnchor(null)
+    clearDmUnread(anchor.channelId)
+    void dmApi.markRead(anchor.channelId, token).catch(() => {
+      // Best-effort read sync; the next conversation refresh will reconcile.
+    })
+  }, [clearDmUnread, token])
 
   const saveDmEdit = useCallback(async () => {
     if (!user || !editingDmMessageId || !editingDmContent.trim()) return
@@ -1426,7 +1492,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
-                loading={!dmConversationReady && !dmSearch.trim() && displayedDmMessages.length === 0}
+                loading={
+                  !dmSearch.trim()
+                  && (!dmConversationReady || isNotificationHistoryPending)
+                  && (displayedDmMessages.length === 0 || isNotificationHistoryPending)
+                }
                 unreadDividerCount={dmUnreadDividerCount}
                 draftAttachments={dmDraftAttachments}
                 messageInput={dmInput}
@@ -1467,6 +1537,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onToggleReaction={handleToggleDmReaction}
                 emptyStateTitle={`Start your conversation with ${dmChannel.peer_username}`}
                 emptyStateDescription="This is the beginning of your direct message history."
+                jumpToMessageId={notificationJumpMessageId}
+                onJumpToMessageHandled={handleDmNotificationAnchorVisible}
               />
             )
           })()}
