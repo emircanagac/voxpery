@@ -55,8 +55,9 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Resizing and fullscreening User B's remote share tile upgrades the received adaptive layer without restarting the share.
 - [ ] User A starts screen share; User B sees the screen tile.
 - [ ] Sharing a supported browser tab/system-audio source publishes both `ScreenShare` and `ScreenShareAudio`; User B hears the shared audio independently from User A's microphone.
+- [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, and `dtx: false`.
 - [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.
-- [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio capture/publication, simulcast, outbound bitrate/FPS, packet loss, and quality limitation reason are present without device identifiers.
+- [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
 - [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.
 - [ ] On a clean macOS install, starting screen share prompts for Screen & System Audio Recording access and Voxpery appears in that Privacy & Security list.
 - [ ] On macOS, opening and closing the native share picker does not lower remote microphone audio; the same level continues without clicking Voxpery again.
@@ -66,6 +67,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] While hidden by User B, the remote screen video and screen-share audio publications are unsubscribed; selecting `Show` restores them without replaying the start cue.
 - [ ] User A's normal microphone audio continues while the screen share is hidden.
 - [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
+- [ ] Per-user microphone and screen-share volume controls stay within 0-100%; repeated mute/unmute and 0/100 transitions do not cut out, clip, or change the selected output device.
 - [ ] User B shows the screen share again and audio behavior returns with the visible media.
 - [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera/screen video traffic while microphone and screen-share audio continue; restoring the window resumes video without replaying start cues.
 - [ ] User A stops screen share; User B hears the screen-stop cue once.

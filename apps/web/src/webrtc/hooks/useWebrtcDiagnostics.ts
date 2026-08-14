@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Room, Track } from 'livekit-client'
 import {
     updateVoiceDiagnostics,
+    type ScreenShareAudioOutboundDiagnostics,
     type ScreenShareOutboundDiagnostics,
 } from '../voiceDiagnostics'
 
@@ -14,6 +15,11 @@ const WS_PING_INTERVAL_MS = 2500
 type PingSource = 'rtc' | 'ws' | null
 
 export interface ScreenShareOutboundSample extends ScreenShareOutboundDiagnostics {
+    bytesSent?: number
+    timestamp?: number
+}
+
+export interface ScreenShareAudioOutboundSample extends ScreenShareAudioOutboundDiagnostics {
     bytesSent?: number
     timestamp?: number
 }
@@ -94,6 +100,51 @@ export function extractScreenShareOutboundSample(
     }
 }
 
+export function extractScreenShareAudioOutboundSample(
+    reports: RTCStats[],
+    trackIdentifier: string,
+): ScreenShareAudioOutboundSample | null {
+    const byId = new Map(reports.map((report) => [report.id, report]))
+    for (const report of reports) {
+        if (report.type !== 'outbound-rtp') continue
+        const outbound = report as RTCOutboundRtpStreamStats & {
+            mediaType?: string
+            mediaSourceId?: string
+            trackId?: string
+            trackIdentifier?: string
+            codecId?: string
+            isRemote?: boolean
+        }
+        if ((outbound.kind ?? outbound.mediaType) !== 'audio' || outbound.isRemote) continue
+
+        const source = outbound.mediaSourceId ? byId.get(outbound.mediaSourceId) : undefined
+        const legacyTrack = outbound.trackId ? byId.get(outbound.trackId) : undefined
+        const sourceIdentifier = String(
+            outbound.trackIdentifier
+            ?? (source as (RTCStats & { trackIdentifier?: string }) | undefined)?.trackIdentifier
+            ?? (legacyTrack as (RTCStats & { trackIdentifier?: string }) | undefined)?.trackIdentifier
+            ?? '',
+        )
+        if (sourceIdentifier !== trackIdentifier) continue
+
+        const codec = outbound.codecId ? byId.get(outbound.codecId) : undefined
+        const remoteInbound = reports.find((candidate) => (
+            candidate.type === 'remote-inbound-rtp'
+            && (candidate as RTCStats & { localId?: string }).localId === outbound.id
+        )) as (RTCStats & { packetsLost?: number }) | undefined
+
+        return {
+            packetsSent: finiteNumber(outbound.packetsSent),
+            packetsLost: finiteNumber(remoteInbound?.packetsLost),
+            codec: (codec as (RTCStats & { mimeType?: string }) | undefined)?.mimeType,
+            channels: finiteNumber((codec as (RTCStats & { channels?: number }) | undefined)?.channels),
+            bytesSent: finiteNumber(outbound.bytesSent),
+            timestamp: finiteNumber(outbound.timestamp),
+        }
+    }
+    return null
+}
+
 const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value))
 
@@ -170,6 +221,7 @@ export function useWebrtcDiagnostics(options: {
     const selectedPingSourceRef = useRef<PingSource>(null)
     const prevInboundTotalsRef = useRef<InboundTotals | null>(null)
     const previousScreenShareOutboundRef = useRef<ScreenShareOutboundSample | null>(null)
+    const previousScreenShareAudioOutboundRef = useRef<ScreenShareAudioOutboundSample | null>(null)
 
     // WS ping/pong — kept as fallback while RTC path is unavailable.
     useEffect(() => {
@@ -310,6 +362,45 @@ export function useWebrtcDiagnostics(options: {
                         }
                     } else {
                         previousScreenShareOutboundRef.current = null
+                    }
+
+                    const screenAudioPublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)
+                    const screenAudioTrackIdentifier = screenAudioPublication?.track?.mediaStreamTrack.id
+                    if (screenAudioTrackIdentifier) {
+                        const sample = extractScreenShareAudioOutboundSample(
+                            Array.from(stats.values()),
+                            screenAudioTrackIdentifier,
+                        )
+                        if (sample) {
+                            const previous = previousScreenShareAudioOutboundRef.current
+                            let bitrateKbps: number | undefined
+                            if (
+                                previous?.bytesSent != null
+                                && previous.timestamp != null
+                                && sample.bytesSent != null
+                                && sample.timestamp != null
+                                && sample.timestamp > previous.timestamp
+                                && sample.bytesSent >= previous.bytesSent
+                            ) {
+                                bitrateKbps = Math.round(
+                                    ((sample.bytesSent - previous.bytesSent) * 8)
+                                    / (sample.timestamp - previous.timestamp),
+                                )
+                            }
+                            previousScreenShareAudioOutboundRef.current = sample
+                            updateVoiceDiagnostics({
+                                screenShareAudioOutbound: {
+                                    bitrateKbps,
+                                    packetsSent: sample.packetsSent,
+                                    packetsLost: sample.packetsLost,
+                                    codec: sample.codec,
+                                    channels: sample.channels,
+                                },
+                            })
+                        }
+                    } else {
+                        previousScreenShareAudioOutboundRef.current = null
+                        updateVoiceDiagnostics({ screenShareAudioOutbound: undefined })
                     }
 
                     // Transport-selected candidate pair (Chromium/WebKit).

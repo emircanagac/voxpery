@@ -34,6 +34,13 @@ import {
   isEditableShortcutTarget,
   keyboardEventMatchesShortcut,
 } from '../globalMuteShortcut'
+import {
+  DEFAULT_REMOTE_PLAYBACK_VOLUME,
+  normalizeRemotePlaybackVolume,
+  readRemotePlaybackVolumes,
+  REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT,
+  writeRemotePlaybackVolumes,
+} from '../webrtc/remotePlaybackVolume'
 
 type VoxperyTrack = VoxperyMediaStreamTrack
 
@@ -204,26 +211,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const DEFAULT_OUTPUT_VOLUME = 80
   const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
   const MIC_TEST_AUTO_DEAFEN_EVENT = 'voxpery-mic-test-auto-deafen'
-  const PEER_VOLUME_KEY = 'voxpery-voice-peer-volume'
-  const PEER_VOLUME_CHANGED_EVENT = 'voxpery-voice-peer-volume-changed'
   const [outputVolume, setOutputVolume] = useState(() =>
     Math.min(100, Math.max(1, Number(localStorage.getItem(OUTPUT_VOL_KEY)) || DEFAULT_OUTPUT_VOLUME))
   )
-  const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(() => {
-    try {
-      const raw = localStorage.getItem(PEER_VOLUME_KEY)
-      if (!raw) return {}
-      const parsed = JSON.parse(raw) as Record<string, unknown>
-      const next: Record<string, number> = {}
-      for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value !== 'number' || !Number.isFinite(value)) continue
-        next[key] = Math.min(200, Math.max(0, Math.round(value)))
-      }
-      return next
-    } catch {
-      return {}
-    }
-  })
+  const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(
+    () => readRemotePlaybackVolumes(),
+  )
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
@@ -243,9 +236,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const micTestPrevMutedRef = useRef(false)
   const remoteAudioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteAudioRetryTimerRef = useRef<Map<string, number>>(new Map())
-  // Per-playback WebAudio nodes for amplification above 100% (GainNode allows gain > 1.0).
-  // Microphone and screen-share audio are separate playback paths so their volumes cannot affect each other.
-  const perPeerAudioCtxRef = useRef<Map<string, { ctx: AudioContext; source: MediaElementAudioSourceNode; gain: GainNode }>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraPreviewCleanupRef = useRef<(() => void) | null>(null)
@@ -315,8 +305,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     const volumeKey = resolvePeerVolumeKey(peerId)
     const storageKey = kind === 'screen' ? `screen:${volumeKey}` : volumeKey
     const raw = peerVolumeByUserId[storageKey]
-    const bounded = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(200, Math.max(0, raw)) : 100
-    return bounded / 100  // returns 0.0–2.0
+    return normalizeRemotePlaybackVolume(raw) / 100
   }, [peerVolumeByUserId, resolvePeerVolumeKey])
 
   const ensureRemoteAudioPlayback = useCallback((peerId: string, el: HTMLAudioElement) => {
@@ -378,56 +367,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     for (const [playbackKey, el] of remoteAudioRefsRef.current.entries()) {
       try {
         const { peerId, kind } = parseRemoteAudioPlaybackKey(playbackKey)
-        const peerFactor = getPlaybackVolumeFactor(peerId, kind)  // 0.0–2.0
+        const peerFactor = getPlaybackVolumeFactor(peerId, kind)
         const combined = isDeafened ? 0 : global * peerFactor
-        if (peerFactor <= 1.0) {
-          // Normal range: use plain audio.volume (0–1)
-          el.volume = Math.min(1, Math.max(0, combined))
-          // Tear down any existing GainNode for this peer (they lowered it back)
-          const existing = perPeerAudioCtxRef.current.get(playbackKey)
-          if (existing) {
-            try { existing.source.disconnect(); existing.gain.disconnect() } catch { /* ignore */ }
-            void existing.ctx.close().catch(() => { })
-            perPeerAudioCtxRef.current.delete(playbackKey)
-          }
-        } else {
-          // Amplified range (>100%): route through a GainNode. When captured, el.muted is ignored
-          // by the browser, so we mute by setting gain.gain.value = 0 when deafened.
-          let nodes = perPeerAudioCtxRef.current.get(playbackKey)
-          if (!nodes) {
-            // When deafened (combined === 0), avoid createMediaElementSource so Firefox doesn't warn
-            // about captured MediaElement (volume/mute not supported after capture)
-            if (combined === 0) {
-              el.volume = 0
-              el.muted = true
-              continue
-            }
-            try {
-              const AudioCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-              if (AudioCtor) {
-                const ctx = new AudioCtor()
-                const source = ctx.createMediaElementSource(el)
-                const gain = ctx.createGain()
-                source.connect(gain)
-                gain.connect(ctx.destination)
-                nodes = { ctx, source, gain }
-                perPeerAudioCtxRef.current.set(playbackKey, nodes)
-              }
-            } catch {
-              // WebAudio unavailable: clamp to 1.0
-              el.volume = 1
-              continue
-            }
-          }
-          if (nodes) {
-            nodes.gain.gain.value = Math.min(4, combined)  // 0 when deafened, else cap at 4×
-            // Do not set el.volume/el.muted: element is captured by Web Audio, Firefox warns and it has no effect
-          }
-        }
-        // Only set el.muted when not using GainNode (captured element ignores it; mute is via gain.gain.value)
-        if (!perPeerAudioCtxRef.current.has(playbackKey)) {
-          el.muted = isDeafened
-        }
+        el.volume = Math.min(1, Math.max(0, combined))
+        el.muted = isDeafened
       } catch {
         // ignore
       }
@@ -437,12 +380,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const recoverRemoteAudioPlayback = useCallback(() => {
     applyOutputVolumeToElements(outputVolumeRef.current / 100)
     applyOutputDeviceToElements()
-
-    for (const nodes of perPeerAudioCtxRef.current.values()) {
-      if (nodes.ctx.state === 'suspended') {
-        void nodes.ctx.resume().catch(() => { })
-      }
-    }
 
     if (deafenedRef.current) return
     for (const [playbackKey, element] of remoteAudioRefsRef.current.entries()) {
@@ -484,25 +421,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     const onPeerVolumeChanged = () => {
-      try {
-        const raw = localStorage.getItem(PEER_VOLUME_KEY)
-        if (!raw) {
-          setPeerVolumeByUserId({})
-          return
-        }
-        const parsed = JSON.parse(raw) as Record<string, unknown>
-        const next: Record<string, number> = {}
-        for (const [key, value] of Object.entries(parsed)) {
-          if (typeof value !== 'number' || !Number.isFinite(value)) continue
-          next[key] = Math.min(200, Math.max(0, Math.round(value)))
-        }
-        setPeerVolumeByUserId(next)
-      } catch {
-        setPeerVolumeByUserId({})
-      }
+      setPeerVolumeByUserId(readRemotePlaybackVolumes())
     }
-    window.addEventListener(PEER_VOLUME_CHANGED_EVENT, onPeerVolumeChanged)
-    return () => window.removeEventListener(PEER_VOLUME_CHANGED_EVENT, onPeerVolumeChanged)
+    window.addEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, onPeerVolumeChanged)
+    return () => window.removeEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, onPeerVolumeChanged)
   }, [])
   const effectiveDeafened = deafened || serverDeafened
 
@@ -636,9 +558,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           el.__voxpery_trackIds = currentTrackIds
           void applyPreferredAudioOutputDevice(el)
         }
-        if (!perPeerAudioCtxRef.current.has(playbackKey)) {
-          el.muted = deafenedRef.current
-        }
+        el.muted = deafenedRef.current
         if (!deafenedRef.current && currentTrackIds) {
           ensureRemoteAudioPlayback(playbackKey, el)
         }
@@ -1267,7 +1187,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               {remoteVideoTrackEntries.map(({ peerId, track, label, kind }) => {
                 const volumeKey = resolvePeerVolumeKey(peerId)
                 const screenVolumeKey = `screen:${volumeKey}`
-                const currentVol = kind === 'screen' ? (peerVolumeByUserId[screenVolumeKey] ?? 100) : (peerVolumeByUserId[volumeKey] ?? 100)
+                const currentVol = normalizeRemotePlaybackVolume(
+                  kind === 'screen' ? peerVolumeByUserId[screenVolumeKey] : peerVolumeByUserId[volumeKey],
+                )
                 const tileKey = `${peerId}-${track.id}`
                 const owner = remoteShareOwner(peerId)
                 const isHidden = isRemoteMediaHidden(peerId, kind)
@@ -1286,25 +1208,25 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                               let newVal: number
                               if (isMuted) {
                                 const savedStr = localStorage.getItem(prevVolumeKey)
-                                const savedVal = savedStr ? Number(savedStr) : 100
-                                newVal = savedVal > 0 ? savedVal : 100
+                                const savedVal = normalizeRemotePlaybackVolume(
+                                  savedStr ? Number(savedStr) : DEFAULT_REMOTE_PLAYBACK_VOLUME,
+                                )
+                                newVal = savedVal > 0 ? savedVal : DEFAULT_REMOTE_PLAYBACK_VOLUME
                               } else {
                                 localStorage.setItem(prevVolumeKey, String(currentVol))
                                 newVal = 0
                               }
-                              const next = { ...peerVolumeByUserId, [screenVolumeKey]: newVal }
+                              const next = writeRemotePlaybackVolumes({ ...peerVolumeByUserId, [screenVolumeKey]: newVal })
                               setPeerVolumeByUserId(next)
-                              localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
                               applyOutputVolumeToElements(outputVolumeRef.current / 100)
                             }}>
                               {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
                             </button>
                             <div className="screen-share-volume-slider-wrap">
-                              <input type="range" min={0} max={200} value={currentVol} className="screen-share-volume-slider" title={`Volume: ${currentVol}%`} onChange={(e) => {
-                                const val = Number(e.target.value)
-                                const next = { ...peerVolumeByUserId, [screenVolumeKey]: val }
+                              <input type="range" min={0} max={100} value={currentVol} className="screen-share-volume-slider" title={`Volume: ${currentVol}%`} onChange={(e) => {
+                                const val = normalizeRemotePlaybackVolume(Number(e.target.value))
+                                const next = writeRemotePlaybackVolumes({ ...peerVolumeByUserId, [screenVolumeKey]: val })
                                 setPeerVolumeByUserId(next)
-                                localStorage.setItem(PEER_VOLUME_KEY, JSON.stringify(next))
                                 applyOutputVolumeToElements(outputVolumeRef.current / 100)
                               }} />
                               <span className="screen-share-volume-value">{currentVol}%</span>
@@ -1353,24 +1275,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                           }
                           void applyPreferredAudioOutputDevice(audioEl)
                           const shouldMute = deafenedRef.current
-                          const isCaptured = perPeerAudioCtxRef.current.has(playbackKey)
-                          if (!isCaptured) {
-                            const peerFactor = getPlaybackVolumeFactor(peerId, kind)
-                            const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
-                            try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
-                            audioEl.muted = shouldMute
-                          }
+                          const peerFactor = getPlaybackVolumeFactor(peerId, kind)
+                          const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
+                          try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
+                          audioEl.muted = shouldMute
                           if (!shouldMute && currentTrackIds) ensureRemoteAudioPlayback(playbackKey, audioEl)
                         } else {
                           remoteAudioRefsRef.current.delete(playbackKey)
                           const t = remoteAudioRetryTimerRef.current.get(playbackKey)
                           if (t != null) { window.clearTimeout(t); remoteAudioRetryTimerRef.current.delete(playbackKey) }
-                          const existing = perPeerAudioCtxRef.current.get(playbackKey)
-                          if (existing) {
-                            try { existing.source.disconnect(); existing.gain.disconnect() } catch { /* ignore */ }
-                            void existing.ctx.close().catch(() => { })
-                            perPeerAudioCtxRef.current.delete(playbackKey)
-                          }
                         }
                       }} />
                     )

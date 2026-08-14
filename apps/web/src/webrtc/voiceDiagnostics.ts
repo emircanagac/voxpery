@@ -76,8 +76,16 @@ export interface ScreenShareCaptureDiagnostics {
   displaySurface?: string
   constraintsApplied?: boolean
   audioCaptured?: boolean
+  audioSampleRate?: number
+  audioChannelCount?: number
+  audioContentHint?: 'music'
   videoPublished?: boolean
   audioPublished?: boolean
+  audioPreset?: 'musicHighQualityStereo'
+  audioMaxBitrateKbps?: 128
+  audioDtx?: false
+  audioRed?: false
+  audioForceStereo?: true
   simulcast?: boolean
   codec?: string
   scalabilityMode?: string
@@ -91,6 +99,14 @@ export interface ScreenShareOutboundDiagnostics {
   packetsSent?: number
   packetsLost?: number
   qualityLimitationReason?: string
+}
+
+export interface ScreenShareAudioOutboundDiagnostics {
+  bitrateKbps?: number
+  packetsSent?: number
+  packetsLost?: number
+  codec?: string
+  channels?: number
 }
 
 export interface VoiceRuntimeDiagnostics {
@@ -116,6 +132,7 @@ export interface VoiceRuntimeDiagnostics {
   livekit?: VoiceLivekitDiagnostics
   screenShare?: ScreenShareCaptureDiagnostics
   screenShareOutbound?: ScreenShareOutboundDiagnostics
+  screenShareAudioOutbound?: ScreenShareAudioOutboundDiagnostics
   updatedAt?: string
 }
 
