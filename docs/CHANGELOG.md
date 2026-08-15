@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-16
+
+### Added
+- Added a wider expression picker with GIPHY search and trending results, persistent GIF favorites, and recent emoji, GIF, and sticker history.
+- Added automatic production deployment for published stable GitHub Releases after both immutable Docker images pass validation, while retaining manual redeploy and rollback controls.
+
+### Changed
+- Separated per-user microphone volume from per-stream shared-audio volume, with independent mute state and Discord-style ranges of 0-200% for voice and 0-100% for streams.
+- Kept explicitly watched screen-share audio playing while Voxpery is hidden or the listener is deafened, without resuming microphone playback.
+
+### Fixed
+- Reconciled LiveKit participants with sidebar voice presence and stabilized onboarding-guide visibility during server navigation.
+- Improved shared-audio continuity with Opus RED packet-loss resilience and preserved subscriptions across visibility changes and reconnects.
+- Prevented user-volume changes from muting, unmuting, or altering screen-share audio preferences.
+- Replaced transient or stale `1 ms` voice ping values with stable selected ICE-path RTT, using current WebSocket RTT while WebRTC measurements settle.
+
 ## [0.2.7] - 2026-08-14
 
 ### Fixed
