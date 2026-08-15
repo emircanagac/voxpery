@@ -185,6 +185,7 @@ jobs:
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             TURNSTILE_SITE_KEY_PUBLIC=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
             VITE_APP_VERSION=${{ needs.prepare.outputs.image_tag }}
+            VITE_GIPHY_API_KEY=${{ vars.VITE_GIPHY_API_KEY }}
             APP_ENV=production
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}

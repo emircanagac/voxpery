@@ -27,7 +27,7 @@
     "security": {
       "csp": {
         "default-src": "'self' tauri: asset: voxpery:",
-        "connect-src": "ipc: http://ipc.localhost 'self' https://api.voxpery.com wss://api.voxpery.com https://livekit.voxpery.com wss://livekit.voxpery.com stun: turn: https://livekit.io https://*.livekit.io https://challenges.cloudflare.com",
+        "connect-src": "ipc: http://ipc.localhost 'self' https://api.voxpery.com wss://api.voxpery.com https://livekit.voxpery.com wss://livekit.voxpery.com stun: turn: https://livekit.io https://*.livekit.io https://challenges.cloudflare.com https://api.giphy.com",
         "img-src": "'self' asset: data: https: blob:",
         "script-src": "'self' blob: 'wasm-unsafe-eval' https://challenges.cloudflare.com",
         "frame-src": "https://challenges.cloudflare.com",

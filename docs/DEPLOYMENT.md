@@ -35,6 +35,7 @@ Edit `.env` and set strong production values at minimum:
 - If a reverse proxy supplies client IP headers, set `TRUSTED_PROXY_CIDRS` to that
   proxy's exact IP or dedicated network CIDR. Leave it empty for direct deployments.
 - `VITE_API_URL` (public backend URL used by frontend build)
+- `VITE_GIPHY_API_KEY` (optional public client key for GIPHY search/trending; configure the same repository variable for web and desktop release builds)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)
 
@@ -341,4 +342,4 @@ For production operations, alerting and restore drill checklist, see:
 
 - LiveKit runs on bridge networking with explicit port mappings for cross-platform compatibility.
 - Backend migrations run automatically on startup.
-- Frontend is built at image build time, so changing `VITE_API_URL` requires rebuilding the `web` image.
+- Frontend is built at image build time, so changing `VITE_API_URL` or `VITE_GIPHY_API_KEY` requires rebuilding the `web` image.

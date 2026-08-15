@@ -143,6 +143,49 @@ test.describe('mocked core UI smoke', () => {
     expect(hasHorizontalOverflow).toBe(false)
   })
 
+  test('keeps the expression picker wide, persistent, and free of GIF cropping', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [] },
+    })
+    await installMockCoreApi(page, state)
+    await page.route('https://media.giphy.com/**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'image/gif',
+      body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64'),
+    }))
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+
+    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    const picker = page.locator('.chat-emoji-picker')
+    await expect(picker).toBeVisible()
+    await expect.poll(async () => picker.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(420)
+
+    await page.getByRole('button', { name: 'Add Celebration to favorites' }).click()
+    await page.getByRole('button', { name: 'Favorites', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Send Celebration' })).toBeVisible()
+    await page.getByRole('button', { name: 'Send Celebration' }).click()
+
+    const sentGif = page.locator('.chat-inline-gif').last()
+    await expect(sentGif).toBeVisible()
+    await expect.poll(async () => sentGif.evaluate((element) => {
+      const style = window.getComputedStyle(element)
+      return { fit: style.objectFit, usesNaturalRatio: style.aspectRatio.startsWith('auto') }
+    })).toEqual({ fit: 'contain', usesNaturalRatio: true })
+    expect(state.messagesByChannelId[general.id]?.some((message) => message.content.startsWith('![gif]('))).toBe(true)
+
+    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    await page.getByRole('button', { name: 'Favorites', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Remove Celebration from favorites' })).toBeVisible()
+  })
+
   test('keeps first-message text fixed while optimistic delivery is confirmed', async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)

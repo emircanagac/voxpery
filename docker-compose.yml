@@ -111,6 +111,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
         TURNSTILE_SITE_KEY_PUBLIC: ${VITE_TURNSTILE_SITE_KEY:-}
         VITE_APP_VERSION: ${VITE_APP_VERSION:-}
+        VITE_GIPHY_API_KEY: ${VITE_GIPHY_API_KEY:-}
         APP_ENV: ${APP_ENV:-development}
     container_name: voxpery-web
     restart: unless-stopped

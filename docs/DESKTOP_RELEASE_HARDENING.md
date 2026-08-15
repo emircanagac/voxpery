@@ -103,6 +103,7 @@ Voxpery desktop rollback is manual and release-artifact based:
 
 - `VITE_API_URL` (required for desktop release build)
 - `VITE_TURNSTILE_SITE_KEY` (required as a repository variable or secret for desktop release builds)
+- `VITE_GIPHY_API_KEY` (optional repository variable for live GIF search and trending results)
 - `TAURI_UPDATER_PUBLIC_KEY` (required when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY` (required only when updater artifacts enabled)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (optional; required if private key is encrypted)

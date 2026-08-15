@@ -1610,7 +1610,7 @@ export default function ChatArea({
             const chatAreaRect = chatAreaRef.current?.getBoundingClientRect()
             const messageInputRect = messageInputWrapperRef.current?.getBoundingClientRect()
             const rect = button.getBoundingClientRect()
-            const pickerWidth = 232
+            const pickerWidth = emojiPickerRef.current?.getBoundingClientRect().width ?? 420
             const pickerHeight = emojiPickerRef.current?.getBoundingClientRect().height ?? 336
             const viewportPadding = 16
             const containerPadding = 8
