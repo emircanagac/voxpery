@@ -55,7 +55,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Resizing and fullscreening User B's remote share tile upgrades the received adaptive layer without restarting the share.
 - [ ] User A starts screen share; User B sees `Stream available` but receives no screen video or shared-audio traffic before choosing `Watch stream`.
 - [ ] User B chooses `Watch stream`; both `ScreenShare` and `ScreenShareAudio` subscribe, while User A's microphone remains continuously audible.
-- [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, and `dtx: false`.
+- [ ] While User B watches a stream, hiding/minimizing Voxpery pauses screen video but keeps screen-share audio continuous; restoring the app resumes video without an audio gap or replayed media cue.
+- [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, `dtx: false`, and `red: true`.
 - [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.
 - [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
 - [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.

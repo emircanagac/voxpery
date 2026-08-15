@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
+  getLiveKitParticipantCount,
   getMicrophonePublishOptions,
   getPreferredScreenShareCodec,
   getScreenShareAudioPublishOptions,
   getScreenSharePublishOptions,
+  reconcileLiveKitVoicePresence,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
   remoteMediaStartCueKey,
@@ -17,6 +19,7 @@ import {
   shouldRecoverMicrophoneTrack,
 } from './useLiveKitVoice'
 import { AudioPresets, Track } from 'livekit-client'
+import { useAppStore } from '../stores/app'
 
 describe('microphone publish options', () => {
   it('uses a high-quality mono Opus profile with resilience enabled', () => {
@@ -36,7 +39,7 @@ describe('screen-share audio publish options', () => {
       source: Track.Source.ScreenShareAudio,
       audioPreset: AudioPresets.musicHighQualityStereo,
       dtx: false,
-      red: false,
+      red: true,
       forceStereo: true,
     })
   })
@@ -117,7 +120,8 @@ describe('remote media subscriptions', () => {
     expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, true, false, false)).toBe(false)
     expect(shouldSubscribeRemotePublication(Track.Source.ScreenShare, Track.Kind.Video, true, false, true)).toBe(true)
     expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, true, false, true)).toBe(true)
-    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, false, false, true)).toBe(false)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShareAudio, Track.Kind.Audio, false, false, true)).toBe(true)
+    expect(shouldSubscribeRemotePublication(Track.Source.ScreenShare, Track.Kind.Video, false, false, true)).toBe(false)
     expect(shouldSubscribeRemotePublication(Track.Source.Microphone, Track.Kind.Audio, false)).toBe(true)
   })
 
@@ -126,6 +130,55 @@ describe('remote media subscriptions', () => {
     expect(remoteMediaKindForSource(Track.Source.ScreenShare)).toBe('screen')
     expect(remoteMediaKindForSource(Track.Source.ScreenShareAudio)).toBe('screen')
     expect(remoteMediaKindForSource(Track.Source.Microphone)).toBeNull()
+  })
+})
+
+describe('LiveKit voice presence reconciliation', () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      channels: [{
+        id: 'voice-channel-1',
+        server_id: 'server-1',
+        name: 'General',
+        channel_type: 'voice',
+        category: 'General',
+        position: 0,
+      }],
+      channelsByServerId: {},
+      voiceStates: {},
+      voiceStateServerIds: {},
+      voiceChannelActiveSince: {},
+    })
+  })
+
+  it('counts the connected local participant together with current remotes', () => {
+    expect(getLiveKitParticipantCount('connected', 2)).toBe(3)
+    expect(getLiveKitParticipantCount('reconnecting', 2)).toBe(3)
+    expect(getLiveKitParticipantCount('disconnected', 2)).toBe(0)
+  })
+
+  it('updates sidebar presence immediately from LiveKit participant events', () => {
+    reconcileLiveKitVoicePresence('user-1', 'voice-channel-1', true)
+
+    expect(useAppStore.getState().voiceStates['user-1']).toBe('voice-channel-1')
+    expect(useAppStore.getState().voiceStateServerIds['user-1']).toBe('server-1')
+
+    reconcileLiveKitVoicePresence('user-1', 'voice-channel-1', false)
+
+    expect(useAppStore.getState().voiceStates['user-1']).toBeNull()
+    expect(useAppStore.getState().voiceStateServerIds['user-1']).toBeNull()
+  })
+
+  it('does not let a stale disconnect clear presence after a channel move', () => {
+    useAppStore.setState({
+      voiceStates: { 'user-1': 'voice-channel-2' },
+      voiceStateServerIds: { 'user-1': 'server-2' },
+    })
+
+    reconcileLiveKitVoicePresence('user-1', 'voice-channel-1', false)
+
+    expect(useAppStore.getState().voiceStates['user-1']).toBe('voice-channel-2')
+    expect(useAppStore.getState().voiceStateServerIds['user-1']).toBe('server-2')
   })
 })
 

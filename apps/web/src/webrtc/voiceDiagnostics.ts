@@ -84,7 +84,7 @@ export interface ScreenShareCaptureDiagnostics {
   audioPreset?: 'musicHighQualityStereo'
   audioMaxBitrateKbps?: 128
   audioDtx?: false
-  audioRed?: false
+  audioRed?: true
   audioForceStereo?: true
   simulcast?: boolean
   codec?: string

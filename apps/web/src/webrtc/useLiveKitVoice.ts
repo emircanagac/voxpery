@@ -64,9 +64,46 @@ export function getScreenShareAudioPublishOptions(): TrackPublishOptions {
     source: Track.Source.ScreenShareAudio,
     audioPreset: AudioPresets.musicHighQualityStereo,
     dtx: false,
-    red: false,
+    red: true,
     forceStereo: true,
   }
+}
+
+export function getLiveKitParticipantCount(roomState: string, remoteParticipantCount: number): number {
+  const hasLocalParticipant = roomState === 'connected'
+    || roomState === 'reconnecting'
+    || roomState === 'signalReconnecting'
+  return hasLocalParticipant ? remoteParticipantCount + 1 : 0
+}
+
+function getVoiceChannelServerId(channelId: string): string | null {
+  const store = useAppStore.getState()
+  const currentChannel = store.channels.find((channel) => channel.id === channelId)
+  if (currentChannel) return currentChannel.server_id
+
+  for (const [serverId, channels] of Object.entries(store.channelsByServerId)) {
+    if (channels.some((channel) => channel.id === channelId)) return serverId
+  }
+  return null
+}
+
+export function reconcileLiveKitVoicePresence(
+  participantId: string,
+  channelId: string,
+  connected: boolean,
+): void {
+  if (!participantId || !channelId) return
+
+  const store = useAppStore.getState()
+  if (connected) {
+    store.setVoiceState(participantId, channelId)
+    store.setVoiceStateServerId(participantId, getVoiceChannelServerId(channelId))
+    return
+  }
+
+  if (store.voiceStates[participantId] !== channelId) return
+  store.setVoiceState(participantId, null)
+  store.setVoiceStateServerId(participantId, null)
 }
 
 type ScreenShareEncoding = {
@@ -140,8 +177,8 @@ export function shouldSubscribeRemotePublication(
   userHidden = false,
   screenShareWatched = false,
 ): boolean {
-  const isScreenShare = source === Track.Source.ScreenShare || source === Track.Source.ScreenShareAudio
-  if (isScreenShare) return !userHidden && appVisible && screenShareWatched
+  if (source === Track.Source.ScreenShareAudio) return !userHidden && screenShareWatched
+  if (source === Track.Source.ScreenShare) return !userHidden && appVisible && screenShareWatched
   return shouldSubscribeRemoteTrack(kind, appVisible, userHidden)
 }
 
@@ -439,7 +476,7 @@ export function useLiveKitVoice() {
       return
     }
     const nextRoomState = String(room.state)
-    const nextParticipantCount = room.numParticipants ?? 0
+    const nextParticipantCount = getLiveKitParticipantCount(nextRoomState, room.remoteParticipants.size)
     setRoomState(nextRoomState)
     setParticipantCount(nextParticipantCount)
     updateVoiceDiagnostics({
@@ -959,6 +996,7 @@ export function useLiveKitVoice() {
           updateRoomStats()
         })
         .on(RoomEvent.ParticipantDisconnected, (participant) => {
+          reconcileLiveKitVoicePresence(participant.identity, channelId, false)
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'camera'))
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'screen'))
           watchedRemoteScreenPeerIdsRef.current.delete(participant.identity)
@@ -968,6 +1006,7 @@ export function useLiveKitVoice() {
           playVoiceCue('leave')
         })
         .on(RoomEvent.ParticipantConnected, (participant) => {
+          reconcileLiveKitVoicePresence(participant.identity, channelId, true)
           participant.trackPublications.forEach((publication) => {
             syncRemotePublicationSubscription(publication, participant.identity)
           })
@@ -988,7 +1027,10 @@ export function useLiveKitVoice() {
           const currentRoom = roomRef.current
           if (currentRoom) {
             syncRemoteSubscriptions(currentRoom)
-            currentRoom.remoteParticipants.forEach(syncParticipantMediaState)
+            currentRoom.remoteParticipants.forEach((participant) => {
+              reconcileLiveKitVoicePresence(participant.identity, channelId, true)
+              syncParticipantMediaState(participant)
+            })
           }
         })
         .on(RoomEvent.Disconnected, (reason) => {
@@ -1013,6 +1055,7 @@ export function useLiveKitVoice() {
       await Promise.race([connectPromise, timeoutPromise])
 
       room.remoteParticipants.forEach((participant) => {
+        reconcileLiveKitVoicePresence(participant.identity, channelId, true)
         rememberExistingRemoteMedia(participant)
         participant.trackPublications.forEach((publication) => {
           syncRemotePublicationSubscription(publication, participant.identity)
@@ -1027,7 +1070,7 @@ export function useLiveKitVoice() {
       updateVoiceDiagnostics({
         livekit: {
           roomState: String(room.state),
-          participants: room.numParticipants ?? 0,
+          participants: getLiveKitParticipantCount(String(room.state), room.remoteParticipants.size),
           remoteStreams: remoteStreamsRef.current.size,
           adaptiveStream: true,
           dynacast: true,
@@ -1059,6 +1102,7 @@ export function useLiveKitVoice() {
       }
 
       joinedChannelIdRef.current = channelId
+      reconcileLiveKitVoicePresence(userId, channelId, true)
       send('JoinVoice', {
         channel_id: channelId,
         participant_sid: room.localParticipant.sid,
@@ -1086,7 +1130,8 @@ export function useLiveKitVoice() {
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
-    if (joinedChannelIdRef.current && !options?.skipLeaveSound) playVoiceCue('leave')
+    const departingChannelId = joinedChannelIdRef.current
+    if (departingChannelId && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
     send('LeaveVoice', null)
     joinedChannelIdRef.current = null
@@ -1099,7 +1144,10 @@ export function useLiveKitVoice() {
     setWatchedRemoteScreenPeerIds(new Set())
     setJoinedChannelId(null)
     useAppStore.getState().setJoinedVoiceChannelId(null)
-    if (userId) useAppStore.getState().setVoiceCamera(userId, false)
+    if (userId) {
+      if (departingChannelId) reconcileLiveKitVoicePresence(userId, departingChannelId, false)
+      useAppStore.getState().setVoiceCamera(userId, false)
+    }
     remoteMonitorCleanupsRef.current.forEach((c) => c())
     remoteMonitorCleanupsRef.current.clear()
 
@@ -1173,7 +1221,7 @@ export function useLiveKitVoice() {
       audioPreset: 'musicHighQualityStereo' as const,
       audioMaxBitrateKbps: 128 as const,
       audioDtx: false as const,
-      audioRed: false as const,
+      audioRed: true as const,
       audioForceStereo: true as const,
     } : {}
     const tracks = stream.getTracks()
