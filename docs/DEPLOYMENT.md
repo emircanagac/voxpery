@@ -241,7 +241,16 @@ docker compose pull server web
 docker compose up -d --no-build --remove-orphans
 ```
 
-The bundled manual deploy workflow uses a deploy channel:
+The bundled production deploy workflow supports automatic stable-release deploys
+and manual deploy channels. Publishing a non-prerelease GitHub Release with a
+`vX.Y.Z` tag starts CI validation and publishes both immutable Docker images.
+After both image jobs succeed, CI verifies that the tag belongs to the published
+Release and calls the production deploy workflow. The deploy verifies that both
+the backend and frontend image tags exist before changing the server, then runs
+health, deployed-version, and cache-policy smoke checks.
+
+Manual runs remain available for redeploys, release recovery, candidates, and
+explicit rollback operations:
 
 - `latest-release` (default): finds the newest `v*` tag, checks out that tag,
   and deploys the matching `vX.Y.Z` image tag.
@@ -252,14 +261,23 @@ The bundled manual deploy workflow uses a deploy channel:
   advanced operations.
 
 All channels refuse the Docker `latest` tag. The default `latest-release`
-channel keeps manual deploys close to one-click while still pinning production
-to a concrete release version.
+channel keeps manual redeploys close to one-click while still pinning production
+to a concrete release version. Automatic and manual deploys share one production
+concurrency lock, so they cannot modify production at the same time. Re-running
+the same release deploy is safe and remains pinned to the same immutable images.
 
 Docker images are published automatically only for `v*` tag pushes. Main-branch
 pushes run validation but do not push Docker images, keeping Docker Hub focused
-on stable releases. When you need a pre-release `main-candidate` deploy, run the
+on stable releases. A tag push that is not backed by a published, non-prerelease
+GitHub Release is refused by the automatic production deploy gate. When you need
+a pre-release `main-candidate` deploy, run the
 manual deploy workflow with the `main-candidate` channel; it publishes the
 matching `sha-<commit>` server and web images before deploying them.
+
+Set the optional repository variables `PRODUCTION_API_URL` and
+`PRODUCTION_WEB_URL` when deploying a fork to different public endpoints. They
+default to `https://api.voxpery.com` and `https://voxpery.com` for the hosted
+service and are used by the post-deploy smoke check.
 
 CI-built web images embed the resolved deploy tag as `VITE_APP_VERSION` and show
 it beside the `Beta` badge in the top bar. This should match the selected server
@@ -275,6 +293,14 @@ build produces new URLs. Do not override the entry-point headers with a CDN
 browser-cache rule: the release smoke workflow verifies that the app shell and
 service worker return a revalidation policy, preventing stale releases from
 requiring `Ctrl+F5`.
+
+For Cloudflare, set Browser Cache TTL to `Respect existing headers` and do not
+apply an Edge Cache TTL override to `/`, `/index.html`, `/sw.js`, or
+`/assets/rnnoise-worklet.js`. A broad four-hour Browser Cache TTL rule, for
+example, replaces the origin's revalidation header with `max-age=14400` and
+causes the post-deploy cache smoke to fail. Fingerprinted `/assets/*` files may
+keep a long-lived edge/browser cache rule, except for the stable RNNoise worklet
+path above.
 
 ## 8) Backups
 

@@ -1,6 +1,20 @@
 name: Deploy / Production
 
 on:
+  workflow_call:
+    inputs:
+      release_channel:
+        description: 'What to deploy: latest release tag, build+deploy a main candidate, or custom tag/ref'
+        required: true
+        type: string
+      image_tag:
+        description: 'Custom mode only: immutable Docker image tag, for example sha-abc123def456 or v1.2.3'
+        required: false
+        type: string
+      git_ref:
+        description: 'Custom mode only: Git ref to checkout on the server for compose/deployment files'
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       release_channel:
@@ -25,8 +39,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-manual-main
-  cancel-in-progress: true
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -187,6 +201,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.git_ref }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify immutable release images
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "voxpery/voxpery-server:${IMAGE_TAG}" >/dev/null
+          docker buildx imagetools inspect "voxpery/voxpery-web:${IMAGE_TAG}" >/dev/null
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.5
         env:
@@ -277,3 +314,28 @@ jobs:
             curl -fsS http://127.0.0.1:3001/health >/dev/null
             curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
             echo "Deploy complete: release_channel=${RELEASE_CHANNEL} git_ref=${GIT_REF} commit=$(git rev-parse HEAD) image_tag=${IMAGE_TAG}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify production health, version, and cache policy
+        shell: bash
+        env:
+          SMOKE_API_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.voxpery.com' }}
+          SMOKE_WEB_URL: ${{ vars.PRODUCTION_WEB_URL || 'https://voxpery.com' }}
+          SMOKE_EXPECTED_IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if npm --prefix apps/web run smoke:release-deploy; then
+              exit 0
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              echo "Production smoke attempt ${attempt} failed; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+          echo "Production smoke failed after 6 attempts."
+          exit 1

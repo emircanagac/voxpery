@@ -128,6 +128,9 @@ jobs:
       - name: Validate security policies
         run: node .github/scripts/validate-security-policies.mjs
 
+      - name: Validate deploy automation
+        run: node .github/scripts/validate-deploy-workflows.mjs
+
       - name: Install
         working-directory: apps/web
         run: npm ci
@@ -258,3 +261,60 @@ jobs:
             APP_ENV=production
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  release_deploy_gate:
+    name: Release / Production Deploy Gate
+    needs: docker_publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify published stable GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_json=""
+
+          for attempt in 1 2 3 4 5 6; do
+            if release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" 2>/dev/null)"; then
+              break
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              echo "Published release ${RELEASE_TAG} is not visible yet; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+
+          if [ -z "${release_json}" ]; then
+            echo "Refusing automatic deploy: ${RELEASE_TAG} is not a published GitHub Release."
+            exit 1
+          fi
+
+          if [ "$(printf '%s' "${release_json}" | jq -r '.draft')" != "false" ]; then
+            echo "Refusing automatic deploy: draft releases are not production deployable."
+            exit 1
+          fi
+
+          if [ "$(printf '%s' "${release_json}" | jq -r '.prerelease')" != "false" ]; then
+            echo "Refusing automatic deploy: prereleases are not production deployable."
+            exit 1
+          fi
+
+          if [ "$(printf '%s' "${release_json}" | jq -r '.tag_name')" != "${RELEASE_TAG}" ]; then
+            echo "Refusing automatic deploy: release tag does not match the triggering tag."
+            exit 1
+          fi
+
+  deploy_release:
+    name: Release / Production Deploy
+    needs: release_deploy_gate
+    if: needs.release_deploy_gate.result == 'success'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      release_channel: custom
+      image_tag: ${{ github.ref_name }}
+      git_ref: ${{ github.ref_name }}
+    secrets: inherit
