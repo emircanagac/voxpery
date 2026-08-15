@@ -250,6 +250,13 @@ Release and calls the production deploy workflow. The deploy verifies that both
 the backend and frontend image tags exist before changing the server, then runs
 health, deployed-version, and cache-policy smoke checks.
 
+The deploy host performs both origin-local health checks and the authoritative
+public API edge health check. This avoids treating a Cloudflare block against a
+GitHub-hosted runner ASN as an application outage. The GitHub runner still
+validates the public web health endpoint, security headers, release version, and
+cache policy. Manual release smoke remains responsible for strict public API
+security-header validation from an independent client.
+
 Manual runs remain available for redeploys, release recovery, candidates, and
 explicit rollback operations:
 
