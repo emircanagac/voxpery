@@ -234,7 +234,7 @@ await room.localParticipant.publishTrack(audioTrack, {
   audioPreset: AudioPresets.musicHighQualityStereo, // 128 kbps Opus
   forceStereo: true,
   dtx: false,
-  red: false,
+  red: true,
 })
 ```
 
@@ -246,7 +246,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
 - **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
 - **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
-- **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, and continuous transmission (`dtx = false`) preserve system, game, and music audio independently from the mono speech microphone profile.
+- **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, continuous transmission (`dtx = false`), and RED packet-loss resilience preserve system, game, and music audio independently from the mono speech microphone profile.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement)
 - A share is not published without a live video track. If the selected platform/source does not provide a system or tab audio track, video sharing continues and the sender receives a non-fatal `Sharing without audio` notice with source-picker guidance.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
@@ -257,9 +257,9 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Remote camera tiles can be hidden per viewer without leaving the voice channel.
 - A remote screen share appears first as a compact `Stream available` tile. `Watch stream` subscribes that viewer to both `ScreenShare` and `ScreenShareAudio`; `Stop watching` unsubscribes both while leaving microphone audio untouched.
 - Viewer subscription state is local to the current voice session, survives visibility changes and LiveKit reconnects, and resets when the share ends, the participant disconnects, or the viewer leaves voice.
-- Unwatched shares and shares in a hidden Voxpery window produce no incoming screen video or shared-audio traffic. Returning to a visible window restores only streams the user explicitly chose to watch.
+- Unwatched shares produce no incoming screen video or shared-audio traffic. Hiding Voxpery pauses watched screen video, while watched shared audio remains subscribed so background playback does not cut out.
 - The screen-share volume slider controls only `Track.Source.ScreenShareAudio`; the participant's normal microphone audio keeps using the peer volume control.
-- When the Voxpery window is hidden or minimized, camera and watched screen-share subscriptions pause while microphone audio continues. Explicitly watched shares resume when the app becomes visible, without replaying media-start cues.
+- When the Voxpery window is hidden or minimized, camera and watched screen video subscriptions pause while microphone and explicitly watched screen-share audio continue. Video resumes when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
 
 ### Voice Event Cues

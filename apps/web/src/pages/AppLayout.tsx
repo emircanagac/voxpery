@@ -15,6 +15,7 @@ import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
 import ServerSettingsSafety, { type SafetySettingsTab } from '../components/ServerSettingsSafety'
 import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
+import { shouldShowServerWelcomeGuide } from '../serverWelcomeGuideVisibility'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
@@ -709,6 +710,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
         const serverId = activeServerId
         let cancelled = false
+        setActiveOnboardingGuide(null)
         setWelcomeGuideDismissed(isWelcomeGuideDismissed(serverId))
         serverApi.getOnboardingGuide(serverId, token)
             .then((guide) => {
@@ -2555,7 +2557,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             ).sort((a, b) => a.localeCompare(b)),
         [channels, channelCategories],
     )
-    const welcomeGuideNode = activeServer && activeChannel?.channel_type === 'text' && activeOnboardingGuide?.enabled && !welcomeGuideDismissed ? (
+    const welcomeGuideNode = activeServer && activeOnboardingGuide && shouldShowServerWelcomeGuide({
+        activeServerId: activeServer.id,
+        activeChannelType: activeChannel?.channel_type,
+        guide: activeOnboardingGuide,
+        dismissed: welcomeGuideDismissed,
+    }) ? (
         <ServerWelcomeGuide
             guide={activeOnboardingGuide}
             channels={channels}

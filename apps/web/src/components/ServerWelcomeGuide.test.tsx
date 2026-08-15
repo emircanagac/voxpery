@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import ServerWelcomeGuide from './ServerWelcomeGuide'
+import { shouldShowServerWelcomeGuide } from '../serverWelcomeGuideVisibility'
 import type { Channel, ServerOnboardingGuide } from '../api'
 
 const channels: Channel[] = [
@@ -37,6 +38,33 @@ const guide: ServerOnboardingGuide = {
 }
 
 describe('ServerWelcomeGuide', () => {
+  it('only allows the guide that belongs to the active text-channel server', () => {
+    expect(shouldShowServerWelcomeGuide({
+      activeServerId: 'server-1',
+      activeChannelType: 'text',
+      guide,
+      dismissed: false,
+    })).toBe(true)
+    expect(shouldShowServerWelcomeGuide({
+      activeServerId: 'server-2',
+      activeChannelType: 'text',
+      guide,
+      dismissed: false,
+    })).toBe(false)
+    expect(shouldShowServerWelcomeGuide({
+      activeServerId: 'server-1',
+      activeChannelType: 'voice',
+      guide,
+      dismissed: false,
+    })).toBe(false)
+    expect(shouldShowServerWelcomeGuide({
+      activeServerId: 'server-1',
+      activeChannelType: 'text',
+      guide,
+      dismissed: true,
+    })).toBe(false)
+  })
+
   it('renders official community starter tasks and text/voice channel CTAs', () => {
     const onSelectChannel = vi.fn()
 
