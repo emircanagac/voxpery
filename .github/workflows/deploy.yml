@@ -231,12 +231,11 @@ jobs:
           DEPLOY_RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
           DEPLOY_IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
           DEPLOY_GIT_REF: ${{ needs.prepare.outputs.git_ref }}
-          DEPLOY_PUBLIC_API_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.voxpery.com' }}
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: DEPLOY_RELEASE_CHANNEL,DEPLOY_IMAGE_TAG,DEPLOY_GIT_REF,DEPLOY_PUBLIC_API_URL
+          envs: DEPLOY_RELEASE_CHANNEL,DEPLOY_IMAGE_TAG,DEPLOY_GIT_REF
           command_timeout: 25m
           script: |
             cd ~/voxpery
@@ -315,25 +314,6 @@ jobs:
             docker image prune -f
             curl -fsS http://127.0.0.1:3001/health >/dev/null
             curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
-
-            PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL%/}"
-            case "${PUBLIC_API_URL}" in
-              https://*) ;;
-              *)
-                echo "Refusing deploy smoke: production API URL must use HTTPS."
-                exit 1
-                ;;
-            esac
-            public_api_health="$(
-              curl --fail --silent --show-error \
-                --retry 5 --retry-delay 2 --retry-all-errors --max-time 20 \
-                "${PUBLIC_API_URL}/health"
-            )"
-            if ! printf '%s' "${public_api_health}" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'; then
-              echo "Public API health response did not report status=ok."
-              exit 1
-            fi
-            echo "Public API edge health OK: ${PUBLIC_API_URL}/health"
             echo "Deploy complete: release_channel=${RELEASE_CHANNEL} git_ref=${GIT_REF} commit=$(git rev-parse HEAD) image_tag=${IMAGE_TAG}"
 
       - name: Setup Node

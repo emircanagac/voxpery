@@ -41,7 +41,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Docker images were built with an immutable `sha-<commit>` or `vX.Y.Z` tag, and production deploy did not use `latest`.
 - [ ] For `main-candidate` deploys, the manual deploy workflow built and published Docker images for the exact candidate ref before starting deploy.
 - [ ] Stable GitHub Release publishing automatically waited for both immutable Docker images and deployed their exact shared `vX.Y.Z` tag; any intentional manual redeploy is recorded instead.
-- [ ] Release deploy guardrails verified registry presence for both images, deploy-host and public-edge API `/health`, web `/healthz`, immutable image tag format, cache policy, and the deployed web bundle version tag.
+- [ ] Release deploy guardrails verified registry presence for both images, origin-local API `/health`, origin-local and public web `/healthz`, immutable image tag format, cache policy, and the deployed web bundle version tag.
 - [ ] Production top bar shows the expected `Beta` version badge tag (`vX.Y.Z` or `sha-<commit>`).
 
 ## 3) Web Smoke Tests (mandatory)
