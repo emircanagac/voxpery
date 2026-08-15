@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Made automatic production smoke checks tolerate Cloudflare blocks against GitHub-hosted runner IPs by verifying public API health from the deploy host while retaining independent web, version, security-header, and cache validation.
+- Made automatic production smoke checks tolerate Cloudflare blocks against CI and production-host datacenter IPs by using origin-local API health while retaining independent public web, version, security-header, and cache validation.
 
 ## [0.2.8] - 2026-08-16
 
