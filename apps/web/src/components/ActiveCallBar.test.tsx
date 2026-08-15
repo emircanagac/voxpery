@@ -13,6 +13,13 @@ import {
 } from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
+import { markRemoteAudioTrackSource } from '../webrtc/remoteMediaControls'
+import {
+  getRemotePlaybackVolume,
+  readRemotePlaybackVolumes,
+  writePreviousScreenPlaybackVolume,
+  writeRemotePlaybackVolumes,
+} from '../webrtc/remotePlaybackVolume'
 
 vi.mock('../webrtc/useLiveKitVoice', () => ({
   useLiveKitVoice: vi.fn(),
@@ -185,6 +192,40 @@ describe('ActiveCallBar regressions', () => {
 
     expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
     expect(voice.leaveVoice).not.toHaveBeenCalled()
+  })
+
+  it('keeps user volume and stream mute state independent', async () => {
+    const micTrack = mediaTrack('audio', 'peer-mic')
+    const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')
+    const screenTrack = mediaTrack('video', 'peer-screen-video')
+    markRemoteAudioTrackSource(micTrack, 'voice')
+    markRemoteAudioTrackSource(screenAudioTrack, 'screen')
+    writeRemotePlaybackVolumes({
+      'voice:peer-1': 200,
+      'screen:peer-1': 0,
+    })
+    writePreviousScreenPlaybackVolume('peer-1', 40)
+
+    renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([micTrack, screenAudioTrack, screenTrack])]]),
+      remoteScreenTrackIds: new Set(['peer-screen-video']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    expect(screen.getByTitle('Unmute')).toBeVisible()
+    writeRemotePlaybackVolumes({
+      ...readRemotePlaybackVolumes(),
+      'voice:peer-1': 25,
+    })
+    expect(screen.getByTitle('Unmute')).toBeVisible()
+    let volumes = readRemotePlaybackVolumes()
+    expect(getRemotePlaybackVolume(volumes, 'voice', 'peer-1')).toBe(25)
+    expect(getRemotePlaybackVolume(volumes, 'screen', 'peer-1')).toBe(0)
+
+    fireEvent.click(screen.getByTitle('Unmute'))
+    volumes = readRemotePlaybackVolumes()
+    expect(getRemotePlaybackVolume(volumes, 'voice', 'peer-1')).toBe(25)
+    expect(getRemotePlaybackVolume(volumes, 'screen', 'peer-1')).toBe(40)
   })
 
   it('uses an isolated preview stream for the local screen share', () => {

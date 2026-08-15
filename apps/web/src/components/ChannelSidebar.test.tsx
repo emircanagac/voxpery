@@ -4,6 +4,7 @@ import type { Channel, MemberInfo, Server } from '../api'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
+import { getRemotePlaybackVolume, readRemotePlaybackVolumes, writeRemotePlaybackVolumes } from '../webrtc/remotePlaybackVolume'
 import ChannelSidebar from './ChannelSidebar'
 
 const server: Server = {
@@ -85,6 +86,30 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.getByLabelText(`${remoteMember.username} camera on`)).toBeVisible()
         expect(screen.getByLabelText(`${remoteMember.username} screen sharing`)).toHaveTextContent('LIVE')
         expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
+    })
+
+    it('stores Discord-style user volume independently up to 200 percent', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} />)
+        // Simulate a stream mute written after the sidebar captured its initial volume state.
+        writeRemotePlaybackVolumes({ 'screen:remote-1': 0 })
+        fireEvent.contextMenu(screen.getByText(remoteMember.username))
+
+        const slider = screen.getByRole('slider')
+        expect(slider).toHaveAttribute('max', '200')
+        fireEvent.change(slider, { target: { value: '200' } })
+
+        const volumes = readRemotePlaybackVolumes()
+        expect(getRemotePlaybackVolume(volumes, 'voice', remoteMember.user_id)).toBe(200)
+        expect(getRemotePlaybackVolume(volumes, 'screen', remoteMember.user_id)).toBe(0)
     })
 
     it('offers compact, permission-aware channel creation controls', () => {

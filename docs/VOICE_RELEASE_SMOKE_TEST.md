@@ -67,7 +67,9 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B chooses `Stop watching`; the screen tile returns to `Stream available` and its screen video/audio publications unsubscribe for that viewer.
 - [ ] User A's normal microphone audio continues while User B is not watching the stream.
 - [ ] User B mutes or lowers the screen-share volume; only screen-share audio changes and User A's normal microphone audio remains audible.
-- [ ] Per-user microphone and screen-share volume controls stay within 0-100%; repeated mute/unmute and 0/100 transitions do not cut out, clip, or change the selected output device.
+- [ ] Per-user microphone volume stays within 0-200% and screen-share volume stays within 0-100%; repeated mute/unmute and boundary transitions do not cut out, clip, or change the selected output device.
+- [ ] With stream audio muted at 0%, changing User Volume through 0/25/100/200% never unmutes the stream; with User Volume at 0%, changing Stream Volume through 0/25/100% never changes microphone playback.
+- [ ] Voice and stream volume independence survives stop/watch, reconnect, reload, and desktop relaunch, including users with duplicate display names.
 - [ ] User B chooses `Watch stream` again and screen video/audio return without replaying the publisher start cue.
 - [ ] Minimizing or hiding User B's Voxpery window pauses incoming camera and watched screen video/audio traffic while microphone audio continues; restoring the window resumes only explicitly watched media without replaying start cues.
 - [ ] User A repeatedly enters and leaves fullscreen on the local screen preview; capture stays live, no green/frozen frame appears, and User B's remote stream does not restart.

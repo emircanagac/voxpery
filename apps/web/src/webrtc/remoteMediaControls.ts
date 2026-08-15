@@ -2,6 +2,7 @@ export type RemoteMediaKind = 'camera' | 'screen'
 
 export interface VoxperyRemoteMediaTrack extends MediaStreamTrack {
   __voxpery_isScreenShareAudio?: boolean
+  __voxpery_audioSource?: 'voice' | 'screen'
 }
 
 export function remoteMediaVisibilityKey(channelId: string, peerId: string, kind: RemoteMediaKind): string {
@@ -9,7 +10,15 @@ export function remoteMediaVisibilityKey(channelId: string, peerId: string, kind
 }
 
 export function isScreenShareAudioTrack(track: MediaStreamTrack): boolean {
-  return !!(track as VoxperyRemoteMediaTrack).__voxpery_isScreenShareAudio
+  const remoteTrack = track as VoxperyRemoteMediaTrack
+  return remoteTrack.__voxpery_audioSource === 'screen' || !!remoteTrack.__voxpery_isScreenShareAudio
+}
+
+export function markRemoteAudioTrackSource(track: MediaStreamTrack, source: 'voice' | 'screen'): void {
+  Object.defineProperties(track, {
+    __voxpery_audioSource: { value: source, writable: true, configurable: true },
+    __voxpery_isScreenShareAudio: { value: source === 'screen', writable: true, configurable: true },
+  })
 }
 
 export function getRemoteAudioPlaybackTracks(stream: MediaStream, includeScreenShareAudio: boolean): MediaStreamTrack[] {

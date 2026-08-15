@@ -3,6 +3,7 @@ import {
   getRemoteMicrophoneAudioTracks,
   getRemoteScreenShareAudioTracks,
   isScreenShareAudioTrack,
+  markRemoteAudioTrackSource,
   remoteMediaVisibilityKey,
 } from './remoteMediaControls'
 
@@ -20,7 +21,13 @@ describe('remote media controls', () => {
   })
 
   it('detects Voxpery screen share audio tracks', () => {
-    expect(isScreenShareAudioTrack(audioTrack())).toBe(false)
+    const voice = audioTrack()
+    const screen = audioTrack()
+    markRemoteAudioTrackSource(voice, 'voice')
+    markRemoteAudioTrackSource(screen, 'screen')
+
+    expect(isScreenShareAudioTrack(voice)).toBe(false)
+    expect(isScreenShareAudioTrack(screen)).toBe(true)
     expect(isScreenShareAudioTrack(audioTrack(true))).toBe(true)
   })
 
@@ -35,7 +42,9 @@ describe('remote media controls', () => {
 
   it('splits microphone and screen share audio for independent playback controls', () => {
     const mic = audioTrack()
-    const screen = audioTrack(true)
+    const screen = audioTrack()
+    markRemoteAudioTrackSource(mic, 'voice')
+    markRemoteAudioTrackSource(screen, 'screen')
     const source = { getAudioTracks: () => [mic, screen] } as unknown as MediaStream
 
     expect(getRemoteMicrophoneAudioTracks(source)).toEqual([mic])

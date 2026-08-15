@@ -36,9 +36,13 @@ import {
 } from '../globalMuteShortcut'
 import {
   DEFAULT_REMOTE_PLAYBACK_VOLUME,
-  normalizeRemotePlaybackVolume,
+  getRemotePlaybackVolume,
+  normalizeRemoteScreenPlaybackVolume,
   readRemotePlaybackVolumes,
+  readPreviousScreenPlaybackVolume,
+  remotePlaybackVolumeKey,
   REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT,
+  writePreviousScreenPlaybackVolume,
   writeRemotePlaybackVolumes,
 } from '../webrtc/remotePlaybackVolume'
 
@@ -46,6 +50,14 @@ type VoxperyTrack = VoxperyMediaStreamTrack
 
 interface VoxperyAudioElement extends HTMLAudioElement {
   __voxpery_trackIds?: string
+}
+
+interface RemoteVoicePlaybackGraph {
+  trackIds: string
+  source: MediaStreamAudioSourceNode
+  gain: GainNode
+  limiter: DynamicsCompressorNode
+  destination: MediaStreamAudioDestinationNode
 }
 
 interface VoxperyHTMLDivElement extends HTMLDivElement {
@@ -237,6 +249,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const micTestPrevMutedRef = useRef(false)
   const remoteAudioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteAudioRetryTimerRef = useRef<Map<string, number>>(new Map())
+  const remoteVoiceAudioContextRef = useRef<AudioContext | null>(null)
+  const remoteVoicePlaybackGraphsRef = useRef<Map<string, RemoteVoicePlaybackGraph>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraPreviewCleanupRef = useRef<(() => void) | null>(null)
@@ -306,10 +320,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [deafened, serverDeafened])
 
   const resolvePeerVolumeKey = useCallback((peerId: string) => {
-    if (peerVolumeByUserId[peerId] !== undefined) return peerId
-    const member = members.find((m) => m.username === peerId)
+    const member = members.find((candidate) => candidate.user_id === peerId)
+      ?? members.find((candidate) => candidate.username === peerId)
     return member?.user_id ?? peerId
-  }, [members, peerVolumeByUserId])
+  }, [members])
 
   const remoteAudioPlaybackKey = useCallback((peerId: string, kind: RemoteAudioKind) => `${kind}:${peerId}`, [])
   const parseRemoteAudioPlaybackKey = useCallback((playbackKey: string): { peerId: string; kind: RemoteAudioKind } => {
@@ -323,10 +337,87 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [])
   const getPlaybackVolumeFactor = useCallback((peerId: string, kind: RemoteAudioKind) => {
     const volumeKey = resolvePeerVolumeKey(peerId)
-    const storageKey = kind === 'screen' ? `screen:${volumeKey}` : volumeKey
-    const raw = peerVolumeByUserId[storageKey]
-    return normalizeRemotePlaybackVolume(raw) / 100
+    return getRemotePlaybackVolume(peerVolumeByUserId, kind === 'screen' ? 'screen' : 'voice', volumeKey) / 100
   }, [peerVolumeByUserId, resolvePeerVolumeKey])
+
+  const disposeRemoteVoicePlaybackGraph = useCallback((playbackKey: string) => {
+    const graph = remoteVoicePlaybackGraphsRef.current.get(playbackKey)
+    if (!graph) return
+    graph.source.disconnect()
+    graph.gain.disconnect()
+    graph.limiter.disconnect()
+    graph.destination.disconnect()
+    graph.destination.stream.getTracks().forEach((track) => track.stop())
+    remoteVoicePlaybackGraphsRef.current.delete(playbackKey)
+  }, [])
+
+  const getRemoteVoiceAudioContext = useCallback((): AudioContext | null => {
+    if (remoteVoiceAudioContextRef.current?.state !== 'closed') return remoteVoiceAudioContextRef.current
+    const AudioCtor = window.AudioContext
+      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtor) return null
+    try {
+      const context = new AudioCtor()
+      remoteVoiceAudioContextRef.current = context
+      return context
+    } catch {
+      return null
+    }
+  }, [])
+
+  const attachRemoteAudioPlaybackStream = useCallback((
+    playbackKey: string,
+    kind: RemoteAudioKind,
+    playbackStream: MediaStream,
+    trackIds: string,
+    element: VoxperyAudioElement,
+  ) => {
+    if (kind === 'screen' || playbackStream.getAudioTracks().length === 0) {
+      disposeRemoteVoicePlaybackGraph(playbackKey)
+      element.srcObject = playbackStream
+      element.__voxpery_trackIds = trackIds
+      return
+    }
+
+    const current = remoteVoicePlaybackGraphsRef.current.get(playbackKey)
+    if (current?.trackIds === trackIds) {
+      if (element.srcObject !== current.destination.stream) element.srcObject = current.destination.stream
+      element.__voxpery_trackIds = trackIds
+      return
+    }
+
+    disposeRemoteVoicePlaybackGraph(playbackKey)
+    const context = getRemoteVoiceAudioContext()
+    if (!context) {
+      element.srcObject = playbackStream
+      element.__voxpery_trackIds = trackIds
+      return
+    }
+
+    try {
+      // Voice amplification uses its own gain bus; stream audio stays on the direct media path.
+      const source = context.createMediaStreamSource(playbackStream)
+      const gain = context.createGain()
+      const limiter = context.createDynamicsCompressor()
+      const destination = context.createMediaStreamDestination()
+      limiter.threshold.value = -1
+      limiter.knee.value = 0
+      limiter.ratio.value = 20
+      limiter.attack.value = 0.003
+      limiter.release.value = 0.1
+      source.connect(gain)
+      gain.connect(limiter)
+      limiter.connect(destination)
+      const graph = { trackIds, source, gain, limiter, destination }
+      remoteVoicePlaybackGraphsRef.current.set(playbackKey, graph)
+      element.srcObject = destination.stream
+      element.__voxpery_trackIds = trackIds
+      if (context.state === 'suspended') void context.resume().catch(() => {})
+    } catch {
+      element.srcObject = playbackStream
+      element.__voxpery_trackIds = trackIds
+    }
+  }, [disposeRemoteVoicePlaybackGraph, getRemoteVoiceAudioContext])
 
   const ensureRemoteAudioPlayback = useCallback((peerId: string, el: HTMLAudioElement) => {
     const retryTimers = remoteAudioRetryTimerRef.current
@@ -388,8 +479,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       try {
         const { peerId, kind } = parseRemoteAudioPlaybackKey(playbackKey)
         const peerFactor = getPlaybackVolumeFactor(peerId, kind)
-        const combined = isDeafened ? 0 : global * peerFactor
-        el.volume = Math.min(1, Math.max(0, combined))
+        const voiceGraph = kind === 'mic' ? remoteVoicePlaybackGraphsRef.current.get(playbackKey) : undefined
+        if (voiceGraph) {
+          const now = voiceGraph.gain.context.currentTime
+          voiceGraph.gain.gain.cancelScheduledValues(now)
+          voiceGraph.gain.gain.setTargetAtTime(peerFactor, now, 0.015)
+          el.volume = global
+        } else {
+          el.volume = Math.min(1, Math.max(0, global * peerFactor))
+        }
         el.muted = isDeafened
       } catch {
         // ignore
@@ -402,6 +500,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     applyOutputDeviceToElements()
 
     if (deafenedRef.current) return
+    const voiceContext = remoteVoiceAudioContextRef.current
+    if (voiceContext?.state === 'suspended') void voiceContext.resume().catch(() => {})
     for (const [playbackKey, element] of remoteAudioRefsRef.current.entries()) {
       const stream = element.srcObject
       if (!(stream instanceof MediaStream) || stream.getAudioTracks().length === 0) continue
@@ -562,8 +662,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
         const prevTrackIds = el.__voxpery_trackIds
         if (currentTrackIds !== prevTrackIds) {
-          el.srcObject = playbackStream
-          el.__voxpery_trackIds = currentTrackIds
+          attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, el)
           void applyPreferredAudioOutputDevice(el)
         }
         el.muted = deafenedRef.current
@@ -572,17 +671,33 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         }
       }
     }
-  }, [watchedRemoteScreenPeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
+    for (const playbackKey of remoteVoicePlaybackGraphsRef.current.keys()) {
+      const { peerId } = parseRemoteAudioPlaybackKey(playbackKey)
+      if (!state.remoteStreams.has(peerId)) disposeRemoteVoicePlaybackGraph(playbackKey)
+    }
+    if (remoteVoicePlaybackGraphsRef.current.size === 0) {
+      const context = remoteVoiceAudioContextRef.current
+      if (context?.state === 'running') void context.suspend().catch(() => {})
+    }
+    applyOutputVolumeToElements(outputVolumeRef.current / 100)
+  }, [applyOutputVolumeToElements, attachRemoteAudioPlaybackStream, disposeRemoteVoicePlaybackGraph, parseRemoteAudioPlaybackKey, watchedRemoteScreenPeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
+    const voicePlaybackGraphs = remoteVoicePlaybackGraphsRef.current
     return () => {
       for (const t of retryTimers.values()) {
         window.clearTimeout(t)
       }
       retryTimers.clear()
+      for (const playbackKey of voicePlaybackGraphs.keys()) {
+        disposeRemoteVoicePlaybackGraph(playbackKey)
+      }
+      const context = remoteVoiceAudioContextRef.current
+      remoteVoiceAudioContextRef.current = null
+      if (context && context.state !== 'closed') void context.close().catch(() => {})
     }
-  }, [])
+  }, [disposeRemoteVoicePlaybackGraph])
 
   const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
   const channelParticipants = useMemo(() => {
@@ -1238,9 +1353,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               ))}
               {remoteVideoTrackEntries.map(({ peerId, track, label, kind }) => {
                 const volumeKey = resolvePeerVolumeKey(peerId)
-                const screenVolumeKey = `screen:${volumeKey}`
-                const currentVol = normalizeRemotePlaybackVolume(
-                  kind === 'screen' ? peerVolumeByUserId[screenVolumeKey] : peerVolumeByUserId[volumeKey],
+                const screenVolumeKey = remotePlaybackVolumeKey('screen', volumeKey)
+                const currentVol = getRemotePlaybackVolume(
+                  peerVolumeByUserId,
+                  kind === 'screen' ? 'screen' : 'voice',
+                  volumeKey,
                 )
                 const tileKey = `${peerId}-${track.id}`
                 const owner = remoteShareOwner(peerId)
@@ -1257,30 +1374,32 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                           <div className="screen-share-volume-container">
                             <button type="button" className="screen-share-volume-btn" title={currentVol === 0 ? 'Unmute' : 'Mute'} onClick={() => {
                               const isMuted = currentVol === 0
-                              const prevVolumeKey = `${screenVolumeKey}_prev`
                               let newVal: number
                               if (isMuted) {
-                                const savedStr = localStorage.getItem(prevVolumeKey)
-                                const savedVal = normalizeRemotePlaybackVolume(
-                                  savedStr ? Number(savedStr) : DEFAULT_REMOTE_PLAYBACK_VOLUME,
-                                )
+                                const savedVal = readPreviousScreenPlaybackVolume(volumeKey)
                                 newVal = savedVal > 0 ? savedVal : DEFAULT_REMOTE_PLAYBACK_VOLUME
                               } else {
-                                localStorage.setItem(prevVolumeKey, String(currentVol))
+                                writePreviousScreenPlaybackVolume(volumeKey, currentVol)
                                 newVal = 0
                               }
-                              const next = writeRemotePlaybackVolumes({ ...peerVolumeByUserId, [screenVolumeKey]: newVal })
+                              const next = writeRemotePlaybackVolumes({
+                                ...readRemotePlaybackVolumes(),
+                                [screenVolumeKey]: newVal,
+                              })
                               setPeerVolumeByUserId(next)
-                              applyOutputVolumeToElements(outputVolumeRef.current / 100)
+                              window.dispatchEvent(new CustomEvent(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT))
                             }}>
                               {currentVol === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
                             </button>
                             <div className="screen-share-volume-slider-wrap">
                               <input type="range" min={0} max={100} value={currentVol} className="screen-share-volume-slider" title={`Volume: ${currentVol}%`} onChange={(e) => {
-                                const val = normalizeRemotePlaybackVolume(Number(e.target.value))
-                                const next = writeRemotePlaybackVolumes({ ...peerVolumeByUserId, [screenVolumeKey]: val })
+                                const val = normalizeRemoteScreenPlaybackVolume(Number(e.target.value))
+                                const next = writeRemotePlaybackVolumes({
+                                  ...readRemotePlaybackVolumes(),
+                                  [screenVolumeKey]: val,
+                                })
                                 setPeerVolumeByUserId(next)
-                                applyOutputVolumeToElements(outputVolumeRef.current / 100)
+                                window.dispatchEvent(new CustomEvent(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT))
                               }} />
                               <span className="screen-share-volume-value">{currentVol}%</span>
                             </div>
@@ -1331,13 +1450,18 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                           const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
                           const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
                           if (audioEl.__voxpery_trackIds !== currentTrackIds) {
-                            audioEl.srcObject = playbackStream
-                            audioEl.__voxpery_trackIds = currentTrackIds
+                            attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, audioEl)
                           }
                           void applyPreferredAudioOutputDevice(audioEl)
                           const shouldMute = deafenedRef.current
                           const peerFactor = getPlaybackVolumeFactor(peerId, kind)
-                          const vol = Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
+                          const voiceGraph = kind === 'mic' ? remoteVoicePlaybackGraphsRef.current.get(playbackKey) : undefined
+                          if (voiceGraph) {
+                            voiceGraph.gain.gain.value = peerFactor
+                          }
+                          const vol = voiceGraph
+                            ? Math.min(1, Math.max(0, outputVolumeRef.current / 100))
+                            : Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
                           try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
                           audioEl.muted = shouldMute
                           if (!shouldMute && currentTrackIds) ensureRemoteAudioPlayback(playbackKey, audioEl)

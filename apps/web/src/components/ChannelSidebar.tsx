@@ -10,8 +10,11 @@ import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { formatVoiceChannelDuration } from '../voiceChannelDuration'
 import {
-    normalizeRemotePlaybackVolume,
+    getRemotePlaybackVolume,
+    MAX_REMOTE_VOICE_PLAYBACK_VOLUME,
+    normalizeRemoteVoicePlaybackVolume,
     readRemotePlaybackVolumes,
+    remotePlaybackVolumeKey,
     REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT,
     writeRemotePlaybackVolumes,
 } from '../webrtc/remotePlaybackVolume'
@@ -213,13 +216,20 @@ export default function ChannelSidebar({
     }, [voiceChannelActiveSince])
 
     const savePeerVolume = (userId: string, volume: number) => {
+        const current = readRemotePlaybackVolumes()
         const next = writeRemotePlaybackVolumes({
-            ...peerVolumeByUserId,
-            [userId]: normalizeRemotePlaybackVolume(volume),
+            ...current,
+            [remotePlaybackVolumeKey('voice', userId)]: normalizeRemoteVoicePlaybackVolume(volume),
         })
         setPeerVolumeByUserId(next)
         window.dispatchEvent(new CustomEvent(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT))
     }
+
+    useEffect(() => {
+        const syncPeerVolumes = () => setPeerVolumeByUserId(readRemotePlaybackVolumes())
+        window.addEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, syncPeerVolumes)
+        return () => window.removeEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, syncPeerVolumes)
+    }, [])
 
     const handleJoinVoice = async (id: string) => {
         closeMobileSidebar()
@@ -784,7 +794,7 @@ export default function ChannelSidebar({
 
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
-                const currentVolume = normalizeRemotePlaybackVolume(peerVolumeByUserId[participantMenu.userId])
+                const currentVolume = getRemotePlaybackVolume(peerVolumeByUserId, 'voice', participantMenu.userId)
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
                     deafened: false,
@@ -877,7 +887,7 @@ export default function ChannelSidebar({
                         <div className="server-context-menu-item member-volume-menu-control">
                             <div className="member-volume-menu-section-label">
                                 <Volume2 size={12} />
-                                Local volume
+                                User Volume
                             </div>
                             <div className="member-volume-menu-section-hint">Only affects what you hear</div>
                             <div className="member-volume-menu-label">
@@ -886,7 +896,7 @@ export default function ChannelSidebar({
                             <input
                                 type="range"
                                 min={0}
-                                max={100}
+                                max={MAX_REMOTE_VOICE_PLAYBACK_VOLUME}
                                 step={5}
                                 value={currentVolume}
                                 onChange={(e) => savePeerVolume(participantMenu.userId, Number(e.target.value))}
