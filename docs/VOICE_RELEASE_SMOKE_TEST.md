@@ -24,7 +24,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] In desktop builds, the configured mute shortcut also works while Voxpery is unfocused, minimized, or running in the tray.
 - [ ] On a clean macOS install, the first voice join prompts for microphone access and Voxpery appears in Privacy & Security -> Microphone after the decision.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
-- [ ] Deafen stops remote audio playback and restores it when disabled.
+- [ ] Deafen stops remote microphone playback and restores it when disabled; watched screen-share audio continues at its independent stream volume.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 

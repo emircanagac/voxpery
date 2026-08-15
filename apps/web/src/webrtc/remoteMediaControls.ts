@@ -1,4 +1,5 @@
 export type RemoteMediaKind = 'camera' | 'screen'
+export type RemoteAudioKind = 'mic' | 'screen'
 
 export interface VoxperyRemoteMediaTrack extends MediaStreamTrack {
   __voxpery_isScreenShareAudio?: boolean
@@ -44,9 +45,13 @@ export function getRemoteScreenShareAudioTracks(stream: MediaStream): MediaStrea
     .filter((track) => isScreenShareAudioTrack(track))
 }
 
-export function createRemoteAudioKindPlaybackStream(stream: MediaStream, kind: 'mic' | 'screen'): MediaStream {
+export function createRemoteAudioKindPlaybackStream(stream: MediaStream, kind: RemoteAudioKind): MediaStream {
   const tracks = kind === 'screen'
     ? getRemoteScreenShareAudioTracks(stream)
     : getRemoteMicrophoneAudioTracks(stream)
   return new MediaStream(tracks)
+}
+
+export function shouldMuteRemoteAudioPlayback(kind: RemoteAudioKind, voiceDeafened: boolean): boolean {
+  return kind === 'mic' && voiceDeafened
 }
