@@ -54,6 +54,7 @@ Important keys:
 - `LIVEKIT_WS_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 - `LIVEKIT_NODE_IP` (set to server public IPv4 in production; optional in local dev)
 - `VITE_API_URL`
+- `VITE_GIPHY_API_KEY` (optional public client key; enables live GIF search and trending results)
 
 ## Common Commands
 

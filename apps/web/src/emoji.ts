@@ -15,6 +15,9 @@ export type GifOption = {
   id: string
   label: string
   url: string
+  previewUrl?: string
+  width?: number
+  height?: number
   keywords: string[]
 }
 
@@ -22,6 +25,7 @@ export type StickerOption = {
   id: string
   label: string
   imageUrl: string
+  previewUrl?: string
   keywords: string[]
 }
 

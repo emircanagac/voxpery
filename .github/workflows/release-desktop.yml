@@ -1,8 +1,8 @@
 # Build desktop app (Tauri 2) and attach artifacts to a GitHub Release.
 # Trigger: push a tag v* (all platforms) or run manually (workflow_dispatch).
 # Manual run: choose "Single platform" to build only one OS (~8-10 min instead of ~20).
-# Set repo secret VITE_API_URL and repo variable or secret VITE_TURNSTILE_SITE_KEY
-# so the desktop app points to your API and can render production CAPTCHA.
+# Set repo secret VITE_API_URL and repository variables VITE_TURNSTILE_SITE_KEY
+# and optional VITE_GIPHY_API_KEY for production integrations.
 
 name: Release / Desktop
 
@@ -129,6 +129,7 @@ jobs:
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
           VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY || secrets.VITE_TURNSTILE_SITE_KEY }}
+          VITE_GIPHY_API_KEY: ${{ vars.VITE_GIPHY_API_KEY }}
         run: npm run build
 
       - name: Setup Rust

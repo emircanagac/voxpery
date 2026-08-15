@@ -121,6 +121,16 @@ test.describe('mocked mobile web smoke', () => {
     await expect(page.getByRole('button', { name: 'Browse stickers' })).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
+    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    const expressionPicker = page.locator('.chat-emoji-picker')
+    await expect(expressionPicker).toBeVisible()
+    await expectNoHorizontalOverflow(expressionPicker)
+    await expect.poll(async () => expressionPicker.evaluate((element) => {
+      return element.getBoundingClientRect().right <= window.innerWidth
+        && element.getBoundingClientRect().left >= 0
+    })).toBe(true)
+    await page.keyboard.press('Escape')
+
     const mediaRow = page.locator('[data-message-id="mobile-media-reaction-message"]')
     await expect(mediaRow.locator('.message-reactions')).toBeVisible()
     await expect.poll(async () =>
