@@ -5,6 +5,7 @@ import {
   isScreenShareAudioTrack,
   markRemoteAudioTrackSource,
   remoteMediaVisibilityKey,
+  shouldMuteRemoteAudioPlayback,
 } from './remoteMediaControls'
 
 function audioTrack(screenShareAudio = false) {
@@ -49,5 +50,12 @@ describe('remote media controls', () => {
 
     expect(getRemoteMicrophoneAudioTracks(source)).toEqual([mic])
     expect(getRemoteScreenShareAudioTracks(source)).toEqual([screen])
+  })
+
+  it('keeps watched screen audio audible while voice playback is deafened', () => {
+    expect(shouldMuteRemoteAudioPlayback('mic', true)).toBe(true)
+    expect(shouldMuteRemoteAudioPlayback('screen', true)).toBe(false)
+    expect(shouldMuteRemoteAudioPlayback('mic', false)).toBe(false)
+    expect(shouldMuteRemoteAudioPlayback('screen', false)).toBe(false)
   })
 })

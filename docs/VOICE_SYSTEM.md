@@ -186,7 +186,7 @@ Speaker
 
 - **Output volume**: Global 1-100%, per-peer microphone 0-100%, and per-screen-share audio 0-100%.
 - **Distortion-safe playback**: Remote media stays on the native media-element path. Legacy values above 100% are migrated to 100% so playback is not clipped or stranded on a closed Web Audio graph.
-- **Deafen**: Sets `audio.muted = true` on all remote elements
+- **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
 - **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
@@ -260,7 +260,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Unwatched shares produce no incoming screen video or shared-audio traffic. Hiding Voxpery pauses watched screen video, while watched shared audio remains subscribed so background playback does not cut out.
 - `User Volume` controls only the participant's `Track.Source.Microphone` audio from 0-200%. Values above 100% use a per-user Web Audio gain and limiter path instead of being clamped by `HTMLMediaElement.volume`.
 - `Stream Volume` and stream mute control only `Track.Source.ScreenShareAudio` from 0-100%. Voice and stream values, mute restore values, and persisted keys are independent, so changing one source never unmutes or changes the other.
-- Global output volume and deafen remain top-level playback controls for both sources without rewriting either per-source preference.
+- Global output volume remains a top-level playback control for both sources without rewriting either per-source preference. Deafen suppresses remote microphone playback only; watched screen-share audio remains controlled by its independent stream volume and mute state.
 - When the Voxpery window is hidden or minimized, camera and watched screen video subscriptions pause while microphone and explicitly watched screen-share audio continue. Video resumes when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
 

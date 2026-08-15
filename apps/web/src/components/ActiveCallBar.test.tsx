@@ -326,6 +326,26 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.leaveVoice).toHaveBeenCalledOnce()
   })
 
+  it('deafens remote microphones without muting watched screen audio', () => {
+    const micTrack = mediaTrack('audio', 'peer-mic')
+    const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')
+    markRemoteAudioTrackSource(micTrack, 'voice')
+    markRemoteAudioTrackSource(screenAudioTrack, 'screen')
+
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([micTrack, screenAudioTrack])]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    const [voiceAudio, screenAudio] = Array.from(container.querySelectorAll('audio'))
+    if (!voiceAudio || !screenAudio) throw new Error('Remote audio playback elements were not rendered.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+
+    expect(voiceAudio.muted).toBe(true)
+    expect(screenAudio.muted).toBe(false)
+  })
+
   it('uses the configured shortcut while the web tab is focused', () => {
     localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'CommandOrControl+Shift+M')
     const localMic = mediaTrack('audio', 'local-mic')
