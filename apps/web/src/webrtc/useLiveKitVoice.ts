@@ -30,7 +30,7 @@ import {
   shouldRebuildSuppressionPipeline,
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
-import type { RemoteMediaKind } from './remoteMediaControls'
+import { markRemoteAudioTrackSource, type RemoteMediaKind } from './remoteMediaControls'
 import { reportObservabilityEvent } from '../observability'
 import { associateLiveKitVideoTrack } from './livekitVideoAttachment'
 
@@ -938,10 +938,13 @@ export function useLiveKitVoice() {
             Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.add(mediaTrack.id)
           } else if (pub.source === Track.Source.ScreenShareAudio) {
-            Object.defineProperty(mediaTrack, '__voxpery_isScreenShareAudio', { value: true, writable: true, configurable: true })
+            markRemoteAudioTrackSource(mediaTrack, 'screen')
           } else if (pub.source === Track.Source.Camera) {
             Object.defineProperty(mediaTrack, '__voxpery_isCamera', { value: true, writable: true, configurable: true })
             remoteScreenTrackIdsRef.current.delete(mediaTrack.id)
+          }
+          if (track.kind === Track.Kind.Audio && pub.source !== Track.Source.ScreenShareAudio) {
+            markRemoteAudioTrackSource(mediaTrack, 'voice')
           }
 
           mediaTrack.onmute = () => { syncParticipantMediaState(participant); bumpRemote() }
