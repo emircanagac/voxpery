@@ -33,6 +33,9 @@ requireText('production deploy', deploy, 'voxpery/voxpery-server:${IMAGE_TAG}')
 requireText('production deploy', deploy, 'voxpery/voxpery-web:${IMAGE_TAG}')
 requireText('production deploy', deploy, 'smoke:release-deploy')
 requireText('production deploy', deploy, 'SMOKE_EXPECTED_IMAGE_TAG:')
+requireText('production deploy', deploy, 'DEPLOY_PUBLIC_API_URL:')
+requireText('production deploy', deploy, 'Public API edge health OK:')
+requireText('production deploy', deploy, "SMOKE_SKIP_API_HEALTH: 'true'")
 
 if (failures.length > 0) {
   console.error('Deploy workflow validation failed:')

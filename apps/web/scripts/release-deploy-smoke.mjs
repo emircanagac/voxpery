@@ -8,6 +8,7 @@ const EXPECTED_VERSION = RAW_EXPECTED_VERSION
   : normalizeVersion(process.env.npm_package_version)
 const EXPECTED_IMAGE_TAG = (process.env.SMOKE_EXPECTED_IMAGE_TAG || `v${EXPECTED_VERSION}`).trim()
 const EXPECTED_BADGE = formatAppVersionBadge(EXPECTED_IMAGE_TAG)
+const SKIP_API_HEALTH = process.env.SMOKE_SKIP_API_HEALTH?.trim().toLowerCase() === 'true'
 
 function requiredUrl(name) {
   const value = process.env[name]?.trim()
@@ -48,7 +49,17 @@ function validateImmutableImageTag(tag) {
 
 async function getOk(url, label) {
   const res = await fetch(url, { redirect: 'manual' })
-  assert(res.ok, `${label} failed (${res.status}) at ${url}`)
+  if (!res.ok) {
+    const server = res.headers.get('server') || '<missing>'
+    const cfRay = res.headers.get('cf-ray') || '<missing>'
+    const body = (await res.clone().text().catch(() => ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240)
+    throw new Error(
+      `${label} failed (${res.status}) at ${url}; server=${server}; cf-ray=${cfRay}; body=${body || '<empty>'}`
+    )
+  }
   return res
 }
 
@@ -116,11 +127,15 @@ async function main() {
 
   validateImmutableImageTag(EXPECTED_IMAGE_TAG)
 
-  const apiHealth = await getOk(`${API_BASE}/health`, 'API health')
-  assertSecurityHeaders(apiHealth, { surface: 'api', url: `${API_BASE}/health` })
-  const apiHealthJson = await apiHealth.json().catch(() => null)
-  assert(apiHealthJson?.status === 'ok', 'API health response must be {"status":"ok"}')
-  console.log('[release-smoke] API health and security headers OK')
+  if (SKIP_API_HEALTH) {
+    console.log('[release-smoke] API edge health already verified from the deploy host')
+  } else {
+    const apiHealth = await getOk(`${API_BASE}/health`, 'API health')
+    assertSecurityHeaders(apiHealth, { surface: 'api', url: `${API_BASE}/health` })
+    const apiHealthJson = await apiHealth.json().catch(() => null)
+    assert(apiHealthJson?.status === 'ok', 'API health response must be {"status":"ok"}')
+    console.log('[release-smoke] API health and security headers OK')
+  }
 
   const webHealth = await getOk(`${WEB_BASE}/healthz`, 'web health')
   assertSecurityHeaders(webHealth, { surface: 'web', url: `${WEB_BASE}/healthz` })
