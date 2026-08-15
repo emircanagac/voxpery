@@ -25,6 +25,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] On a clean macOS install, the first voice join prompts for microphone access and Voxpery appears in Privacy & Security -> Microphone after the decision.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
 - [ ] Deafen stops remote microphone playback and restores it when disabled; watched screen-share audio continues at its independent stream volume.
+- [ ] On web and desktop, voice ping starts in the measuring state, uses a real backend WebSocket RTT while RTC settles, and switches to the selected ICE path only after stable samples; joining another channel or reconnecting never flashes a stale or implausible `1 ms` value.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 

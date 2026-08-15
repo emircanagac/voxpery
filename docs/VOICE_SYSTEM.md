@@ -320,6 +320,9 @@ The macOS application bundle declares microphone, camera, screen-recording, and 
 
 The active call bar shows a compact voice quality indicator while connected. The indicator combines a colored Wi-Fi icon with the current ping so users can understand call health at a glance. The visible chip color follows the visible ping value, while internal diagnostics can still classify the call as good, fair, poor, or measuring from ping, packet loss, and jitter.
 
+- Web and desktop use the same source policy: backend WebSocket RTT is the initial fallback, then the transport-selected ICE candidate-pair RTT becomes authoritative after a short stable sample window.
+- Candidate-pair, nominated-pair, and RTCP RTT values are fallback tiers rather than a mixed sample pool. Stale samples and values from a previous voice channel are discarded; the UI shows a measuring state until a current source is available.
+
 - Poor internal quality means latency, packet loss, or jitter crossed the diagnostic threshold.
 - Reconnecting state shows a short warning and keeps the user in the channel while LiveKit/WebSocket state resyncs.
 - Poor internal quality does not show a proactive toast on its own; the compact indicator should stay calm unless the room is reconnecting.

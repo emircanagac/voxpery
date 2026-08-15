@@ -11,6 +11,8 @@ const RTC_BURST_SAMPLE_COUNT = 6
 const RTC_BURST_INTERVAL_MS = 700
 const RTC_STEADY_INTERVAL_MS = 2500
 const WS_PING_INTERVAL_MS = 2500
+const PING_STALE_AFTER_MS = 7500
+const MIN_RTC_SAMPLES_FOR_DISPLAY = 3
 
 type PingSource = 'rtc' | 'ws' | null
 
@@ -189,6 +191,63 @@ const sanitizeRttMs = (raw: number): number | null => {
     return clamp(Math.round(ms), 1, 5000)
 }
 
+const candidatePairRttMs = (pair: RTCStats | undefined): number | null => {
+    if (!pair || pair.type !== 'candidate-pair') return null
+    const candidatePair = pair as RTCIceCandidatePairStats
+    let rttSeconds = typeof candidatePair.currentRoundTripTime === 'number'
+        ? candidatePair.currentRoundTripTime
+        : null
+    if (
+        rttSeconds == null
+        && typeof candidatePair.totalRoundTripTime === 'number'
+        && typeof candidatePair.responsesReceived === 'number'
+        && candidatePair.responsesReceived > 0
+    ) {
+        rttSeconds = candidatePair.totalRoundTripTime / candidatePair.responsesReceived
+    }
+    return rttSeconds == null ? null : sanitizeRttMs(rttSeconds)
+}
+
+export function extractPeerConnectionRttMs(reports: RTCStats[]): number | null {
+    const byId = new Map(reports.map((report) => [report.id, report]))
+    const selectedTransportSamples: number[] = []
+
+    for (const report of reports) {
+        if (report.type !== 'transport') continue
+        const selectedPairId = (report as RTCTransportStats & { selectedCandidatePairId?: string })
+            .selectedCandidatePairId
+        if (!selectedPairId) continue
+        const sample = candidatePairRttMs(byId.get(selectedPairId))
+        if (sample != null) selectedTransportSamples.push(sample)
+    }
+    if (selectedTransportSamples.length > 0) return median(selectedTransportSamples)
+
+    const selectedPairSamples: number[] = []
+    for (const report of reports) {
+        if (report.type !== 'candidate-pair') continue
+        const pair = report as RTCIceCandidatePairStats & { nominated?: boolean; selected?: boolean }
+        if (pair.state !== 'succeeded' || (!pair.nominated && !pair.selected)) continue
+        const sample = candidatePairRttMs(report)
+        if (sample != null) selectedPairSamples.push(sample)
+    }
+    if (selectedPairSamples.length > 0) return median(selectedPairSamples)
+
+    const remoteInboundSamples: number[] = []
+    for (const report of reports) {
+        if (report.type !== 'remote-inbound-rtp') continue
+        const rttSeconds = (report as RTCStats & { roundTripTime?: number }).roundTripTime
+        if (typeof rttSeconds !== 'number') continue
+        const sample = sanitizeRttMs(rttSeconds)
+        if (sample != null) remoteInboundSamples.push(sample)
+    }
+    return median(remoteInboundSamples)
+}
+
+export function stableRtcPingTarget(samples: number[]): number | null {
+    if (samples.length < MIN_RTC_SAMPLES_FOR_DISPLAY) return null
+    return median(samples)
+}
+
 interface InboundTotals {
     lost: number
     received: number
@@ -218,6 +277,9 @@ export function useWebrtcDiagnostics(options: {
     const rtcSmoothedRef = useRef<number | null>(null)
     const wsPingJitterMsRef = useRef<number | null>(null)
     const rtcPingJitterMsRef = useRef<number | null>(null)
+    const wsSampleChannelRef = useRef<string | null>(null)
+    const rtcSampleChannelRef = useRef<string | null>(null)
+    const rtcLastSampleAtRef = useRef(0)
     const selectedPingSourceRef = useRef<PingSource>(null)
     const prevInboundTotalsRef = useRef<InboundTotals | null>(null)
     const previousScreenShareOutboundRef = useRef<ScreenShareOutboundSample | null>(null)
@@ -229,12 +291,15 @@ export function useWebrtcDiagnostics(options: {
             wsSamplesRef.current = []
             wsSmoothedRef.current = null
             wsPingJitterMsRef.current = null
+            wsSampleChannelRef.current = null
+            setWsPingMs(null)
             return
         }
 
         let cancelled = false
         let timer: ReturnType<typeof window.setTimeout> | undefined
         let lastSentAt = 0
+        let lastPongAt = 0
 
         const applyWsPing = (rawMs: number) => {
             const bounded = clamp(Math.round(rawMs), 1, 5000)
@@ -242,6 +307,7 @@ export function useWebrtcDiagnostics(options: {
             const target = median(wsSamplesRef.current) ?? bounded
             const smoothed = smoothAsymmetric(wsSmoothedRef.current, target, 0.3, 0.6)
             wsSmoothedRef.current = smoothed
+            wsSampleChannelRef.current = joinedChannelId
             setWsPingMs(smoothed)
 
             const jitter = averageAbsDelta(wsSamplesRef.current)
@@ -257,11 +323,25 @@ export function useWebrtcDiagnostics(options: {
             if (!Number.isFinite(sentAt) || sentAt <= 0) return
             if (sentAt !== lastSentAt) return
             const rtt = Date.now() - sentAt
-            if (Number.isFinite(rtt) && rtt > 0) applyWsPing(rtt)
+            if (Number.isFinite(rtt) && rtt > 0) {
+                lastPongAt = Date.now()
+                applyWsPing(rtt)
+            }
         })
 
         const tick = () => {
             if (cancelled) return
+            if (
+                wsSampleChannelRef.current === joinedChannelId
+                && lastPongAt > 0
+                && Date.now() - lastPongAt >= PING_STALE_AFTER_MS
+            ) {
+                wsSampleChannelRef.current = null
+                wsSamplesRef.current = []
+                wsSmoothedRef.current = null
+                wsPingJitterMsRef.current = null
+                setWsPingMs(null)
+            }
             lastSentAt = Date.now()
             send('Ping', { sent_at_ms: lastSentAt })
             timer = window.setTimeout(tick, WS_PING_INTERVAL_MS)
@@ -282,8 +362,11 @@ export function useWebrtcDiagnostics(options: {
             rtcSamplesRef.current = []
             rtcSmoothedRef.current = null
             rtcPingJitterMsRef.current = null
+            rtcSampleChannelRef.current = null
+            rtcLastSampleAtRef.current = 0
             prevInboundTotalsRef.current = null
             previousScreenShareOutboundRef.current = null
+            setRtcPingMs(null)
             return
         }
 
@@ -319,10 +402,6 @@ export function useWebrtcDiagnostics(options: {
             for (const pc of candidatePcs) {
                 try {
                     const stats = await pc.getStats()
-                    const byId = new Map<string, RTCStats>()
-                    stats.forEach((report) => {
-                        if (report?.id) byId.set(report.id, report)
-                    })
 
                     const screenPublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)
                     const screenTrackIdentifier = screenPublication?.track?.mediaStreamTrack.id
@@ -403,60 +482,8 @@ export function useWebrtcDiagnostics(options: {
                         updateVoiceDiagnostics({ screenShareAudioOutbound: undefined })
                     }
 
-                    // Transport-selected candidate pair (Chromium/WebKit).
-                    stats.forEach((report) => {
-                        if (report.type !== 'transport') return
-                        const transport = report as RTCTransportStats & { selectedCandidatePairId?: string }
-                        const selectedPairId = transport.selectedCandidatePairId
-                        if (!selectedPairId) return
-                        const pair = byId.get(selectedPairId)
-                        if (!pair || pair.type !== 'candidate-pair') return
-                        const cp = pair as RTCIceCandidatePairStats
-                        let rttSec: number | null = typeof cp.currentRoundTripTime === 'number' ? cp.currentRoundTripTime : null
-                        if (
-                            rttSec == null &&
-                            typeof cp.totalRoundTripTime === 'number' &&
-                            typeof cp.responsesReceived === 'number' &&
-                            cp.responsesReceived > 0
-                        ) {
-                            rttSec = cp.totalRoundTripTime / cp.responsesReceived
-                        }
-                        if (typeof rttSec === 'number') {
-                            const normalized = sanitizeRttMs(rttSec)
-                            if (normalized != null) rttSamples.push(normalized)
-                        }
-                    })
-
-                    // Candidate-pair fallback (Firefox/edge cases).
-                    stats.forEach((report) => {
-                        if (report.type !== 'candidate-pair') return
-                        const pair = report as RTCIceCandidatePairStats & { nominated?: boolean; selected?: boolean }
-                        const isSelected = pair.state === 'succeeded' && (pair.nominated || pair.selected)
-                        if (!isSelected) return
-                        let rttSec: number | null =
-                            typeof pair.currentRoundTripTime === 'number' ? pair.currentRoundTripTime : null
-                        if (
-                            rttSec == null &&
-                            typeof pair.totalRoundTripTime === 'number' &&
-                            typeof pair.responsesReceived === 'number' &&
-                            pair.responsesReceived > 0
-                        ) {
-                            rttSec = pair.totalRoundTripTime / pair.responsesReceived
-                        }
-                        if (typeof rttSec === 'number') {
-                            const normalized = sanitizeRttMs(rttSec)
-                            if (normalized != null) rttSamples.push(normalized)
-                        }
-                    })
-
-                    // Remote inbound RTP RTT fallback.
-                    stats.forEach((report) => {
-                        if (report.type !== 'remote-inbound-rtp') return
-                        const rtp = report as RTCStats & { roundTripTime?: number }
-                        if (typeof rtp.roundTripTime !== 'number') return
-                        const normalized = sanitizeRttMs(rtp.roundTripTime)
-                        if (normalized != null) rttSamples.push(normalized)
-                    })
+                    const peerConnectionRtt = extractPeerConnectionRttMs(Array.from(stats.values()))
+                    if (peerConnectionRtt != null) rttSamples.push(peerConnectionRtt)
 
                     // Real-time quality metrics from inbound audio RTP.
                     stats.forEach((report) => {
@@ -489,12 +516,16 @@ export function useWebrtcDiagnostics(options: {
 
         const applyRtt = (samples: number[]) => {
             if (samples.length === 0) {
-                // Keep last stable value while connected; avoid misleading HTTP/browser RTT fallback.
-                if (roomState !== 'connected') {
+                const lastSampleIsStale =
+                    rtcLastSampleAtRef.current === 0
+                    || Date.now() - rtcLastSampleAtRef.current >= PING_STALE_AFTER_MS
+                if (roomState !== 'connected' || lastSampleIsStale) {
                     setRtcPingMs(null)
                     rtcSamplesRef.current = []
                     rtcSmoothedRef.current = null
                     rtcPingJitterMsRef.current = null
+                    rtcSampleChannelRef.current = null
+                    rtcLastSampleAtRef.current = 0
                 }
                 return
             }
@@ -502,7 +533,13 @@ export function useWebrtcDiagnostics(options: {
             const cycleMedian = median(samples) ?? samples[0] ?? null
             if (cycleMedian == null) return
             pushWindow(rtcSamplesRef.current, Math.round(cycleMedian), PING_WINDOW_SIZE)
-            const windowMedian = median(rtcSamplesRef.current) ?? cycleMedian
+            rtcLastSampleAtRef.current = Date.now()
+            const stableTarget = stableRtcPingTarget(rtcSamplesRef.current)
+            if (stableTarget == null) {
+                setRtcPingMs(null)
+                return
+            }
+            const windowMedian = stableTarget
 
             const prev = rtcSmoothedRef.current
             let nextTarget = Math.round(windowMedian)
@@ -518,6 +555,7 @@ export function useWebrtcDiagnostics(options: {
             const smoothed = smoothAsymmetric(prev, nextTarget, 0.28, 0.6)
             const bounded = clamp(smoothed, 1, 5000)
             rtcSmoothedRef.current = bounded
+            rtcSampleChannelRef.current = joinedChannelId
             setRtcPingMs(bounded)
 
             const jitter = averageAbsDelta(rtcSamplesRef.current)
@@ -612,21 +650,23 @@ export function useWebrtcDiagnostics(options: {
             return
         }
 
+        const currentRtcPingMs = rtcSampleChannelRef.current === joinedChannelId ? rtcPingMs : null
+        const currentWsPingMs = wsSampleChannelRef.current === joinedChannelId ? wsPingMs : null
         const nextSource: PingSource =
-            roomState === 'connected' && rtcPingMs != null
+            roomState === 'connected' && currentRtcPingMs != null
                 ? 'rtc'
-                : wsPingMs != null
+                : currentWsPingMs != null
                     ? 'ws'
-                    : rtcPingMs != null
-                        ? 'rtc'
-                        : null
+                    : null
 
         if (nextSource == null) {
             selectedPingSourceRef.current = null
+            setPingMs(null)
+            setPingJitterMs(null)
             return
         }
 
-        const nextRaw = nextSource === 'rtc' ? rtcPingMs : wsPingMs
+        const nextRaw = nextSource === 'rtc' ? currentRtcPingMs : currentWsPingMs
         if (nextRaw == null) {
             selectedPingSourceRef.current = null
             return
@@ -660,11 +700,13 @@ export function useWebrtcDiagnostics(options: {
     }, [joinedChannelId, jitterMs, packetLossPct, pingJitterMs, pingMs, rtcPingMs, wsPingMs])
 
     const hasActiveVoice = !!joinedChannelId
-    const hasDisplaySource = hasActiveVoice && (rtcPingMs != null || wsPingMs != null)
+    const currentRtcPingMs = rtcSampleChannelRef.current === joinedChannelId ? rtcPingMs : null
+    const currentWsPingMs = wsSampleChannelRef.current === joinedChannelId ? wsPingMs : null
+    const hasDisplaySource = hasActiveVoice && (currentRtcPingMs != null || currentWsPingMs != null)
     return {
         pingMs: hasDisplaySource ? pingMs : null,
-        wsPingMs: hasActiveVoice ? wsPingMs : null,
-        rtcPingMs: hasActiveVoice ? rtcPingMs : null,
+        wsPingMs: hasActiveVoice ? currentWsPingMs : null,
+        rtcPingMs: hasActiveVoice ? currentRtcPingMs : null,
         packetLossPct: hasActiveVoice ? packetLossPct : null,
         jitterMs: hasActiveVoice ? jitterMs : null,
         pingJitterMs: hasDisplaySource ? pingJitterMs : null,
