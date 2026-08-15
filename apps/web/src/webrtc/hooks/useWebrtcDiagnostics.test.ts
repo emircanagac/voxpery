@@ -1,8 +1,63 @@
 import { describe, expect, it } from 'vitest'
 import {
+  extractPeerConnectionRttMs,
   extractScreenShareAudioOutboundSample,
   extractScreenShareOutboundSample,
+  stableRtcPingTarget,
 } from './useWebrtcDiagnostics'
+
+describe('voice RTT diagnostics', () => {
+  it('uses the transport-selected candidate pair without mixing fallback RTT samples', () => {
+    const reports = [
+      {
+        id: 'transport-1',
+        type: 'transport',
+        timestamp: 1_000,
+        selectedCandidatePairId: 'selected-pair',
+      },
+      {
+        id: 'selected-pair',
+        type: 'candidate-pair',
+        timestamp: 1_000,
+        state: 'succeeded',
+        nominated: true,
+        currentRoundTripTime: 0.052,
+      },
+      {
+        id: 'stale-rtcp',
+        type: 'remote-inbound-rtp',
+        timestamp: 1_000,
+        roundTripTime: 0.001,
+      },
+    ] as unknown as RTCStats[]
+
+    expect(extractPeerConnectionRttMs(reports)).toBe(52)
+  })
+
+  it('falls back to a nominated candidate pair and then remote inbound RTP', () => {
+    expect(extractPeerConnectionRttMs([{
+      id: 'nominated-pair',
+      type: 'candidate-pair',
+      timestamp: 1_000,
+      state: 'succeeded',
+      nominated: true,
+      currentRoundTripTime: 0.047,
+    } as unknown as RTCStats])).toBe(47)
+
+    expect(extractPeerConnectionRttMs([{
+      id: 'remote-inbound',
+      type: 'remote-inbound-rtp',
+      timestamp: 1_000,
+      roundTripTime: 0.061,
+    } as unknown as RTCStats])).toBe(61)
+  })
+
+  it('waits for a stable RTC window before exposing voice ping', () => {
+    expect(stableRtcPingTarget([1])).toBeNull()
+    expect(stableRtcPingTarget([1, 52])).toBeNull()
+    expect(stableRtcPingTarget([1, 52, 54])).toBe(52)
+  })
+})
 
 describe('screen share outbound diagnostics', () => {
   it('aggregates simulcast layers for the active screen track only', () => {
