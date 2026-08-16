@@ -259,6 +259,11 @@ remain part of the independent manual release smoke because Cloudflare may
 intentionally reject requests from both GitHub-hosted runner networks and the
 production host's datacenter address.
 
+The public cache check distinguishes fingerprinted Vite files under `/assets/`
+from stable bootstrap files such as `/theme-init.js`. Fingerprinted files must
+be long-lived, while stable bootstrap files must revalidate so normal reloads
+can pick up deployment changes.
+
 Manual runs remain available for redeploys, release recovery, candidates, and
 explicit rollback operations:
 

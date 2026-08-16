@@ -78,6 +78,10 @@ function cacheControl(response) {
   return response.headers.get('cache-control')?.toLowerCase() || ''
 }
 
+function isFingerprintedBuildAsset(rawUrl) {
+  return new URL(rawUrl).pathname.startsWith('/assets/')
+}
+
 function assertRevalidated(response, label) {
   const value = cacheControl(response)
   assert(
@@ -107,7 +111,11 @@ async function checkVersionInDeployedAssets() {
 
   for (const asset of assets) {
     const res = await getOk(asset, `asset ${asset}`)
-    assertLongLived(res, `asset ${asset}`)
+    if (isFingerprintedBuildAsset(asset)) {
+      assertLongLived(res, `fingerprinted asset ${asset}`)
+    } else {
+      assertRevalidated(res, `bootstrap asset ${asset}`)
+    }
     const text = await res.text()
     for (const needle of needles) {
       if (text.includes(needle)) seen.add(needle)
