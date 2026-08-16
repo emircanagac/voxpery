@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Made automatic production smoke checks tolerate Cloudflare blocks against CI and production-host datacenter IPs by using origin-local API health while retaining independent public web, version, security-header, and cache validation.
+- Fixed production deploy smoke checks to require long-lived caching only for fingerprinted Vite assets while allowing stable bootstrap scripts to revalidate.
 
 ## [0.2.8] - 2026-08-16
 

@@ -17,6 +17,7 @@ function requireText(label, text, expected) {
 
 const ci = read('.github/workflows/ci.yml')
 const deploy = read('.github/workflows/deploy.yml')
+const releaseSmoke = read('apps/web/scripts/release-deploy-smoke.mjs')
 
 requireText('CI', ci, 'needs: docker_publish')
 requireText('CI', ci, 'Verify published stable GitHub Release')
@@ -36,6 +37,8 @@ requireText('production deploy', deploy, 'SMOKE_EXPECTED_IMAGE_TAG:')
 requireText('production deploy', deploy, "SMOKE_SKIP_API_HEALTH: 'true'")
 requireText('production deploy', deploy, 'Checkout current smoke tooling')
 requireText('production deploy', deploy, 'ref: main')
+requireText('release deploy smoke', releaseSmoke, "pathname.startsWith('/assets/')")
+requireText('release deploy smoke', releaseSmoke, 'assertRevalidated(res, `bootstrap asset ${asset}`)')
 
 if (failures.length > 0) {
   console.error('Deploy workflow validation failed:')
