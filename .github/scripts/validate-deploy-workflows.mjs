@@ -34,6 +34,8 @@ requireText('production deploy', deploy, 'voxpery/voxpery-web:${IMAGE_TAG}')
 requireText('production deploy', deploy, 'smoke:release-deploy')
 requireText('production deploy', deploy, 'SMOKE_EXPECTED_IMAGE_TAG:')
 requireText('production deploy', deploy, "SMOKE_SKIP_API_HEALTH: 'true'")
+requireText('production deploy', deploy, 'Checkout current smoke tooling')
+requireText('production deploy', deploy, 'ref: main')
 
 if (failures.length > 0) {
   console.error('Deploy workflow validation failed:')

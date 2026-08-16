@@ -316,6 +316,12 @@ jobs:
             curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
             echo "Deploy complete: release_channel=${RELEASE_CHANNEL} git_ref=${GIT_REF} commit=$(git rev-parse HEAD) image_tag=${IMAGE_TAG}"
 
+      - name: Checkout current smoke tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
