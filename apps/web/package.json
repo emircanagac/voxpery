@@ -31,7 +31,7 @@
     "rate-limit:check": "node scripts/rate-limit-check.mjs"
   },
   "dependencies": {
-    "@marsidev/react-turnstile": "^1.5.5",
+    "@marsidev/react-turnstile": "^1.6.0",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "@tanstack/react-virtual": "^3.14.9",
     "@tauri-apps/api": "^2.11.1",
@@ -47,30 +47,30 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0",
-    "zustand": "^5.0.14"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.3",
+    "@testing-library/user-event": "^14.6.4",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/ui": "^4.1.10",
-    "esbuild": "^0.28.1",
-    "eslint": "^10.8.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.3",
+    "eslint-plugin-react-refresh": "^0.5.4",
     "globals": "^16.5.0",
     "jsdom": "^28.1.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.66.0",
+    "typescript-eslint": "^8.67.0",
     "vite": "^8.2.1",
     "vitest": "^4.0.18",
-    "ws": "^8.21.2"
+    "ws": "^8.21.3"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.62.4",
