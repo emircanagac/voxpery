@@ -221,6 +221,12 @@ WebSocket broadcasts and LiveKit reconciliation happen only after the database c
 
 ## Migrations
 
+Committed migrations are immutable after they have been applied. Never edit,
+rename, or delete an existing migration, including comments or whitespace,
+because SQLx verifies the complete file checksum at startup. Add a new numbered
+migration for every subsequent schema change. CI rejects historical migration
+changes once the migration-history guard is present on the target branch.
+
 All migrations currently present:
 
 - `001_initial.sql`

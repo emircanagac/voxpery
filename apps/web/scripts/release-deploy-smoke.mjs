@@ -63,23 +63,8 @@ async function getOk(url, label) {
   return res
 }
 
-function assetUrls(html, webBase) {
-  const urls = new Set()
-  const pattern = /<(?:script|link)\b[^>]+(?:src|href)="([^"]+)"/g
-  for (const match of html.matchAll(pattern)) {
-    const raw = match[1]
-    if (!/\.(?:js|css)(?:\?|$)/.test(raw)) continue
-    urls.add(new URL(raw, `${webBase}/`).toString())
-  }
-  return [...urls]
-}
-
 function cacheControl(response) {
   return response.headers.get('cache-control')?.toLowerCase() || ''
-}
-
-function isFingerprintedBuildAsset(rawUrl) {
-  return new URL(rawUrl).pathname.startsWith('/assets/')
 }
 
 function assertRevalidated(response, label) {
@@ -90,41 +75,21 @@ function assertRevalidated(response, label) {
   )
 }
 
-function assertLongLived(response, label) {
-  const value = cacheControl(response)
-  const maxAge = Number(value.match(/(?:^|,)\s*max-age=(\d+)/)?.[1] || 0)
-  assert(maxAge >= 31_536_000, `${label} must use long-lived caching; received Cache-Control: ${value || '<missing>'}`)
-}
-
-async function checkVersionInDeployedAssets() {
+async function checkDeployedVersion() {
   const rootRes = await getOk(`${WEB_BASE}/`, 'web root')
   assertRevalidated(rootRes, 'web root')
-  const html = await rootRes.text()
-  const assets = assetUrls(html, WEB_BASE)
-  assert(assets.length > 0, 'No JS/CSS assets found in deployed web root')
 
   const serviceWorkerRes = await getOk(`${WEB_BASE}/sw.js`, 'service worker')
   assertRevalidated(serviceWorkerRes, 'service worker')
 
-  const needles = [EXPECTED_BADGE, EXPECTED_IMAGE_TAG].filter(Boolean)
-  const seen = new Set()
-
-  for (const asset of assets) {
-    const res = await getOk(asset, `asset ${asset}`)
-    if (isFingerprintedBuildAsset(asset)) {
-      assertLongLived(res, `fingerprinted asset ${asset}`)
-    } else {
-      assertRevalidated(res, `bootstrap asset ${asset}`)
-    }
-    const text = await res.text()
-    for (const needle of needles) {
-      if (text.includes(needle)) seen.add(needle)
-    }
-  }
-
-  for (const needle of needles) {
-    assert(seen.has(needle), `Expected deployed web assets to contain ${needle}`)
-  }
+  const versionRes = await getOk(`${WEB_BASE}/version.json`, 'version metadata')
+  assertRevalidated(versionRes, 'version metadata')
+  const metadata = await versionRes.json().catch(() => null)
+  assert(metadata && typeof metadata === 'object', 'Version metadata must be valid JSON')
+  assert(
+    metadata.imageTag === EXPECTED_IMAGE_TAG,
+    `Expected deployed image tag ${EXPECTED_IMAGE_TAG}; received ${metadata.imageTag || '<missing>'}`
+  )
 }
 
 async function main() {
@@ -149,8 +114,8 @@ async function main() {
   assertSecurityHeaders(webHealth, { surface: 'web', url: `${WEB_BASE}/healthz` })
   console.log('[release-smoke] web health and security headers OK')
 
-  await checkVersionInDeployedAssets()
-  console.log('[release-smoke] deployed version assets OK')
+  await checkDeployedVersion()
+  console.log('[release-smoke] deployed version metadata OK')
   console.log('[release-smoke] deploy guardrails OK')
 }
 

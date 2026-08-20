@@ -30,6 +30,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate immutable migration history
+        env:
+          MIGRATION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node .github/scripts/validate-migration-history.mjs
+
       - name: Secret scan (gitleaks)
         run: |
           docker run --rm \

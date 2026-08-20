@@ -255,19 +255,25 @@ job succeeds. The deploy gate retries both backend and frontend immutable image
 lookups before touching production and fails closed if either tag never becomes
 visible. Manual and automatic deploys use this same registry guard.
 
-The deploy host performs authoritative origin-local API and web health checks.
+The deploy host runs `scripts/ops/stack_healthcheck.sh` until the stack passes
+three consecutive rounds. This verifies that every required Compose service is
+running, the API reports `status=ok`, PostgreSQL and Redis are ready, attachment
+storage is writable, and the web health endpoint responds. A transient
+`docker ps` running state is not accepted because a restart-looping backend can
+briefly appear healthy between crashes.
 The runner then checks out the current `main` deployment tooling before it
-validates the public web health endpoint, security headers, release version,
-and cache policy. This keeps smoke guardrail fixes effective when an older
-immutable release tag is deployed. Public API edge and security-header checks
+validates the public web health endpoint, security headers, `/version.json`
+release metadata, and stable entry-point cache policy. This keeps smoke
+guardrail fixes effective when an older immutable release tag is deployed.
+Public API edge and security-header checks
 remain part of the independent manual release smoke because Cloudflare may
 intentionally reject requests from both GitHub-hosted runner networks and the
 production host's datacenter address.
 
-The public cache check distinguishes fingerprinted Vite files under `/assets/`
-from stable bootstrap files such as `/theme-init.js`. Fingerprinted files must
-be long-lived, while stable bootstrap files must revalidate so normal reloads
-can pick up deployment changes.
+The public cache check verifies that the app shell, service worker, and
+`/version.json` revalidate so normal reloads can pick up deployment changes.
+Fingerprint asset caching remains an origin/CDN configuration concern rather
+than a production availability gate.
 
 Manual runs remain available for redeploys, release recovery, candidates, and
 explicit rollback operations:
@@ -306,17 +312,19 @@ deployed main candidates). For manual image builds, pass
 `--build-arg VITE_APP_VERSION=<tag>` to keep the visible badge aligned with the
 image tag.
 
-The web container requires release entry points (`/`, `/index.html`, and
-`/sw.js`) and the stable RNNoise worklet URL to be revalidated on every normal
-reload. Fingerprinted `/assets/` files are cached for one year because a new
+The web container requires release entry points (`/`, `/index.html`, `/sw.js`,
+and `/version.json`) and the stable RNNoise worklet URL to be revalidated on
+every normal reload. Fingerprinted `/assets/` files are cached for one year
+because a new
 build produces new URLs. Do not override the entry-point headers with a CDN
-browser-cache rule: the release smoke workflow verifies that the app shell and
-service worker return a revalidation policy, preventing stale releases from
-requiring `Ctrl+F5`.
+browser-cache rule: the release smoke workflow verifies that the app shell,
+service worker, and release metadata return a revalidation policy, preventing
+stale releases from requiring `Ctrl+F5`.
 
 For Cloudflare, set Browser Cache TTL to `Respect existing headers` and do not
-apply an Edge Cache TTL override to `/`, `/index.html`, `/sw.js`, or
-`/assets/rnnoise-worklet.js`. A broad four-hour Browser Cache TTL rule, for
+apply an Edge Cache TTL override to `/`, `/index.html`, `/sw.js`,
+`/version.json`, or `/assets/rnnoise-worklet.js`. A broad four-hour Browser
+Cache TTL rule, for
 example, replaces the origin's revalidation header with `max-age=14400` and
 causes the post-deploy cache smoke to fail. Fingerprinted `/assets/*` files may
 keep a long-lived edge/browser cache rule, except for the stable RNNoise worklet
