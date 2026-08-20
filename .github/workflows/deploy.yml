@@ -323,8 +323,30 @@ jobs:
             docker compose --profile security pull server web clamav
             docker compose --profile security up -d --no-build --remove-orphans
             docker image prune -f
-            curl -fsS http://127.0.0.1:3001/health >/dev/null
-            curl -fsS http://127.0.0.1:${WEB_PORT:-5173}/healthz >/dev/null
+
+            stable_health_passes=0
+            for attempt in $(seq 1 18); do
+              if ./scripts/ops/stack_healthcheck.sh; then
+                stable_health_passes=$((stable_health_passes + 1))
+                if [ "${stable_health_passes}" -ge 3 ]; then
+                  break
+                fi
+              else
+                stable_health_passes=0
+              fi
+
+              if [ "${attempt}" -lt 18 ]; then
+                echo "Stack is not stable yet; retrying in 5 seconds."
+                sleep 5
+              fi
+            done
+
+            if [ "${stable_health_passes}" -lt 3 ]; then
+              echo "Refusing deploy: stack did not pass three consecutive health checks."
+              docker compose --profile security ps
+              exit 1
+            fi
+
             echo "Deploy complete: release_channel=${RELEASE_CHANNEL} git_ref=${GIT_REF} commit=$(git rev-parse HEAD) image_tag=${IMAGE_TAG}"
 
       - name: Checkout current smoke tooling

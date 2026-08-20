@@ -1,5 +1,19 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+
+function releaseMetadataPlugin(): Plugin {
+  return {
+    name: 'release-metadata',
+    generateBundle() {
+      const imageTag = process.env.VITE_APP_VERSION?.trim() || null
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: `${JSON.stringify({ imageTag })}\n`,
+      })
+    },
+  }
+}
 
 // In production, remove worklet path so main bundle has no dependency on it (no extra 5 kB chunk).
 function rnnoiseProdStripPlugin() {
@@ -24,7 +38,9 @@ const RNNOISE_WORKLET_URL = `/assets/rnnoise-worklet.js?v=${Date.now().toString(
 
 export default defineConfig(({ mode }) => ({
   envDir: '../../',
-  plugins: [react(), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(Boolean),
+  plugins: [react(), releaseMetadataPlugin(), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(
+    Boolean
+  ),
   define: mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify(RNNOISE_WORKLET_URL) } : {},
   build: {
     // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output

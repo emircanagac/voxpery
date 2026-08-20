@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-08-20
+
+### Changed
+- Added deterministic `/version.json` metadata to production web builds so deploy validation checks the exact immutable image tag without depending on lazy bundle contents.
+- Strengthened production deploy readiness with three consecutive full-stack health checks covering required services, API health, PostgreSQL, Redis, attachment storage, and web health.
+
 ### Fixed
+- Restored the original byte content of migration 009 so existing databases retain their recorded SQLx checksum, and added CI enforcement that keeps applied migration history immutable.
 - Updated `h2` to `0.4.16` to address `RUSTSEC-2026-0258`, preventing unbounded empty DATA frames from exhausting server resources.
 - Restored the CSP-safe automatic desktop Google OAuth handoff and branded fallback page, preserved local passwords when connecting Google, and enabled email recovery for Google-connected accounts.
 - Added bounded integration-feature retries and an explicit retry state so transient feature discovery failures no longer silently hide Google Sign-In and password recovery.
