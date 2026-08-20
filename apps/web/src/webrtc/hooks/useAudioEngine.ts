@@ -24,6 +24,15 @@ import {
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 
+export function shouldUseLightweightMobileVoicePipeline(
+    navigatorTarget: Pick<Navigator, 'userAgent' | 'maxTouchPoints'> | undefined = typeof navigator === 'undefined' ? undefined : navigator,
+): boolean {
+    if (!navigatorTarget) return false
+    const userAgent = navigatorTarget.userAgent.toLowerCase()
+    return /android|iphone|ipad|ipod|mobile/.test(userAgent)
+        || (userAgent.includes('macintosh') && navigatorTarget.maxTouchPoints > 1)
+}
+
 function dbToLinear(db: number): number {
     return Math.pow(10, db / 20)
 }
@@ -426,6 +435,37 @@ export function useAudioEngine() {
             audioContext: toVoiceAudioContextDiagnostics(ctx),
             inputVolume: roundVoiceDiagnosticNumber(volumeFactor, 2),
         })
+
+        if (shouldUseLightweightMobileVoicePipeline()) {
+            // Mobile browsers already provide hardware-optimized AEC/NS. Avoid the
+            // desktop RNNoise + analyser loop here so capture and playback do not
+            // compete for the main thread on lower-power devices.
+            const source = ctx.createMediaStreamSource(sourceStream)
+            const gain = ctx.createGain()
+            const destination = ctx.createMediaStreamDestination()
+            gain.gain.value = volumeFactor
+            source.connect(gain)
+            gain.connect(destination)
+            const processedTrack = destination.stream.getAudioTracks()[0]
+            if (!processedTrack) {
+                source.disconnect()
+                gain.disconnect()
+                return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
+            }
+            inputGainNodeRef.current = gain
+            updateVoiceDiagnostics({
+                processedMicTrackSettings: toVoiceTrackSettingsDiagnostics(processedTrack.getSettings?.()),
+                mobileOptimizedPipeline: true,
+            })
+            return {
+                track: processedTrack,
+                vadStream: sourceStream,
+                cancelGate: () => {
+                    try { source.disconnect() } catch { /* ignore */ }
+                    try { gain.disconnect() } catch { /* ignore */ }
+                },
+            }
+        }
 
         const source = ctx.createMediaStreamSource(sourceStream)
         const suppressionConfig = buildSuppressionConfig(noiseSuppressionEnabled)

@@ -55,3 +55,11 @@ export function createRemoteAudioKindPlaybackStream(stream: MediaStream, kind: R
 export function shouldMuteRemoteAudioPlayback(kind: RemoteAudioKind, voiceDeafened: boolean): boolean {
   return kind === 'mic' && voiceDeafened
 }
+
+export function shouldUseDirectRemoteAudioPlayback(
+  kind: RemoteAudioKind,
+  lightweightMobileVoice: boolean,
+  audioTrackCount: number,
+): boolean {
+  return kind === 'screen' || lightweightMobileVoice || audioTrackCount === 0
+}

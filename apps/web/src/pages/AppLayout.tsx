@@ -45,6 +45,7 @@ import {
 } from '../notificationPreferences'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { createReplyContentSnippet } from '../replyPreview'
+import { createSecureId } from '../secureId'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -1307,7 +1308,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (pendingMessageFingerprintsRef.current.has(sendFingerprint)) return
         pendingMessageFingerprintsRef.current.add(sendFingerprint)
         setReplyingTo(null)
-        const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const clientId = createSecureId()
         const optimisticId = `local-${clientId}`
         const optimistic: UiMessage = {
             id: optimisticId,
@@ -1580,8 +1581,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (!newServerName.trim() || !isLoggedIn) return
         createServerInFlightRef.current = true
         setIsCreatingServer(true)
-        const requestId = createServerRequestIdRef.current
-            ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        const requestId = createServerRequestIdRef.current ?? createSecureId()
         createServerRequestIdRef.current = requestId
         try {
             const server = await serverApi.create(

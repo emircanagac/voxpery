@@ -322,6 +322,7 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
 export function getStoredThemePreference(storage: Pick<Storage, 'getItem'> = localStorage): ThemePreference {
   try {
     const storedTheme = storage.getItem(THEME_STORAGE_KEY)
+    const storedAccent = normalizeHexColor(storage.getItem(THEME_ACCENT_STORAGE_KEY))
     const storedCustomThemeColor = normalizeHexColor(storage.getItem(THEME_CUSTOM_COLOR_STORAGE_KEY))
     const isLegacyRoseTheme = storedTheme === 'rose'
     const theme = isLegacyRoseTheme
@@ -331,7 +332,7 @@ export function getStoredThemePreference(storage: Pick<Storage, 'getItem'> = loc
       ?? (isLegacyRoseTheme ? getThemeOption('rose').defaultAccent : null)
     return {
       theme,
-      customAccent: null,
+      customAccent: storedAccent,
       customThemeColor,
       customThemeMode: customThemeColor ? 'dark' : getThemeOption(theme).colorScheme,
     }
@@ -350,7 +351,7 @@ export function applyThemePreference(
   documentTarget: Document = document,
 ): ThemePreference {
   const theme = isThemeId(preference.theme) ? preference.theme : DEFAULT_THEME
-  const customAccent = null
+  const customAccent = normalizeHexColor(preference.customAccent)
   const customThemeColor = normalizeHexColor(preference.customThemeColor)
   const option = getThemeOption(theme)
   const customThemeMode = customThemeColor ? 'dark' : option.colorScheme

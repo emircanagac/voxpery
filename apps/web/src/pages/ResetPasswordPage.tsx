@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
 import { useFeatureStore } from '../stores/features'
+import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 
 export default function ResetPasswordPage() {
     const [searchParams] = useSearchParams()
@@ -54,6 +55,27 @@ export default function ResetPasswordPage() {
         } finally {
             setLoading(false)
         }
+    }
+
+    if (!features) {
+        return (
+            <div className="auth-page">
+                <div className="auth-card">
+                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                    <h1>Set New Password</h1>
+                    <AuthIntegrationStatus
+                        loadingMessage="Checking password recovery availability..."
+                        errorMessage="Password recovery availability could not be loaded."
+                    />
+
+                    <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
+                        <a onClick={() => navigate(ROUTES.login)} style={{ cursor: 'pointer', color: 'var(--text-link)' }}>
+                            Back to Login
+                        </a>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     if (!passwordResetEnabled) {

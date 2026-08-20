@@ -58,6 +58,7 @@ import {
   readDmNotificationAnchor,
   type DmNotificationAnchor,
 } from '../dmNotificationNavigation'
+import { createSecureId } from '../secureId'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -889,7 +890,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setReplyingToDm(null)
     if (!isForcedContent) setDmInput('')
     setDmDraftAttachments([])
-    const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const clientId = createSecureId()
     const optimisticId = `local-${clientId}`
     const optimistic: UiDmMessage = {
       id: optimisticId,

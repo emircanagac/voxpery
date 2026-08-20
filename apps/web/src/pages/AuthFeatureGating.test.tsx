@@ -109,4 +109,31 @@ describe('auth feature gating', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset Password' })).not.toBeInTheDocument()
   })
+
+  it('does not silently remove auth integrations when feature discovery fails', () => {
+    useFeatureStore.setState({
+      features: null,
+      loading: false,
+      error: 'feature endpoint unavailable',
+    })
+
+    render(<MemoryRouter><LoginPage /></MemoryRouter>)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Additional sign-in options could not be loaded.',
+    )
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument()
+  })
+
+  it('waits for feature discovery before declaring password recovery disabled', () => {
+    useFeatureStore.setState({ features: null, loading: true, error: null })
+
+    render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>)
+
+    expect(screen.getByText('Checking password recovery availability...')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Password reset is not available because this server has not configured email delivery.'),
+    ).not.toBeInTheDocument()
+  })
 })

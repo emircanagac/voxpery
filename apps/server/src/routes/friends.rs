@@ -159,7 +159,7 @@ async fn send_friend_request(
         ));
     }
     let target = sqlx::query_as::<_, FriendUser>(
-        "SELECT id, username, avatar_url, status FROM users WHERE username = $1",
+        "SELECT id, username, avatar_url, status FROM users WHERE lower(username) = lower($1)",
     )
     .bind(username)
     .fetch_optional(&state.db)

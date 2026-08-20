@@ -35,11 +35,14 @@ test.describe('mocked mobile web smoke', () => {
     await customThemeInput.press('Enter')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
+    await modal.getByRole('button', { name: 'Use Emerald accent' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
     await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
     await expectNoHorizontalOverflow(modal)
 
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
     await expect(page.locator('.feedback-dock')).not.toBeVisible()
   })
 
@@ -67,7 +70,7 @@ test.describe('mocked mobile web smoke', () => {
 
     await page.getByRole('button', { name: 'Open DM with Friend 24' }).click()
     await expect(page).toHaveURL(/\/social\/dm/)
-    await expect(page.getByPlaceholder('Message @Friend 24')).toBeVisible()
+    await expect(page.getByPlaceholder('Message', { exact: true })).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
     await page.goto('/social')
@@ -83,6 +86,7 @@ test.describe('mocked mobile web smoke', () => {
     const channels = buildCoreChannels(server.id)
     const general = channels.find((channel) => channel.name === 'general')
     if (!general) throw new Error('Core channel fixture is incomplete.')
+    general.name = 'general-community-updates-and-announcements'
 
     const state = createMockCoreState({
       servers: [server],
@@ -113,26 +117,62 @@ test.describe('mocked mobile web smoke', () => {
 
     await page.goto('/servers')
 
-    await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
+    const channelTitle = page.locator('.chat-header .channel-title')
+    await expect(channelTitle).toHaveText('general-community-updates-and-announcements')
+    await expect.poll(async () => channelTitle.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return style.textOverflow === 'ellipsis'
+        && style.whiteSpace === 'nowrap'
+        && element.scrollWidth > element.clientWidth
+    })).toBe(true)
     await expect(page.getByText('Mobile smoke baseline message')).toBeVisible()
     await expect(page.locator('.dm-attach-btn[title="Attach files"]')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Insert emoji' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Browse GIFs' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Browse stickers' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Browse GIFs' })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Browse stickers' })).not.toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
-    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    await page.getByRole('button', { name: 'Insert emoji' }).click()
     const expressionPicker = page.locator('.chat-emoji-picker')
     await expect(expressionPicker).toBeVisible()
     await expectNoHorizontalOverflow(expressionPicker)
-    await expect.poll(async () => expressionPicker.evaluate((element) => {
-      return element.getBoundingClientRect().right <= window.innerWidth
-        && element.getBoundingClientRect().left >= 0
+    await expect.poll(async () => page.evaluate(() => {
+      const pickerRect = document.querySelector('.chat-emoji-picker')?.getBoundingClientRect()
+      const chatRect = document.querySelector('.chat-area')?.getBoundingClientRect()
+      const inputRect = document.querySelector('.message-input-wrapper')?.getBoundingClientRect()
+      if (!pickerRect || !chatRect || !inputRect) return false
+      return pickerRect.left >= chatRect.left + 7
+        && pickerRect.right <= chatRect.right - 7
+        && pickerRect.top >= chatRect.top + 7
+        && pickerRect.bottom <= inputRect.top + 1
     })).toBe(true)
+    await expressionPicker.getByRole('tab', { name: 'GIF' }).click()
+    await expect.poll(async () => page.locator('.chat-gif-grid').evaluate((element) => (
+      element.scrollWidth <= element.clientWidth + 1
+    ))).toBe(true)
+    await expressionPicker.getByRole('tab', { name: 'Emoji' }).click()
+    await expect(page.getByRole('tablist', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
+    await expect.poll(async () => page.locator('.chat-emoji-grid').evaluate((element) => (
+      getComputedStyle(element).gridTemplateColumns.split(' ').length
+    ))).toBe(8)
     await page.keyboard.press('Escape')
 
     const mediaRow = page.locator('[data-message-id="mobile-media-reaction-message"]')
     await expect(mediaRow.locator('.message-reactions')).toBeVisible()
+    await mediaRow.getByRole('button', { name: 'More message actions' }).click()
+    const mobileActionsMenu = page.getByRole('menu', { name: 'Message actions' })
+    await expect(mobileActionsMenu).toBeVisible()
+    expect(await mobileActionsMenu.evaluate((element) => element.parentElement === document.body)).toBe(true)
+    await expect.poll(async () => mobileActionsMenu.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.left >= 0
+        && rect.top >= 0
+        && rect.right <= window.innerWidth
+        && rect.bottom <= window.innerHeight
+    })).toBe(true)
+    await mobileActionsMenu.getByRole('menuitem', { name: 'Add reaction' }).click()
+    await expect(page.locator('.message-reaction-picker-portal')).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect.poll(async () =>
       mediaRow.locator('.chat-inline-gif-link, .dm-attachments, .message-reactions').evaluateAll(
         (elements) => elements.map((element) => element.className)
@@ -140,7 +180,7 @@ test.describe('mocked mobile web smoke', () => {
     ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
 
     const content = `Mobile smoke message ${Date.now()}`
-    const messageInput = page.getByPlaceholder('Message #general')
+    const messageInput = page.getByPlaceholder('Message', { exact: true })
     await messageInput.fill(content)
     await messageInput.press('Enter')
     await expect(page.getByText(content)).toBeVisible()

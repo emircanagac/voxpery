@@ -126,6 +126,7 @@ Room.localParticipant.publishTrack
   - Clean speech bypasses post-RNNoise floor and spectral attenuation in both presets. Quiet speech remains fully open in `Balanced`; `Noisy room` may apply bounded cleanup but must not mute or hard-gate it.
 - **Microphone publish quality**
   - The processed microphone track is published with LiveKit's high-quality mono Opus preset.
+  - Mobile web/PWA clients use the resilient 48 kbps mono Opus preset. Desktop clients keep the 96 kbps preset; both retain RED and DTX so unstable mobile uplinks do not have to carry the desktop bitrate.
   - DTX remains enabled to avoid sending unnecessary silence, and RED remains enabled for packet-loss resilience.
   - Stereo is forced off for microphone audio so bitrate stays focused on voice clarity rather than duplicate channels.
   - If the raw capture track ends or the operating-system default input changes during a call, Voxpery re-captures the preferred/default device and atomically replaces the existing LiveKit sender track. The working publication remains in place until the replacement is ready.
@@ -187,6 +188,7 @@ Speaker
 - **Output volume**: Global 1-100%, per-peer microphone 0-100%, and per-screen-share audio 0-100%.
 - **Distortion-safe playback**: Remote media stays on the native media-element path. Legacy values above 100% are migrated to 100% so playback is not clipped or stranded on a closed Web Audio graph.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
+- **Immediate deafen**: The playback ref and every active remote microphone element are muted synchronously with the control click, closing the render/effect window where a new track could remain audible briefly.
 - **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
@@ -198,6 +200,7 @@ Speaker
 - Device changes are reconciled during an active call. Existing custom inputs remain selected while available; a removed custom input or changed system default triggers a debounced capture rebuild.
 - Permission failures, devices that are temporarily busy, and output-selection policy failures do not overwrite a valid custom preference.
 - The same microphone fallback is used by call preflight, LiveKit capture, the microphone test, and the legacy WebRTC path.
+- Mobile browsers use their hardware/browser AEC and noise suppression with a lightweight Web Audio gain path. They skip the desktop RNNoise analyser/refinement loop and play remote microphone tracks through the browser's direct media path, so capture and multiple remote playbacks do not compete for the mobile main thread.
 
 ## Screen Sharing
 
@@ -247,8 +250,8 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
 - **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
 - **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, continuous transmission (`dtx = false`), and RED packet-loss resilience preserve system, game, and music audio independently from the mono speech microphone profile.
-- **Camera video**: `contentHint = 'motion'` (optimizes for movement)
-- A share is not published without a live video track. If the selected platform/source does not provide a system or tab audio track, video sharing continues and the sender receives a non-fatal `Sharing without audio` notice with source-picker guidance.
+- **Camera video**: `contentHint = 'motion'` (optimizes for movement). On mobile devices with more than one camera, the local preview exposes a front/rear switch that restarts the existing published LiveKit video track in place. Devices with only one available camera do not show the control.
+- A share is not published without a live video track. A missing system/tab audio track is treated as an intentional silent share; capture or publication failures still surface as errors. System-audio availability is determined by the operating system, browser/runtime, selected share surface, and the picker audio option rather than the GPU vendor.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
 - Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio sample rate/channel count/content hint/publish profile, codec/scalability mode, simulcast state, outbound video resolution/FPS/bitrate/packet/quality-limitation samples, and actual screen-audio Opus bitrate/channel/packet samples without device identifiers.
 
@@ -263,6 +266,8 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Global output volume remains a top-level playback control for both sources without rewriting either per-source preference. Deafen suppresses remote microphone playback only; watched screen-share audio remains controlled by its independent stream volume and mute state.
 - When the Voxpery window is hidden or minimized, camera and watched screen video subscriptions pause while microphone and explicitly watched screen-share audio continue. Video resumes when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
+- Remote microphone publications remain subscribed in foreground and background. Failed subscriptions are retried, missing subscribed tracks are reconciled after LiveKit reconnect, ended tracks are removed immediately, and replacement tracks supersede stale tracks from the same logical source.
+- Speaking indicators monitor microphone tracks only; screen-share audio cannot incorrectly keep a participant marked as speaking.
 
 ### Voice Event Cues
 

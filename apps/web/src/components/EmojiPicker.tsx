@@ -1,4 +1,4 @@
-import { Clock3, LoaderCircle, Search, Star } from 'lucide-react'
+import { Clock3, LoaderCircle, Search, Smile, Star, Sticker } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   EMOJI_CATEGORIES,
@@ -13,6 +13,7 @@ import {
 } from '../emoji'
 import {
   getFavoriteGifs,
+  getFavoriteStickers,
   getRecentEmojis,
   getRecentGifs,
   getRecentStickers,
@@ -20,13 +21,14 @@ import {
   recordRecentGif,
   recordRecentSticker,
   toggleFavoriteGif,
+  toggleFavoriteSticker,
 } from '../expressionPreferences'
 import { fetchGiphyGifs, isGiphyConfigured } from '../giphy'
 import InlineMediaImage from './InlineMediaImage'
 
 type PickerMode = 'emoji' | 'gif' | 'sticker'
 type GifView = 'browse' | 'recent' | 'favorites'
-type StickerView = 'browse' | 'recent'
+type StickerView = 'browse' | 'recent' | 'favorites'
 
 type EmojiPickerProps = {
   onSelect: (emoji: string) => void
@@ -57,6 +59,7 @@ export default function EmojiPicker({
   const [recentGifs, setRecentGifs] = useState(() => getRecentGifs())
   const [recentStickers, setRecentStickers] = useState(() => getRecentStickers())
   const [favoriteGifs, setFavoriteGifs] = useState(() => getFavoriteGifs())
+  const [favoriteStickers, setFavoriteStickers] = useState(() => getFavoriteStickers())
   const [remoteGifs, setRemoteGifs] = useState<GifOption[]>([])
   const [remoteOffset, setRemoteOffset] = useState(0)
   const [remoteHasMore, setRemoteHasMore] = useState(false)
@@ -123,11 +126,31 @@ export default function EmojiPicker({
 
   const visibleStickers = useMemo(() => {
     if (reactionMode || mode !== 'sticker') return []
-    const source = stickerView === 'recent' && !query.trim() ? recentStickers : filterStickerOptions(query)
+    const source = !query.trim() && stickerView === 'favorites'
+      ? favoriteStickers
+      : stickerView === 'recent' && !query.trim()
+        ? recentStickers
+        : filterStickerOptions(query)
     return query.trim() ? source.filter((entry) => mediaMatchesQuery(entry, query)) : source
-  }, [mode, query, reactionMode, recentStickers, stickerView])
+  }, [favoriteStickers, mode, query, reactionMode, recentStickers, stickerView])
 
   const favoriteUrls = useMemo(() => new Set(favoriteGifs.map((entry) => entry.url)), [favoriteGifs])
+  const favoriteStickerUrls = useMemo(
+    () => new Set(favoriteStickers.map((entry) => entry.imageUrl)),
+    [favoriteStickers],
+  )
+  const gifColumns = useMemo(() => {
+    const columns: GifOption[][] = [[], []]
+    const columnWeights = [0, 0]
+    visibleGifs.forEach((entry) => {
+      const columnIndex = columnWeights[0] <= columnWeights[1] ? 0 : 1
+      const width = entry.width && entry.width > 0 ? entry.width : 1
+      const height = entry.height && entry.height > 0 ? entry.height : width
+      columns[columnIndex].push(entry)
+      columnWeights[columnIndex] += Math.min(2.4, Math.max(0.55, height / width)) + 0.05
+    })
+    return columns
+  }, [visibleGifs])
 
   const selectEmoji = (entry: EmojiOption) => {
     setRecentEmojis(recordRecentEmoji(entry.emoji))
@@ -195,7 +218,9 @@ export default function EmojiPicker({
                 setQuery('')
               }}
             >
-              {entryMode === 'gif' ? 'GIF' : `${entryMode[0].toUpperCase()}${entryMode.slice(1)}`}
+              {entryMode === 'emoji' && <Smile size={13} aria-hidden="true" />}
+              {entryMode === 'sticker' && <Sticker size={13} aria-hidden="true" />}
+              <span>{entryMode === 'gif' ? 'GIF' : `${entryMode[0].toUpperCase()}${entryMode.slice(1)}`}</span>
             </button>
           ))}
         </div>
@@ -204,17 +229,16 @@ export default function EmojiPicker({
         {(reactionMode || mode === 'emoji') && (
           <>
             <div className="chat-emoji-tabs" role="tablist" aria-label="Emoji categories">
-              {recentEmojiOptions.length > 0 && (
-                <button
-                  type="button"
-                  className={`chat-emoji-tab${activeCategory === 'recent' ? ' active' : ''}`}
-                  onClick={() => setActiveCategory('recent')}
-                  title="Recently used"
-                  aria-label="Recently used"
-                >
-                  <Clock3 size={12} aria-hidden="true" />
-                </button>
-              )}
+              <button
+                type="button"
+                className={`chat-emoji-tab${activeCategory === 'recent' ? ' active' : ''}`}
+                onClick={() => setActiveCategory('recent')}
+                title={recentEmojiOptions.length > 0 ? 'Recently used' : 'No recently used emoji'}
+                aria-label="Recently used"
+                disabled={recentEmojiOptions.length === 0}
+              >
+                <Clock3 size={13} aria-hidden="true" />
+              </button>
               <button
                 type="button"
                 className={`chat-emoji-tab${activeCategory === 'all' ? ' active' : ''}`}
@@ -264,31 +288,35 @@ export default function EmojiPicker({
               </div>
             )}
             <div className="chat-gif-grid">
-              {visibleGifs.map((entry) => {
-                const favorite = favoriteUrls.has(entry.url)
-                return (
-                  <div key={`${entry.id}-${entry.url}`} className="chat-gif-card">
-                    <button
-                      type="button"
-                      className="chat-gif-item"
-                      onClick={() => selectGif(entry)}
-                      title={entry.label}
-                      aria-label={`Send ${entry.label}`}
-                    >
-                      <InlineMediaImage src={entry.previewUrl ?? entry.url} alt={entry.label} />
-                    </button>
-                    <button
-                      type="button"
-                      className={`chat-gif-favorite${favorite ? ' active' : ''}`}
-                      onClick={() => setFavoriteGifs(toggleFavoriteGif(entry))}
-                      title={favorite ? 'Remove from favorites' : 'Add to favorites'}
-                      aria-label={favorite ? `Remove ${entry.label} from favorites` : `Add ${entry.label} to favorites`}
-                    >
-                      <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
-                    </button>
-                  </div>
-                )
-              })}
+              {gifColumns.map((column, columnIndex) => (
+                <div key={columnIndex} className="chat-gif-column">
+                  {column.map((entry) => {
+                    const favorite = favoriteUrls.has(entry.url)
+                    return (
+                      <div key={`${entry.id}-${entry.url}`} className="chat-gif-card">
+                        <button
+                          type="button"
+                          className="chat-gif-item"
+                          onClick={() => selectGif(entry)}
+                          title={entry.label}
+                          aria-label={`Send ${entry.label}`}
+                        >
+                          <InlineMediaImage src={entry.previewUrl ?? entry.url} alt={entry.label} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`chat-media-favorite${favorite ? ' active' : ''}`}
+                          onClick={() => setFavoriteGifs(toggleFavoriteGif(entry))}
+                          title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+                          aria-label={favorite ? `Remove ${entry.label} from favorites` : `Add ${entry.label} to favorites`}
+                        >
+                          <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
             </div>
             {remoteLoading && visibleGifs.length === 0 && (
               <div className="chat-expression-loading"><LoaderCircle size={16} className="spin" /> Loading GIFs...</div>
@@ -316,24 +344,40 @@ export default function EmojiPicker({
               <div className="chat-expression-filter-tabs" role="tablist" aria-label="Sticker collections">
                 <button type="button" className={stickerView === 'browse' ? 'active' : ''} onClick={() => setStickerView('browse')}>Browse</button>
                 <button type="button" className={stickerView === 'recent' ? 'active' : ''} onClick={() => setStickerView('recent')} disabled={recentStickers.length === 0}>Recent</button>
+                <button type="button" className={stickerView === 'favorites' ? 'active' : ''} onClick={() => setStickerView('favorites')}>Favorites</button>
               </div>
             )}
             <div className="chat-sticker-grid">
-              {visibleStickers.map((entry) => (
-                <button
-                  key={`${entry.id}-${entry.imageUrl}`}
-                  type="button"
-                  className="chat-sticker-item"
-                  onClick={() => selectSticker(entry)}
-                  title={entry.label}
-                  aria-label={`Send ${entry.label}`}
-                >
-                  <InlineMediaImage src={entry.previewUrl ?? entry.imageUrl} alt={entry.label} className="chat-sticker-image" />
-                </button>
-              ))}
+              {visibleStickers.map((entry) => {
+                const favorite = favoriteStickerUrls.has(entry.imageUrl)
+                return (
+                  <div key={`${entry.id}-${entry.imageUrl}`} className="chat-sticker-card">
+                    <button
+                      type="button"
+                      className="chat-sticker-item"
+                      onClick={() => selectSticker(entry)}
+                      title={entry.label}
+                      aria-label={`Send ${entry.label}`}
+                    >
+                      <InlineMediaImage src={entry.previewUrl ?? entry.imageUrl} alt={entry.label} className="chat-sticker-image" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`chat-media-favorite${favorite ? ' active' : ''}`}
+                      onClick={() => setFavoriteStickers(toggleFavoriteSticker(entry))}
+                      title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+                      aria-label={favorite ? `Remove ${entry.label} from favorites` : `Add ${entry.label} to favorites`}
+                    >
+                      <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
             {visibleStickers.length === 0 && (
-              <div className="chat-emoji-empty">{stickerView === 'recent' ? 'Recently used stickers appear here.' : 'No sticker found.'}</div>
+              <div className="chat-emoji-empty">
+                {stickerView === 'favorites' ? 'Favorite stickers appear here.' : stickerView === 'recent' ? 'Recently used stickers appear here.' : 'No sticker found.'}
+              </div>
             )}
           </>
         )}

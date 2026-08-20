@@ -62,7 +62,7 @@ pub struct UserPublic {
     pub google_connected: bool,
     /// True when this account has a local password hash (can login with email/password).
     pub has_password: bool,
-    /// When the user last changed their username (for 30-day change limit). Frontend uses this to show "next change allowed" before save.
+    /// When the user last changed their username (for the seven-day change limit).
     pub username_changed_at: Option<DateTime<Utc>>,
 }
 

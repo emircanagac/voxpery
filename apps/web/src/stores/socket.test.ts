@@ -210,7 +210,6 @@ describe('WebSocket Store', () => {
   it('should handle reconnection', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()
-    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect('test-token')
@@ -227,7 +226,7 @@ describe('WebSocket Store', () => {
     })
 
     // Wait for auto-reconnect (1s base delay)
-    await vi.advanceTimersByTimeAsync(1100)
+    await vi.advanceTimersByTimeAsync(1300)
 
     expect(reconnectListener).toHaveBeenCalled()
     expect(reportObservabilityEvent.mock.calls).toEqual([
@@ -240,7 +239,6 @@ describe('WebSocket Store', () => {
   it('should reconnect web cookie-auth sessions even when token is null', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()
-    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect(null)
@@ -254,7 +252,7 @@ describe('WebSocket Store', () => {
       state.socket?.close()
     })
 
-    await vi.advanceTimersByTimeAsync(1100)
+    await vi.advanceTimersByTimeAsync(1300)
 
     const next = useSocketStore.getState()
     expect(next.socket).toBeTruthy()
@@ -266,7 +264,6 @@ describe('WebSocket Store', () => {
   it('should not call removed reconnect listeners', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()
-    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect('test-token')
@@ -280,7 +277,7 @@ describe('WebSocket Store', () => {
       useSocketStore.getState().socket?.close()
     })
 
-    await vi.advanceTimersByTimeAsync(1100)
+    await vi.advanceTimersByTimeAsync(1300)
 
     expect(reconnectListener).not.toHaveBeenCalled()
   })
@@ -344,7 +341,6 @@ describe('WebSocket Store', () => {
 
   it('should clear pending reconnect timers on disconnect', async () => {
     const { connect, disconnect } = useSocketStore.getState()
-    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     act(() => {
       connect('test-token')

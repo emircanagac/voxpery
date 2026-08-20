@@ -297,6 +297,8 @@ The API applies a restrictive response policy at the Axum router boundary, inclu
 - `Referrer-Policy: no-referrer`
 - `Permissions-Policy` with camera, microphone, display capture, geolocation, and payment disabled
 
+The desktop Google OAuth handoff is the only API HTML response that needs executable browser code. It supplies a per-response CSP nonce for its fixed inline style and handoff script, retains the restrictive API directives, and uses `Cache-Control: no-store`. The global middleware preserves this stricter route-specific policy instead of replacing it.
+
 The production web container applies the browser-facing policy:
 
 ```nginx

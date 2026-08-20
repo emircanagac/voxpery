@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Updated `h2` to `0.4.16` to address `RUSTSEC-2026-0258`, preventing unbounded empty DATA frames from exhausting server resources.
+- Restored the CSP-safe automatic desktop Google OAuth handoff and branded fallback page, preserved local passwords when connecting Google, and enabled email recovery for Google-connected accounts.
+- Added bounded integration-feature retries and an explicit retry state so transient feature discovery failures no longer silently hide Google Sign-In and password recovery.
 - Made automatic production smoke checks tolerate Cloudflare blocks against CI and production-host datacenter IPs by using origin-local API health while retaining independent public web, version, security-header, and cache validation.
 - Fixed production deploy smoke checks to require long-lived caching only for fingerprinted Vite assets while allowing stable bootstrap scripts to revalidate.
 

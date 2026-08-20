@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { GifOption, StickerOption } from './emoji'
 import {
   getFavoriteGifs,
+  getFavoriteStickers,
   getRecentEmojis,
   getRecentGifs,
   getRecentStickers,
@@ -9,6 +10,7 @@ import {
   recordRecentGif,
   recordRecentSticker,
   toggleFavoriteGif,
+  toggleFavoriteSticker,
 } from './expressionPreferences'
 
 const gif = (id: string): GifOption => ({
@@ -49,6 +51,14 @@ describe('expression preferences', () => {
     toggleFavoriteGif(gif('one'))
 
     expect(getFavoriteGifs().map((entry) => entry.id)).toEqual(['two'])
+  })
+
+  it('toggles sticker favorites without duplicates', () => {
+    toggleFavoriteSticker(sticker('1f389'))
+    toggleFavoriteSticker(sticker('1f525'))
+    toggleFavoriteSticker(sticker('1f389'))
+
+    expect(getFavoriteStickers().map((entry) => entry.id)).toEqual(['1f525'])
   })
 
   it('drops malformed or non-https media loaded from storage', () => {

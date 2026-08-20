@@ -11,6 +11,26 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('keeps configured Google sign-in visible and preserves the post-auth route', async ({ page }) => {
+    const state = createMockCoreState({
+      authenticated: false,
+      features: { ...AUTH_FEATURES, google_oauth_enabled: true },
+    })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/login?redirect=%2Fsocial%2Fdm')
+
+    const googleLink = page.getByRole('link', { name: 'Continue with Google' })
+    await expect(googleLink).toBeVisible()
+    const href = await googleLink.getAttribute('href')
+    expect(href).toBeTruthy()
+
+    const oauthUrl = new URL(href!)
+    expect(oauthUrl.pathname).toBe('/api/auth/google')
+    expect(oauthUrl.searchParams.get('origin')).toBe(page.url().split('/login')[0])
+    expect(oauthUrl.searchParams.get('redirect')).toBe('/social/dm')
+  })
+
   test('disables email verification resend while the request is in flight', async ({ page }) => {
     const state = createMockCoreState({
       features: AUTH_FEATURES,

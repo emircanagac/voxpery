@@ -8,7 +8,7 @@ export interface User {
     dm_privacy?: 'everyone' | 'friends';
     google_connected?: boolean;
     has_password?: boolean;
-    /** ISO date when user last changed username; used for 30-day change limit. */
+    /** ISO date when user last changed username; used for the seven-day change limit. */
     username_changed_at?: string | null;
 }
 

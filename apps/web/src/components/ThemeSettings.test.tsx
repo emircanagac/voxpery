@@ -26,7 +26,7 @@ describe('ThemeSettings', () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(screen.getByRole('button', { name: /Dark/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: /Default/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /^DefaultThe original/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /Custom/ })).toBeVisible()
   })
 
@@ -64,6 +64,22 @@ describe('ThemeSettings', () => {
     expect(document.documentElement.dataset.customTheme).toBe('true')
     expect(document.documentElement.dataset.customThemeMode).toBe('dark')
     expect(screen.queryByText('Background style')).not.toBeInTheDocument()
-    expect(screen.queryByRole('textbox', { name: 'Custom accent hex color' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Custom accent hex color' })).toBeVisible()
+  })
+
+  it('changes and resets the accent without replacing the selected theme', () => {
+    render(<ThemeSettings />)
+    fireEvent.click(screen.getByRole('button', { name: /Dark/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use Emerald accent' }))
+
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBe('#2f9b78')
+    expect(document.documentElement.dataset.customAccent).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset accent color' }))
+
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBeNull()
+    expect(document.documentElement.dataset.customAccent).toBeUndefined()
   })
 })

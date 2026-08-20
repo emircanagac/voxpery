@@ -7,7 +7,7 @@ import {
   snoozePushNotificationPrompt,
 } from '../pushNotifications'
 
-const DEFAULT_PROMPT_DELAY_MS = 30_000
+const DEFAULT_PROMPT_DELAY_MS = 120_000
 
 interface NotificationPermissionPromptProps {
   ready: boolean
@@ -25,17 +25,28 @@ export default function NotificationPermissionPrompt({
     setVisible(false)
     if (!ready) return
 
+    let delayElapsed = false
     const syncVisibility = () => {
-      if (!shouldOfferPushNotificationPrompt()) setVisible(false)
+      if (!delayElapsed) return
+      setVisible(document.visibilityState === 'visible'
+        && document.hasFocus()
+        && shouldOfferPushNotificationPrompt())
     }
     const timeoutId = window.setTimeout(() => {
-      setVisible(shouldOfferPushNotificationPrompt())
+      delayElapsed = true
+      syncVisibility()
     }, delayMs)
 
     window.addEventListener(PUSH_NOTIFICATION_STATE_CHANGED_EVENT, syncVisibility)
+    window.addEventListener('focus', syncVisibility)
+    window.addEventListener('blur', syncVisibility)
+    document.addEventListener('visibilitychange', syncVisibility)
     return () => {
       window.clearTimeout(timeoutId)
       window.removeEventListener(PUSH_NOTIFICATION_STATE_CHANGED_EVENT, syncVisibility)
+      window.removeEventListener('focus', syncVisibility)
+      window.removeEventListener('blur', syncVisibility)
+      document.removeEventListener('visibilitychange', syncVisibility)
     }
   }, [delayMs, ready])
 
@@ -68,7 +79,7 @@ export default function NotificationPermissionPrompt({
   }
 
   return (
-    <section className="shell-notification-cta" aria-label="Enable notifications">
+    <section className="shell-notification-cta" aria-label="Enable notifications" aria-live="polite">
       <div className="shell-notification-cta-copy">
         <strong>Stay in the loop</strong>
         <span>Get alerts for direct messages and friend requests when Voxpery is in the background.</span>

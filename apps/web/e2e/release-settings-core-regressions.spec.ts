@@ -116,7 +116,12 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
     await expect(modal.getByText('Choose your color', { exact: true })).toBeVisible()
     await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
-    await expect(modal.getByRole('textbox', { name: 'Custom accent hex color' })).toHaveCount(0)
+    const customAccentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
+    await expect(customAccentInput).toBeVisible()
+    await customAccentInput.fill('#2f9b78')
+    await customAccentInput.press('Enter')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
+    await expect(page.locator('html')).toHaveCSS('--user-accent', '#2f9b78')
     await expectNoHorizontalOverflow(modal)
 
     const generatedBackground = await page.locator('html').evaluate((element) => (
@@ -127,6 +132,8 @@ test.describe('mocked release and settings regressions', () => {
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
+    await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
+    await expect(page.locator('html')).toHaveCSS('--user-accent', '#2f9b78')
     await expect(page.locator('html')).toHaveCSS('--user-theme-bg-primary', generatedBackground)
   })
 
@@ -206,7 +213,7 @@ test.describe('mocked release and settings regressions', () => {
     await page.goto('/social')
 
     const feedbackCard = page.locator('.feedback-dock .feedback-card')
-    await expect(feedbackCard.getByRole('heading', { name: 'Share feedback' })).toBeVisible()
+    await expect(feedbackCard.getByRole('heading', { name: 'Share feedback on GitHub' })).toBeVisible()
     await expect(feedbackCard.getByRole('button', { name: 'Report a bug' })).toBeVisible()
     await expect(feedbackCard.getByRole('button', { name: 'Request a feature' })).toBeVisible()
     await expect(page.locator('.home-side .feedback-card')).toHaveCount(0)

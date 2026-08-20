@@ -6,6 +6,7 @@ import {
   markRemoteAudioTrackSource,
   remoteMediaVisibilityKey,
   shouldMuteRemoteAudioPlayback,
+  shouldUseDirectRemoteAudioPlayback,
 } from './remoteMediaControls'
 
 function audioTrack(screenShareAudio = false) {
@@ -57,5 +58,11 @@ describe('remote media controls', () => {
     expect(shouldMuteRemoteAudioPlayback('screen', true)).toBe(false)
     expect(shouldMuteRemoteAudioPlayback('mic', false)).toBe(false)
     expect(shouldMuteRemoteAudioPlayback('screen', false)).toBe(false)
+  })
+
+  it('keeps mobile microphone playback on the direct low-overhead media path', () => {
+    expect(shouldUseDirectRemoteAudioPlayback('mic', true, 1)).toBe(true)
+    expect(shouldUseDirectRemoteAudioPlayback('mic', false, 1)).toBe(false)
+    expect(shouldUseDirectRemoteAudioPlayback('screen', false, 1)).toBe(true)
   })
 })

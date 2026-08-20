@@ -250,6 +250,11 @@ Release and calls the production deploy workflow. The deploy verifies that both
 the backend and frontend image tags exist before changing the server, then runs
 health, deployed-version, and cache-policy smoke checks.
 
+Docker Hub can briefly report a newly pushed tag as unavailable after the build
+job succeeds. The deploy gate retries both backend and frontend immutable image
+lookups before touching production and fails closed if either tag never becomes
+visible. Manual and automatic deploys use this same registry guard.
+
 The deploy host performs authoritative origin-local API and web health checks.
 The runner then checks out the current `main` deployment tooling before it
 validates the public web health endpoint, security headers, release version,

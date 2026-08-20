@@ -355,7 +355,13 @@ async fn is_ws_session_still_valid(state: &AppState, token: &str, claims: &Claim
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, token: String) {
     let user_id = claims.sub;
-    let username = claims.username.clone();
+    let username = sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| claims.username.clone());
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
@@ -746,14 +752,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         // 1. Update voice session
                                         let previous_channel_id =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
-                                        if let Some(participant_sid) = participant_sid.filter(|sid| {
-                                            !sid.is_empty()
-                                                && sid.len() <= 128
-                                                && sid.bytes().all(|byte| {
-                                                    byte.is_ascii_alphanumeric()
-                                                        || matches!(byte, b'_' | b'-')
-                                                })
-                                        }) {
+                                        if let Some(participant_sid) =
+                                            participant_sid.filter(|sid| {
+                                                !sid.is_empty()
+                                                    && sid.len() <= 128
+                                                    && sid.bytes().all(|byte| {
+                                                        byte.is_ascii_alphanumeric()
+                                                            || matches!(byte, b'_' | b'-')
+                                                    })
+                                            })
+                                        {
                                             recv_state
                                                 .voice_participant_sids
                                                 .insert(user_id, participant_sid);

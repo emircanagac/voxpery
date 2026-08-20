@@ -20,10 +20,12 @@ describe('NotificationPermissionPrompt', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     localStorage.clear()
     if (originalNotificationDescriptor) {
       Object.defineProperty(window, 'Notification', originalNotificationDescriptor)
@@ -81,5 +83,18 @@ describe('NotificationPermissionPrompt', () => {
     act(() => vi.runOnlyPendingTimers())
 
     expect(screen.queryByRole('region', { name: 'Enable notifications' })).not.toBeInTheDocument()
+  })
+
+  it('waits for focus when the delay elapses in the background', () => {
+    installNotification('default')
+    vi.mocked(document.hasFocus).mockReturnValue(false)
+    render(<NotificationPermissionPrompt ready delayMs={1_000} />)
+
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(screen.queryByRole('region', { name: 'Enable notifications' })).not.toBeInTheDocument()
+
+    vi.mocked(document.hasFocus).mockReturnValue(true)
+    act(() => window.dispatchEvent(new Event('focus')))
+    expect(screen.getByRole('region', { name: 'Enable notifications' })).toBeInTheDocument()
   })
 })

@@ -1,6 +1,6 @@
 use axum::{
     extract::{ConnectInfo, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{delete, get, patch, post},
@@ -54,10 +54,14 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
 const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
+const LINK_GOOGLE_IDENTITY_SQL: &str = "UPDATE users
+     SET google_id = $1,
+         email_verified = TRUE,
+         token_version = token_version + 1
+     WHERE id = $2";
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let dummy_password = Uuid::new_v4().to_string();
-    hash_password(&dummy_password)
-        .expect("dummy Argon2 hash should be generated successfully")
+    hash_password(&dummy_password).expect("dummy Argon2 hash should be generated successfully")
 });
 
 /// Build Set-Cookie value to clear auth cookie.
@@ -157,7 +161,7 @@ fn javascript_string_literal(value: &str) -> String {
         .replace('>', "\\u003e")
 }
 
-fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
+fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool, csp_nonce: &str) -> String {
     let href = escape_html_attribute(redirect_url);
     let app_url = javascript_string_literal(redirect_url);
     let (eyebrow, title, message, action) = if succeeded {
@@ -183,7 +187,7 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>{title} - Voxpery</title>
-<style>
+<style nonce="{csp_nonce}">
     :root {{ font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f4f7ff; background: #11182d; }}
     * {{ box-sizing: border-box; }}
     body {{ min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #11182d; }}
@@ -209,7 +213,7 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
     <p id="handoff-status" class="status" role="status" aria-live="polite">Opening the desktop app...</p>
     <a id="open-voxpery" href="{href}" class="btn">{action}</a>
 </main>
-<script>
+<script nonce="{csp_nonce}">
     const appUrl = {app_url};
     const status = document.getElementById("handoff-status");
     const openButton = document.getElementById("open-voxpery");
@@ -219,7 +223,7 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
     openButton.addEventListener("click", () => {{
         status.textContent = "Opening Voxpery...";
     }});
-    openDesktop();
+    window.setTimeout(openDesktop, 50);
     window.setTimeout(() => {{
         if (document.visibilityState === "visible") {{
             status.textContent = "If Voxpery did not open, use the button below.";
@@ -231,13 +235,38 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool) -> String {
     )
 }
 
+fn desktop_oauth_handoff_response(redirect_url: &str, succeeded: bool) -> Response {
+    let csp_nonce = Uuid::new_v4().as_simple().to_string();
+    let csp = format!(
+        "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; style-src 'nonce-{csp_nonce}'; script-src 'nonce-{csp_nonce}'"
+    );
+    let mut response = Html(desktop_oauth_handoff_html(
+        redirect_url,
+        succeeded,
+        &csp_nonce,
+    ))
+    .into_response();
+    if let Ok(value) = HeaderValue::from_str(&csp) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("content-security-policy"), value);
+    }
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    response
+}
+
 fn oauth_callback_response(origin: &str, redirect_path: &str, error: Option<&str>) -> Response {
     let path = error
         .map(|code| append_query_param(redirect_path, "error", code))
         .unwrap_or_else(|| redirect_path.to_string());
     let redirect_url = format!("{}{}", origin, path);
     if is_desktop_oauth_origin(origin) {
-        Html(desktop_oauth_handoff_html(&redirect_url, error.is_none())).into_response()
+        desktop_oauth_handoff_response(&redirect_url, error.is_none())
     } else {
         Redirect::temporary(&redirect_url).into_response()
     }
@@ -393,10 +422,13 @@ mod oauth_pkce_tests {
         let html = desktop_oauth_handoff_html(
             "voxpery://auth/servers?next=\"</script><script>alert(1)</script>&code=abc",
             true,
+            "test-nonce",
         );
 
         assert!(html.contains("id=\"open-voxpery\""));
         assert!(html.contains("window.location.assign(appUrl)"));
+        assert!(html.contains("<style nonce=\"test-nonce\">"));
+        assert!(html.contains("<script nonce=\"test-nonce\">"));
         assert!(html.contains("You are signed in"));
         assert!(html.contains("&quot;&lt;/script&gt;"));
         assert!(html.contains("\\u003c/script\\u003e"));
@@ -405,11 +437,7 @@ mod oauth_pkce_tests {
 
     #[test]
     fn desktop_oauth_failure_uses_the_branded_handoff_page() {
-        let response = oauth_callback_response(
-            "voxpery://auth",
-            "/servers",
-            Some("oauth_failed"),
-        );
+        let response = oauth_callback_response("voxpery://auth", "/servers", Some("oauth_failed"));
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         assert_eq!(
@@ -419,6 +447,21 @@ mod oauth_pkce_tests {
                 .and_then(|value| value.to_str().ok()),
             Some("text/html; charset=utf-8")
         );
+        let csp = response
+            .headers()
+            .get("content-security-policy")
+            .and_then(|value| value.to_str().ok())
+            .expect("desktop handoff CSP");
+        assert!(csp.contains("default-src 'none'"));
+        assert!(csp.contains("style-src 'nonce-"));
+        assert!(csp.contains("script-src 'nonce-"));
+        assert!(!csp.contains("'unsafe-inline'"));
+        assert_eq!(response.headers()["cache-control"], "no-store");
+    }
+
+    #[test]
+    fn linking_google_identity_never_replaces_an_existing_local_password() {
+        assert!(!super::LINK_GOOGLE_IDENTITY_SQL.contains("password_hash"));
     }
 }
 
@@ -465,6 +508,33 @@ fn frontend_base_url(state: &AppState) -> String {
         .cloned()
         .map(|origin| origin.trim_end_matches('/').to_string())
         .unwrap_or_else(|| "http://localhost:5173".to_string())
+}
+
+fn validate_username(username: &str) -> Result<(), &'static str> {
+    if username.len() < 3 || username.len() > 32 {
+        return Err("Username must be 3-32 characters");
+    }
+    if username.starts_with('_')
+        || username.starts_with('.')
+        || username.ends_with('_')
+        || username.ends_with('.')
+    {
+        return Err("Username cannot start or end with an underscore or period");
+    }
+    if username.contains("__")
+        || username.contains("..")
+        || username.contains("_.")
+        || username.contains("._")
+    {
+        return Err("Username cannot contain consecutive underscores or periods");
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_' || c == '.')
+    {
+        return Err("Username may only contain letters, numbers, underscores, and periods");
+    }
+    Ok(())
 }
 
 fn token_hash_base64(token: &str) -> String {
@@ -918,37 +988,7 @@ async fn register(
 
     // Validate input
     let username = body.username.trim();
-    if username.len() < 3 || username.len() > 32 {
-        return Err(AppError::Validation(
-            "Username must be 3-32 characters".into(),
-        ));
-    }
-    if username.starts_with('_')
-        || username.starts_with('.')
-        || username.ends_with('_')
-        || username.ends_with('.')
-    {
-        return Err(AppError::Validation(
-            "Username cannot start or end with an underscore or period".into(),
-        ));
-    }
-    if username.contains("__")
-        || username.contains("..")
-        || username.contains("_.")
-        || username.contains("._")
-    {
-        return Err(AppError::Validation(
-            "Username cannot contain consecutive underscores or periods".into(),
-        ));
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
-    {
-        return Err(AppError::Validation(
-            "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
-        ));
-    }
+    validate_username(username).map_err(|message| AppError::Validation(message.into()))?;
     if email.len() > 255 {
         return Err(AppError::Validation(
             "Email must be at most 255 characters".into(),
@@ -967,7 +1007,7 @@ async fn register(
 
     // Check if user already exists
     let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM users WHERE email = $1 OR username = $2",
+        "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($2)",
     )
     .bind(&email)
     .bind(&username)
@@ -1060,10 +1100,11 @@ async fn resolve_official_owner_id(db: &sqlx::PgPool) -> Result<Option<Uuid>, Ap
         }
     }
     if let Some(owner_username) = username {
-        let id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = $1")
-            .bind(owner_username)
-            .fetch_optional(db)
-            .await?;
+        let id =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE lower(username) = lower($1)")
+                .bind(owner_username)
+                .fetch_optional(db)
+                .await?;
         if id.is_some() {
             return Ok(id);
         }
@@ -1081,33 +1122,11 @@ pub async fn ensure_seed_admin(
     password: &str,
 ) -> Result<Option<Uuid>, AppError> {
     let username = username.trim();
-    if username.len() < 3 || username.len() > 32 {
+    if let Err(message) = validate_username(username) {
         tracing::error!(
-            "Seed admin username must be 3-32 characters. Check your ADMIN_USERNAME env var."
+            "Invalid seed admin username: {}. Check your ADMIN_USERNAME env var.",
+            message
         );
-        return Err(AppError::Validation("Invalid seed admin username".into()));
-    }
-    if username.starts_with('_')
-        || username.starts_with('.')
-        || username.ends_with('_')
-        || username.ends_with('.')
-    {
-        tracing::error!("Seed admin username cannot start or end with an underscore or period. Check your ADMIN_USERNAME env var.");
-        return Err(AppError::Validation("Invalid seed admin username".into()));
-    }
-    if username.contains("__")
-        || username.contains("..")
-        || username.contains("_.")
-        || username.contains("._")
-    {
-        tracing::error!("Seed admin username cannot contain consecutive underscores or periods. Check your ADMIN_USERNAME env var.");
-        return Err(AppError::Validation("Invalid seed admin username".into()));
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
-    {
-        tracing::error!("Seed admin username may only contain lowercase letters, numbers, underscores, and periods. Check your ADMIN_USERNAME env var.");
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
     if password.len() < 8 {
@@ -1778,11 +1797,8 @@ async fn google_oauth_callback(
             found_oauth_state.is_some()
         );
         let clear_cookie = clear_oauth_state_cookie_header(&state);
-        let mut response = oauth_callback_response(
-            &origin,
-            &redirect_path,
-            Some("oauth_failed_csrf"),
-        );
+        let mut response =
+            oauth_callback_response(&origin, &redirect_path, Some("oauth_failed_csrf"));
         if let Ok(v) = HeaderValue::from_str(&clear_cookie) {
             response.headers_mut().insert(header::SET_COOKIE, v);
         }
@@ -1854,11 +1870,7 @@ async fn google_oauth_callback(
             "Google OAuth login rejected: unverified email ({})",
             redact_email_for_log(&email)
         );
-        return oauth_callback_response(
-            &origin,
-            &redirect_path,
-            Some("oauth_unverified_email"),
-        );
+        return oauth_callback_response(&origin, &redirect_path, Some("oauth_unverified_email"));
     }
 
     let user = sqlx::query_as::<_, User>(
@@ -1872,20 +1884,16 @@ async fn google_oauth_callback(
     let user = match user {
         Ok(Some(mut u)) => {
             if u.google_id.is_none() {
-                let _ = sqlx::query(
-                    "UPDATE users
-                     SET google_id = $1,
-                          password_hash = 'oauth',
-                          email_verified = TRUE,
-                          token_version = token_version + 1
-                     WHERE id = $2",
-                )
-                .bind(&google_id)
-                .bind(u.id)
-                .execute(&state.db)
-                .await;
+                if let Err(error) = sqlx::query(LINK_GOOGLE_IDENTITY_SQL)
+                    .bind(&google_id)
+                    .bind(u.id)
+                    .execute(&state.db)
+                    .await
+                {
+                    tracing::warn!("Google OAuth account link failed: {}", error);
+                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                }
                 u.google_id = Some(google_id.clone());
-                u.password_hash = "oauth".to_string();
                 u.email_verified = true;
                 u.token_version += 1;
             }
@@ -1906,11 +1914,13 @@ async fn google_oauth_callback(
             };
             let mut username = base_username.clone();
             let mut n = 0u32;
-            while sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE username = $1")
-                .bind(&username)
-                .fetch_one(&state.db)
-                .await
-                .unwrap_or(1)
+            while sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1)",
+            )
+            .bind(&username)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(1)
                 != 0
             {
                 n += 1;
@@ -1997,7 +2007,7 @@ async fn google_oauth_callback(
     };
 
     let mut response = if is_desktop {
-        Html(desktop_oauth_handoff_html(&redirect_url, true)).into_response()
+        desktop_oauth_handoff_response(&redirect_url, true)
     } else {
         Redirect::temporary(&redirect_url).into_response()
     };
@@ -2056,27 +2066,7 @@ async fn check_username(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::Validation("Missing username query".into()))?;
-    if username.len() < 3 || username.len() > 32 {
-        return Ok(Json(serde_json::json!({ "available": false })));
-    }
-    if username.starts_with('_')
-        || username.starts_with('.')
-        || username.ends_with('_')
-        || username.ends_with('.')
-    {
-        return Ok(Json(serde_json::json!({ "available": false })));
-    }
-    if username.contains("__")
-        || username.contains("..")
-        || username.contains("_.")
-        || username.contains("._")
-    {
-        return Ok(Json(serde_json::json!({ "available": false })));
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
-    {
+    if validate_username(username).is_err() {
         return Ok(Json(serde_json::json!({ "available": false })));
     }
     let taken = sqlx::query_scalar::<_, i64>(
@@ -2164,46 +2154,16 @@ async fn update_profile(
     if let Some(raw_username) = body.username {
         let username = raw_username.trim();
         if username != user.username {
-            // Enforce at most one username change per 30 days
+            // Enforce at most one username change per 7 days.
             if let Some(changed_at) = user.username_changed_at {
                 let since = chrono::Utc::now().signed_duration_since(changed_at);
-                if since.num_days() < 30 {
+                if since.num_days() < 7 {
                     return Err(AppError::Validation(
-                        "You can only change your username once every 30 days. Please try again later.".into(),
+                        "You can only change your username once every 7 days. Please try again later.".into(),
                     ));
                 }
             }
-            if username.len() < 3 || username.len() > 32 {
-                return Err(AppError::Validation(
-                    "Username must be 3–32 characters".into(),
-                ));
-            }
-            if username.starts_with('_')
-                || username.starts_with('.')
-                || username.ends_with('_')
-                || username.ends_with('.')
-            {
-                return Err(AppError::Validation(
-                    "Username cannot start or end with an underscore or period".into(),
-                ));
-            }
-            if username.contains("__")
-                || username.contains("..")
-                || username.contains("_.")
-                || username.contains("._")
-            {
-                return Err(AppError::Validation(
-                    "Username cannot contain consecutive underscores or periods".into(),
-                ));
-            }
-            if !username
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.')
-            {
-                return Err(AppError::Validation(
-                    "Username may only contain lowercase letters, numbers, underscores, and periods".into(),
-                ));
-            }
+            validate_username(username).map_err(|message| AppError::Validation(message.into()))?;
             let taken = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
             )
@@ -2360,7 +2320,11 @@ async fn request_email_verification(
         ));
     };
 
-    let verify_link = format!("{}/verify-email?token={}", frontend_base_url(&state), token_plain);
+    let verify_link = format!(
+        "{}/verify-email?token={}",
+        frontend_base_url(&state),
+        token_plain
+    );
     if let Err(e) = crate::services::email::send_email_verification_email(
         &updated.email,
         &verify_link,
@@ -2997,25 +2961,18 @@ async fn forgot_password(
     struct ResetCandidate {
         id: Uuid,
         email: String,
-        google_id: Option<String>,
     }
 
-    let user = sqlx::query_as::<_, ResetCandidate>(
-        "SELECT id, email, google_id FROM users WHERE lower(email) = $1",
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await?;
+    let user =
+        sqlx::query_as::<_, ResetCandidate>("SELECT id, email FROM users WHERE lower(email) = $1")
+            .bind(&email)
+            .fetch_optional(&state.db)
+            .await?;
 
     // Always return generic success to prevent account enumeration.
     let Some(user) = user else {
         return Ok(generic_ok());
     };
-
-    // Google Sign-In accounts have no local password to reset.
-    if user.google_id.is_some() {
-        return Ok(generic_ok());
-    }
 
     // Generate token
     let token_plain = Uuid::new_v4().to_string();

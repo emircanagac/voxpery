@@ -36,7 +36,7 @@ users
 
 Key columns:
 
-- `id`, `username` (unique), `email` (unique), `password_hash`
+- `id`, `username` (case-preserving and case-insensitively unique), `email` (unique), `password_hash`
 - `email_verified` (`BOOLEAN`)
 - `token_version` (session invalidation counter)
 - `avatar_url`
@@ -264,6 +264,9 @@ All migrations currently present:
 - `039_default_dm_privacy_everyone.sql`
 - `040_dm_channel_hidden_state.sql`
 - `041_open_report_uniqueness.sql`
+- `042_idempotent_write_requests.sql`
+- `043_dm_channel_pinned_state.sql`
+- `044_username_case_insensitive_uniqueness.sql`
 
 ## Notes
 
@@ -272,4 +275,4 @@ All migrations currently present:
 
 ---
 
-Last verified against code on 2026-07-18.
+Last verified against code on 2026-08-20.

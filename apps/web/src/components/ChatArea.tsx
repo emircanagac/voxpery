@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, Sticker } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -679,6 +679,8 @@ export default function ChatArea({
     const latestAnchorCleanupRef = useRef<(() => void) | null>(null)
     const programmaticScrollRef = useRef(0)
     const resizeAutoScrollRafRef = useRef<number | null>(null)
+    const pendingReactionBottomAnchorRef = useRef(false)
+    const pendingReactionBottomAnchorTimeoutRef = useRef<number | null>(null)
     const userReadingHistoryRef = useRef(false)
     const userScrollIntentUntilRef = useRef(0)
     const lastKnownScrollTopRef = useRef(0)
@@ -729,7 +731,12 @@ export default function ChatArea({
     const emojiPickerRef = useRef<HTMLDivElement | null>(null)
     const emojiPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
     const messageInputWrapperRef = useRef<HTMLDivElement | null>(null)
-    const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
+    const [emojiPickerPosition, setEmojiPickerPosition] = useState<{
+        top: number
+        left: number
+        width: number
+        height: number
+    } | null>(null)
     const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null)
     const reactionPickerRef = useRef<HTMLDivElement | null>(null)
     const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
@@ -845,6 +852,21 @@ export default function ChatArea({
     ])
 
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
+    const reactionMessageIdsSignature = useMemo(
+        () => messages.map((message) => message.id).join('|'),
+        [messages],
+    )
+    const reactionLayoutSignature = useMemo(() => messages.map((message) => {
+        const reactions = Array.isArray(message.reactions)
+            ? message.reactions.map((reaction) => `${reaction.emoji}:${reaction.count}`).join(',')
+            : ''
+        return reactions
+    }).join('|'), [messages])
+    const previousReactionLayoutSnapshotRef = useRef({
+        channelId: currentChatChannelId,
+        messageIds: reactionMessageIdsSignature,
+        reactions: reactionLayoutSignature,
+    })
 
     const isAtBottom = useCallback((el: HTMLDivElement) => {
         const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
@@ -884,6 +906,11 @@ export default function ChatArea({
     const markUserReadingHistory = useCallback(() => {
         noteUserScrollIntent()
         cancelLatestAnchor()
+        pendingReactionBottomAnchorRef.current = false
+        if (pendingReactionBottomAnchorTimeoutRef.current != null) {
+            window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
+            pendingReactionBottomAnchorTimeoutRef.current = null
+        }
         userReadingHistoryRef.current = true
         shouldAutoScrollRef.current = false
         setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
@@ -905,6 +932,26 @@ export default function ChatArea({
         measureElement: (el) => el?.getBoundingClientRect().height ?? 64,
         overscan: 8,
     })
+
+    const armReactionBottomAnchor = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (el && isAtBottom(el) && !userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
+            pendingReactionBottomAnchorRef.current = true
+            if (pendingReactionBottomAnchorTimeoutRef.current != null) {
+                window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
+            }
+            pendingReactionBottomAnchorTimeoutRef.current = window.setTimeout(() => {
+                pendingReactionBottomAnchorRef.current = false
+                pendingReactionBottomAnchorTimeoutRef.current = null
+            }, 5000)
+        }
+    }, [isAtBottom])
+
+    const toggleReactionPreservingBottomAnchor = useCallback((messageId: string, emoji: string, reacted: boolean) => {
+        if (!onToggleReaction) return
+        armReactionBottomAnchor()
+        onToggleReaction(messageId, emoji, reacted)
+    }, [armReactionBottomAnchor, onToggleReaction])
 
     useLayoutEffect(() => {
         currentChatChannelIdRef.current = currentChatChannelId
@@ -1130,7 +1177,10 @@ export default function ChatArea({
         }
     }, [markUserReadingHistory, noteUserScrollIntent])
 
-    const handlePointerDownScrollIntent = useCallback(() => {
+    const handlePointerDownScrollIntent = useCallback((event: PointerEvent<HTMLDivElement>) => {
+        // Pointer events from message actions are interactions, not scroll intent.
+        // The scrollbar itself targets the scroll container, so keep that path.
+        if (event.target !== event.currentTarget) return
         noteUserScrollIntent()
     }, [noteUserScrollIntent])
 
@@ -1188,6 +1238,36 @@ export default function ChatArea({
             })
         }
     }, [activeChannel?.id, completeLatestAnchor, messages.length, unreadDividerCount, snapToBottom])
+
+    useLayoutEffect(() => {
+        const previousSnapshot = previousReactionLayoutSnapshotRef.current
+        previousReactionLayoutSnapshotRef.current = {
+            channelId: currentChatChannelId,
+            messageIds: reactionMessageIdsSignature,
+            reactions: reactionLayoutSignature,
+        }
+        const isReactionOnlyUpdate = previousSnapshot.channelId === currentChatChannelId
+            && previousSnapshot.messageIds === reactionMessageIdsSignature
+            && previousSnapshot.reactions !== reactionLayoutSignature
+        if (!isReactionOnlyUpdate) return
+        const hasPendingBottomAnchor = pendingReactionBottomAnchorRef.current
+        pendingReactionBottomAnchorRef.current = false
+        if (pendingReactionBottomAnchorTimeoutRef.current != null) {
+            window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
+            pendingReactionBottomAnchorTimeoutRef.current = null
+        }
+        if (!hasPendingBottomAnchor && !shouldAutoScrollRef.current) return
+        if (userReadingHistoryRef.current || preservingOlderMessagesRef.current) return
+
+        shouldAutoScrollRef.current = true
+        rowVirtualizer.measure()
+        snapToBottom()
+        const rafId = window.requestAnimationFrame(() => {
+            if (!shouldAutoScrollRef.current || userReadingHistoryRef.current || preservingOlderMessagesRef.current) return
+            snapToBottom()
+        })
+        return () => window.cancelAnimationFrame(rafId)
+    }, [currentChatChannelId, reactionLayoutSignature, reactionMessageIdsSignature, rowVirtualizer, snapToBottom])
 
     /* If user sends while reading older messages, force snap to newest after the new row mounts. */
     useLayoutEffect(() => {
@@ -1551,7 +1631,18 @@ export default function ChatArea({
         userReadingHistoryRef.current = false
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
+        pendingReactionBottomAnchorRef.current = false
+        if (pendingReactionBottomAnchorTimeoutRef.current != null) {
+            window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
+            pendingReactionBottomAnchorTimeoutRef.current = null
+        }
     }, [activeChannel?.id])
+
+    useEffect(() => () => {
+        if (pendingReactionBottomAnchorTimeoutRef.current != null) {
+            window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
+        }
+    }, [])
 
     useEffect(() => {
         return () => {
@@ -1610,8 +1701,6 @@ export default function ChatArea({
             const chatAreaRect = chatAreaRef.current?.getBoundingClientRect()
             const messageInputRect = messageInputWrapperRef.current?.getBoundingClientRect()
             const rect = button.getBoundingClientRect()
-            const pickerWidth = emojiPickerRef.current?.getBoundingClientRect().width ?? 420
-            const pickerHeight = emojiPickerRef.current?.getBoundingClientRect().height ?? 336
             const viewportPadding = 16
             const containerPadding = 8
             const minLeft = Math.max(
@@ -1632,6 +1721,8 @@ export default function ChatArea({
             )
             const inputSafeTop = messageInputRect ? messageInputRect.top : maxBottom
             const boundedBottom = Math.min(maxBottom, inputSafeTop)
+            const pickerWidth = Math.min(420, Math.max(0, maxRight - minLeft))
+            const pickerHeight = Math.min(440, Math.max(0, boundedBottom - minTop))
 
             const maxLeft = Math.max(minLeft, maxRight - pickerWidth)
             const preferredLeft = rect.right - pickerWidth
@@ -1640,7 +1731,7 @@ export default function ChatArea({
             const maxTop = Math.max(minTop, boundedBottom - pickerHeight)
             const preferredTop = inputSafeTop - pickerHeight
             const top = Math.max(minTop, Math.min(preferredTop, maxTop))
-            setEmojiPickerPosition({ top, left })
+            setEmojiPickerPosition({ top, left, width: pickerWidth, height: pickerHeight })
         }
         const close = (e: MouseEvent) => {
             if (emojiPickerRef.current?.contains(e.target as Node)) return
@@ -2208,6 +2299,7 @@ export default function ChatArea({
                                     canReact={!!onToggleReaction}
                                     reactionPickerOpen={reactionPickerMessageId === msg.id}
                                     onToggleReactionPicker={(messageId, anchorEl) => {
+                                        armReactionBottomAnchor()
                                         reactionPickerAnchorRef.current = anchorEl
                                         setReactionPickerMessageId((prev) => (prev === messageId ? null : messageId))
                                     }}
@@ -2343,7 +2435,7 @@ export default function ChatArea({
                                                             type="button"
                                                             className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
                                                             disabled={!onToggleReaction}
-                                                            onClick={() => onToggleReaction?.(msg.id, reaction.emoji, !!reaction.reacted)}
+                                                            onClick={() => toggleReactionPreservingBottomAnchor(msg.id, reaction.emoji, !!reaction.reacted)}
                                                         >
                                                             <span>{reaction.emoji}</span>
                                                             <span>{reaction.count}</span>
@@ -2481,6 +2573,8 @@ export default function ChatArea({
                             style={{
                                 top: emojiPickerPosition.top,
                                 left: emojiPickerPosition.left,
+                                width: emojiPickerPosition.width,
+                                height: emojiPickerPosition.height,
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -2507,7 +2601,9 @@ export default function ChatArea({
                             }, 120)
                         }}
                         onPaste={handlePaste}
-                        placeholder={canSendMessages ? (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`) : `You don't have permission to send messages in #${activeChannel.name}`}
+                        placeholder={canSendMessages
+                            ? (useMobileMessageLayout ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
+                            : (useMobileMessageLayout ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
                         rows={1}
                     />
                     <div className="message-input-actions" aria-label="Message actions">
@@ -2527,7 +2623,7 @@ export default function ChatArea({
                         </button>
                         <button
                             type="button"
-                            className="chat-emoji-btn chat-media-action-btn"
+                            className="chat-emoji-btn chat-media-action-btn chat-mobile-secondary-action"
                             disabled={!canSendMessages}
                             title="Browse GIFs"
                             aria-label="Browse GIFs"
@@ -2541,7 +2637,7 @@ export default function ChatArea({
                         </button>
                         <button
                             type="button"
-                            className="chat-emoji-btn"
+                            className="chat-emoji-btn chat-mobile-secondary-action"
                             disabled={!canSendMessages}
                             title="Browse stickers"
                             aria-label="Browse stickers"
@@ -2583,7 +2679,7 @@ export default function ChatArea({
                         compact
                         reactionMode
                         onSelect={(emoji) => {
-                            onToggleReaction(reactionPickerMessageId, emoji, false)
+                            toggleReactionPreservingBottomAnchor(reactionPickerMessageId, emoji, false)
                             setReactionPickerMessageId(null)
                             reactionPickerAnchorRef.current = null
                         }}

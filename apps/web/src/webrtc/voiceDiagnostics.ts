@@ -60,7 +60,7 @@ export interface VoiceLivekitDiagnostics {
   dynacast?: boolean
   microphonePublished?: boolean
   microphoneSource?: 'processed-webaudio'
-  microphoneAudioPreset?: 'musicHighQuality'
+  microphoneAudioPreset?: 'music' | 'musicHighQuality'
   microphoneDtx?: boolean
   microphoneRed?: boolean
   microphoneForceStereo?: boolean
@@ -122,6 +122,7 @@ export interface VoiceRuntimeDiagnostics {
   suppressionTuning?: string
   aggressiveIsolation?: boolean
   inputVolume?: number
+  mobileOptimizedPipeline?: boolean
   captureConstraints?: VoiceProcessingConstraintsDiagnostics
   rawMicTrackSettings?: VoiceTrackSettingsDiagnostics
   processedMicTrackSettings?: VoiceTrackSettingsDiagnostics

@@ -39,10 +39,17 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
+let mockMediaIdSequence = 0
+
+function nextMockMediaId(prefix: string): string {
+  mockMediaIdSequence += 1
+  return `${prefix}-${mockMediaIdSequence}`
+}
+
 // Mock MediaStreamTrack
 class MockMediaStreamTrack {
   kind = 'audio'
-  id = Math.random().toString(36)
+  id = nextMockMediaId('track')
   label = 'mock-track'
   enabled = true
   muted = false
@@ -63,7 +70,7 @@ class MockMediaStreamTrack {
 
 // Mock MediaStream
 class MockMediaStream {
-  id = Math.random().toString(36)
+  id = nextMockMediaId('stream')
   active = true
   private tracks: MediaStreamTrack[] = []
 

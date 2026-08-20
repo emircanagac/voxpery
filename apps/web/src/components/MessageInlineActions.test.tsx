@@ -66,4 +66,29 @@ describe('MessageInlineActions', () => {
 
     expect(container.querySelector('.message-inline-actions')?.classList.contains('is-visible')).toBe(true)
   })
+
+  it('exposes the same actions through one compact mobile menu', () => {
+    const onReply = vi.fn()
+    const onDelete = vi.fn()
+
+    render(
+      <MessageInlineActions
+        messageId="message-4"
+        currentUserId="user-1"
+        authorUserId="user-1"
+        onReply={onReply}
+        onDelete={onDelete}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More message actions' }))
+    const menu = screen.getByRole('menu', { name: 'Message actions' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu.style.position).toBe('')
+    expect(menu.style.visibility).not.toBe('hidden')
+    fireEvent.click(menu.querySelector('button[role="menuitem"]')!)
+
+    expect(onReply).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menu', { name: 'Message actions' })).toBeNull()
+  })
 })
