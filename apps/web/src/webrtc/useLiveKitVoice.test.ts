@@ -3,6 +3,7 @@ import {
   clearRemoteMediaStartCue,
   getLiveKitParticipantCount,
   getMicrophonePublishOptions,
+  nextCameraFacingMode,
   getPreferredScreenShareCodec,
   getScreenShareAudioPublishOptions,
   getScreenSharePublishOptions,
@@ -30,6 +31,23 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+
+  it('uses a resilient mono Opus profile on mobile runtimes', () => {
+    expect(getMicrophonePublishOptions(true)).toMatchObject({
+      source: Track.Source.Microphone,
+      audioPreset: AudioPresets.music,
+      dtx: true,
+      red: true,
+      forceStereo: false,
+    })
+  })
+})
+
+describe('mobile camera selection', () => {
+  it('alternates between front and rear camera modes', () => {
+    expect(nextCameraFacingMode('user')).toBe('environment')
+    expect(nextCameraFacingMode('environment')).toBe('user')
   })
 })
 

@@ -1,4 +1,5 @@
 import type { UploadedAttachment } from './api'
+import { createSecureId } from './secureId'
 
 export type DraftAttachmentItem = {
   localId: string
@@ -14,7 +15,7 @@ export type DraftAttachmentItem = {
 
 export function createUploadingDraftAttachments(files: File[]): DraftAttachmentItem[] {
   return files.map((file) => ({
-    localId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    localId: createSecureId(),
     name: file.name,
     url: '',
     size: file.size,

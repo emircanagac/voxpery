@@ -79,6 +79,19 @@ function mediaTrack(kind: 'audio' | 'video', id: string, flags?: Partial<MediaSt
   } as MediaStreamTrack
 }
 
+function mockMobileViewport(matches: boolean) {
+  vi.mocked(window.matchMedia).mockImplementation((query) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
 function voiceState(overrides?: Record<string, unknown>) {
   return {
     joinedChannelId: voiceChannel.id,
@@ -87,6 +100,8 @@ function voiceState(overrides?: Record<string, unknown>) {
     screenStream: null,
     isScreenSharing: false,
     cameraStream: null,
+    cameraFacingMode: 'user',
+    canSwitchCamera: false,
     remoteStreams: new Map<string, MediaStream>(),
     remoteScreenTrackIds: new Set<string>(),
     watchedRemoteScreenPeerIds: new Set<string>(),
@@ -119,6 +134,7 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
     stopScreenShare: vi.fn(),
     startCamera: vi.fn(),
     stopCamera: vi.fn(),
+    switchCamera: vi.fn().mockResolvedValue(undefined),
     setVoiceControls: vi.fn(),
     setRemoteMediaSubscribed: vi.fn(),
     playVoiceCue: vi.fn(),
@@ -142,6 +158,7 @@ describe('ActiveCallBar regressions', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    mockMobileViewport(false)
     useToastStore.setState({ toasts: [] })
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
     Object.defineProperty(HTMLMediaElement.prototype, 'play', {
@@ -268,21 +285,15 @@ describe('ActiveCallBar regressions', () => {
     await waitFor(() => expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-start'))
   })
 
-  it('explains when the selected screen source has no publishable audio track', async () => {
+  it('treats an intentionally silent screen share as a valid session', async () => {
     const { voice } = renderActiveCallBar()
     voice.startScreenShare.mockResolvedValueOnce({ hasAudio: false, audioPublished: false })
 
     fireEvent.click(screen.getByRole('button', { name: 'Share screen' }))
     fireEvent.click(screen.getAllByRole('button', { name: 'Share screen' }).at(-1)!)
 
-    await waitFor(() => {
-      expect(useToastStore.getState().toasts).toEqual([
-        expect.objectContaining({
-          level: 'info',
-          title: 'Sharing without audio',
-        }),
-      ])
-    })
+    await waitFor(() => expect(voice.startScreenShare).toHaveBeenCalledOnce())
+    expect(useToastStore.getState().toasts).toEqual([])
   })
 
   it('plays separate confirmations when local camera and screen sharing stop', () => {
@@ -301,6 +312,21 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.stopScreenShare).toHaveBeenCalledOnce()
     expect(voice.playVoiceCue).toHaveBeenCalledWith('camera-stop')
     expect(voice.playVoiceCue).toHaveBeenCalledWith('screen-stop')
+  })
+
+  it('switches between available mobile cameras without stopping the camera', async () => {
+    mockMobileViewport(true)
+    const cameraTrack = mediaTrack('video', 'local-camera')
+    const { voice } = renderActiveCallBar({
+      cameraStream: new MediaStream([cameraTrack]),
+      cameraFacingMode: 'user',
+      canSwitchCamera: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to rear camera' }))
+
+    await waitFor(() => expect(voice.switchCamera).toHaveBeenCalledOnce())
+    expect(voice.stopCamera).not.toHaveBeenCalled()
   })
 
   it('keeps mute, deafen, and leave controls wired to the joined voice session', () => {

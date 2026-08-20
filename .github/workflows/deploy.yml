@@ -222,8 +222,19 @@ jobs:
           IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
         run: |
           set -euo pipefail
-          docker buildx imagetools inspect "voxpery/voxpery-server:${IMAGE_TAG}" >/dev/null
-          docker buildx imagetools inspect "voxpery/voxpery-web:${IMAGE_TAG}" >/dev/null
+          for attempt in 1 2 3 4 5 6; do
+            if docker buildx imagetools inspect "voxpery/voxpery-server:${IMAGE_TAG}" >/dev/null 2>&1 \
+              && docker buildx imagetools inspect "voxpery/voxpery-web:${IMAGE_TAG}" >/dev/null 2>&1; then
+              echo "Immutable server and web images are available for ${IMAGE_TAG}."
+              exit 0
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              echo "Release images are not visible yet; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+          echo "Refusing deploy: immutable server and web images were not both available for ${IMAGE_TAG}."
+          exit 1
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.5

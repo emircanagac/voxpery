@@ -19,7 +19,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
-import { useAudioEngine } from './hooks/useAudioEngine'
+import { shouldUseLightweightMobileVoicePipeline, useAudioEngine } from './hooks/useAudioEngine'
 import { useLocalMedia, type ScreenShareCaptureResult } from './hooks/useLocalMedia'
 import { useVoiceActivity } from './hooks/useVoiceActivity'
 import { useWebrtcDiagnostics } from './hooks/useWebrtcDiagnostics'
@@ -30,7 +30,12 @@ import {
   shouldRebuildSuppressionPipeline,
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
-import { markRemoteAudioTrackSource, type RemoteMediaKind } from './remoteMediaControls'
+import {
+  getRemoteMicrophoneAudioTracks,
+  isScreenShareAudioTrack,
+  markRemoteAudioTrackSource,
+  type RemoteMediaKind,
+} from './remoteMediaControls'
 import { reportObservabilityEvent } from '../observability'
 import { associateLiveKitVideoTrack } from './livekitVideoAttachment'
 
@@ -49,10 +54,10 @@ type VoiceControlState = {
   cameraOn?: boolean
 } | null | undefined
 
-export function getMicrophonePublishOptions(): TrackPublishOptions {
+export function getMicrophonePublishOptions(mobileOptimized = false): TrackPublishOptions {
   return {
     source: Track.Source.Microphone,
-    audioPreset: AudioPresets.musicHighQuality,
+    audioPreset: mobileOptimized ? AudioPresets.music : AudioPresets.musicHighQuality,
     dtx: true,
     red: true,
     forceStereo: false,
@@ -283,6 +288,20 @@ export function clearRemoteMediaStartCue(
   seenKeys.delete(remoteMediaStartCueKey(peerId, 'screen'))
 }
 
+export type CameraFacingMode = 'user' | 'environment'
+
+export function nextCameraFacingMode(current: CameraFacingMode): CameraFacingMode {
+  return current === 'user' ? 'environment' : 'user'
+}
+
+function cameraFacingModeFromTrack(
+  track: MediaStreamTrack,
+  fallback: CameraFacingMode,
+): CameraFacingMode {
+  const facingMode = track.getSettings().facingMode
+  return facingMode === 'environment' ? 'environment' : facingMode === 'user' ? 'user' : fallback
+}
+
 export interface UseLiveKitVoiceState {
   joinedChannelId: string | null
   isJoining: boolean
@@ -290,6 +309,8 @@ export interface UseLiveKitVoiceState {
   screenStream: MediaStream | null
   isScreenSharing: boolean
   cameraStream: MediaStream | null
+  cameraFacingMode: CameraFacingMode
+  canSwitchCamera: boolean
   remoteStreams: Map<PeerId, MediaStream>
   remoteScreenTrackIds: Set<string>
   watchedRemoteScreenPeerIds: Set<PeerId>
@@ -316,6 +337,7 @@ export function useLiveKitVoice() {
   const syncedJoinedVoiceChannelId = useAppStore((s) => s.joinedVoiceChannelId)
   const { send, subscribe, isConnected, onReconnect } = useSocketStore()
   const userId = user?.id ?? null
+  const mobileOptimizedVoice = useMemo(() => shouldUseLightweightMobileVoicePipeline(), [])
 
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
@@ -332,6 +354,7 @@ export function useLiveKitVoice() {
   const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
   const remoteMediaStartCueReadyRef = useRef(false)
   const remoteScreenStopCueTimersRef = useRef<Map<PeerId, ReturnType<typeof setTimeout>>>(new Map())
+  const remoteSubscriptionRetryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const userHiddenRemoteMediaKeysRef = useRef<Set<string>>(new Set())
   const watchedRemoteScreenPeerIdsRef = useRef<Set<PeerId>>(new Set())
   const joinedChannelIdRef = useRef<string | null>(null)
@@ -350,6 +373,8 @@ export function useLiveKitVoice() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null)
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>('user')
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false)
   const remoteScreenTrackIdsRef = useRef<Set<string>>(new Set())
 
   const [remoteStreamsVersion, setRemoteStreamsVersion] = useState(0)
@@ -394,6 +419,21 @@ export function useLiveKitVoice() {
         syncRemotePublicationSubscription(publication, participant.identity)
       })
     })
+  }, [syncRemotePublicationSubscription])
+
+  const retryRemotePublicationSubscription = useCallback((
+    publication: RemoteTrackPublication,
+    peerId: string,
+    delayMs = 500,
+  ) => {
+    const retryKey = `${peerId}:${publication.trackSid}`
+    if (remoteSubscriptionRetryTimersRef.current.has(retryKey)) return
+    if (publication.isSubscribed) publication.setSubscribed(false)
+    const timer = setTimeout(() => {
+      remoteSubscriptionRetryTimersRef.current.delete(retryKey)
+      syncRemotePublicationSubscription(publication, peerId)
+    }, delayMs)
+    remoteSubscriptionRetryTimersRef.current.set(retryKey, timer)
   }, [syncRemotePublicationSubscription])
 
   const setRemoteMediaSubscribed = useCallback((
@@ -565,6 +605,15 @@ export function useLiveKitVoice() {
       setScreenStream(new MediaStream([screenTrack.mediaStreamTrack]))
     } else {
       setScreenStream(null)
+    }
+  }, [])
+
+  const refreshCameraSwitchAvailability = useCallback(async () => {
+    try {
+      const devices = await Room.getLocalDevices('videoinput', false)
+      setCanSwitchCamera(devices.filter((device) => device.deviceId).length > 1)
+    } catch {
+      setCanSwitchCamera(false)
     }
   }, [])
 
@@ -745,6 +794,38 @@ export function useLiveKitVoice() {
     }
   }, [cancelRemoteScreenStopCue])
 
+  const restartRemoteSpeakingMonitor = useCallback((peerId: PeerId, stream: MediaStream) => {
+    remoteMonitorCleanupsRef.current.get(peerId)?.()
+    remoteMonitorCleanupsRef.current.delete(peerId)
+    const voiceTracks = getRemoteMicrophoneAudioTracks(stream)
+      .filter((track) => track.readyState === 'live')
+    if (voiceTracks.length === 0) return
+    const voiceOnlyStream = new MediaStream(voiceTracks)
+    const cleanup = startAudioLevelMonitor(voiceOnlyStream, (speaking) => {
+      const store = useAppStore.getState()
+      const next = new Set(store.voiceSpeakingUserIds)
+      if (speaking) next.add(peerId)
+      else next.delete(peerId)
+      store.setVoiceSpeaking(Array.from(next), store.voiceLocalSpeaking)
+    }, { forRemote: true })
+    remoteMonitorCleanupsRef.current.set(peerId, cleanup)
+  }, [])
+
+  const removeRemoteTrack = useCallback((peerId: PeerId, trackId: string) => {
+    const stream = remoteStreamsRef.current.get(peerId)
+    if (!stream) return
+    const existing = stream.getTracks().find((track) => track.id === trackId)
+    if (!existing) return
+    stream.removeTrack(existing)
+    remoteScreenTrackIdsRef.current.delete(existing.id)
+    if (stream.getTracks().length === 0) {
+      closePeer(peerId, { preserveMediaCue: true })
+      return
+    }
+    if (existing.kind === 'audio') restartRemoteSpeakingMonitor(peerId, stream)
+    bumpRemote()
+  }, [closePeer, restartRemoteSpeakingMonitor])
+
   const syncParticipantMediaState = useCallback((participant: RemoteParticipant) => {
     let hasCamera = false
     let hasScreenShare = false
@@ -829,8 +910,8 @@ export function useLiveKitVoice() {
       if (!rawMicTrack) throw new Error('No microphone track available')
 
       const audioContext = getAudioContext()
-      if (!audioContext) throw new Error('Audio context required for voice processors')
-      if (audioContext.state === 'suspended') {
+      if (!audioContext && !mobileOptimizedVoice) throw new Error('Audio context required for voice processors')
+      if (audioContext?.state === 'suspended') {
         await audioContext.resume()
       }
 
@@ -869,7 +950,7 @@ export function useLiveKitVoice() {
         },
         dynacast: true,
         publishDefaults: {
-          audioPreset: AudioPresets.musicHighQuality,
+          audioPreset: mobileOptimizedVoice ? AudioPresets.music : AudioPresets.musicHighQuality,
           dtx: true,
           red: true,
           forceStereo: false,
@@ -947,11 +1028,25 @@ export function useLiveKitVoice() {
             markRemoteAudioTrackSource(mediaTrack, 'voice')
           }
 
+          for (const existing of combined.getTracks()) {
+            if (existing.id === mediaTrack.id || existing.kind !== mediaTrack.kind) continue
+            const sameLogicalSource = mediaTrack.kind === 'audio'
+              ? isScreenShareAudioTrack(existing) === (pub.source === Track.Source.ScreenShareAudio)
+              : pub.source === Track.Source.ScreenShare
+                ? remoteScreenTrackIdsRef.current.has(existing.id)
+                : !remoteScreenTrackIdsRef.current.has(existing.id)
+            if (existing.readyState === 'ended' || sameLogicalSource) {
+              combined.removeTrack(existing)
+              remoteScreenTrackIdsRef.current.delete(existing.id)
+            }
+          }
+
           mediaTrack.onmute = () => { syncParticipantMediaState(participant); bumpRemote() }
           mediaTrack.onunmute = () => { syncParticipantMediaState(participant); bumpRemote() }
           mediaTrack.onended = () => {
             syncParticipantMediaState(participant)
-            bumpRemote()
+            removeRemoteTrack(peerId, mediaTrack.id)
+            updateRoomStats()
           }
 
           if (!combined.getTracks().some((t) => t.id === mediaTrack.id)) {
@@ -960,16 +1055,7 @@ export function useLiveKitVoice() {
           remoteStreamsRef.current.set(peerId, combined)
           bumpRemote()
 
-          if (track.kind === Track.Kind.Audio && !remoteMonitorCleanupsRef.current.has(peerId)) {
-            const cleanup = startAudioLevelMonitor(combined, (speaking) => {
-              const store = useAppStore.getState()
-              const next = new Set(store.voiceSpeakingUserIds)
-              if (speaking) next.add(peerId)
-              else next.delete(peerId)
-              store.setVoiceSpeaking(Array.from(next), store.voiceLocalSpeaking)
-            }, { forRemote: true })
-            remoteMonitorCleanupsRef.current.set(peerId, cleanup)
-          }
+          if (track.kind === Track.Kind.Audio) restartRemoteSpeakingMonitor(peerId, combined)
           syncParticipantMediaState(participant)
           updateRoomStats()
         })
@@ -984,19 +1070,15 @@ export function useLiveKitVoice() {
         })
         .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
           const peerId = participant.identity
-          const stream = remoteStreamsRef.current.get(peerId)
-          if (!stream) return
           const mediaTrack = track.mediaStreamTrack
-          const existing = stream.getTracks().find((t) => t.id === mediaTrack.id)
-          if (existing) {
-            stream.removeTrack(existing)
-            remoteScreenTrackIdsRef.current.delete(existing.id)
-          }
-          if (stream.getTracks().length === 0) closePeer(peerId, { preserveMediaCue: true })
-          else bumpRemote()
+          removeRemoteTrack(peerId, mediaTrack.id)
 
           syncParticipantMediaState(participant)
           updateRoomStats()
+        })
+        .on(RoomEvent.TrackSubscriptionFailed, (trackSid, participant) => {
+          const publication = participant.trackPublications.get(trackSid)
+          if (publication) retryRemotePublicationSubscription(publication, participant.identity)
         })
         .on(RoomEvent.ParticipantDisconnected, (participant) => {
           reconcileLiveKitVoicePresence(participant.identity, channelId, false)
@@ -1032,6 +1114,13 @@ export function useLiveKitVoice() {
             syncRemoteSubscriptions(currentRoom)
             currentRoom.remoteParticipants.forEach((participant) => {
               reconcileLiveKitVoicePresence(participant.identity, channelId, true)
+              participant.trackPublications.forEach((publication) => {
+                const mediaTrack = publication.track?.mediaStreamTrack
+                const stream = remoteStreamsRef.current.get(participant.identity)
+                if (publication.isSubscribed && mediaTrack && !stream?.getTrackById(mediaTrack.id)) {
+                  retryRemotePublicationSubscription(publication, participant.identity, 50)
+                }
+              })
               syncParticipantMediaState(participant)
             })
           }
@@ -1069,7 +1158,7 @@ export function useLiveKitVoice() {
       remoteMediaStartCueReadyRef.current = true
 
       // Publish the track directly to LiveKit.
-      const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions())
+      const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions(mobileOptimizedVoice))
       updateVoiceDiagnostics({
         livekit: {
           roomState: String(room.state),
@@ -1079,7 +1168,7 @@ export function useLiveKitVoice() {
           dynacast: true,
           microphonePublished: true,
           microphoneSource: 'processed-webaudio',
-          microphoneAudioPreset: 'musicHighQuality',
+          microphoneAudioPreset: mobileOptimizedVoice ? 'music' : 'musicHighQuality',
           microphoneDtx: true,
           microphoneRed: true,
           microphoneForceStereo: false,
@@ -1129,7 +1218,7 @@ export function useLiveKitVoice() {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
     const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
@@ -1142,6 +1231,8 @@ export function useLiveKitVoice() {
     remoteMediaStartCueKeysRef.current.clear()
     remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
     remoteScreenStopCueTimersRef.current.clear()
+    remoteSubscriptionRetryTimersRef.current.forEach(clearTimeout)
+    remoteSubscriptionRetryTimersRef.current.clear()
     userHiddenRemoteMediaKeysRef.current.clear()
     watchedRemoteScreenPeerIdsRef.current.clear()
     setWatchedRemoteScreenPeerIds(new Set())
@@ -1183,6 +1274,8 @@ export function useLiveKitVoice() {
     setLocalStream(null)
     setScreenStream(null)
     setCameraStream(null)
+    setCameraFacingMode('user')
+    setCanSwitchCamera(false)
   }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
 
   useEffect(() => {
@@ -1347,13 +1440,63 @@ export function useLiveKitVoice() {
       track.stop()
       throw err
     }
+    setCameraFacingMode(cameraFacingModeFromTrack(track, 'user'))
+    void refreshCameraSwitchAvailability()
     refreshLocalStreams()
     if (userId) {
       useAppStore.getState().setVoiceCamera(userId, true)
       const c = useAppStore.getState().voiceControls[userId]
       send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: true })
     }
-  }, [cameraStream, getCameraStream, refreshLocalStreams, send, userId])
+  }, [cameraStream, getCameraStream, refreshCameraSwitchAvailability, refreshLocalStreams, send, userId])
+
+  const switchCamera = useCallback(async () => {
+    const room = roomRef.current
+    if (!room) throw new Error('Join a voice channel before switching camera')
+
+    const publication = room.localParticipant.getTrackPublication(Track.Source.Camera)
+    const videoTrack = publication?.videoTrack
+    if (!videoTrack) throw new Error('Turn on camera before switching camera')
+
+    const targetFacingMode = nextCameraFacingMode(cameraFacingMode)
+    const currentDeviceId = videoTrack.mediaStreamTrack.getSettings().deviceId
+    let devices: MediaDeviceInfo[] = []
+
+    try {
+      devices = await Room.getLocalDevices('videoinput', false)
+      if (devices.filter((device) => device.deviceId).length < 2) {
+        setCanSwitchCamera(false)
+        throw new Error('No alternate camera is available')
+      }
+
+      await videoTrack.restartTrack({
+        facingMode: targetFacingMode,
+        frameRate: { ideal: 30, max: 30 },
+        resolution: { width: 1280, height: 720 },
+      })
+
+      const restartedDeviceId = videoTrack.mediaStreamTrack.getSettings().deviceId
+      if (currentDeviceId && restartedDeviceId === currentDeviceId) {
+        const alternateDevice = devices.find((device) => (
+          device.deviceId && device.deviceId !== currentDeviceId
+        ))
+        if (alternateDevice) await videoTrack.setDeviceId({ exact: alternateDevice.deviceId })
+      }
+    } catch (error) {
+      const activeDeviceId = videoTrack.mediaStreamTrack.getSettings().deviceId ?? currentDeviceId
+      const alternateDevice = devices.find((device) => (
+        device.deviceId && device.deviceId !== activeDeviceId
+      ))
+      if (!alternateDevice) throw error
+      await videoTrack.setDeviceId({ exact: alternateDevice.deviceId })
+    }
+
+    const nextTrack = videoTrack.mediaStreamTrack
+    localCameraTrackRef.current = nextTrack
+    setCameraFacingMode(cameraFacingModeFromTrack(nextTrack, targetFacingMode))
+    setCameraStream(new MediaStream([nextTrack]))
+    await refreshCameraSwitchAvailability()
+  }, [cameraFacingMode, refreshCameraSwitchAvailability])
 
   const stopCamera = useCallback(() => {
     const room = roomRef.current
@@ -1366,6 +1509,8 @@ export function useLiveKitVoice() {
     })
     localCameraTrackRef.current?.stop()
     localCameraTrackRef.current = null
+    setCameraFacingMode('user')
+    setCanSwitchCamera(false)
     refreshLocalStreams()
     if (userId) {
       useAppStore.getState().setVoiceCamera(userId, false)
@@ -1518,6 +1663,8 @@ export function useLiveKitVoice() {
     screenStream,
     isScreenSharing: !!screenStream,
     cameraStream,
+    cameraFacingMode,
+    canSwitchCamera,
     remoteStreams,
     remoteScreenTrackIds,
     watchedRemoteScreenPeerIds,
@@ -1547,6 +1694,7 @@ export function useLiveKitVoice() {
     stopScreenShare,
     startCamera,
     stopCamera,
+    switchCamera,
     setVoiceControls,
     setMemberVoiceControls,
     setRemoteMediaSubscribed,

@@ -9,6 +9,7 @@ import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
+import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 
 function GoogleLogoIcon() {
     return (
@@ -143,6 +144,8 @@ export default function LoginPage() {
                 <button className="auth-btn" type="submit" disabled={loading}>
                     {loading ? 'Signing in...' : 'Sign In'}
                 </button>
+
+                <AuthIntegrationStatus />
 
                 {googleOAuthEnabled && (
                     <>

@@ -10,10 +10,13 @@ const PERMISSIONS_POLICY: &str =
 
 pub async fn apply(mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert(
-        HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
-    );
+    let csp_header = HeaderName::from_static("content-security-policy");
+    if !headers.contains_key(&csp_header) {
+        headers.insert(
+            csp_header,
+            HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+        );
+    }
     headers.insert(
         HeaderName::from_static("strict-transport-security"),
         HeaderValue::from_static("max-age=31536000"),
@@ -65,5 +68,27 @@ mod tests {
             .to_str()
             .unwrap()
             .contains("microphone=()"));
+    }
+
+    #[tokio::test]
+    async fn preserves_a_stricter_route_specific_csp() {
+        let mut response = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap();
+        response.headers_mut().insert(
+            HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static(
+                "default-src 'none'; script-src 'nonce-test'; style-src 'nonce-test'",
+            ),
+        );
+
+        let response = apply(response).await;
+
+        assert_eq!(
+            response.headers()["content-security-policy"],
+            "default-src 'none'; script-src 'nonce-test'; style-src 'nonce-test'"
+        );
+        assert_eq!(response.headers()["x-frame-options"], "DENY");
     }
 }

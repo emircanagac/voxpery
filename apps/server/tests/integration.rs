@@ -69,6 +69,7 @@ async fn setup_app_with_auth_features(
         email_verification_enabled,
         password_reset_enabled,
         false,
+        false,
     )
     .await
 }
@@ -77,6 +78,7 @@ async fn setup_app_with_features(
     email_verification_enabled: bool,
     password_reset_enabled: bool,
     observability_enabled: bool,
+    google_oauth_enabled: bool,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -133,9 +135,9 @@ async fn setup_app_with_features(
         livekit_ws_url: Some("wss://livekit.test.local".to_string()),
         livekit_api_key: Some(test_credential("livekit-api").to_string()),
         livekit_api_secret: Some(test_credential("livekit-signing").to_string()),
-        google_client_id: None,
-        google_client_secret: None,
-        google_oauth_enabled: false,
+        google_client_id: google_oauth_enabled.then(|| "google-client.test".to_string()),
+        google_client_secret: google_oauth_enabled.then(|| test_credential("google").to_string()),
+        google_oauth_enabled,
         frontend_url: None,
         public_api_url: None,
         turnstile_secret_key: None,
@@ -285,7 +287,7 @@ async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app_with_features(false, false, true).await;
+    let (mut app, _) = setup_app_with_features(false, false, true, false).await;
 
     let features = Request::builder()
         .uri("/api/system/features")
@@ -367,6 +369,57 @@ async fn api_security_headers_cover_normal_error_and_preflight_responses() {
             .unwrap()
             .contains("display-capture=()"));
     }
+}
+
+#[tokio::test]
+async fn desktop_oauth_handoff_runs_under_the_full_api_security_middleware() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, _) = setup_app_with_features(false, false, false, true).await;
+    let nonce = Uuid::new_v4().to_string();
+    let challenge = "A".repeat(43);
+    let oauth_state = BASE64.encode(format!("{nonce}\nvoxpery://auth\n/servers\n{challenge}"));
+    let uri = format!(
+        "/api/auth/google/callback?code=unused&state={}",
+        urlencoding::encode(&oauth_state)
+    );
+
+    // Deliberately omit the state cookie so the callback returns the desktop
+    // error handoff without making a network request to Google.
+    let response = app
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .expect("desktop OAuth callback request failed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let csp = response.headers()["content-security-policy"]
+        .to_str()
+        .expect("desktop OAuth CSP")
+        .to_string();
+    assert!(csp.contains("default-src 'none'"));
+    assert!(csp.contains("style-src 'nonce-"));
+    assert!(csp.contains("script-src 'nonce-"));
+    assert!(!csp.contains("'unsafe-inline'"));
+    let csp_nonce = csp
+        .split("script-src 'nonce-")
+        .nth(1)
+        .and_then(|suffix| suffix.split('\'').next())
+        .expect("script nonce in CSP");
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("desktop OAuth body")
+        .to_bytes();
+    let html = String::from_utf8(body.to_vec()).expect("desktop OAuth HTML");
+    assert!(html.contains(&format!("<style nonce=\"{csp_nonce}\">")));
+    assert!(html.contains(&format!("<script nonce=\"{csp_nonce}\">")));
+    assert!(html.contains("window.setTimeout(openDesktop, 50)"));
+    assert!(html.contains("Return to Voxpery"));
 }
 
 fn assert_feature_disabled(status: StatusCode, body: &[u8]) {
@@ -1960,7 +2013,6 @@ async fn strict_username_validation_rejects_invalid_usernames() {
     let (mut app, _) = setup_app().await;
 
     let invalid_usernames = vec![
-        "UPPERCASE",
         "has space",
         ".start_dot",
         "end_dot.",
@@ -1999,6 +2051,52 @@ async fn strict_username_validation_rejects_invalid_usernames() {
         let err_msg = resp["error"].as_str().unwrap_or("");
         assert!(err_msg.contains("Username cannot") || err_msg.contains("Username may only"));
     }
+}
+
+#[tokio::test]
+async fn usernames_preserve_case_but_remain_case_insensitively_unique() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+    let suffix = Uuid::new_v4().as_u128() % 1_000_000;
+    let username = format!("VoxUser_{suffix}");
+    let email = format!("case-{suffix}@example.com");
+    let register_body = json!({
+        "email": email,
+        "username": username,
+        "password": test_credential("case-preserving")
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "register failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(response["user"]["username"], username);
+
+    let duplicate_body = json!({
+        "email": format!("case-duplicate-{suffix}@example.com"),
+        "username": username.to_lowercase(),
+        "password": test_credential("case-duplicate")
+    });
+    let duplicate_req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&duplicate_body).unwrap()))
+        .unwrap();
+    let (duplicate_status, _) = oneshot(&mut app, duplicate_req).await;
+    assert_eq!(duplicate_status, StatusCode::CONFLICT);
 }
 
 #[tokio::test]
@@ -2746,6 +2844,126 @@ async fn google_only_user_can_set_password_and_login() {
         status,
         StatusCode::OK,
         "login after set-password failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn google_only_user_can_recover_with_email_and_keep_google_connected() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app_with_auth_features(false, true).await;
+
+    let uid = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let email = format!("oauth-recovery-{uid}@example.com");
+    let username = format!("oauthrecover_{}", uid.as_u128() % 1_000_000);
+    let google_id = format!("google-recovery-{uid}");
+    let new_password = test_credential("oauth-recovery");
+
+    sqlx::query(
+        r#"INSERT INTO users
+           (id, username, email, password_hash, status, dm_privacy, google_id, email_verified, created_at, token_version)
+           VALUES ($1, $2, $3, 'oauth', 'online', 'friends', $4, TRUE, NOW(), 0)"#,
+    )
+    .bind(user_id)
+    .bind(&username)
+    .bind(&email)
+    .bind(&google_id)
+    .execute(&state.db)
+    .await
+    .expect("failed to seed OAuth-only recovery user");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/forgot-password")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "email": email })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "OAuth-only forgot-password failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let reset_token_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        reset_token_count, 1,
+        "OAuth-only account needs a recovery token"
+    );
+
+    let reset_token_plain = Uuid::new_v4().to_string();
+    let mut hasher = Sha256::new();
+    hasher.update(reset_token_plain.as_bytes());
+    let reset_token_hash = BASE64.encode(hasher.finalize());
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    sqlx::query(
+        "UPDATE password_reset_tokens SET token_hash = $1, expires_at = $2 WHERE user_id = $3",
+    )
+    .bind(reset_token_hash)
+    .bind(expires_at)
+    .bind(user_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/reset-password")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "token": reset_token_plain,
+                "new_password": new_password,
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "OAuth-only reset-password failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let recovered =
+        sqlx::query_as::<_, voxpery_server::models::User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_ne!(recovered.password_hash, "oauth");
+    assert_eq!(recovered.google_id.as_deref(), Some(google_id.as_str()));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "identifier": email,
+                "password": new_password,
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "recovered OAuth account could not password-login: {}",
         String::from_utf8_lossy(&body)
     );
 }

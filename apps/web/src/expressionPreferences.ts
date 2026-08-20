@@ -4,10 +4,12 @@ const RECENT_EMOJI_KEY = 'voxpery-expression-recent-emoji-v1'
 const RECENT_GIF_KEY = 'voxpery-expression-recent-gif-v1'
 const RECENT_STICKER_KEY = 'voxpery-expression-recent-sticker-v1'
 const FAVORITE_GIF_KEY = 'voxpery-expression-favorite-gif-v1'
+const FAVORITE_STICKER_KEY = 'voxpery-expression-favorite-sticker-v1'
 
 const MAX_RECENT_EMOJI = 24
 const MAX_RECENT_MEDIA = 16
 const MAX_FAVORITE_GIFS = 50
+const MAX_FAVORITE_STICKERS = 50
 
 function storageAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
@@ -127,5 +129,24 @@ export function toggleFavoriteGif(gif: GifOption): GifOption[] {
     ? current.filter((value) => value.url !== normalized.url)
     : putFirst(current, normalized, (value) => value.url, MAX_FAVORITE_GIFS)
   writeArray(FAVORITE_GIF_KEY, next)
+  return next
+}
+
+export function getFavoriteStickers(): StickerOption[] {
+  return readArray<unknown>(FAVORITE_STICKER_KEY)
+    .map(normalizeSticker)
+    .filter((value): value is StickerOption => value !== null)
+    .slice(0, MAX_FAVORITE_STICKERS)
+}
+
+export function toggleFavoriteSticker(sticker: StickerOption): StickerOption[] {
+  const normalized = normalizeSticker(sticker)
+  if (!normalized) return getFavoriteStickers()
+  const current = getFavoriteStickers()
+  const exists = current.some((value) => value.imageUrl === normalized.imageUrl)
+  const next = exists
+    ? current.filter((value) => value.imageUrl !== normalized.imageUrl)
+    : putFirst(current, normalized, (value) => value.imageUrl, MAX_FAVORITE_STICKERS)
+  writeArray(FAVORITE_STICKER_KEY, next)
   return next
 }

@@ -1268,13 +1268,20 @@ async fn join_server(
     .execute(&state.db)
     .await?;
 
+    // Claims can outlive a profile rename; broadcast the current display casing.
+    let current_username =
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+            .bind(claims.sub)
+            .fetch_one(&state.db)
+            .await?;
+
     // Broadcast MemberJoined event
     crate::ws::publish_event(
         &state,
         WsEvent::MemberJoined {
             server_id: server.id,
             user_id: claims.sub,
-            username: claims.username.clone(),
+            username: current_username,
         },
     )
     .await;

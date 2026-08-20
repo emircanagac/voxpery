@@ -50,6 +50,8 @@ Important behavior:
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`
+  - Usernames may contain ASCII letters in either case, digits, underscores, and periods. Display casing is preserved, while uniqueness, login, search, mentions, and friend lookup remain case-insensitive.
+  - A username can be changed once every 7 days; the API is the authority for the cooldown.
 - `GET /api/auth/check-username?username=...`
 - `POST /api/auth/change-password`
 - `POST /api/auth/forgot-password`
@@ -70,7 +72,8 @@ Important behavior:
 Notes:
 
 - `forgot-password` always returns a generic success message to prevent account enumeration.
-- For unknown email (or Google-only account), no reset email is sent.
+- Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
+- Connecting Google Sign-In to an existing email/password account preserves the existing local password.
 - `email/request-verification` can optionally change the current account email and issues a fresh verification token.
 - `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
 

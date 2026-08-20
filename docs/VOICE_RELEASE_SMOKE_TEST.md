@@ -28,6 +28,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] On web and desktop, voice ping starts in the measuring state, uses a real backend WebSocket RTT while RTC settles, and switches to the selected ICE path only after stable samples; joining another channel or reconnecting never flashes a stale or implausible `1 ms` value.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
+- [ ] With 3-5 members in one channel, every member can hear every other microphone; reconnecting one member restores all expected subscriptions without duplicate or missing audio.
 
 ## 2. Reconnect and Revocation
 
@@ -44,6 +45,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User A hears the local camera-stop cue; User B does not hear a channel-wide camera cue.
 - [ ] Starting camera again plays one local camera-start cue for User A.
 - [ ] Switching from voice to a text channel and back keeps camera UI stable.
+- [ ] On a real mobile device with front and rear cameras, User A can switch both directions from the local preview without leaving voice or restarting the remote camera tile; one-camera devices do not show the switch control.
 
 ## 4. Screen Share
 
@@ -58,7 +60,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B chooses `Watch stream`; both `ScreenShare` and `ScreenShareAudio` subscribe, while User A's microphone remains continuously audible.
 - [ ] While User B watches a stream, hiding/minimizing Voxpery pauses screen video but keeps screen-share audio continuous; restoring the app resumes video without an audio gap or replayed media cue.
 - [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, `dtx: false`, and `red: true`.
-- [ ] Sharing a source/platform that provides no audio still publishes video and shows User A one non-fatal `Sharing without audio` notice.
+- [ ] Sharing a source/platform that provides no audio still publishes video without a misleading warning toast.
 - [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
 - [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.
 - [ ] On a clean macOS install, starting screen share prompts for Screen & System Audio Recording access and Voxpery appears in that Privacy & Security list.
@@ -91,9 +93,13 @@ Minimum quick check for other voice releases:
 ## 6. Mobile Layout
 
 - [ ] Voice bar fits narrow mobile width without horizontal overflow.
+- [ ] Long channel names remain on one ellipsized header line; the composer shows attach, one expression picker entry point, and send without wrapping.
+- [ ] Message actions open from one compact overflow menu and remain reachable without covering author or timestamp text.
 - [ ] Camera and screen tiles do not overlap the composer, bottom voice bar, or member sheet.
+- [ ] The mobile camera preview exposes a reachable front/rear switch only when a second camera is available.
 - [ ] Remote media hide/show controls are reachable on mobile.
 - [ ] Member sheet can be opened and closed while in voice.
+- [ ] On a real Android or iOS browser, two-way microphone audio remains continuous while 3-5 users are connected; diagnostics report the mobile 48 kbps mono Opus profile and UI interaction or scrolling does not freeze direct remote playback.
 
 ## 7. Sign-off
 

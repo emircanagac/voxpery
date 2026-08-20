@@ -44,7 +44,7 @@ describe('theme preferences', () => {
     expect(normalizeHexColor('12af90')).toBeNull()
   })
 
-  it('removes obsolete custom accent preferences when saving appearance', () => {
+  it('persists and applies a safe custom accent independently of the theme', () => {
     localStorage.setItem(THEME_ACCENT_STORAGE_KEY, '#2d8f70')
     const saved = setThemePreference({
       theme: 'dark',
@@ -55,14 +55,19 @@ describe('theme preferences', () => {
 
     expect(saved).toEqual({
       theme: 'dark',
-      customAccent: null,
+      customAccent: '#2d8f70',
       customThemeColor: null,
       customThemeMode: 'dark',
     })
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
-    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBe('#2d8f70')
     expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(document.documentElement.dataset.customAccent).toBeUndefined()
+    expect(document.documentElement.dataset.customAccent).toBe('true')
+    expect(document.documentElement.style.getPropertyValue('--user-accent')).toBe('#2d8f70')
+    expect(getContrastRatio(
+      document.documentElement.style.getPropertyValue('--user-accent-contrast'),
+      '#2d8f70',
+    )).toBeGreaterThanOrEqual(4.5)
   })
 
   it('restores the stored preference during startup without user interaction', () => {

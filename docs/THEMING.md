@@ -1,6 +1,6 @@
 # Theme System
 
-Voxpery ships with four local appearance themes: Voxpery Blue, Dark, Rose, and Light. Users can also choose a custom accent color. Preferences are stored on the current device and are shared by the web app and the Tauri webview through browser storage.
+Voxpery ships with three built-in appearance themes: Voxpery Blue, Dark, and Light. Users can also build a full custom palette from one color. Every theme supports an independent accent override for buttons, selected states, links, focus rings, and default avatars. Preferences are stored on the current device and are shared by the web app and the Tauri webview through browser storage.
 
 ## Startup
 
@@ -16,7 +16,7 @@ Voxpery ships with four local appearance themes: Voxpery Blue, Dark, Rose, and L
 - Keep status, warning, and destructive colors semantic; they are not user accent colors.
 - Do not add a light theme by filtering or inverting the rendered application. Each surface must retain intentional contrast.
 
-Custom accents update the primary accent and button tokens. Button text is selected from dark or white text using the higher WCAG contrast ratio.
+Custom accents update the primary accent and button tokens without rebuilding the selected theme surfaces. Button text is selected from dark or white text using the higher WCAG contrast ratio. Resetting only the accent returns to the selected theme's automatic accent; `Reset defaults` restores the full Voxpery Blue preference.
 
 ## Validation
 

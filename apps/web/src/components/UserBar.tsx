@@ -142,9 +142,9 @@ function hasOnlyUsernameChars(value: string) {
   for (let i = 0; i < value.length; i += 1) {
     const ch = value[i]
     const code = value.charCodeAt(i)
-    const isLowerLetter = code >= 97 && code <= 122
+    const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
     const isDigit = code >= 48 && code <= 57
-    if (!isLowerLetter && !isDigit && ch !== '_' && ch !== '.') return false
+    if (!isLetter && !isDigit && ch !== '_' && ch !== '.') return false
   }
   return true
 }
@@ -2269,7 +2269,7 @@ export default function UserBar() {
       ), document.body)}
       {showUsernameModal && typeof document !== 'undefined' && createPortal((() => {
         const changedAt = user?.username_changed_at ? new Date(user.username_changed_at).getTime() : null
-        const nextAllowedMs = changedAt ? changedAt + 30 * 24 * 60 * 60 * 1000 : null
+        const nextAllowedMs = changedAt ? changedAt + 7 * 24 * 60 * 60 * 1000 : null
         const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
         const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
         return (
@@ -2279,7 +2279,7 @@ export default function UserBar() {
               <h2>Change username</h2>
               <p className="pw-modal-subtitle">3–32 characters, letters, numbers, underscores, and periods.</p>
               <p className="pw-modal-subtitle" style={{ marginTop: 4, fontSize: 13 }}>
-                You can only change your username once every 30 days.
+                You can only change your username once every 7 days.
                 {cannotChangeYet && nextAllowedDate && (
                   <> Next change allowed: <strong>{nextAllowedDate.toLocaleDateString('en-US', { dateStyle: 'long' })}</strong>.</>
                 )}
@@ -2297,10 +2297,10 @@ export default function UserBar() {
                     value={usernameEdit}
                     disabled={cannotChangeYet}
                     onChange={(e) => {
-                      const v = e.target.value.toLowerCase()
+                      const v = e.target.value
                       setUsernameEdit(v)
                       setUsernameError(null)
-                      if (v.trim() === user?.username?.toLowerCase()) {
+                      if (v.trim() === user?.username) {
                         setUsernameAvailable(true)
                         return
                       }
@@ -2387,10 +2387,10 @@ export default function UserBar() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={cannotChangeYet || usernameSaving || !isValidUsername(usernameEdit.trim()) || usernameEdit.trim() === user?.username?.toLowerCase() || usernameAvailable !== true}
+                disabled={cannotChangeYet || usernameSaving || !isValidUsername(usernameEdit.trim()) || usernameEdit.trim() === user?.username || usernameAvailable !== true}
                 onClick={async () => {
                   const v = usernameEdit.trim()
-                  if (v.toLowerCase() === user?.username?.toLowerCase() || v.length < 3) return
+                  if (v === user?.username || v.length < 3) return
                   setUsernameSaving(true)
                   setUsernameError(null)
                   try {

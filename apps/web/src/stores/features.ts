@@ -8,6 +8,12 @@ interface FeatureState {
     loadFeatures: () => Promise<void>
 }
 
+const FEATURE_RETRY_DELAYS_MS = [300, 1_000]
+
+function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 export const useFeatureStore = create<FeatureState>((set, get) => ({
     features: null,
     loading: false,
@@ -17,12 +23,20 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
         if (current.loading || current.features) return
 
         set({ loading: true, error: null })
-        try {
-            const features = await systemApi.getFeatures()
-            set({ features, loading: false, error: null })
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            set({ loading: false, error: message || 'Could not load server features' })
+        let lastError: unknown
+        for (let attempt = 0; attempt <= FEATURE_RETRY_DELAYS_MS.length; attempt += 1) {
+            try {
+                const features = await systemApi.getFeatures()
+                set({ features, loading: false, error: null })
+                return
+            } catch (err) {
+                lastError = err
+                const delay = FEATURE_RETRY_DELAYS_MS[attempt]
+                if (delay !== undefined) await wait(delay)
+            }
         }
+
+        const message = lastError instanceof Error ? lastError.message : String(lastError ?? '')
+        set({ loading: false, error: message || 'Could not load server features' })
     },
 }))

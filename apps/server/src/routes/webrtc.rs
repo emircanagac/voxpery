@@ -91,11 +91,7 @@ async fn turn_credentials(
     )
     .await?;
 
-    tracing::info!(
-        "User {} ({}) requested TURN credentials",
-        claims.username,
-        claims.sub
-    );
+    tracing::info!("User {} requested TURN credentials", claims.sub);
 
     let urls: Vec<String> = state
         .turn_urls
@@ -336,6 +332,12 @@ async fn livekit_token(
 
     let room = query.channel_id;
     let identity = claims.sub.to_string();
+    let current_username =
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+            .bind(claims.sub)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound("User not found".into()))?;
     // Enforce server moderation over media publish in voice.
     // Tuple shape: (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
     let can_publish = !state
@@ -349,7 +351,7 @@ async fn livekit_token(
         &LivekitClaims {
             iss: api_key,
             sub: identity.clone(),
-            name: claims.username.clone(),
+            name: current_username,
             nbf,
             exp,
             video: LivekitVideoGrant {
@@ -415,13 +417,8 @@ mod tests {
         let body = br#"{"event":"participant_left","room":{"name":"room"},"participant":{"identity":"user","sid":"PA_test"}}"#;
         let token = signed_webhook(body, &api_key, &api_secret);
 
-        let event = verify_livekit_webhook(
-            body,
-            &format!("Bearer {token}"),
-            &api_key,
-            &api_secret,
-        )
-        .expect("signed webhook should verify");
+        let event = verify_livekit_webhook(body, &format!("Bearer {token}"), &api_key, &api_secret)
+            .expect("signed webhook should verify");
 
         assert_eq!(event.event, "participant_left");
         assert_eq!(event.room.expect("room").name, "room");

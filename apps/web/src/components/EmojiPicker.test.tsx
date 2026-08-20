@@ -32,6 +32,18 @@ describe('EmojiPicker', () => {
     expect(screen.getByRole('button', { name: 'grinning face' })).toBeVisible()
   })
 
+  it('uses the same browse, recent, and favorites collections for stickers', () => {
+    render(<EmojiPicker initialMode="sticker" onSelect={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Browse' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Recent' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Favorites' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Party to favorites' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Favorites' }))
+    expect(screen.getByRole('button', { name: 'Send Party' })).toBeVisible()
+  })
+
   it('keeps reaction mode compact and free of media tabs', () => {
     render(<EmojiPicker compact reactionMode onSelect={vi.fn()} />)
 

@@ -113,7 +113,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
     await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
     await expect(page.getByText('Pinned release note')).toBeVisible()
-    await expect(page.locator('.feedback-dock .feedback-card').getByRole('heading', { name: 'Share feedback' })).toBeVisible()
+    await expect(page.locator('.feedback-dock .feedback-card').getByRole('heading', { name: 'Share feedback on GitHub' })).toBeVisible()
 
     const content = `Server smoke message ${Date.now()}`
     const messageInput = page.getByPlaceholder('Message #general')
@@ -167,6 +167,25 @@ test.describe('mocked core UI smoke', () => {
     const picker = page.locator('.chat-emoji-picker')
     await expect(picker).toBeVisible()
     await expect.poll(async () => picker.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(420)
+    await expect.poll(async () => page.evaluate(() => {
+      const pickerRect = document.querySelector('.chat-emoji-picker')?.getBoundingClientRect()
+      const chatRect = document.querySelector('.chat-area')?.getBoundingClientRect()
+      const inputRect = document.querySelector('.message-input-wrapper')?.getBoundingClientRect()
+      if (!pickerRect || !chatRect || !inputRect) return false
+      return pickerRect.left >= chatRect.left + 7
+        && pickerRect.right <= chatRect.right - 7
+        && pickerRect.top >= chatRect.top + 7
+        && pickerRect.bottom <= inputRect.top + 1
+    })).toBe(true)
+    await expect.poll(async () => page.locator('.chat-gif-grid').evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        display: style.display,
+        columns: style.gridTemplateColumns.split(' ').length,
+        masonryColumns: element.querySelectorAll('.chat-gif-column').length,
+        overflowsHorizontally: element.scrollWidth > element.clientWidth + 1,
+      }
+    })).toEqual({ display: 'grid', columns: 2, masonryColumns: 2, overflowsHorizontally: false })
 
     await page.getByRole('button', { name: 'Add Celebration to favorites' }).click()
     await page.getByRole('button', { name: 'Favorites', exact: true }).click()
@@ -181,9 +200,21 @@ test.describe('mocked core UI smoke', () => {
     })).toEqual({ fit: 'contain', usesNaturalRatio: true })
     expect(state.messagesByChannelId[general.id]?.some((message) => message.content.startsWith('![gif]('))).toBe(true)
 
+    await page.getByRole('button', { name: 'Insert emoji' }).click()
+    await expect(page.getByRole('tablist', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
+    await expect.poll(async () => page.locator('.chat-emoji-grid').evaluate((element) => (
+      getComputedStyle(element).gridTemplateColumns.split(' ').length
+    ))).toBe(10)
+    await page.keyboard.press('Escape')
+
     await page.getByRole('button', { name: 'Browse GIFs' }).click()
     await page.getByRole('button', { name: 'Favorites', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Remove Celebration from favorites' })).toBeVisible()
+
+    await page.getByRole('tab', { name: 'Sticker' }).click()
+    const stickerCollections = page.getByRole('tablist', { name: 'Sticker collections' })
+    await expect(stickerCollections.getByRole('button')).toHaveCount(3)
+    await expect(stickerCollections.getByRole('button').allTextContents()).resolves.toEqual(['Browse', 'Recent', 'Favorites'])
   })
 
   test('keeps first-message text fixed while optimistic delivery is confirmed', async ({ page }) => {

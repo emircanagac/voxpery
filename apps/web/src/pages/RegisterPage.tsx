@@ -10,6 +10,7 @@ import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
+import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 
 function GoogleLogoIcon() {
     return (
@@ -122,7 +123,7 @@ export default function RegisterPage() {
                     <input
                         type="text"
                         value={username}
-                        onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                        onChange={(e) => setUsername(e.target.value)}
                         placeholder="your_username"
                         required
                         minLength={3}
@@ -131,13 +132,13 @@ export default function RegisterPage() {
                     {username.length > 0 && username.length < 3 && (
                         <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>At least 3 characters</div>
                     )}
-                    {username.length >= 3 && !/^[a-z0-9_.]+$/.test(username) && (
+                    {username.length >= 3 && !/^[a-z0-9_.]+$/i.test(username) && (
                         <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Only letters, numbers, underscores, and periods</div>
                     )}
-                    {username.length >= 3 && /^[a-z0-9_.]+$/.test(username) && (username.startsWith('_') || username.startsWith('.') || username.endsWith('_') || username.endsWith('.')) && (
+                    {username.length >= 3 && /^[a-z0-9_.]+$/i.test(username) && (username.startsWith('_') || username.startsWith('.') || username.endsWith('_') || username.endsWith('.')) && (
                         <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Cannot start or end with '_' or '.'</div>
                     )}
-                    {username.length >= 3 && /^[a-z0-9_.]+$/.test(username) && (username.includes('..') || username.includes('__') || username.includes('._') || username.includes('_.')) && (
+                    {username.length >= 3 && /^[a-z0-9_.]+$/i.test(username) && (username.includes('..') || username.includes('__') || username.includes('._') || username.includes('_.')) && (
                         <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Cannot contain consecutive '_' or '.'</div>
                     )}
                 </div>
@@ -192,6 +193,8 @@ export default function RegisterPage() {
                 <button className="auth-btn" type="submit" disabled={loading || (turnstileSiteKey && !captchaToken)}>
                     {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
+
+                <AuthIntegrationStatus />
 
                 {googleOAuthEnabled && (
                     <>

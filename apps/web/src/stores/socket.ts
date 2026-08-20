@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createWebSocket } from '../api'
 import { reportObservabilityEvent } from '../observability'
+import { createSecureRandomFraction } from '../secureId'
 
 type WsListener = (data: unknown) => void
 type ReconnectListener = () => void
@@ -11,7 +12,10 @@ const RECONNECT_MAX_DELAY_MS = 30000
 const RECONNECT_MAX_ATTEMPTS = 8
 const RECONNECT_JITTER_RATIO = 0.25
 
-export function websocketReconnectDelayMs(attempt: number, random: () => number = Math.random): number {
+export function websocketReconnectDelayMs(
+    attempt: number,
+    random: () => number = createSecureRandomFraction,
+): number {
     const exponent = Math.max(0, attempt - 1)
     const rawDelay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** exponent)
     const jitter = 1 + (random() * 2 - 1) * RECONNECT_JITTER_RATIO

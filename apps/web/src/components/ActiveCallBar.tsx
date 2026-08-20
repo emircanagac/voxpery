@@ -1,9 +1,10 @@
-import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, Users, Video, VideoOff, Wifi } from 'lucide-react'
+import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
+import { shouldUseLightweightMobileVoicePipeline } from '../webrtc/hooks/useAudioEngine'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -25,6 +26,7 @@ import { resolveAvatarUrl } from '../api'
 import {
   createRemoteAudioKindPlaybackStream,
   remoteMediaVisibilityKey,
+  shouldUseDirectRemoteAudioPlayback,
   shouldMuteRemoteAudioPlayback,
   type RemoteAudioKind,
   type RemoteMediaKind,
@@ -112,6 +114,7 @@ function RemoteVideoTrack({ track }: { track: MediaStreamTrack }) {
 
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
   const navigate = useNavigate()
+  const lightweightMobileVoice = useMemo(() => shouldUseLightweightMobileVoicePipeline(), [])
   const {
     state,
     joinVoice,
@@ -120,6 +123,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     stopScreenShare,
     startCamera,
     stopCamera,
+    switchCamera,
     setVoiceControls,
     setRemoteMediaSubscribed,
     playVoiceCue,
@@ -220,6 +224,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false)
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>(() => readScreenShareQuality())
   const [showCameraConfirm, setShowCameraConfirm] = useState(false)
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
   )
@@ -319,10 +324,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       screenPreviewCleanupRef.current = null
     }
   }, [state.screenStream])
-  useEffect(() => {
-    deafenedRef.current = deafened || serverDeafened
-  }, [deafened, serverDeafened])
-
   const resolvePeerVolumeKey = useCallback((peerId: string) => {
     const member = members.find((candidate) => candidate.user_id === peerId)
       ?? members.find((candidate) => candidate.username === peerId)
@@ -376,7 +377,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     trackIds: string,
     element: VoxperyAudioElement,
   ) => {
-    if (kind === 'screen' || playbackStream.getAudioTracks().length === 0) {
+    if (shouldUseDirectRemoteAudioPlayback(kind, lightweightMobileVoice, playbackStream.getAudioTracks().length)) {
       disposeRemoteVoicePlaybackGraph(playbackKey)
       element.srcObject = playbackStream
       element.__voxpery_trackIds = trackIds
@@ -421,7 +422,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       element.srcObject = playbackStream
       element.__voxpery_trackIds = trackIds
     }
-  }, [disposeRemoteVoicePlaybackGraph, getRemoteVoiceAudioContext])
+  }, [disposeRemoteVoicePlaybackGraph, getRemoteVoiceAudioContext, lightweightMobileVoice])
 
   const ensureRemoteAudioPlayback = useCallback((playbackKey: string, el: HTMLAudioElement) => {
     const retryTimers = remoteAudioRetryTimerRef.current
@@ -553,8 +554,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return () => window.removeEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, onPeerVolumeChanged)
   }, [])
   const effectiveDeafened = deafened || serverDeafened
+  // Playback callbacks can run between a control click and React's next effect.
+  // Keep this ref current during render and update it synchronously in controls.
+  deafenedRef.current = effectiveDeafened
 
   useEffect(() => {
+    deafenedRef.current = effectiveDeafened
     outputVolumeRef.current = outputVolume
     applyOutputVolumeToElements(outputVolume / 100)
   }, [applyOutputVolumeToElements, effectiveDeafened, outputVolume, peerVolumeByUserId])
@@ -961,6 +966,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     micTestAutoDeafenedRef.current = false
     const stream = localStreamRef.current ?? state.localStream
     const nextDeafened = !deafened
+    deafenedRef.current = nextDeafened || serverDeafened
+    applyOutputVolumeToElements(outputVolumeRef.current / 100)
     if (nextDeafened) {
       prevMutedBeforeDeafenRef.current = muted
       if (stream) {
@@ -992,6 +999,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
       if (enabled) {
         if (deafened) return
+        deafenedRef.current = true
+        applyOutputVolumeToElements(outputVolumeRef.current / 100)
         micTestPrevMutedRef.current = muted
         micTestAutoDeafenedRef.current = true
         if (stream) {
@@ -1006,6 +1015,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (!micTestAutoDeafenedRef.current) return
       micTestAutoDeafenedRef.current = false
       const restoreMuted = micTestPrevMutedRef.current
+      deafenedRef.current = false
+      applyOutputVolumeToElements(outputVolumeRef.current / 100)
       if (stream) {
         const shouldMuteTrack = restoreMuted || serverMuted || serverDeafened
         for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
@@ -1019,6 +1030,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return () => window.removeEventListener(MIC_TEST_AUTO_DEAFEN_EVENT, onMicTestAutoDeafen as EventListener)
   }, [
     deafened,
+    applyOutputVolumeToElements,
     muted,
     serverDeafened,
     serverMuted,
@@ -1048,15 +1060,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       void 0
     }
     try {
-      const result = await startScreenShare()
+      await startScreenShare()
       playVoiceCue('screen-start')
-      if (!result.audioPublished) {
-        pushToast({
-          level: 'info',
-          title: 'Sharing without audio',
-          message: 'No system or tab audio track was provided. Choose a supported tab or enable audio in the share picker to include sound.',
-        })
-      }
     } catch (e) {
       const permissionDenied = isMediaPermissionDeniedError(e, 'screen')
       const message = permissionDenied
@@ -1076,6 +1081,20 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       return
     }
     setShowCameraConfirm(true)
+  }
+
+  const handleSwitchCamera = async () => {
+    if (isSwitchingCamera || !state.cameraStream || !state.canSwitchCamera) return
+    setIsSwitchingCamera(true)
+    try {
+      await switchCamera()
+    } catch (error) {
+      const message = mapCameraError(error)
+        ?? (error instanceof Error ? error.message : 'Could not switch camera.')
+      pushToast({ level: 'error', title: 'Camera switch failed', message })
+    } finally {
+      setIsSwitchingCamera(false)
+    }
   }
 
   useEffect(() => {
@@ -1284,6 +1303,19 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
+                      {isMobileViewport && state.canSwitchCamera && (
+                        <button
+                          type="button"
+                          className="screen-share-controls-btn"
+                          title={state.cameraFacingMode === 'user' ? 'Switch to rear camera' : 'Switch to front camera'}
+                          aria-label={state.cameraFacingMode === 'user' ? 'Switch to rear camera' : 'Switch to front camera'}
+                          aria-busy={isSwitchingCamera}
+                          disabled={isSwitchingCamera}
+                          onClick={() => void handleSwitchCamera()}
+                        >
+                          <SwitchCameraIcon size={16} />
+                        </button>
+                      )}
                       <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
                         const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                         if (!tile) return

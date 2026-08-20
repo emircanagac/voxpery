@@ -19,6 +19,15 @@ const THEME_GRID_OPTIONS = [
   THEME_OPTIONS.find((option) => option.id === 'light')!,
 ] as const
 
+const ACCENT_SWATCHES = [
+  { label: 'Default blue', color: '#4f7fd8' },
+  { label: 'Emerald', color: '#2f9b78' },
+  { label: 'Rose', color: '#c9578f' },
+  { label: 'Amber', color: '#d9771c' },
+  { label: 'Violet', color: '#7955c7' },
+  { label: 'Coral', color: '#d65f5f' },
+] as const
+
 export default function ThemeSettings() {
   const [preference, setPreference] = useState<ThemePreference>(() => getStoredThemePreference())
   const activeTheme = getThemeOption(preference.theme)
@@ -28,6 +37,11 @@ export default function ThemeSettings() {
     normalizeHexColor(themeColorDraft) ?? activeTheme.defaultAccent,
     'dark',
   )
+  const automaticAccent = preference.customThemeColor
+    ? customThemePalette.accentColor
+    : activeTheme.defaultAccent
+  const [accentDraft, setAccentDraft] = useState(preference.customAccent ?? automaticAccent)
+  const [accentError, setAccentError] = useState<string | null>(null)
   const isDefaultPreference = preference.theme === DEFAULT_THEME
     && !preference.customThemeColor
     && !preference.customAccent
@@ -43,12 +57,13 @@ export default function ThemeSettings() {
     const saved = savePreference({
       ...preference,
       theme,
-      customAccent: null,
       customThemeColor: null,
       customThemeMode: nextTheme.colorScheme,
     })
     setThemeColorError(null)
     setThemeColorDraft(nextTheme.defaultAccent)
+    setAccentError(null)
+    if (!saved.customAccent) setAccentDraft(nextTheme.defaultAccent)
     return saved
   }
 
@@ -62,16 +77,34 @@ export default function ThemeSettings() {
     setThemeColorDraft(normalized)
     savePreference({
       ...preference,
-      customAccent: null,
       customThemeColor: normalized,
       customThemeMode: 'dark',
     })
   }
 
+  const selectAccent = (color: string) => {
+    const normalized = normalizeHexColor(color)
+    if (!normalized) {
+      setAccentError('Enter a six-digit hex color such as #4f7fd8.')
+      return
+    }
+    setAccentError(null)
+    setAccentDraft(normalized)
+    savePreference({ ...preference, customAccent: normalized })
+  }
+
+  const resetAccent = () => {
+    setAccentError(null)
+    setAccentDraft(automaticAccent)
+    savePreference({ ...preference, customAccent: null })
+  }
+
   const resetDefaults = () => {
     const defaultTheme = getThemeOption(DEFAULT_THEME)
     setThemeColorError(null)
+    setAccentError(null)
     setThemeColorDraft(defaultTheme.defaultAccent)
+    setAccentDraft(defaultTheme.defaultAccent)
     savePreference({
       theme: DEFAULT_THEME,
       customAccent: null,
@@ -205,6 +238,67 @@ export default function ThemeSettings() {
         </div>
       </div>}
       {themeColorError && <div className="theme-accent-error" role="alert">{themeColorError}</div>}
+
+      <div className="theme-accent-panel" aria-labelledby="theme-accent-title">
+        <div className="theme-custom-panel-copy">
+          <strong id="theme-accent-title">Accent color</strong>
+          <span>Change buttons, active states, links, and default avatars without changing the theme.</span>
+        </div>
+        <div className="theme-accent-controls">
+          <div className="theme-accent-swatches" role="group" aria-label="Accent color presets">
+            {ACCENT_SWATCHES.map(({ label, color }) => {
+              const selected = preference.customAccent === color
+              return <button
+                key={color}
+                type="button"
+                className={`theme-accent-swatch ${selected ? 'is-selected' : ''}`}
+                style={{ '--accent-swatch-color': color } as CSSProperties}
+                onClick={() => selectAccent(color)}
+                title={`${label} (${color})`}
+                aria-label={`Use ${label} accent`}
+                aria-pressed={selected}
+              />
+            })}
+          </div>
+          <div className="theme-accent-custom">
+            <label className="theme-color-picker" title="Choose accent color">
+              <input
+                type="color"
+                value={normalizeHexColor(accentDraft) ?? automaticAccent}
+                onChange={(event) => selectAccent(event.target.value)}
+                aria-label="Choose accent color"
+              />
+            </label>
+            <input
+              className={`theme-accent-input ${accentError ? 'is-invalid' : ''}`}
+              value={accentDraft}
+              onChange={(event) => setAccentDraft(event.target.value)}
+              onBlur={() => selectAccent(accentDraft)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  selectAccent(accentDraft)
+                }
+              }}
+              aria-label="Custom accent hex color"
+              aria-invalid={Boolean(accentError)}
+              spellCheck={false}
+              maxLength={7}
+            />
+            <button
+              type="button"
+              className="theme-accent-reset"
+              onClick={resetAccent}
+              disabled={!preference.customAccent}
+              title="Use the theme accent"
+              aria-label="Reset accent color"
+            >
+              <RotateCcw size={14} aria-hidden />
+            </button>
+          </div>
+        </div>
+        {accentError && <div className="theme-accent-error" role="alert">{accentError}</div>}
+      </div>
     </section>
   )
 }

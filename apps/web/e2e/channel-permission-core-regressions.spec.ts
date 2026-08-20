@@ -133,6 +133,48 @@ test.describe('mocked channel permission regressions', () => {
     expect(state.messagesByChannelId[general.id].some((message) => message.content === content)).toBe(true)
   })
 
+  test('keeps a bottom-anchored chat at the latest row when a reaction adds height', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+
+    const messages = Array.from({ length: 48 }, (_, index) =>
+      buildServerMessage(general.id, `Reaction anchor message ${index + 1}`, {
+        id: index === 47 ? 'reaction-bottom-last' : `reaction-bottom-${index}`,
+        created_at: new Date(Date.UTC(2026, 0, 15, 10, index)).toISOString(),
+      })
+    )
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: messages },
+    })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+
+    const scroller = page.locator('.chat-messages')
+    const lastRow = page.locator('[data-message-id="reaction-bottom-last"]')
+    await expect(lastRow).toBeVisible()
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect.poll(() => scroller.evaluate((element) =>
+      Math.round(element.scrollHeight - element.scrollTop - element.clientHeight)
+    )).toBeLessThanOrEqual(4)
+
+    await lastRow.hover()
+    await lastRow.getByRole('button', { name: 'Add reaction' }).click()
+    await page.getByRole('button', { name: 'thumbs up' }).click()
+    await expect(lastRow.locator('.message-reaction-btn')).toContainText('1')
+
+    await expect.poll(() => scroller.evaluate((element) =>
+      Math.round(element.scrollHeight - element.scrollTop - element.clientHeight)
+    )).toBeLessThanOrEqual(4)
+  })
+
   test('exposes moderator controls only when channel permission bits allow them', async ({ page }) => {
     const server = buildCoreServer({ owner_id: 'server-owner' })
     const channels = buildCoreChannels(server.id).map((channel) => ({

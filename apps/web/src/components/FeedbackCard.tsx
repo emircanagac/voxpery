@@ -9,7 +9,7 @@ export default function FeedbackCard() {
     <section className="feedback-card" aria-labelledby="app-feedback-title">
       <div className="feedback-card-heading">
         <MessageSquarePlus size={15} aria-hidden="true" />
-        <h2 id="app-feedback-title">Share feedback</h2>
+        <h2 id="app-feedback-title">Share feedback on GitHub</h2>
       </div>
       <div className="feedback-card-actions">
         <button type="button" onClick={() => void openExternalUrl(BUG_REPORT_URL)}>
