@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberInfo } from '../api'
@@ -370,6 +370,55 @@ describe('ActiveCallBar regressions', () => {
 
     expect(voiceAudio.muted).toBe(true)
     expect(screenAudio.muted).toBe(false)
+  })
+
+  it('does not restart remote voice or screen audio when speaking indicators change', () => {
+    const sharerMic = mediaTrack('audio', 'peer-1-mic')
+    const screenAudio = mediaTrack('audio', 'peer-screen-audio')
+    const speakerMic = mediaTrack('audio', 'peer-2-mic')
+    markRemoteAudioTrackSource(sharerMic, 'voice')
+    markRemoteAudioTrackSource(screenAudio, 'screen')
+    markRemoteAudioTrackSource(speakerMic, 'voice')
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+
+    useAppStore.setState({
+      members: [
+        ...members,
+        {
+          user_id: 'peer-2',
+          username: 'viewer',
+          avatar_url: null,
+          role: 'member',
+          status: 'online',
+          role_color: null,
+        },
+      ],
+      voiceStates: {
+        [localUser.id]: voiceChannel.id,
+        'peer-1': voiceChannel.id,
+        'peer-2': voiceChannel.id,
+      },
+    })
+
+    renderActiveCallBar({
+      remoteStreams: new Map([
+        ['peer-1', new MediaStream([sharerMic, screenAudio])],
+        ['peer-2', new MediaStream([speakerMic])],
+      ]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      livekit: {
+        roomState: 'connected',
+        participants: 3,
+        remoteStreams: 2,
+      },
+    })
+    play.mockClear()
+
+    act(() => useAppStore.getState().setVoiceSpeaking(['peer-2'], false))
+    act(() => useAppStore.getState().setVoiceSpeaking(['peer-1', 'peer-2'], true))
+    act(() => useAppStore.getState().setVoiceSpeaking([], false))
+
+    expect(play).not.toHaveBeenCalled()
   })
 
   it('uses the configured shortcut while the web tab is focused', () => {

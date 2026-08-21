@@ -60,6 +60,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Voice access revocation works: kick, ban, moderator disconnect, and removing `Connect to Voice` immediately remove the affected user from the active voice room.
 - [ ] Camera self-preview recovers after switching from an active voice channel to another chat, DM, or server and then returning, while the remote user keeps seeing the camera feed.
 - [ ] Remote camera and screen-share tiles can be hidden and shown again without leaving voice; hiding media unsubscribes its remote publications for that viewer while normal microphone audio continues.
+- [ ] In a call with at least three participants, local or remote speaking-state changes do not restart, mute, or interrupt watched screen-share audio; voice and stream audio remain independently audible.
 - [ ] Screen share quality presets match the UI summary: Presentation uses 1080p30 at 4 Mbps, Video uses 1080p60 at 6 Mbps, Gaming uses 1080p60 at 8 Mbps, and Auto does not promote monitor sharing to Gaming.
 - [ ] Hiding or minimizing the app pauses incoming remote video subscriptions while voice audio continues, and restoring visibility resumes video without replaying media-start cues.
 - [ ] Moderation flows (kick/ban/timeout/clear-timeout) work.

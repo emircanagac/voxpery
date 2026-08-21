@@ -1,5 +1,5 @@
 import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
@@ -79,6 +79,17 @@ type RemoteMediaPlaceholder = {
   label: string
 }
 
+type RemoteAudioPlaybackLayerProps = {
+  remoteStreams: Map<string, MediaStream>
+  watchedScreenPeerIds: Set<string>
+  renderAudioElement: (
+    peerId: string,
+    stream: MediaStream,
+    kind: RemoteAudioKind,
+    include: boolean,
+  ) => ReactNode
+}
+
 interface ActiveCallBarProps {
   selectedVoiceChannelId: string | null
   /** Only show the voice stage (participants grid) when user has this channel selected (e.g. clicked voice channel in sidebar). */
@@ -111,6 +122,22 @@ function RemoteVideoTrack({ track }: { track: MediaStreamTrack }) {
 
   return <video ref={videoRef} autoPlay muted playsInline />
 }
+
+const RemoteAudioPlaybackLayer = memo(function RemoteAudioPlaybackLayer({
+  remoteStreams,
+  watchedScreenPeerIds,
+  renderAudioElement,
+}: RemoteAudioPlaybackLayerProps) {
+  return (
+    <div style={{ display: 'none' }}>
+      {Array.from(remoteStreams.entries()).flatMap(([peerId, stream]) => (
+        (['mic', 'screen'] as RemoteAudioKind[]).map((kind) => (
+          renderAudioElement(peerId, stream, kind, kind === 'mic' || watchedScreenPeerIds.has(peerId))
+        ))
+      ))}
+    </div>
+  )
+})
 
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
   const navigate = useNavigate()
@@ -710,6 +737,48 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (context && context.state !== 'closed') void context.close().catch(() => {})
     }
   }, [disposeRemoteVoicePlaybackGraph])
+
+  const renderRemoteAudioElement = useCallback((
+    peerId: string,
+    stream: MediaStream,
+    kind: RemoteAudioKind,
+    include: boolean,
+  ) => {
+    const playbackKey = remoteAudioPlaybackKey(peerId, kind)
+    return (
+      <audio key={playbackKey} autoPlay playsInline ref={(el) => {
+        if (el) {
+          const audioEl = el as VoxperyAudioElement
+          remoteAudioRefsRef.current.set(playbackKey, audioEl)
+          const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
+          const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
+          if (audioEl.__voxpery_trackIds !== currentTrackIds) {
+            attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, audioEl)
+          }
+          void applyPreferredAudioOutputDevice(audioEl)
+          const shouldMute = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
+          const peerFactor = getPlaybackVolumeFactor(peerId, kind)
+          const voiceGraph = kind === 'mic' ? remoteVoicePlaybackGraphsRef.current.get(playbackKey) : undefined
+          if (voiceGraph) {
+            voiceGraph.gain.gain.value = peerFactor
+          }
+          const vol = voiceGraph
+            ? Math.min(1, Math.max(0, outputVolumeRef.current / 100))
+            : Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
+          try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
+          audioEl.muted = shouldMute
+          if (!shouldMute && currentTrackIds) ensureRemoteAudioPlayback(playbackKey, audioEl)
+        } else {
+          remoteAudioRefsRef.current.delete(playbackKey)
+          const timer = remoteAudioRetryTimerRef.current.get(playbackKey)
+          if (timer != null) {
+            window.clearTimeout(timer)
+            remoteAudioRetryTimerRef.current.delete(playbackKey)
+          }
+        }
+      }} />
+    )
+  }, [attachRemoteAudioPlaybackStream, ensureRemoteAudioPlayback, getPlaybackVolumeFactor, remoteAudioPlaybackKey])
 
   const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
   const channelParticipants = useMemo(() => {
@@ -1474,46 +1543,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           )}
           <div className="callbar-wrap">
             <div className="active-call-bar">
-              <div style={{ display: 'none' }}>
-                {Array.from(state.remoteStreams.keys()).map((peerId) => {
-                  const stream = state.remoteStreams.get(peerId)
-                  if (!stream) return null
-                  return (['mic', 'screen'] as RemoteAudioKind[]).map((kind) => {
-                    const playbackKey = remoteAudioPlaybackKey(peerId, kind)
-                    return (
-                      <audio key={playbackKey} autoPlay playsInline ref={(el) => {
-                        if (el) {
-                          const audioEl = el as VoxperyAudioElement
-                          remoteAudioRefsRef.current.set(playbackKey, audioEl)
-                          const include = kind === 'mic' || watchedRemoteScreenPeerIds.has(peerId)
-                          const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
-                          const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
-                          if (audioEl.__voxpery_trackIds !== currentTrackIds) {
-                            attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, audioEl)
-                          }
-                          void applyPreferredAudioOutputDevice(audioEl)
-                          const shouldMute = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
-                          const peerFactor = getPlaybackVolumeFactor(peerId, kind)
-                          const voiceGraph = kind === 'mic' ? remoteVoicePlaybackGraphsRef.current.get(playbackKey) : undefined
-                          if (voiceGraph) {
-                            voiceGraph.gain.gain.value = peerFactor
-                          }
-                          const vol = voiceGraph
-                            ? Math.min(1, Math.max(0, outputVolumeRef.current / 100))
-                            : Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
-                          try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
-                          audioEl.muted = shouldMute
-                          if (!shouldMute && currentTrackIds) ensureRemoteAudioPlayback(playbackKey, audioEl)
-                        } else {
-                          remoteAudioRefsRef.current.delete(playbackKey)
-                          const t = remoteAudioRetryTimerRef.current.get(playbackKey)
-                          if (t != null) { window.clearTimeout(t); remoteAudioRetryTimerRef.current.delete(playbackKey) }
-                        }
-                      }} />
-                    )
-                  })
-                })}
-              </div>
+              <RemoteAudioPlaybackLayer
+                remoteStreams={state.remoteStreams}
+                watchedScreenPeerIds={watchedRemoteScreenPeerIds}
+                renderAudioElement={renderRemoteAudioElement}
+              />
               <div className="callbar-status">
                 <button type="button" className="active-call-title active-call-title-btn" onClick={goToVoiceChannel} title={voiceLocation.full}>{voiceLocation.display}</button>
               </div>
