@@ -15097,22 +15097,24 @@ textarea {
   }
 
   .home-main:not(.home-main-dm) {
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    overflow: hidden;
   }
 
   .home-main:not(.home-main-dm) .social-content {
-    flex: 0 0 auto;
-    min-height: max-content;
-    overflow: visible;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
     padding-bottom: calc(12px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .home-friends-scroll {
-    padding-bottom: 16px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    padding-bottom: calc(16px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px));
     scrollbar-gutter: auto;
   }
 
