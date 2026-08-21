@@ -62,9 +62,9 @@ test.describe('mocked mobile web smoke', () => {
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
     await page.getByRole('button', { name: /All/ }).click()
-    const homeScroller = page.locator('.home-main').first()
-    await expectScrollable(homeScroller)
-    await homeScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
+    const friendsScroller = page.locator('.home-friends-scroll').first()
+    await expectScrollable(friendsScroller)
+    await friendsScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
     await expect(page.getByText('Friend 24')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open DM with Friend 24' })).toBeVisible()
 
@@ -75,8 +75,9 @@ test.describe('mocked mobile web smoke', () => {
 
     await page.goto('/social')
     await page.getByRole('button', { name: /Requests/ }).click()
-    await expectScrollable(homeScroller)
-    await homeScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
+    const requestsScroller = page.locator('.home-friends-scroll--requests')
+    await expectScrollable(requestsScroller)
+    await requestsScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
     await expect(page.getByText('Request Out 18')).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
   })
