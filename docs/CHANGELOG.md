@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-08-21
+
+### Fixed
+- Prevented speaking-state updates from restarting remote microphone or watched screen-share audio, preserving concurrent voice and shared audio in multi-participant calls.
+- Restored reliable touch scrolling for long Friends and Requests lists in the mobile Social view.
+
 ## [0.2.9] - 2026-08-20
 
 ### Changed
