@@ -139,11 +139,12 @@ Room.localParticipant.publishTrack
 
 Two modes:
 
-1. **Voice Activity**: Mic auto-mutes when RMS below threshold (Discord-like)
+1. **Voice Activity**: Mic pickup and speaking feedback follow the configured RMS threshold
    - Analyser reads RMS from the post-suppression signal (`post-denoise`, `post-floor-suppression`, `pre-volume`)
-   - If above `onThreshold`, enable track; below `offThreshold` for enough held frames, disable
+   - Threshold crossings update speaking state without replacing or restarting the published WebRTC sender track
    - Fast attack + slower release + hysteresis keep speaking feedback responsive without flicker during short pauses
-   - Suppression-enabled mode requires consecutive speech-like frames before opening the gate, and aggressive isolation rejects noise-dominant frames such as keyboard clicks, mouse clicks, and breath-heavy broadband noise
+   - Suppression-enabled mode requires consecutive speech-like frames before reporting speech, and aggressive isolation rejects noise-dominant frames such as keyboard clicks, mouse clicks, and breath-heavy broadband noise
+   - Quiet transport is handled by the processed audio pipeline and Opus DTX. Manual mute, deafen, and push-to-talk remain the only controls that change the microphone's published state.
 2. **Push-to-Talk**: Manual control via keyboard (default: `V` key)
 
 ### Microphone Mute Shortcut
@@ -178,17 +179,21 @@ LiveKit RemoteTrack
     |
 MediaStream
     |
-<audio> element (volume 0.0-1.0)
+Shared AudioContext (desktop) / direct media path (mobile)
     |
-AudioContext analyser (speaking indicator)
+Independent microphone and screen-share gain buses
+    |
+<audio> element (global output volume)
     |
 Speaker
 ```
 
-- **Output volume**: Global 1-100%, per-peer microphone 0-100%, and per-screen-share audio 0-100%.
-- **Distortion-safe playback**: Remote media stays on the native media-element path. Legacy values above 100% are migrated to 100% so playback is not clipped or stranded on a closed Web Audio graph.
+- **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-100%.
+- **Stable desktop mixing**: Remote microphone and screen-share audio use one long-lived `AudioContext` with independent gain buses. Speaking-state changes never rebuild, mute, or restart watched stream audio.
+- **Source-aware dynamics**: Microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Mobile web keeps the lower-overhead direct media path.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
 - **Immediate deafen**: The playback ref and every active remote microphone element are muted synchronously with the control click, closing the render/effect window where a new track could remain audible briefly.
+- **Deafened speaking feedback**: Self-deafen and server-deafen suppress remote speaking rings in both the channel sidebar and voice stage. The underlying speaking state remains intact, so indicators resume immediately after undeafen without waiting for a new speaking event.
 - **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
 
@@ -252,6 +257,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, continuous transmission (`dtx = false`), and RED packet-loss resilience preserve system, game, and music audio independently from the mono speech microphone profile.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement). On mobile devices with more than one camera, the local preview exposes a front/rear switch that restarts the existing published LiveKit video track in place. Devices with only one available camera do not show the control.
 - A share is not published without a live video track. A missing system/tab audio track is treated as an intentional silent share; capture or publication failures still surface as errors. System-audio availability is determined by the operating system, browser/runtime, selected share surface, and the picker audio option rather than the GPU vendor.
+- Display capture requests selected-window audio for window shares, exclude Voxpery's own browser surface, and let the native picker expose broader system-audio capture only for surfaces where the runtime supports it. Voxpery never substitutes whole-system audio when selected-window audio is unavailable.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
 - Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio sample rate/channel count/content hint/publish profile, codec/scalability mode, simulcast state, outbound video resolution/FPS/bitrate/packet/quality-limitation samples, and actual screen-audio Opus bitrate/channel/packet samples without device identifiers.
 

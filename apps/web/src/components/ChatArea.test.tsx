@@ -4,6 +4,8 @@ import type { Channel } from '../api'
 import ChatArea from './ChatArea'
 
 const scrollToIndex = vi.fn()
+const measureVirtualElement = vi.fn()
+const measureVirtualizer = vi.fn()
 let estimateVirtualRow: ((index: number) => number) | undefined
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -25,8 +27,8 @@ vi.mock('@tanstack/react-virtual', () => ({
           key: getItemKey(index),
           start: index * 120,
         })),
-      measureElement: vi.fn(),
-      measure: vi.fn(),
+      measureElement: measureVirtualElement,
+      measure: measureVirtualizer,
       scrollToIndex,
     }
   },
@@ -106,6 +108,8 @@ describe('ChatArea regressions', () => {
   beforeEach(() => {
     vi.useRealTimers()
     scrollToIndex.mockClear()
+    measureVirtualElement.mockClear()
+    measureVirtualizer.mockClear()
     estimateVirtualRow = undefined
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
   })
@@ -666,5 +670,43 @@ describe('ChatArea regressions', () => {
         messageRow!.querySelectorAll('.chat-inline-gif-link, .dm-attachments, .message-reactions')
       ).map((element) => element.className)
     ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
+  })
+
+  it('remeasures every visible row whose reactions change', () => {
+    const rows = [
+      message('reaction-row-1', 'first', 0),
+      message('reaction-row-2', 'second', 1),
+      message('reaction-row-3', 'third', 2),
+    ]
+    const { rerender } = renderChatArea({ messages: rows })
+    measureVirtualElement.mockClear()
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={rows.map((row, index) => ({
+          ...row,
+          reactions: [{ emoji: ['👍', '❤️', '🎉'][index], count: index + 1, reacted: false }],
+        }))}
+        draftAttachments={[]}
+        messageInput=""
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+        onToggleReaction={vi.fn()}
+      />
+    )
+
+    const remeasuredIds = measureVirtualElement.mock.calls
+      .map(([element]) => (element as HTMLElement | null)?.dataset.messageId)
+      .filter(Boolean)
+    expect(remeasuredIds).toEqual(expect.arrayContaining([
+      'reaction-row-1',
+      'reaction-row-2',
+      'reaction-row-3',
+    ]))
   })
 })

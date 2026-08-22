@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { LocalAudioTrack } from 'livekit-client'
 import { useAppStore } from '../../stores/app'
 import { getThresholdsFromStorage } from '../sensitivityThreshold'
 import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../voiceInputProfile'
@@ -19,9 +18,8 @@ export function useVoiceActivity(options: {
     localStream: MediaStream | null
     getAudioContext: () => AudioContext | null
     setLocalMicMuted: (muted: boolean) => Promise<void>
-    localAudioTrackRef: React.MutableRefObject<LocalAudioTrack | null>
 }) {
-    const { userId, joinedChannelId, localStream, getAudioContext, setLocalMicMuted, localAudioTrackRef } = options
+    const { userId, joinedChannelId, localStream, getAudioContext, setLocalMicMuted } = options
     const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
         const modeRaw = localStorage.getItem(VOICE_MODE_KEY)
         return modeRaw === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
@@ -53,13 +51,6 @@ export function useVoiceActivity(options: {
         void setLocalMicMuted(!shouldEnable)
     }, [getVoiceModeSettings, setLocalMicMuted, userId])
 
-    // ── VAD gate: directly swap the RTCRtpSender's track ──
-    // We go straight to the WebRTC layer: save the sender's real track,
-    // then swap it with a silent track when below threshold.
-    const realSenderTrackRef = useRef<MediaStreamTrack | null>(null)
-    const silentTrackRef = useRef<MediaStreamTrack | null>(null)
-    const silentTrackContextRef = useRef<AudioContext | null>(null)
-    const silentOscillatorRef = useRef<OscillatorNode | null>(null)
     const gateOpenRef = useRef(true)
 
     const cleanupMonitorNodes = useCallback(() => {
@@ -77,103 +68,21 @@ export function useVoiceActivity(options: {
         monitorAnalyserRef.current = null
     }, [])
 
-    const cleanupSilentTrack = useCallback(() => {
-        try {
-            silentOscillatorRef.current?.stop()
-        } catch {
-            // ignore
-        }
-        try {
-            silentOscillatorRef.current?.disconnect()
-        } catch {
-            // ignore
-        }
-        silentOscillatorRef.current = null
-
-        try {
-            silentTrackRef.current?.stop()
-        } catch {
-            // ignore
-        }
-        silentTrackRef.current = null
-
-        const silentContext = silentTrackContextRef.current
-        silentTrackContextRef.current = null
-        if (silentContext) {
-            void silentContext.close().catch(() => {
-                // ignore
-            })
-        }
-    }, [])
-
     const resetVoiceActivityGate = useCallback(() => {
-        const track = localAudioTrackRef.current
-        const sender = (track as unknown as { sender?: RTCRtpSender })?.sender
-        const realTrack = realSenderTrackRef.current
-
         gateOpenRef.current = true
         voiceActivitySpeakingRef.current = false
-
-        if (sender && realTrack && sender.track !== realTrack) {
-            void sender.replaceTrack(realTrack).catch(() => {
-                // ignore
-            })
-        }
-
-        realSenderTrackRef.current = null
-        cleanupSilentTrack()
-    }, [cleanupSilentTrack, localAudioTrackRef])
+    }, [])
 
     const applyVoiceActivityGate = useCallback((speaking: boolean, options?: { updateSpeakingRef?: boolean }) => {
         if (options?.updateSpeakingRef !== false) {
             voiceActivitySpeakingRef.current = speaking
         }
-        const { mode } = getVoiceModeSettings()
-        if (mode !== 'voice_activity') return
-        // Don't override manual mute/deafen
-        if (userId) {
-            const control = useAppStore.getState().voiceControls[userId]
-            if (control?.muted || control?.deafened) return
-        }
-
-        const track = localAudioTrackRef.current
-        const sender = (track as unknown as { sender?: RTCRtpSender })?.sender
-        if (!sender) return
-
-        if (speaking && !gateOpenRef.current) {
-            // ── OPEN gate: restore real track ──
-            gateOpenRef.current = true
-            if (realSenderTrackRef.current) {
-                void sender.replaceTrack(realSenderTrackRef.current)
-            }
-        } else if (!speaking && gateOpenRef.current) {
-            // ── CLOSE gate: swap to silence ──
-            gateOpenRef.current = false
-            // Save the real track on first close
-            if (!realSenderTrackRef.current && sender.track) {
-                realSenderTrackRef.current = sender.track
-            }
-            // Lazily create a silent track
-            if (!silentTrackRef.current) {
-                try {
-                    const ctx = new AudioContext()
-                    const osc = ctx.createOscillator()
-                    const gain = ctx.createGain()
-                    gain.gain.value = 0
-                    const dest = ctx.createMediaStreamDestination()
-                    osc.connect(gain)
-                    gain.connect(dest)
-                    osc.start()
-                    silentTrackContextRef.current = ctx
-                    silentOscillatorRef.current = osc
-                    silentTrackRef.current = dest.stream.getAudioTracks()[0]
-                } catch {
-                    return
-                }
-            }
-            void sender.replaceTrack(silentTrackRef.current)
-        }
-    }, [getVoiceModeSettings, userId, localAudioTrackRef])
+        // Keep the published microphone sender stable. LiveKit's Opus DTX and
+        // the existing suppression pipeline already handle quiet periods;
+        // swapping sender tracks at every VAD edge can interrupt multi-party
+        // audio sessions and remote media playback on some platforms.
+        gateOpenRef.current = true
+    }, [])
 
     const startLocalSpeakingMonitor = useCallback((streamOverride?: MediaStream | null) => {
         const stream = streamOverride ?? localStream

@@ -111,6 +111,16 @@ test.describe('mocked mobile web smoke', () => {
               reactions: [{ emoji: '👍', count: 1, reacted: false }],
             }
           ),
+          buildServerMessage(general.id, 'Mobile consecutive reaction two', {
+            id: 'mobile-reaction-two',
+            created_at: new Date(Date.now() + 1_000).toISOString(),
+            reactions: [{ emoji: '🎉', count: 1, reacted: false }],
+          }),
+          buildServerMessage(general.id, 'Mobile consecutive reaction three', {
+            id: 'mobile-reaction-three',
+            created_at: new Date(Date.now() + 2_000).toISOString(),
+            reactions: [{ emoji: '❤️', count: 1, reacted: false }],
+          }),
         ],
       },
     })
@@ -173,12 +183,24 @@ test.describe('mocked mobile web smoke', () => {
     })).toBe(true)
     await mobileActionsMenu.getByRole('menuitem', { name: 'Add reaction' }).click()
     await expect(page.locator('.message-reaction-picker-portal')).toBeVisible()
-    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'thumbs up' }).click()
+    await expect(mediaRow.locator('.message-reaction-btn')).toContainText('2')
     await expect.poll(async () =>
       mediaRow.locator('.chat-inline-gif-link, .dm-attachments, .message-reactions').evaluateAll(
         (elements) => elements.map((element) => element.className)
       )
     ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
+    const consecutiveReactionIds = [
+      'mobile-media-reaction-message',
+      'mobile-reaction-two',
+      'mobile-reaction-three',
+    ]
+    const reactionBounds = await Promise.all(consecutiveReactionIds.map((messageId) =>
+      page.locator(`[data-message-id="${messageId}"]`).boundingBox()
+    ))
+    expect(reactionBounds.every(Boolean)).toBe(true)
+    expect(reactionBounds[0]!.y + reactionBounds[0]!.height).toBeLessThanOrEqual(reactionBounds[1]!.y + 1)
+    expect(reactionBounds[1]!.y + reactionBounds[1]!.height).toBeLessThanOrEqual(reactionBounds[2]!.y + 1)
 
     const content = `Mobile smoke message ${Date.now()}`
     const messageInput = page.getByPlaceholder('Message', { exact: true })

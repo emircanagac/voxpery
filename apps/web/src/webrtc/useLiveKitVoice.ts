@@ -560,7 +560,6 @@ export function useLiveKitVoice() {
     localStream,
     getAudioContext,
     setLocalMicMuted,
-    localAudioTrackRef
   })
 
   const { pingMs, wsPingMs, rtcPingMs, packetLossPct, jitterMs, pingJitterMs } = useWebrtcDiagnostics({
