@@ -93,6 +93,9 @@ type DisplayAudioConstraints = MediaTrackConstraints & {
 
 type ScreenShareDisplayMediaOptions = DisplayMediaStreamOptions & {
     systemAudio: 'include'
+    windowAudio: 'window'
+    selfBrowserSurface: 'exclude'
+    surfaceSwitching: 'include'
 }
 
 export function toScreenShareDisplayMediaOptions(
@@ -101,6 +104,13 @@ export function toScreenShareDisplayMediaOptions(
     return {
         video,
         systemAudio: 'include',
+        // When the picker selects one window, capture only that window's
+        // audio instead of the entire system/call output. Browsers without
+        // window-audio support safely ignore the preference and generally
+        // omit window audio rather than substituting system loopback.
+        windowAudio: 'window',
+        selfBrowserSurface: 'exclude',
+        surfaceSwitching: 'include',
         audio: {
             // Keep the active call audible while the native/macOS share picker changes focus.
             suppressLocalAudioPlayback: false,

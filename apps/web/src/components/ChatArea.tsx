@@ -62,6 +62,7 @@ const ESTIMATED_ATTACHMENT_ROW_PX = 36
 const ESTIMATED_MEDIA_ROW_PX = 228
 const ESTIMATED_STICKER_ROW_PX = 128
 const ESTIMATED_TEXT_CHARS_PER_LINE = 92
+const ESTIMATED_REACTION_LINE_PX = 30
 
 function mentionPresenceRank(status?: string | null): number {
     const normalized = (status ?? 'offline').toLowerCase()
@@ -329,7 +330,24 @@ function estimateMessageRowHeight(
     estimate += estimateTextExtraHeight(message.content ?? '')
     estimate += estimateEmbeddedMediaHeight(message.content ?? '')
     estimate += estimateAttachmentHeight(message.attachments)
+    const reactionCount = Array.isArray(message.reactions) ? message.reactions.length : 0
+    if (reactionCount > 0) {
+        const reactionsPerLine = mobileLayout ? 4 : 8
+        estimate += Math.ceil(reactionCount / reactionsPerLine) * ESTIMATED_REACTION_LINE_PX
+    }
     return Math.max(metrics.grouped, estimate)
+}
+
+function captureVisibleMessageAnchor(element: HTMLDivElement): { messageId: string; offsetTop: number } | null {
+    const scrollerRect = element.getBoundingClientRect()
+    const candidate = Array.from(element.querySelectorAll<HTMLElement>('[data-message-id]'))
+        .map((item) => ({ item, rect: item.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.bottom > scrollerRect.top && rect.top < scrollerRect.bottom)
+        .sort((left, right) => Math.abs(left.rect.top - scrollerRect.top) - Math.abs(right.rect.top - scrollerRect.top))[0]
+    const messageId = candidate?.item.dataset.messageId
+    return messageId
+        ? { messageId, offsetTop: candidate.rect.top - scrollerRect.top }
+        : null
 }
 
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
@@ -681,6 +699,7 @@ export default function ChatArea({
     const resizeAutoScrollRafRef = useRef<number | null>(null)
     const pendingReactionBottomAnchorRef = useRef(false)
     const pendingReactionBottomAnchorTimeoutRef = useRef<number | null>(null)
+    const reactionHistoryAnchorRef = useRef<{ messageId: string; offsetTop: number } | null>(null)
     const userReadingHistoryRef = useRef(false)
     const userScrollIntentUntilRef = useRef(0)
     const lastKnownScrollTopRef = useRef(0)
@@ -856,16 +875,21 @@ export default function ChatArea({
         () => messages.map((message) => message.id).join('|'),
         [messages],
     )
-    const reactionLayoutSignature = useMemo(() => messages.map((message) => {
+    const reactionRowSignatures = useMemo(() => messages.map((message) => {
         const reactions = Array.isArray(message.reactions)
             ? message.reactions.map((reaction) => `${reaction.emoji}:${reaction.count}`).join(',')
             : ''
         return reactions
-    }).join('|'), [messages])
+    }), [messages])
+    const reactionLayoutSignature = useMemo(
+        () => reactionRowSignatures.join('|'),
+        [reactionRowSignatures],
+    )
     const previousReactionLayoutSnapshotRef = useRef({
         channelId: currentChatChannelId,
         messageIds: reactionMessageIdsSignature,
         reactions: reactionLayoutSignature,
+        reactionRows: reactionRowSignatures,
     })
 
     const isAtBottom = useCallback((el: HTMLDivElement) => {
@@ -936,6 +960,7 @@ export default function ChatArea({
     const armReactionBottomAnchor = useCallback(() => {
         const el = messagesScrollRef.current
         if (el && isAtBottom(el) && !userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
+            reactionHistoryAnchorRef.current = null
             pendingReactionBottomAnchorRef.current = true
             if (pendingReactionBottomAnchorTimeoutRef.current != null) {
                 window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
@@ -944,6 +969,8 @@ export default function ChatArea({
                 pendingReactionBottomAnchorRef.current = false
                 pendingReactionBottomAnchorTimeoutRef.current = null
             }, 5000)
+        } else if (el && userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
+            reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
         }
     }, [isAtBottom])
 
@@ -1165,6 +1192,9 @@ export default function ChatArea({
             if (movedUp && isUserInitiatedScroll) {
                 markUserReadingHistory()
             }
+            if (userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
+                reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
+            }
             lastKnownScrollTopRef.current = currentScrollTop
         }
         syncAutoScrollState()
@@ -1213,6 +1243,7 @@ export default function ChatArea({
         lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
+        reactionHistoryAnchorRef.current = null
         shouldAutoScrollRef.current = true
         scheduleLatestAnchor(channelId)
         return () => {
@@ -1245,29 +1276,60 @@ export default function ChatArea({
             channelId: currentChatChannelId,
             messageIds: reactionMessageIdsSignature,
             reactions: reactionLayoutSignature,
+            reactionRows: reactionRowSignatures,
         }
         const isReactionOnlyUpdate = previousSnapshot.channelId === currentChatChannelId
             && previousSnapshot.messageIds === reactionMessageIdsSignature
             && previousSnapshot.reactions !== reactionLayoutSignature
         if (!isReactionOnlyUpdate) return
+        reactionRowSignatures.forEach((signature, index) => {
+            if (signature === previousSnapshot.reactionRows[index]) return
+            const row = messagesScrollRef.current?.querySelector<HTMLElement>(
+                `.virtual-list-item[data-index="${index}"]`,
+            )
+            if (row) rowVirtualizer.measureElement(row)
+        })
+        const historyAnchor = reactionHistoryAnchorRef.current
         const hasPendingBottomAnchor = pendingReactionBottomAnchorRef.current
         pendingReactionBottomAnchorRef.current = false
         if (pendingReactionBottomAnchorTimeoutRef.current != null) {
             window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
             pendingReactionBottomAnchorTimeoutRef.current = null
         }
+        if (historyAnchor && userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
+            const restoreHistoryAnchor = () => {
+                const el = messagesScrollRef.current
+                if (!el) return
+                const row = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]'))
+                    .find((item) => item.dataset.messageId === historyAnchor.messageId)
+                if (!row) return
+                const currentOffset = row.getBoundingClientRect().top - el.getBoundingClientRect().top
+                const delta = currentOffset - historyAnchor.offsetTop
+                if (Math.abs(delta) <= 1) return
+                runProgrammaticScroll(() => {
+                    el.scrollTop += delta
+                    lastKnownScrollTopRef.current = el.scrollTop
+                })
+            }
+            restoreHistoryAnchor()
+            const rafId = window.requestAnimationFrame(() => {
+                restoreHistoryAnchor()
+                const el = messagesScrollRef.current
+                if (el) reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
+            })
+            return () => window.cancelAnimationFrame(rafId)
+        }
         if (!hasPendingBottomAnchor && !shouldAutoScrollRef.current) return
         if (userReadingHistoryRef.current || preservingOlderMessagesRef.current) return
 
         shouldAutoScrollRef.current = true
-        rowVirtualizer.measure()
         snapToBottom()
         const rafId = window.requestAnimationFrame(() => {
             if (!shouldAutoScrollRef.current || userReadingHistoryRef.current || preservingOlderMessagesRef.current) return
             snapToBottom()
         })
         return () => window.cancelAnimationFrame(rafId)
-    }, [currentChatChannelId, reactionLayoutSignature, reactionMessageIdsSignature, rowVirtualizer, snapToBottom])
+    }, [currentChatChannelId, reactionLayoutSignature, reactionMessageIdsSignature, reactionRowSignatures, rowVirtualizer, runProgrammaticScroll, snapToBottom])
 
     /* If user sends while reading older messages, force snap to newest after the new row mounts. */
     useLayoutEffect(() => {
@@ -1631,6 +1693,7 @@ export default function ChatArea({
         userReadingHistoryRef.current = false
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
+        reactionHistoryAnchorRef.current = null
         pendingReactionBottomAnchorRef.current = false
         if (pendingReactionBottomAnchorTimeoutRef.current != null) {
             window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)

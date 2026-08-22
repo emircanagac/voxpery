@@ -69,6 +69,9 @@ describe('screen share quality profiles', () => {
     expect(toScreenShareDisplayMediaOptions(video)).toEqual({
       video,
       systemAudio: 'include',
+      windowAudio: 'window',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
       audio: {
         suppressLocalAudioPlayback: false,
       },

@@ -60,9 +60,11 @@ describe('remote media controls', () => {
     expect(shouldMuteRemoteAudioPlayback('screen', false)).toBe(false)
   })
 
-  it('keeps mobile microphone playback on the direct low-overhead media path', () => {
+  it('uses one stable Web Audio playback path on desktop and the direct path on mobile', () => {
     expect(shouldUseDirectRemoteAudioPlayback('mic', true, 1)).toBe(true)
+    expect(shouldUseDirectRemoteAudioPlayback('screen', true, 1)).toBe(true)
     expect(shouldUseDirectRemoteAudioPlayback('mic', false, 1)).toBe(false)
-    expect(shouldUseDirectRemoteAudioPlayback('screen', false, 1)).toBe(true)
+    expect(shouldUseDirectRemoteAudioPlayback('screen', false, 1)).toBe(false)
+    expect(shouldUseDirectRemoteAudioPlayback('screen', false, 0)).toBe(true)
   })
 })

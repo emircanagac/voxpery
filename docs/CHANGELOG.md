@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-08-22
+
+### Fixed
+- Kept remote microphone and watched screen-share playback stable across local speaking-state changes, preserving independent voice and shared-audio mixing for multi-participant calls.
+- Prevented consecutive reaction updates from overlapping virtualized message rows or displacing the reader's scroll anchor.
+- Suppressed remote speaking rings while the local listener is deafened, restoring the current indicators immediately after undeafen.
+
 ## [0.2.10] - 2026-08-21
 
 ### Fixed

@@ -552,13 +552,17 @@ export default function ChannelSidebar({
                                             {voiceMembers.map((vm) => {
                                                 const isSelf = user?.id === vm.user_id
                                                 const control = voiceControls[vm.user_id]
+                                                const localControl = user?.id ? voiceControls[user.id] : undefined
+                                                const localPlaybackDeafened = !!(localControl?.deafened || localControl?.serverDeafened)
                                                 const isScreenSharing = !!control?.screenSharing
                                                 const isCameraOn = !!control?.cameraOn
                                                 const isDeafened = !!control?.deafened
                                                 const isMuted = !!control?.muted
                                                 const isServerMuted = !!control?.serverMuted
                                                 const isServerDeafened = !!control?.serverDeafened
-                                                const isSpeaking = (isSelf ? voiceLocalSpeaking : voiceSpeakingUserIds.includes(vm.user_id)) && !isMuted && !isDeafened
+                                                const isSpeaking = (
+                                                    isSelf ? voiceLocalSpeaking : voiceSpeakingUserIds.includes(vm.user_id)
+                                                ) && !isMuted && !isDeafened && !isServerMuted && !isServerDeafened && (isSelf || !localPlaybackDeafened)
                                                 return (
                                                     <div
                                                         key={vm.user_id}

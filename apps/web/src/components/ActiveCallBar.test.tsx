@@ -372,50 +372,80 @@ describe('ActiveCallBar regressions', () => {
     expect(screenAudio.muted).toBe(false)
   })
 
-  it('does not restart remote voice or screen audio when speaking indicators change', () => {
+  it('hides remote speaking indicators while locally deafened and restores them on undeafen', () => {
+    useAppStore.setState({ voiceSpeakingUserIds: ['peer-1'] })
+
+    const { container } = renderActiveCallBar()
+    const remoteTile = screen.getByText('admin').closest('.voice-stage-tile')
+    expect(remoteTile?.querySelector('.voice-stage-avatar')).toHaveClass('is-speaking')
+    expect(remoteTile?.querySelector('.voice-stage-name')).toHaveClass('is-speaking')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+
+    expect(remoteTile?.querySelector('.voice-stage-avatar')).not.toHaveClass('is-speaking')
+    expect(remoteTile?.querySelector('.voice-stage-name')).not.toHaveClass('is-speaking')
+    expect(useAppStore.getState().voiceSpeakingUserIds).toEqual(['peer-1'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undeafen' }))
+
+    expect(container.querySelector('.voice-stage-avatar.is-speaking')).not.toBeNull()
+    expect(remoteTile?.querySelector('.voice-stage-name')).toHaveClass('is-speaking')
+  })
+
+  it('keeps five remote voices and watched screen audio stable across speaking changes', () => {
     const sharerMic = mediaTrack('audio', 'peer-1-mic')
     const screenAudio = mediaTrack('audio', 'peer-screen-audio')
-    const speakerMic = mediaTrack('audio', 'peer-2-mic')
     markRemoteAudioTrackSource(sharerMic, 'voice')
     markRemoteAudioTrackSource(screenAudio, 'screen')
-    markRemoteAudioTrackSource(speakerMic, 'voice')
+    const additionalPeerTracks = Array.from({ length: 4 }, (_, index) => {
+      const track = mediaTrack('audio', `peer-${index + 2}-mic`)
+      markRemoteAudioTrackSource(track, 'voice')
+      return track
+    })
     const play = vi.mocked(HTMLMediaElement.prototype.play)
 
     useAppStore.setState({
       members: [
         ...members,
-        {
-          user_id: 'peer-2',
-          username: 'viewer',
+        ...additionalPeerTracks.map((_, index) => ({
+          user_id: `peer-${index + 2}`,
+          username: `viewer-${index + 2}`,
           avatar_url: null,
           role: 'member',
           status: 'online',
           role_color: null,
-        },
+        })),
       ],
       voiceStates: {
         [localUser.id]: voiceChannel.id,
         'peer-1': voiceChannel.id,
-        'peer-2': voiceChannel.id,
+        ...Object.fromEntries(additionalPeerTracks.map((_, index) => [
+          `peer-${index + 2}`,
+          voiceChannel.id,
+        ])),
       },
     })
 
-    renderActiveCallBar({
-      remoteStreams: new Map([
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map<string, MediaStream>([
         ['peer-1', new MediaStream([sharerMic, screenAudio])],
-        ['peer-2', new MediaStream([speakerMic])],
+        ...additionalPeerTracks.map((track, index) => [
+          `peer-${index + 2}`,
+          new MediaStream([track]),
+        ] as [string, MediaStream]),
       ]),
       watchedRemoteScreenPeerIds: new Set(['peer-1']),
       livekit: {
         roomState: 'connected',
-        participants: 3,
-        remoteStreams: 2,
+        participants: 6,
+        remoteStreams: 5,
       },
     })
+    expect(container.querySelectorAll('audio').length).toBeGreaterThanOrEqual(6)
     play.mockClear()
 
-    act(() => useAppStore.getState().setVoiceSpeaking(['peer-2'], false))
-    act(() => useAppStore.getState().setVoiceSpeaking(['peer-1', 'peer-2'], true))
+    act(() => useAppStore.getState().setVoiceSpeaking(['peer-2', 'peer-3'], false))
+    act(() => useAppStore.getState().setVoiceSpeaking(['peer-1', 'peer-2', 'peer-5'], true))
     act(() => useAppStore.getState().setVoiceSpeaking([], false))
 
     expect(play).not.toHaveBeenCalled()

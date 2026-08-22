@@ -88,6 +88,44 @@ describe('ChannelSidebar voice media presence', () => {
         expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
     })
 
+    it('does not show remote speaking rings while the local listener is deafened', () => {
+        const voiceControls = {
+            'local-1': {
+                muted: true,
+                deafened: true,
+                serverMuted: false,
+                serverDeafened: false,
+                screenSharing: false,
+                cameraOn: false,
+            },
+            [remoteMember.user_id]: {
+                muted: false,
+                deafened: false,
+                serverMuted: false,
+                serverDeafened: false,
+                screenSharing: false,
+                cameraOn: false,
+            },
+        }
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+            voiceSpeakingUserIds: [remoteMember.user_id],
+        })
+
+        const { container } = render(
+            <ChannelSidebar channelCategories={['Voice']} voiceControls={voiceControls} />,
+        )
+
+        expect(container.querySelector('.voice-participant-avatar.is-speaking')).toBeNull()
+        expect(screen.getByText(remoteMember.username)).not.toHaveClass('is-speaking')
+        expect(useAppStore.getState().voiceSpeakingUserIds).toEqual([remoteMember.user_id])
+    })
+
     it('stores Discord-style user volume independently up to 200 percent', () => {
         useAppStore.setState({
             servers: [server],

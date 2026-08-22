@@ -175,6 +175,64 @@ test.describe('mocked channel permission regressions', () => {
     )).toBeLessThanOrEqual(4)
   })
 
+  test('remeasures consecutive reaction rows without moving a history reader', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+
+    const targetIds = ['reaction-stack-a', 'reaction-stack-b', 'reaction-stack-c']
+    const messages = Array.from({ length: 50 }, (_, index) =>
+      buildServerMessage(general.id, `Reaction stack message ${index + 1}`, {
+        id: index >= 2 && index <= 4 ? targetIds[index - 2] : `reaction-stack-${index}`,
+        created_at: new Date(Date.UTC(2026, 0, 15, 11, index)).toISOString(),
+      })
+    )
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: messages },
+    })
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+
+    const scroller = page.locator('.chat-messages')
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(() => scroller.evaluate((element) => (
+      element.scrollHeight - element.clientHeight
+    ))).toBeGreaterThan(200)
+    const firstRow = page.locator(`[data-message-id="${targetIds[0]}"]`)
+    await expect(firstRow).toBeVisible()
+    const anchorBefore = await firstRow.evaluate((element) => {
+      const scrollerRect = element.closest('.chat-messages')?.getBoundingClientRect()
+      return Math.round(element.getBoundingClientRect().top - (scrollerRect?.top ?? 0))
+    })
+
+    for (const targetId of targetIds) {
+      const row = page.locator(`[data-message-id="${targetId}"]`)
+      await row.hover()
+      await row.getByRole('button', { name: 'Add reaction' }).click()
+      await page.getByRole('button', { name: 'thumbs up' }).click()
+      await expect(row.locator('.message-reaction-btn')).toContainText('1')
+    }
+
+    const bounds = await Promise.all(targetIds.map((targetId) =>
+      page.locator(`[data-message-id="${targetId}"]`).boundingBox()
+    ))
+    expect(bounds.every(Boolean)).toBe(true)
+    expect(bounds[0]!.y + bounds[0]!.height).toBeLessThanOrEqual(bounds[1]!.y + 1)
+    expect(bounds[1]!.y + bounds[1]!.height).toBeLessThanOrEqual(bounds[2]!.y + 1)
+    await expect.poll(() => firstRow.evaluate((element) => {
+      const scrollerRect = element.closest('.chat-messages')?.getBoundingClientRect()
+      return Math.round(element.getBoundingClientRect().top - (scrollerRect?.top ?? 0))
+    })).toBe(anchorBefore)
+  })
+
   test('exposes moderator controls only when channel permission bits allow them', async ({ page }) => {
     const server = buildCoreServer({ owner_id: 'server-owner' })
     const channels = buildCoreChannels(server.id).map((channel) => ({
