@@ -59,7 +59,8 @@ export function shouldMuteRemoteAudioPlayback(kind: RemoteAudioKind, voiceDeafen
 export function shouldUseDirectRemoteAudioPlayback(
   _kind: RemoteAudioKind,
   lightweightMobileVoice: boolean,
+  desktopRuntime: boolean,
   audioTrackCount: number,
 ): boolean {
-  return lightweightMobileVoice || audioTrackCount === 0
+  return desktopRuntime || lightweightMobileVoice || audioTrackCount === 0
 }

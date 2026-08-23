@@ -616,6 +616,43 @@ describe('ActiveCallBar regressions', () => {
     expect(play.mock.instances).toContain(remoteMicOutput)
   })
 
+  it('uses direct remote playback in Tauri without creating a Web Audio destination', () => {
+    const audioContexts = installAudioContextMock()
+    ;(window as Window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    const remoteMic = mediaTrack('audio', 'desktop-peer-mic')
+    const remoteScreenAudio = mediaTrack('audio', 'desktop-peer-screen-audio')
+    markRemoteAudioTrackSource(remoteMic, 'voice')
+    markRemoteAudioTrackSource(remoteScreenAudio, 'screen')
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([remoteMic, remoteScreenAudio])]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    const remoteMicOutput = container.querySelector(
+      'audio[data-peer-id="peer-1"][data-remote-audio-kind="mic"]',
+    ) as HTMLAudioElement | null
+    const remoteScreenOutput = container.querySelector(
+      'audio[data-peer-id="peer-1"][data-remote-audio-kind="screen"]',
+    ) as HTMLAudioElement | null
+    if (!remoteMicOutput || !remoteScreenOutput) throw new Error('Desktop remote audio outputs were not rendered.')
+
+    expect(audioContexts).toHaveLength(0)
+    expect(remoteMicOutput.srcObject).toBeInstanceOf(MediaStream)
+    expect((remoteMicOutput.srcObject as MediaStream).getAudioTracks()).toEqual([remoteMic])
+    expect((remoteScreenOutput.srcObject as MediaStream).getAudioTracks()).toEqual([remoteScreenAudio])
+    expect(remoteMicOutput.muted).toBe(false)
+    expect(remoteScreenOutput.muted).toBe(false)
+    expect(play.mock.instances).toContain(remoteMicOutput)
+    expect(play.mock.instances).toContain(remoteScreenOutput)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+
+    expect(remoteMicOutput.muted).toBe(true)
+    expect(remoteScreenOutput.muted).toBe(false)
+  })
+
   it('uses the configured shortcut while the web tab is focused', () => {
     localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'CommandOrControl+Shift+M')
     const localMic = mediaTrack('audio', 'local-mic')

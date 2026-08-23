@@ -179,20 +179,17 @@ LiveKit RemoteTrack
     |
 MediaStream
     |
-Shared AudioContext (desktop) / direct media path (mobile)
-    |
-Independent per-source gain and destination graphs
-    |
-Independent <audio> outputs with direct fallback
+Browser: per-source Web Audio gain/destination graph
+Tauri/mobile: independent direct <audio> output per source
     |
 Speaker
 ```
 
 - **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-100%.
-- **Failure-isolated desktop playback**: Remote microphone and screen-share audio share one long-lived `AudioContext`, but each source owns its gain, destination, and media element. A graph-creation failure falls back to the source `MediaStream` directly, so one failed source cannot silence every participant. Local speaking/VAD updates do not rebuild or restart these outputs.
-- **Source-aware dynamics**: Microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Mobile web keeps the lower-overhead direct media path.
+- **Desktop-safe playback**: Tauri plays each remote microphone and watched screen-share track through its own direct media element. This avoids routing incoming audio through a WebView-specific `MediaStreamAudioDestination` bridge while preserving source-level mute, volume, output-device, and playback recovery controls.
+- **Source-aware browser dynamics**: Browser microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Tauri and mobile web keep the more resilient direct media path.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
-- **Immediate deafen**: Every active desktop microphone bus is set to zero synchronously with the control click, and newly subscribed microphone buses start at zero while deafened. Direct mobile microphone elements are muted in the same pass, closing reconnect and render/effect windows where voice could otherwise leak briefly.
+- **Immediate deafen**: Every active browser microphone bus is set to zero synchronously with the control click. Direct Tauri and mobile microphone elements are muted in the same pass, and newly subscribed microphone outputs start muted while deafened, closing reconnect and render/effect windows where voice could otherwise leak briefly.
 - **Deafened speaking feedback**: Self-deafen and server-deafen suppress remote speaking rings in both the channel sidebar and voice stage. The underlying speaking state remains intact, so indicators resume immediately after undeafen without waiting for a new speaking event.
 - **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.
