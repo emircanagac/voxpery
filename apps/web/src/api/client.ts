@@ -80,6 +80,11 @@ interface FetchOptions {
     token?: string | null
 }
 
+export interface DownloadResult {
+    blob: Blob
+    filename: string | null
+}
+
 let authFailureHandler: (() => void) | null = null
 
 export function setAuthFailureHandler(handler: (() => void) | null) {
@@ -209,6 +214,34 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
     }
 
     return res.json()
+}
+
+export async function apiDownload(path: string, options: FetchOptions = {}): Promise<DownloadResult> {
+    const { method = 'POST', body, token } = options
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers.Authorization = `Bearer ${token}`
+    const url = `${effectiveApiBase()}${path}`
+    const request: RequestInit = {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        credentials: isTauri() ? 'omit' : 'include',
+    }
+
+    let response: Response
+    if (shouldUseTauriHttpPlugin()) {
+        const mod = await import('@tauri-apps/plugin-http')
+        response = await mod.fetch(url, { ...request, timeout: 60 } as RequestInit & { timeout?: number })
+    } else {
+        response = await fetch(url, request)
+    }
+    if (!response.ok) {
+        const text = await response.text()
+        throw new Error(apiErrorMessageFromText(text, response.status))
+    }
+    const disposition = response.headers.get('content-disposition')
+    const filename = disposition?.match(/filename="([^"]+)"/i)?.[1] ?? null
+    return { blob: await response.blob(), filename }
 }
 
 export async function apiMultipartFetch<T>(path: string, formData: FormData, token?: string | null): Promise<T> {

@@ -10,5 +10,6 @@ pub mod jwt_blacklist;
 pub mod moderation;
 pub mod observability;
 pub mod permissions;
+pub mod privacy;
 pub mod rate_limit;
 pub mod voice_revoke;

@@ -8,7 +8,8 @@ import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
 import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
-import { authApi, getAuthErrorMessage, resolveAvatarUrl } from '../api'
+import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl, resolveAvatarUrl } from '../api'
+import { openExternalUrl } from '../openExternalUrl'
 import { useSocketStore } from '../stores/socket'
 import {
   DEFAULT_SPEAKING_PRESET,
@@ -243,6 +244,9 @@ export default function UserBar() {
   const [pwShowNew, setPwShowNew] = useState(false)
   const [showPwModal, setShowPwModal] = useState(false)
   const [exportingData, setExportingData] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportPassword, setExportPassword] = useState('')
+  const [exportError, setExportError] = useState<string | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState('')
@@ -714,12 +718,18 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
   useEffect(() => {
-    if (!showSettingsPanel && !showStatusMenu && !showDeleteModal && !showUsernameModal && !showEmailModal && !showPwModal && !openDeviceMenu) return
+    if (!showSettingsPanel && !showStatusMenu && !showExportModal && !showDeleteModal && !showUsernameModal && !showEmailModal && !showPwModal && !openDeviceMenu) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
       if (openDeviceMenu) {
         closeDeviceMenu()
+        return
+      }
+      if (showExportModal) {
+        setShowExportModal(false)
+        setExportPassword('')
+        setExportError(null)
         return
       }
       if (showDeleteModal) {
@@ -760,6 +770,7 @@ export default function UserBar() {
     closeUsernameModal,
     openDeviceMenu,
     showDeleteModal,
+    showExportModal,
     showEmailModal,
     showPwModal,
     showSettingsPanel,
@@ -1035,33 +1046,48 @@ export default function UserBar() {
   const exportMyData = async () => {
     if (isTauri() && !token) return
     setExportingData(true)
+    setExportError(null)
     try {
-      const payload = await authApi.exportData(token ?? null)
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const { blob, filename } = await authApi.exportData(
+        token ?? null,
+        exportPassword.trim() || undefined,
+      )
       const url = URL.createObjectURL(blob)
       const date = new Date().toISOString().slice(0, 10)
       const link = document.createElement('a')
       link.href = url
-      link.download = `voxpery-data-export-${date}.json`
+      link.download = filename ?? `voxpery-data-export-${date}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
+      setShowExportModal(false)
+      setExportPassword('')
       pushToast({
         level: 'info',
         title: 'Data export ready',
-        message: 'Your readable account export has been downloaded as JSON.',
+        message: 'Your protected account archive has been downloaded as a ZIP file.',
       })
     } catch (err: unknown) {
-      const message = getAuthErrorMessage(err).message || 'Could not export account data.'
-      pushToast({
-        level: 'error',
-        title: 'Data export failed',
-        message,
-      })
+      const { message, code } = getAuthErrorMessage(err)
+      setExportError(
+        code === 'REAUTH_REQUIRED' && isGoogleOnlyAccount
+          ? 'Sign in with Google again, then return here to create the archive.'
+          : message || 'Could not export account data.',
+      )
     } finally {
       setExportingData(false)
     }
+  }
+
+  const reauthenticateGoogleForExport = async () => {
+    const redirectPath = window.location.pathname
+    if (isTauri()) {
+      const url = await getDesktopGoogleAuthUrl(redirectPath)
+      await openExternalUrl(url)
+      return
+    }
+    window.location.assign(getGoogleAuthUrl(redirectPath))
   }
 
   const refreshUpdateStatus = async (manual = false) => {
@@ -2102,13 +2128,18 @@ export default function UserBar() {
                   <div>
                     <div className="user-setting-title">Data export</div>
                     <div className="user-setting-desc">
-                      Download a readable JSON export with your account, servers, relationships, and authored messages. Internal IDs, tokens, sessions, and raw attachment URLs are excluded.
+                      Download a re-authenticated ZIP with your account, authored messages, avatar, and uploaded files. This bounded convenience archive is not a complete legal access response.
                     </div>
                   </div>
                   <button
                     type="button"
                     className="user-toggle account-action-btn"
-                    onClick={() => void exportMyData()}
+                    onClick={() => {
+                      setShowSettingsPanel(false)
+                      setExportPassword('')
+                      setExportError(null)
+                      setShowExportModal(true)
+                    }}
                     disabled={exportingData}
                   >
                     <Download size={14} style={{ marginRight: 6 }} />
@@ -2146,6 +2177,63 @@ export default function UserBar() {
                 onClick={closeSettingsPanel}
               >
                 Done
+              </button>
+            </footer>
+          </div>
+        </div>
+      ), document.body)}
+      {showExportModal && typeof document !== 'undefined' && createPortal((
+        <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
+          <div className="modal pw-modal data-export-modal" onClick={(event) => event.stopPropagation()}>
+            <header className="pw-modal-header">
+              <Download size={20} className="pw-modal-icon" />
+              <h2>Create data export</h2>
+              <p className="pw-modal-subtitle">
+                This ZIP can contain private messages and files. It is not encrypted; store it securely and delete it when no longer needed.
+              </p>
+            </header>
+            <div className="pw-change-form">
+              {isGoogleOnlyAccount ? (
+                <p className="user-setting-desc">
+                  A Google sign-in from the last 10 minutes is required. If this request is rejected, re-authenticate and try once more.
+                </p>
+              ) : (
+                <div className="pw-field-wrap">
+                  <label className="user-setting-title" htmlFor="export-password">Current password</label>
+                  <div className="pw-input-wrap">
+                    <Lock size={14} className="pw-input-icon" />
+                    <input
+                      id="export-password"
+                      type="password"
+                      className="pw-input"
+                      value={exportPassword}
+                      onChange={(event) => setExportPassword(event.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="user-setting-desc">
+                For a complete KVKK/GDPR access request, follow the formal request process in the Privacy Notice.
+              </p>
+              {exportError && <div className="pw-error">{exportError}</div>}
+            </div>
+            <footer className="pw-modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowExportModal(false)}>
+                Cancel
+              </button>
+              {isGoogleOnlyAccount && exportError && (
+                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
+                  Sign in with Google
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={exportingData || (!isGoogleOnlyAccount && !exportPassword.trim())}
+                onClick={() => void exportMyData()}
+              >
+                {exportingData ? 'Creating…' : 'Download ZIP'}
               </button>
             </footer>
           </div>

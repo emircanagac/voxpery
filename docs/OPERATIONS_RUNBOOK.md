@@ -112,6 +112,24 @@ Expected shape:
 }
 ```
 
+## Privacy Operations
+
+### Data-subject requests
+
+Follow [DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md). Keep request cases outside general application logs, verify identity with minimum necessary data, and never request passwords by email. The in-app ZIP does not replace this process.
+
+### Suspected personal-data incident
+
+1. Restrict access and preserve a minimal, access-controlled incident timeline.
+2. Identify affected data, users, systems, processors, countries, and ongoing exposure.
+3. Rotate compromised credentials and contain the technical cause without deleting necessary evidence.
+4. Assess applicable regulator and user-notification deadlines with qualified counsel.
+5. Record the decision, corrective action, and post-incident retention/deletion date.
+
+### Subprocessor or transfer change
+
+Before changing hosting, CDN/security, OAuth/email, GIF, storage, or media providers, review the DPA, processing location, transfer mechanism, retention, security controls, and legal-document wording. Version and announce material notice changes before the new processing begins where required.
+
 The public health endpoint intentionally does not expose dependency names, paths, hostnames, URLs, latency, or configuration state. Use the local ops scripts and server-side Docker commands below for detailed diagnostics.
 
 Recommended alert cron (every 5 minutes):

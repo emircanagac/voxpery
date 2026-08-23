@@ -11,6 +11,31 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('requires separate current legal acknowledgements before registration', async ({ page }) => {
+    const state = createMockCoreState({
+      authenticated: false,
+      features: { ...AUTH_FEATURES, google_oauth_enabled: true },
+    })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/register')
+
+    const googleLink = page.getByRole('link', { name: 'Continue with Google' })
+    await expect(googleLink).toHaveAttribute('href', '#')
+    await expect(page.getByRole('checkbox')).toHaveCount(2)
+    await page.getByRole('checkbox').nth(0).check()
+    await page.getByRole('checkbox').nth(1).check()
+
+    const href = await googleLink.getAttribute('href')
+    expect(href).toBeTruthy()
+    const oauthUrl = new URL(href!)
+    expect(oauthUrl.searchParams.get('intent')).toBe('register')
+    expect(oauthUrl.searchParams.get('terms_accepted')).toBe('true')
+    expect(oauthUrl.searchParams.get('privacy_notice_acknowledged')).toBe('true')
+    expect(oauthUrl.searchParams.get('terms_version')).toBe('2026-08-23')
+    expect(oauthUrl.searchParams.get('privacy_notice_version')).toBe('2026-08-23')
+  })
+
   test('keeps configured Google sign-in visible and preserves the post-auth route', async ({ page }) => {
     const state = createMockCoreState({
       authenticated: false,

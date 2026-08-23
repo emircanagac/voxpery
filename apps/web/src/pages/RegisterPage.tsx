@@ -11,6 +11,7 @@ import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
+import { currentLegalAcceptance } from '../legal'
 
 function GoogleLogoIcon() {
     return (
@@ -38,6 +39,8 @@ export default function RegisterPage() {
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [captchaToken, setCaptchaToken] = useState<string>('')
+    const [termsAccepted, setTermsAccepted] = useState(false)
+    const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false)
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
@@ -45,7 +48,13 @@ export default function RegisterPage() {
     const features = useFeatureStore((s) => s.features)
     const navigate = useNavigate()
     const googleOAuthEnabled = features?.google_oauth_enabled === true
-    const googleAuthHref = isTauri() ? '#' : getGoogleAuthUrl(redirectTo)
+    const legalReady = termsAccepted && privacyAcknowledged
+    const googleAuthHref = isTauri() || !legalReady
+        ? '#'
+        : getGoogleAuthUrl(redirectTo, {
+            intent: 'register',
+            legal: currentLegalAcceptance(),
+        })
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
@@ -55,11 +64,19 @@ export default function RegisterPage() {
             setError('Google sign-in is disabled on this server.')
             return
         }
+        if (!legalReady) {
+            e.preventDefault()
+            setError('Accept the Terms of Service and acknowledge the Privacy Notice before continuing.')
+            return
+        }
         if (isTauri()) {
             e.preventDefault()
             setError('')
             try {
-                const url = await getDesktopGoogleAuthUrl(redirectTo)
+                const url = await getDesktopGoogleAuthUrl(redirectTo, {
+                    intent: 'register',
+                    legal: currentLegalAcceptance(),
+                })
                 await openExternalUrl(url)
             } catch {
                 setError('Could not open Google sign-in in your browser. Try again or use email/password.')
@@ -87,10 +104,20 @@ export default function RegisterPage() {
             setError('Please complete the CAPTCHA verification')
             return
         }
+        if (!legalReady) {
+            setError('Accept the Terms of Service and acknowledge the Privacy Notice before continuing.')
+            return
+        }
 
         setLoading(true)
         try {
-            const res = await authApi.register(username, email, password, captchaToken || undefined)
+            const res = await authApi.register(
+                username,
+                email,
+                password,
+                currentLegalAcceptance(),
+                captchaToken || undefined,
+            )
             setAuth(res.token, res.user)
             setActiveDmChannelId(null)
             setPersistedSocialView('friends')
@@ -190,7 +217,31 @@ export default function RegisterPage() {
                     </div>
                 )}
 
-                <button className="auth-btn" type="submit" disabled={loading || (turnstileSiteKey && !captchaToken)}>
+                <div className="auth-legal-confirmations">
+                    <label className="auth-legal-check">
+                        <input
+                            type="checkbox"
+                            checked={termsAccepted}
+                            onChange={(event) => setTermsAccepted(event.target.checked)}
+                        />
+                        <span>
+                            I accept the <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a>.
+                        </span>
+                    </label>
+                    <label className="auth-legal-check">
+                        <input
+                            type="checkbox"
+                            checked={privacyAcknowledged}
+                            onChange={(event) => setPrivacyAcknowledged(event.target.checked)}
+                        />
+                        <span>
+                            I have read the <a href="/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>
+                            {' '}and <a href="/kvkk" target="_blank" rel="noreferrer">KVKK Aydınlatma Metni</a>.
+                        </span>
+                    </label>
+                </div>
+
+                <button className="auth-btn" type="submit" disabled={loading || !legalReady || (turnstileSiteKey && !captchaToken)}>
                     {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
 

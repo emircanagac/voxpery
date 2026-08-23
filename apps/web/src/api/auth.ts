@@ -1,12 +1,15 @@
 import { isTauri } from '../secureStorage'
-import { apiFetch, effectiveApiBase } from './client'
-import type { AuthResponse, DataExportPayload, DeleteAccountPayload, EmailVerificationConfirmResponse, UserPublic } from './contracts'
+import { apiDownload, apiFetch, effectiveApiBase } from './client'
+import type { AuthResponse, DeleteAccountPayload, EmailVerificationConfirmResponse, UserPublic } from './contracts'
+import type { RegistrationLegalAcceptance } from '../legal'
 
 const DESKTOP_OAUTH_VERIFIER_KEY = 'voxpery.desktop.oauth.code_verifier'
 
 interface GoogleAuthUrlOptions {
     origin?: string
     codeChallenge?: string
+    intent?: 'login' | 'register'
+    legal?: RegistrationLegalAcceptance
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -44,7 +47,10 @@ export function clearStoredDesktopOAuthVerifier(): void {
     window.localStorage.removeItem(DESKTOP_OAUTH_VERIFIER_KEY)
 }
 
-export async function getDesktopGoogleAuthUrl(redirectPath: string = '/'): Promise<string> {
+export async function getDesktopGoogleAuthUrl(
+    redirectPath: string = '/',
+    options?: Pick<GoogleAuthUrlOptions, 'intent' | 'legal'>,
+): Promise<string> {
     const { verifier, challenge } = await createDesktopPkcePair()
     if (typeof window !== 'undefined') {
         window.localStorage.setItem(DESKTOP_OAUTH_VERIFIER_KEY, verifier)
@@ -52,6 +58,8 @@ export async function getDesktopGoogleAuthUrl(redirectPath: string = '/'): Promi
     return getGoogleAuthUrl(redirectPath, {
         origin: 'voxpery://auth',
         codeChallenge: challenge,
+        intent: options?.intent,
+        legal: options?.legal,
     })
 }
 
@@ -65,14 +73,27 @@ export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAut
     if (options?.codeChallenge) {
         params.set('code_challenge', options.codeChallenge)
     }
+    if (options?.intent) params.set('intent', options.intent)
+    if (options?.legal) {
+        params.set('terms_accepted', String(options.legal.terms_accepted))
+        params.set('terms_version', options.legal.terms_version)
+        params.set('privacy_notice_acknowledged', String(options.legal.privacy_notice_acknowledged))
+        params.set('privacy_notice_version', options.legal.privacy_notice_version)
+    }
     return `${effectiveApiBase()}/api/auth/google?${params.toString()}`
 }
 
 export const authApi = {
-    register: (username: string, email: string, password: string, captcha_token?: string) =>
+    register: (
+        username: string,
+        email: string,
+        password: string,
+        legal: RegistrationLegalAcceptance,
+        captcha_token?: string,
+    ) =>
         apiFetch<AuthResponse>('/api/auth/register', {
             method: 'POST',
-            body: { username, email, password, captcha_token },
+            body: { username, email, password, captcha_token, ...legal },
         }),
 
     login: (identifier: string, password: string) =>
@@ -163,9 +184,10 @@ export const authApi = {
             body: { token, new_password: newPassword },
         }),
 
-    exportData: (token: string | null) =>
-        apiFetch<DataExportPayload>('/api/auth/data-export', {
-            method: 'GET',
+    exportData: (token: string | null, password?: string) =>
+        apiDownload('/api/auth/data-export', {
+            method: 'POST',
+            body: { password },
             token: token ?? undefined,
         }),
 

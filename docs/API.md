@@ -60,7 +60,10 @@ Important behavior:
 - `POST /api/auth/email/confirm`
 - `GET /api/auth/google`
 - `GET /api/auth/google/callback`
-- `GET /api/auth/data-export`
+- `POST /api/auth/data-export`
+  - Password accounts must submit `{ "password": "..." }`; Google-only accounts require a Google-authenticated session issued within the last 10 minutes.
+  - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files.
+  - The manifest is explicitly a bounded convenience export (latest 20,000 authored server messages and 20,000 authored DMs), not a complete legal access-response package.
   - GDPR/KVKK data export JSON payload for authenticated user.
   - Export format: `voxpery-user-data-v2`.
   - Export is intentionally user-readable and data-minimized: internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers are omitted.

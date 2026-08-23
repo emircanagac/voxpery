@@ -108,6 +108,9 @@ describe('auth notification permission behavior', () => {
     const passwordInputs = screen.getAllByPlaceholderText('••••••••')
     fireEvent.change(passwordInputs[0], { target: { value: 'password-123' } })
     fireEvent.change(passwordInputs[1], { target: { value: 'password-123' } })
+    const legalCheckboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(legalCheckboxes[0])
+    fireEvent.click(legalCheckboxes[1])
     fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }))
 
     await waitFor(() => expect(authApiMocks.register).toHaveBeenCalledTimes(1))

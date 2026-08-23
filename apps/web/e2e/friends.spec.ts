@@ -1,4 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+
+async function acceptRegistrationDocuments(page: Page) {
+  await page.getByRole('checkbox').nth(0).check()
+  await page.getByRole('checkbox').nth(1).check()
+}
 
 /**
  * Friend request and DM flow tests.
@@ -30,6 +35,7 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/username/i).fill(user1.username)
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
+    await acceptRegistrationDocuments(page1)
     await page1.getByRole('button', { name: /sign up/i }).click()
     await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
@@ -38,6 +44,7 @@ test.describe('Friend & DM Flows', () => {
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
+    await acceptRegistrationDocuments(page2)
     await page2.getByRole('button', { name: /sign up/i }).click()
     await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
@@ -81,6 +88,7 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/username/i).fill(user1.username)
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
+    await acceptRegistrationDocuments(page1)
     await page1.getByRole('button', { name: /sign up/i }).click()
     await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
@@ -88,6 +96,7 @@ test.describe('Friend & DM Flows', () => {
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
+    await acceptRegistrationDocuments(page2)
     await page2.getByRole('button', { name: /sign up/i }).click()
     await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
@@ -152,6 +161,7 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/username/i).fill(user1.username)
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
+    await acceptRegistrationDocuments(page1)
     await page1.getByRole('button', { name: /sign up/i }).click()
     await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
@@ -159,6 +169,7 @@ test.describe('Friend & DM Flows', () => {
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
+    await acceptRegistrationDocuments(page2)
     await page2.getByRole('button', { name: /sign up/i }).click()
     await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 
@@ -198,6 +209,7 @@ test.describe('Friend & DM Flows', () => {
     await page1.getByPlaceholder(/username/i).fill(user1.username)
     await page1.getByPlaceholder(/email/i).fill(user1.email)
     await page1.getByPlaceholder(/password/i).fill(user1.password)
+    await acceptRegistrationDocuments(page1)
     await page1.getByRole('button', { name: /sign up/i }).click()
     await expect(page1).toHaveURL(/\//, { timeout: 10000 })
 
@@ -205,6 +217,7 @@ test.describe('Friend & DM Flows', () => {
     await page2.getByPlaceholder(/username/i).fill(user2.username)
     await page2.getByPlaceholder(/email/i).fill(user2.email)
     await page2.getByPlaceholder(/password/i).fill(user2.password)
+    await acceptRegistrationDocuments(page2)
     await page2.getByRole('button', { name: /sign up/i }).click()
     await expect(page2).toHaveURL(/\//, { timeout: 10000 })
 

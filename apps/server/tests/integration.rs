@@ -13,14 +13,25 @@ use http_body_util::BodyExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
-use std::{path::Path, sync::Arc};
+use std::{
+    io::{Cursor, Read},
+    path::Path,
+    sync::Arc,
+};
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tower::ServiceExt;
 use uuid::Uuid;
-use voxpery_server::{build_app, run_migrations, services::auth::generate_token, AppState};
+use voxpery_server::{
+    build_app, run_migrations,
+    services::{
+        auth::generate_token,
+        privacy::{CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION},
+    },
+    AppState,
+};
 
 fn test_db_url() -> Option<String> {
     dotenvy::dotenv().ok();
@@ -36,6 +47,18 @@ fn jwt_secret() -> String {
 
 fn test_credential(label: &str) -> &'static str {
     Box::leak(format!("test-credential-{label}-{}", Uuid::new_v4().as_simple()).into_boxed_str())
+}
+
+fn registration_body(email: &str, username: &str, password: &str) -> serde_json::Value {
+    json!({
+        "email": email,
+        "username": username,
+        "password": password,
+        "terms_accepted": true,
+        "terms_version": CURRENT_TERMS_VERSION,
+        "privacy_notice_acknowledged": true,
+        "privacy_notice_version": CURRENT_PRIVACY_NOTICE_VERSION
+    })
 }
 
 fn normalize_compose_host(url: String, service_host: &str, fallback_host: &str) -> String {
@@ -196,11 +219,7 @@ async fn register_user(
     username: &str,
     password: &str,
 ) -> (String, Uuid) {
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(email, username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -535,12 +554,56 @@ async fn email_verification_request_returns_feature_disabled_when_email_delivery
 }
 
 #[tokio::test]
-async fn register_login_me_flow() {
+async fn registration_requires_current_legal_documents() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
     let (mut app, _) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let email = format!("legal-{uid}@example.com");
+    let username = format!("legal_{}", uid.as_u128() % 1_000_000);
+
+    let missing_acceptance = json!({
+        "email": email,
+        "username": username,
+        "password": test_credential("legal-missing")
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&missing_acceptance).unwrap()))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let stale_documents = json!({
+        "email": format!("stale-{uid}@example.com"),
+        "username": format!("stale_{}", uid.as_u128() % 1_000_000),
+        "password": test_credential("legal-stale"),
+        "terms_accepted": true,
+        "terms_version": "outdated",
+        "privacy_notice_acknowledged": true,
+        "privacy_notice_version": "outdated"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&stale_documents).unwrap()))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn register_login_me_flow() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
 
     let uid = Uuid::new_v4();
     let email = format!("test-{}@example.com", uid);
@@ -548,11 +611,7 @@ async fn register_login_me_flow() {
     let password = test_credential("default");
 
     // Register
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(&email, &username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -568,6 +627,32 @@ async fn register_login_me_flow() {
     );
     let auth: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let token = auth["token"].as_str().expect("token in response");
+    let user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
+
+    let legal_record: (Option<String>, Option<String>) = sqlx::query_as(
+        r#"SELECT terms_version, privacy_notice_version
+           FROM users
+           WHERE id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(legal_record.0.as_deref(), Some(CURRENT_TERMS_VERSION));
+    assert_eq!(
+        legal_record.1.as_deref(),
+        Some(CURRENT_PRIVACY_NOTICE_VERSION)
+    );
+    let registration_audit_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM privacy_audit_log
+           WHERE user_id = $1 AND event_type = 'account_registered'"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(registration_audit_count, 1);
 
     // GET /api/auth/me with Bearer
     let req = Request::builder()
@@ -685,11 +770,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     let username = format!("moduser_{}", uid.as_u128() % 1_000_000);
     let password = test_credential("default");
 
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(&email, &username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -835,11 +916,7 @@ async fn create_server_list_servers_get_server() {
     let username = format!("srvuser_{}", uid.as_u128() % 1_000_000);
     let password = test_credential("default");
 
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(&email, &username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -1212,11 +1289,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     let username = format!("srvmod_{}", uid.as_u128() % 1_000_000);
     let password = test_credential("default");
 
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(&email, &username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -1343,11 +1416,8 @@ async fn join_server_auto_assigns_everyone_role() {
     let owner_uid = Uuid::new_v4();
     let owner_email = format!("owner-{}@example.com", owner_uid);
     let owner_username = format!("owner_{}", owner_uid.as_u128() % 1_000_000);
-    let owner_register = json!({
-        "email": owner_email,
-        "username": owner_username,
-        "password": test_credential("default")
-    });
+    let owner_register =
+        registration_body(&owner_email, &owner_username, test_credential("default"));
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -1389,11 +1459,8 @@ async fn join_server_auto_assigns_everyone_role() {
     let member_uid = Uuid::new_v4();
     let member_email = format!("member-{}@example.com", member_uid);
     let member_username = format!("member_{}", member_uid.as_u128() % 1_000_000);
-    let member_register = json!({
-        "email": member_email,
-        "username": member_username,
-        "password": test_credential("default")
-    });
+    let member_register =
+        registration_body(&member_email, &member_username, test_credential("default"));
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -1484,11 +1551,7 @@ async fn create_channel_list_channels_send_message_list_messages() {
     let username = format!("chanuser_{}", uid.as_u128() % 1_000_000);
     let password = test_credential("default");
 
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": password
-    });
+    let register_body = registration_body(&email, &username, password);
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -2027,11 +2090,7 @@ async fn strict_username_validation_rejects_invalid_usernames() {
         let uid = Uuid::new_v4();
         let email = format!("test-{}@example.com", uid);
 
-        let register_body = json!({
-            "email": email,
-            "username": username,
-            "password": test_credential("default")
-        });
+        let register_body = registration_body(&email, username, test_credential("default"));
         let req = Request::builder()
             .method("POST")
             .uri("/api/auth/register")
@@ -2063,11 +2122,7 @@ async fn usernames_preserve_case_but_remain_case_insensitively_unique() {
     let suffix = Uuid::new_v4().as_u128() % 1_000_000;
     let username = format!("VoxUser_{suffix}");
     let email = format!("case-{suffix}@example.com");
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": test_credential("case-preserving")
-    });
+    let register_body = registration_body(&email, &username, test_credential("case-preserving"));
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -2084,11 +2139,13 @@ async fn usernames_preserve_case_but_remain_case_insensitively_unique() {
     let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(response["user"]["username"], username);
 
-    let duplicate_body = json!({
-        "email": format!("case-duplicate-{suffix}@example.com"),
-        "username": username.to_lowercase(),
-        "password": test_credential("case-duplicate")
-    });
+    let duplicate_email = format!("case-duplicate-{suffix}@example.com");
+    let duplicate_username = username.to_lowercase();
+    let duplicate_body = registration_body(
+        &duplicate_email,
+        &duplicate_username,
+        test_credential("case-duplicate"),
+    );
     let duplicate_req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -2112,11 +2169,7 @@ async fn roles_and_channel_overrides_flow() {
     let username = format!("admin_{}", uid.as_u128() % 1_000_000);
 
     // Register owner
-    let register_body = json!({
-        "email": email,
-        "username": username,
-        "password": test_credential("default")
-    });
+    let register_body = registration_body(&email, &username, test_credential("default"));
     let req = Request::builder()
         .method("POST")
         .uri("/api/auth/register")
@@ -3147,11 +3200,69 @@ async fn data_export_returns_user_profile_and_messages() {
     .await
     .unwrap();
 
-    let req = Request::builder()
-        .method("GET")
+    let boundary = format!("----voxperyexport{}", Uuid::new_v4());
+    let attachment_bytes = b"private export attachment";
+    let upload_body = [
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"private.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .into_bytes(),
+        attachment_bytes.to_vec(),
+        format!("\r\n--{boundary}--\r\n").into_bytes(),
+    ]
+    .concat();
+    let upload_req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(upload_body))
+        .unwrap();
+    let (upload_status, upload_response) = oneshot(&mut app, upload_req).await;
+    assert_eq!(
+        upload_status,
+        StatusCode::OK,
+        "attachment upload failed: {}",
+        String::from_utf8_lossy(&upload_response)
+    );
+
+    let missing_password_req = Request::builder()
+        .method("POST")
         .uri("/api/auth/data-export")
         .header("Authorization", &auth)
-        .body(Body::empty())
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{}"#))
+        .unwrap();
+    let (missing_password_status, missing_password_body) =
+        oneshot(&mut app, missing_password_req).await;
+    assert_eq!(missing_password_status, StatusCode::FORBIDDEN);
+    let missing_password_error: serde_json::Value =
+        serde_json::from_slice(&missing_password_body).unwrap();
+    assert_eq!(missing_password_error["code"], "REAUTH_REQUIRED");
+
+    let wrong_password_req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "password": "definitely-wrong" })).unwrap(),
+        ))
+        .unwrap();
+    let (wrong_password_status, _) = oneshot(&mut app, wrong_password_req).await;
+    assert_eq!(wrong_password_status, StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "password": password })).unwrap(),
+        ))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
     assert_eq!(
@@ -3161,8 +3272,24 @@ async fn data_export_returns_user_profile_and_messages() {
         String::from_utf8_lossy(&body)
     );
 
-    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(payload["export"]["format"], "voxpery-user-data-v2");
+    let mut archive = zip::ZipArchive::new(Cursor::new(body.to_vec()))
+        .expect("data export response must be a ZIP archive");
+    let mut manifest_json = String::new();
+    archive
+        .by_name("voxpery-data-export.json")
+        .expect("export manifest must be present")
+        .read_to_string(&mut manifest_json)
+        .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&manifest_json).unwrap();
+    assert_eq!(payload["export"]["format"], "voxpery-user-data-v3");
+    assert_eq!(
+        payload["export"]["scope"],
+        "self_service_convenience_export"
+    );
+    assert_eq!(
+        payload["export"]["is_complete_data_subject_access_response"],
+        false
+    );
     assert_eq!(payload["account"]["email"], email);
     assert_eq!(payload["account"]["username"], username);
     assert!(payload["account"].get("id").is_none());
@@ -3218,6 +3345,20 @@ async fn data_export_returns_user_profile_and_messages() {
     assert!(exported_message["attachments"][0].get("url").is_none());
     assert!(exported_message["attachments"][0].get("sha256").is_none());
 
+    let exported_file = payload["export"]["files"]
+        .as_array()
+        .and_then(|files| files.iter().find(|file| file["name"] == "private.txt"))
+        .expect("owned attachment must be listed in the export manifest");
+    let archive_path = exported_file["archive_path"].as_str().unwrap();
+    assert!(archive_path.starts_with("files/attachments/"));
+    let mut exported_attachment = Vec::new();
+    archive
+        .by_name(archive_path)
+        .expect("owned attachment bytes must be included")
+        .read_to_end(&mut exported_attachment)
+        .unwrap();
+    assert_eq!(exported_attachment, attachment_bytes);
+
     let export_text = serde_json::to_string(&payload).unwrap();
     for forbidden in [
         "\"password_hash\"",
@@ -3237,6 +3378,17 @@ async fn data_export_returns_user_profile_and_messages() {
         !export_text.contains(&user_id.to_string()),
         "export payload should not expose the account database id"
     );
+
+    let audit_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM privacy_audit_log
+           WHERE user_id = $1 AND event_type = 'data_export_created'"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1, "data export must create one audit event");
 }
 
 #[tokio::test]

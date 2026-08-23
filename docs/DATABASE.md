@@ -44,6 +44,8 @@ Key columns:
 - `dm_privacy` (`everyone` or `friends`; new accounts default to `everyone`)
 - `google_id` (nullable unique)
 - `username_changed_at`
+- `terms_version`, `terms_accepted_at`
+- `privacy_notice_version`, `privacy_notice_acknowledged_at`
 - `created_at`
 
 ### `servers`
@@ -268,6 +270,11 @@ All migrations currently present:
 - `037_member_timeouts_and_raid_events.sql`
 - `038_server_onboarding_guides.sql`
 - `039_default_dm_privacy_everyone.sql`
+- `042_privacy_compliance.sql`
+
+### Privacy audit log
+
+`privacy_audit_log` stores only the user reference, allowlisted event type, legal-document versions where applicable, and timestamp. It must never contain message/file content, credentials, IP addresses, export bytes, or archive paths.
 - `040_dm_channel_hidden_state.sql`
 - `041_open_report_uniqueness.sql`
 - `042_idempotent_write_requests.sql`

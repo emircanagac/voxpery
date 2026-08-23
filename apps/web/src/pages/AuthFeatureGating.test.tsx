@@ -81,6 +81,9 @@ describe('auth feature gating', () => {
     const googleLink = screen.getByRole('link', { name: /continue with google/i })
     expect(googleLink).toHaveAttribute('href', '#')
 
+    const legalCheckboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(legalCheckboxes[0])
+    fireEvent.click(legalCheckboxes[1])
     fireEvent.click(googleLink)
 
     await waitFor(() => {
@@ -90,6 +93,9 @@ describe('auth feature gating', () => {
     expect(openedUrl).toContain('/api/auth/google?')
     expect(openedUrl).toContain('origin=voxpery%3A%2F%2Fauth')
     expect(openedUrl).toContain('code_challenge=')
+    expect(openedUrl).toContain('intent=register')
+    expect(openedUrl).toContain('terms_accepted=true')
+    expect(openedUrl).toContain('privacy_notice_acknowledged=true')
   })
 
   it('shows a disabled password reset message instead of the request form', () => {

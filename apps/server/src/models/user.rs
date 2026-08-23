@@ -109,6 +109,10 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub captcha_token: Option<String>,
+    pub terms_accepted: bool,
+    pub terms_version: String,
+    pub privacy_notice_acknowledged: bool,
+    pub privacy_notice_version: String,
 }
 
 #[derive(Debug, Deserialize)]

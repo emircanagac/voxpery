@@ -11,6 +11,9 @@ export const ROUTES = {
   forgotPassword: '/forgot-password' as const,
   resetPassword: '/reset-password' as const,
   verifyEmail: '/verify-email' as const,
+  privacy: '/privacy' as const,
+  terms: '/terms' as const,
+  kvkk: '/kvkk' as const,
   invite: (code: string = ':code') => `/invite/${code}`,
 } as const
 
