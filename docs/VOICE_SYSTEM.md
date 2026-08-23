@@ -183,16 +183,16 @@ Shared AudioContext (desktop) / direct media path (mobile)
     |
 Independent microphone and screen-share gain buses
     |
-<audio> element (global output volume)
+Single persistent mixed <audio> output (desktop)
     |
 Speaker
 ```
 
 - **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-100%.
-- **Stable desktop mixing**: Remote microphone and screen-share audio use one long-lived `AudioContext` with independent gain buses. Speaking-state changes never rebuild, mute, or restart watched stream audio.
+- **Stable desktop mixing**: Remote microphone and screen-share audio use one long-lived `AudioContext` with independent gain buses feeding one persistent output stream. Local speaking/VAD updates never create competing output sessions or rebuild, mute, or restart watched stream audio.
 - **Source-aware dynamics**: Microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Mobile web keeps the lower-overhead direct media path.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
-- **Immediate deafen**: The playback ref and every active remote microphone element are muted synchronously with the control click, closing the render/effect window where a new track could remain audible briefly.
+- **Immediate deafen**: Every active desktop microphone bus is set to zero synchronously with the control click, and newly subscribed microphone buses start at zero while deafened. Direct mobile microphone elements are muted in the same pass, closing reconnect and render/effect windows where voice could otherwise leak briefly.
 - **Deafened speaking feedback**: Self-deafen and server-deafen suppress remote speaking rings in both the channel sidebar and voice stage. The underlying speaking state remains intact, so indicators resume immediately after undeafen without waiting for a new speaking event.
 - **Watch screen share**: Screen-share video and shared audio remain unsubscribed until the viewer chooses `Watch stream`; `Stop watching` removes only those viewer subscriptions while the peer's normal microphone audio remains active.
 - **Pre-join media presence**: Server members can see a camera icon and `LIVE` screen-share badge beside voice participants before joining the channel. These indicators use the server-broadcast voice control state and do not subscribe the viewer to media.

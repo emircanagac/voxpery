@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberInfo } from '../api'
 import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
@@ -92,6 +92,70 @@ function mockMobileViewport(matches: boolean) {
   }))
 }
 
+type MockAudioContextInstance = {
+  createMediaStreamDestination: ReturnType<typeof vi.fn>
+  createMediaStreamSource: ReturnType<typeof vi.fn>
+  createGain: ReturnType<typeof vi.fn>
+}
+
+let restoreAudioContextMock: (() => void) | null = null
+
+function installAudioContextMock(): MockAudioContextInstance[] {
+  const original = Object.getOwnPropertyDescriptor(window, 'AudioContext')
+  const instances: MockAudioContextInstance[] = []
+
+  class MockAudioContext {
+    state: AudioContextState = 'running'
+    currentTime = 0
+    createMediaStreamSource = vi.fn(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }))
+    createGain = vi.fn(() => ({
+      context: this,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      gain: {
+        value: 1,
+        cancelScheduledValues: vi.fn(),
+        setValueAtTime: vi.fn(),
+        setTargetAtTime: vi.fn(),
+      },
+    }))
+    createDynamicsCompressor = vi.fn(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      threshold: { value: 0 },
+      knee: { value: 0 },
+      ratio: { value: 0 },
+      attack: { value: 0 },
+      release: { value: 0 },
+    }))
+    createMediaStreamDestination = vi.fn(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      stream: new MediaStream([mediaTrack('audio', 'mixed-output', { stop: vi.fn() })]),
+    }))
+    resume = vi.fn(async () => { this.state = 'running' })
+    suspend = vi.fn(async () => { this.state = 'suspended' })
+    close = vi.fn(async () => { this.state = 'closed' })
+
+    constructor() {
+      instances.push(this)
+    }
+  }
+
+  Object.defineProperty(window, 'AudioContext', {
+    configurable: true,
+    value: MockAudioContext,
+  })
+  restoreAudioContextMock = () => {
+    if (original) Object.defineProperty(window, 'AudioContext', original)
+    else delete (window as Window & { AudioContext?: typeof AudioContext }).AudioContext
+  }
+  return instances
+}
+
 function voiceState(overrides?: Record<string, unknown>) {
   return {
     joinedChannelId: voiceChannel.id,
@@ -155,6 +219,11 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
 }
 
 describe('ActiveCallBar regressions', () => {
+  afterEach(() => {
+    restoreAudioContextMock?.()
+    restoreAudioContextMock = null
+  })
+
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
@@ -363,13 +432,69 @@ describe('ActiveCallBar regressions', () => {
       watchedRemoteScreenPeerIds: new Set(['peer-1']),
     })
 
-    const [voiceAudio, screenAudio] = Array.from(container.querySelectorAll('audio'))
+    const voiceAudio = container.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
+    const screenAudio = container.querySelector('audio[data-remote-audio-kind="screen"]') as HTMLAudioElement | null
     if (!voiceAudio || !screenAudio) throw new Error('Remote audio playback elements were not rendered.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
 
     expect(voiceAudio.muted).toBe(true)
     expect(screenAudio.muted).toBe(false)
+  })
+
+  it('immediately gates desktop microphone buses while keeping watched screen audio active', () => {
+    const audioContexts = installAudioContextMock()
+    const micTrack = mediaTrack('audio', 'peer-mic')
+    const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')
+    markRemoteAudioTrackSource(micTrack, 'voice')
+    markRemoteAudioTrackSource(screenAudioTrack, 'screen')
+
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([micTrack, screenAudioTrack])]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    expect(audioContexts).toHaveLength(1)
+    const gainNodes = audioContexts[0].createGain.mock.results.map((result) => result.value)
+    const microphoneBus = gainNodes[1]
+    const screenBus = gainNodes[2]
+    if (!microphoneBus || !screenBus) throw new Error('Remote mixer gain buses were not created.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+
+    expect(microphoneBus.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 0)
+    expect(screenBus.gain.setValueAtTime).not.toHaveBeenCalled()
+    expect(screenBus.gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.015)
+    const mixerOutput = container.querySelector('audio[data-remote-audio-output="mixed"]') as HTMLAudioElement | null
+    expect(mixerOutput?.muted).toBe(false)
+  })
+
+  it('starts microphone tracks that arrive while deafened at zero gain', () => {
+    const audioContexts = installAudioContextMock()
+    const { voice, rerender } = renderActiveCallBar()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+
+    const reconnectingMic = mediaTrack('audio', 'peer-reconnected-mic')
+    markRemoteAudioTrackSource(reconnectingMic, 'voice')
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', new MediaStream([reconnectingMic])]]),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar
+          selectedVoiceChannelId={voiceChannel.id}
+          activeChannelId={voiceChannel.id}
+        />
+      </MemoryRouter>
+    )
+
+    expect(audioContexts).toHaveLength(1)
+    const microphoneBus = audioContexts[0].createGain.mock.results[1]?.value
+    if (!microphoneBus) throw new Error('The reconnecting microphone bus was not created.')
+    expect(microphoneBus.gain.value).toBe(0)
+    const remoteMic = document.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
+    expect(remoteMic?.muted).toBe(true)
   })
 
   it('hides remote speaking indicators while locally deafened and restores them on undeafen', () => {
@@ -393,6 +518,7 @@ describe('ActiveCallBar regressions', () => {
   })
 
   it('keeps five remote voices and watched screen audio stable across speaking changes', () => {
+    const audioContexts = installAudioContextMock()
     const sharerMic = mediaTrack('audio', 'peer-1-mic')
     const screenAudio = mediaTrack('audio', 'peer-screen-audio')
     markRemoteAudioTrackSource(sharerMic, 'voice')
@@ -441,7 +567,19 @@ describe('ActiveCallBar regressions', () => {
         remoteStreams: 5,
       },
     })
-    expect(container.querySelectorAll('audio').length).toBeGreaterThanOrEqual(6)
+    const mixerOutput = container.querySelector('audio[data-remote-audio-output="mixed"]') as HTMLAudioElement | null
+    if (!mixerOutput) throw new Error('The stable remote audio mixer output was not rendered.')
+    expect(audioContexts).toHaveLength(1)
+    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledOnce()
+    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
+    expect(mixerOutput.srcObject).toBeInstanceOf(MediaStream)
+    const mixedSourceElements = Array.from(container.querySelectorAll<HTMLAudioElement>(
+      'audio[data-remote-audio-kind="mic"], audio[data-peer-id="peer-1"][data-remote-audio-kind="screen"]',
+    ))
+    expect(mixedSourceElements).toHaveLength(6)
+    expect(mixedSourceElements.every((element) => element.srcObject === null && element.muted)).toBe(true)
+    expect(play.mock.instances.every((element) => element === mixerOutput)).toBe(true)
+    const initialMixerStream = mixerOutput.srcObject
     play.mockClear()
 
     act(() => useAppStore.getState().setVoiceSpeaking(['peer-2', 'peer-3'], false))
@@ -449,6 +587,9 @@ describe('ActiveCallBar regressions', () => {
     act(() => useAppStore.getState().setVoiceSpeaking([], false))
 
     expect(play).not.toHaveBeenCalled()
+    expect(mixerOutput.srcObject).toBe(initialMixerStream)
+    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledOnce()
+    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
   })
 
   it('uses the configured shortcut while the web tab is focused', () => {

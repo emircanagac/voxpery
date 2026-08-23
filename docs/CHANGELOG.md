@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed desktop remote-audio mixing so microphone and watched screen-share audio use one persistent output stream, preventing local speaking activity from ducking or interrupting shared audio.
+- Made deafen synchronously gate every remote microphone bus, including tracks that arrive during reconnect, without muting independently watched screen-share audio.
+
 ## [0.2.11] - 2026-08-22
 
 ### Fixed
