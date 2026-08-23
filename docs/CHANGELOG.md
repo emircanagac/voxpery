@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clarified that the self-service archive is a bounded convenience export rather than a complete formal privacy access response.
 
 ### Fixed
-- Fixed desktop remote-audio mixing so microphone and watched screen-share audio use one persistent output stream, preventing local speaking activity from ducking or interrupting shared audio.
+- Restored independent desktop playback outputs for every remote microphone and watched screen-share audio source, with direct `MediaStream` fallback so one Web Audio graph failure cannot silence the entire voice channel.
 - Made deafen synchronously gate every remote microphone bus, including tracks that arrive during reconnect, without muting independently watched screen-share audio.
 - Bound the complete Google OAuth state to its HttpOnly cookie so registration intent, legal versions, redirect metadata, and PKCE values cannot be changed before callback validation.
 

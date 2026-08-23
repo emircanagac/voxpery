@@ -181,15 +181,15 @@ MediaStream
     |
 Shared AudioContext (desktop) / direct media path (mobile)
     |
-Independent microphone and screen-share gain buses
+Independent per-source gain and destination graphs
     |
-Single persistent mixed <audio> output (desktop)
+Independent <audio> outputs with direct fallback
     |
 Speaker
 ```
 
 - **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-100%.
-- **Stable desktop mixing**: Remote microphone and screen-share audio use one long-lived `AudioContext` with independent gain buses feeding one persistent output stream. Local speaking/VAD updates never create competing output sessions or rebuild, mute, or restart watched stream audio.
+- **Failure-isolated desktop playback**: Remote microphone and screen-share audio share one long-lived `AudioContext`, but each source owns its gain, destination, and media element. A graph-creation failure falls back to the source `MediaStream` directly, so one failed source cannot silence every participant. Local speaking/VAD updates do not rebuild or restart these outputs.
 - **Source-aware dynamics**: Microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Mobile web keeps the lower-overhead direct media path.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
 - **Immediate deafen**: Every active desktop microphone bus is set to zero synchronously with the control click, and newly subscribed microphone buses start at zero while deafened. Direct mobile microphone elements are muted in the same pass, closing reconnect and render/effect windows where voice could otherwise leak briefly.

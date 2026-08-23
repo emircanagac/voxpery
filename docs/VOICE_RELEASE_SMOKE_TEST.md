@@ -30,6 +30,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 - [ ] With 3-5 members in one channel, every member can hear every other microphone; reconnecting one member restores all expected subscriptions without duplicate or missing audio.
+- [ ] If Web Audio processing is unavailable for one remote source, that participant remains audible through direct `MediaStream` playback and the other participants remain unaffected.
 
 ## 2. Reconnect and Revocation
 
