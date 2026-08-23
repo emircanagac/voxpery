@@ -100,17 +100,20 @@ type MockAudioContextInstance = {
 
 let restoreAudioContextMock: (() => void) | null = null
 
-function installAudioContextMock(): MockAudioContextInstance[] {
+function installAudioContextMock(options: { failMediaStreamSource?: boolean } = {}): MockAudioContextInstance[] {
   const original = Object.getOwnPropertyDescriptor(window, 'AudioContext')
   const instances: MockAudioContextInstance[] = []
 
   class MockAudioContext {
     state: AudioContextState = 'running'
     currentTime = 0
-    createMediaStreamSource = vi.fn(() => ({
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-    }))
+    createMediaStreamSource = vi.fn(() => {
+      if (options.failMediaStreamSource) throw new Error('Web Audio source unavailable')
+      return {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }
+    })
     createGain = vi.fn(() => ({
       context: this,
       connect: vi.fn(),
@@ -456,17 +459,17 @@ describe('ActiveCallBar regressions', () => {
 
     expect(audioContexts).toHaveLength(1)
     const gainNodes = audioContexts[0].createGain.mock.results.map((result) => result.value)
-    const microphoneBus = gainNodes[1]
-    const screenBus = gainNodes[2]
-    if (!microphoneBus || !screenBus) throw new Error('Remote mixer gain buses were not created.')
+    const microphoneBus = gainNodes[0]
+    const screenBus = gainNodes[1]
+    if (!microphoneBus || !screenBus) throw new Error('Remote playback gain buses were not created.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
 
     expect(microphoneBus.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 0)
     expect(screenBus.gain.setValueAtTime).not.toHaveBeenCalled()
     expect(screenBus.gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.015)
-    const mixerOutput = container.querySelector('audio[data-remote-audio-output="mixed"]') as HTMLAudioElement | null
-    expect(mixerOutput?.muted).toBe(false)
+    const screenOutput = container.querySelector('audio[data-remote-audio-kind="screen"]') as HTMLAudioElement | null
+    expect(screenOutput?.muted).toBe(false)
   })
 
   it('starts microphone tracks that arrive while deafened at zero gain', () => {
@@ -490,7 +493,7 @@ describe('ActiveCallBar regressions', () => {
     )
 
     expect(audioContexts).toHaveLength(1)
-    const microphoneBus = audioContexts[0].createGain.mock.results[1]?.value
+    const microphoneBus = audioContexts[0].createGain.mock.results[0]?.value
     if (!microphoneBus) throw new Error('The reconnecting microphone bus was not created.')
     expect(microphoneBus.gain.value).toBe(0)
     const remoteMic = document.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
@@ -567,19 +570,16 @@ describe('ActiveCallBar regressions', () => {
         remoteStreams: 5,
       },
     })
-    const mixerOutput = container.querySelector('audio[data-remote-audio-output="mixed"]') as HTMLAudioElement | null
-    if (!mixerOutput) throw new Error('The stable remote audio mixer output was not rendered.')
     expect(audioContexts).toHaveLength(1)
-    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledOnce()
+    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledTimes(6)
     expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
-    expect(mixerOutput.srcObject).toBeInstanceOf(MediaStream)
-    const mixedSourceElements = Array.from(container.querySelectorAll<HTMLAudioElement>(
+    const sourceElements = Array.from(container.querySelectorAll<HTMLAudioElement>(
       'audio[data-remote-audio-kind="mic"], audio[data-peer-id="peer-1"][data-remote-audio-kind="screen"]',
     ))
-    expect(mixedSourceElements).toHaveLength(6)
-    expect(mixedSourceElements.every((element) => element.srcObject === null && element.muted)).toBe(true)
-    expect(play.mock.instances.every((element) => element === mixerOutput)).toBe(true)
-    const initialMixerStream = mixerOutput.srcObject
+    expect(sourceElements).toHaveLength(6)
+    expect(sourceElements.every((element) => element.srcObject instanceof MediaStream && !element.muted)).toBe(true)
+    expect(sourceElements.every((element) => play.mock.instances.includes(element))).toBe(true)
+    const initialOutputStreams = sourceElements.map((element) => element.srcObject)
     play.mockClear()
 
     act(() => useAppStore.getState().setVoiceSpeaking(['peer-2', 'peer-3'], false))
@@ -587,9 +587,33 @@ describe('ActiveCallBar regressions', () => {
     act(() => useAppStore.getState().setVoiceSpeaking([], false))
 
     expect(play).not.toHaveBeenCalled()
-    expect(mixerOutput.srcObject).toBe(initialMixerStream)
-    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledOnce()
+    expect(sourceElements.map((element) => element.srcObject)).toEqual(initialOutputStreams)
+    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledTimes(6)
     expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
+  })
+
+  it('falls back to direct remote playback when Web Audio graph creation fails', () => {
+    const audioContexts = installAudioContextMock({ failMediaStreamSource: true })
+    const remoteMic = mediaTrack('audio', 'peer-mic')
+    markRemoteAudioTrackSource(remoteMic, 'voice')
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([remoteMic])]]),
+    })
+
+    const remoteMicOutput = container.querySelector(
+      'audio[data-peer-id="peer-1"][data-remote-audio-kind="mic"]',
+    ) as HTMLAudioElement | null
+    if (!remoteMicOutput) throw new Error('Remote microphone output was not rendered.')
+
+    expect(audioContexts).toHaveLength(1)
+    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledOnce()
+    expect(audioContexts[0].createMediaStreamDestination).not.toHaveBeenCalled()
+    expect(remoteMicOutput.srcObject).toBeInstanceOf(MediaStream)
+    expect((remoteMicOutput.srcObject as MediaStream).getAudioTracks()).toEqual([remoteMic])
+    expect(remoteMicOutput.muted).toBe(false)
+    expect(play.mock.instances).toContain(remoteMicOutput)
   })
 
   it('uses the configured shortcut while the web tab is focused', () => {
