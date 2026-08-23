@@ -21,6 +21,11 @@ This folder is the source of truth for architecture, development, deployment, ro
 - **[VOICE_SUPPRESSION_SMOKE_TEST.md](VOICE_SUPPRESSION_SMOKE_TEST.md)** - release gate for RNNoise and voice suppression parity
 - **[PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md)** - Realtime workload risks and measurement plan
 - **[OBSERVABILITY.md](OBSERVABILITY.md)** - Privacy-safe operational event contract, metrics, and retention
+- **[PRIVACY_NOTICE.md](PRIVACY_NOTICE.md)** - Official hosted-service privacy notice
+- **[KVKK_AYDINLATMA_METNI.md](KVKK_AYDINLATMA_METNI.md)** - Official hosted-service Turkish KVKK notice
+- **[TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md)** - Official hosted-service terms
+- **[DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md)** - Formal access/deletion request workflow
+- **[SELF_HOST_PRIVACY_TEMPLATE.md](SELF_HOST_PRIVACY_TEMPLATE.md)** - Legal-document checklist for self-host operators
 - **[DATABASE.md](DATABASE.md)** - Schema, migrations, and key queries
 - **[SECURITY.md](SECURITY.md)** - Security model and hardening checklist
 - **[../SECURITY.md](../SECURITY.md)** - Private vulnerability reporting policy

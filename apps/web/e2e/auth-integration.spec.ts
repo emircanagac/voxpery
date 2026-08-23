@@ -20,6 +20,8 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByPlaceholder(/username/i).fill(testUser.username)
     await page.getByPlaceholder(/email/i).fill(testUser.email)
     await page.getByPlaceholder(/password/i).fill(testUser.password)
+    await page.getByRole('checkbox').nth(0).check()
+    await page.getByRole('checkbox').nth(1).check()
 
     await page.getByRole('button', { name: /sign up/i }).click()
 
@@ -114,6 +116,8 @@ test.describe('Auth Integration with Real Backend', () => {
     await page.getByPlaceholder(/username/i).fill(`newuser_${Date.now()}`)
     await page.getByPlaceholder(/email/i).fill(testUser.email) // Duplicate
     await page.getByPlaceholder(/password/i).fill('NewPassword123!')
+    await page.getByRole('checkbox').nth(0).check()
+    await page.getByRole('checkbox').nth(1).check()
 
     await page.getByRole('button', { name: /sign up/i }).click()
 

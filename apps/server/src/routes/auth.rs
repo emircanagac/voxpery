@@ -1,4 +1,5 @@
 use axum::{
+    body::Body,
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware,
@@ -12,6 +13,7 @@ use base64::{
 };
 use redis::AsyncCommands;
 use sha2::{Digest, Sha256};
+use std::io::{Cursor, Write};
 use std::net::SocketAddr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -30,6 +32,11 @@ use crate::{
     services::auth::{generate_token, hash_password, verify_password},
     services::avatar_images::validate_profile_avatar_url,
     services::client_ip::resolve_client_ip,
+    services::privacy::{
+        record_privacy_event, validate_registration_documents, CURRENT_PRIVACY_NOTICE_VERSION,
+        CURRENT_TERMS_VERSION, DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT,
+        DATA_EXPORT_REAUTH_MAX_AGE_SECS,
+    },
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
     AppState,
@@ -108,8 +115,9 @@ fn normalize_oauth_origin(state: &AppState, origin: &str) -> String {
         .unwrap_or_else(|| "http://localhost:5173".to_string())
 }
 
-fn oauth_state_cookie_header(state: &AppState, nonce: &str) -> String {
-    let mut cookie = format!("oauth_state={nonce}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax");
+fn oauth_state_cookie_header(state: &AppState, oauth_state: &str) -> String {
+    let mut cookie =
+        format!("oauth_state={oauth_state}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax");
     if state.cookie_secure {
         cookie.push_str("; Secure");
     }
@@ -122,6 +130,10 @@ fn clear_oauth_state_cookie_header(state: &AppState) -> String {
         cookie.push_str("; Secure");
     }
     cookie
+}
+
+fn oauth_state_matches_cookie(callback_state: Option<&str>, cookie_state: &str) -> bool {
+    callback_state.is_some_and(|value| constant_time_eq(value, cookie_state))
 }
 
 fn append_query_param(path: &str, key: &str, value: &str) -> String {
@@ -463,6 +475,16 @@ mod oauth_pkce_tests {
     fn linking_google_identity_never_replaces_an_existing_local_password() {
         assert!(!super::LINK_GOOGLE_IDENTITY_SQL.contains("password_hash"));
     }
+
+    #[test]
+    fn oauth_state_integrity_covers_registration_metadata() {
+        let state = "nonce\nhttps://voxpery.com\n/social\n\nregister\n2026-08-23\n2026-08-23\n1";
+        let changed = state.replace("register", "login");
+
+        assert!(super::oauth_state_matches_cookie(Some(state), state));
+        assert!(!super::oauth_state_matches_cookie(Some(&changed), state));
+        assert!(!super::oauth_state_matches_cookie(None, state));
+    }
 }
 
 fn visible_presence_from_preference(status: &str) -> &'static str {
@@ -774,6 +796,11 @@ struct DeleteAccountRequest {
     password: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct DataExportRequest {
+    password: Option<String>,
+}
+
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 struct ExportAccountRow {
     username: String,
@@ -783,6 +810,16 @@ struct ExportAccountRow {
     dm_privacy: String,
     created_at: chrono::DateTime<chrono::Utc>,
     google_connected: bool,
+    password_hash: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExportAttachmentRow {
+    storage_backend: String,
+    storage_key: String,
+    original_name: String,
+    content_type: String,
+    size_bytes: i64,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -860,7 +897,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/email/request-verification",
             post(request_email_verification),
         )
-        .route("/data-export", get(export_my_data))
+        .route("/data-export", post(export_my_data))
         .route("/account", delete(delete_my_account))
         .route_layer(middleware::from_fn_with_state(state, require_auth));
 
@@ -888,6 +925,13 @@ async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let email = body.email.trim().to_lowercase();
+
+    validate_registration_documents(
+        body.terms_accepted,
+        body.terms_version.trim(),
+        body.privacy_notice_acknowledged,
+        body.privacy_notice_version.trim(),
+    )?;
 
     // 1) Email-based rate limit
     enforce_rate_limit(
@@ -1021,18 +1065,33 @@ async fn register(
     // Hash password
     let password_hash = hash_password(&body.password)?;
 
-    // Insert user (use validated trimmed values)
+    // Insert the account and legal acknowledgement proof atomically.
+    let mut tx = state.db.begin().await?;
     let user = sqlx::query_as::<_, User>(
-        r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, email_verified, created_at)
-           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW())
+        r#"INSERT INTO users
+           (id, username, email, password_hash, status, dm_privacy, email_verified, created_at,
+            terms_version, terms_accepted_at, privacy_notice_version, privacy_notice_acknowledged_at)
+           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW(), $5, NOW(), $6, NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
     .bind(&username)
     .bind(&email)
     .bind(&password_hash)
-    .fetch_one(&state.db)
+    .bind(CURRENT_TERMS_VERSION)
+    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+    .fetch_one(&mut *tx)
     .await?;
+
+    record_privacy_event(
+        &mut tx,
+        user.id,
+        "account_registered",
+        Some(CURRENT_TERMS_VERSION),
+        Some(CURRENT_PRIVACY_NOTICE_VERSION),
+    )
+    .await?;
+    tx.commit().await?;
 
     // Auto-join default Voxpery server
     ensure_default_server_join(&state.db, user.id).await?;
@@ -1517,6 +1576,12 @@ struct GoogleOAuthStartQuery {
     origin: Option<String>,
     /// Desktop OAuth PKCE code challenge (S256).
     code_challenge: Option<String>,
+    /// Registration is the only OAuth intent allowed to create a new account.
+    intent: Option<String>,
+    terms_accepted: Option<bool>,
+    terms_version: Option<String>,
+    privacy_notice_acknowledged: Option<bool>,
+    privacy_notice_version: Option<String>,
 }
 
 /// GET /api/auth/google — redirect to Google OAuth. Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_API_URL.
@@ -1576,12 +1641,34 @@ async fn google_oauth_start(
     }
 
     let nonce = Uuid::new_v4().to_string();
+    let intent = q.intent.as_deref().unwrap_or("login").trim();
+    let intent = if intent == "register" {
+        "register"
+    } else {
+        "login"
+    };
+    let legal_acknowledged =
+        q.terms_accepted == Some(true) && q.privacy_notice_acknowledged == Some(true);
+    if intent == "register" {
+        if let Err(error) = validate_registration_documents(
+            q.terms_accepted.unwrap_or(false),
+            q.terms_version.as_deref().unwrap_or("").trim(),
+            q.privacy_notice_acknowledged.unwrap_or(false),
+            q.privacy_notice_version.as_deref().unwrap_or("").trim(),
+        ) {
+            return error.into_response();
+        }
+    }
     let state_param = BASE64.encode(format!(
-        "{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         nonce,
         origin,
         redirect_path,
-        code_challenge.as_deref().unwrap_or("")
+        code_challenge.as_deref().unwrap_or(""),
+        intent,
+        q.terms_version.as_deref().unwrap_or(""),
+        q.privacy_notice_version.as_deref().unwrap_or(""),
+        if legal_acknowledged { "1" } else { "0" },
     ));
     let scope = "openid email profile";
     let url = format!(
@@ -1592,7 +1679,9 @@ async fn google_oauth_start(
         urlencoding::encode(&state_param),
     );
 
-    let cookie = oauth_state_cookie_header(&state, &nonce);
+    // Bind the complete state to the HttpOnly cookie so intent, legal versions,
+    // redirect metadata, and PKCE values cannot be changed before callback.
+    let cookie = oauth_state_cookie_header(&state, &state_param);
     let mut response = Redirect::temporary(&url).into_response();
     if let Ok(v) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(header::SET_COOKIE, v);
@@ -1736,13 +1825,26 @@ async fn google_oauth_callback(
         .and_then(|s| BASE64.decode(s.as_bytes()).ok());
     let state_string = decoded_state.and_then(|b| String::from_utf8(b).ok());
 
-    let (nonce, origin, redirect_path, code_challenge) = match state_string {
+    let (
+        _nonce,
+        origin,
+        redirect_path,
+        code_challenge,
+        oauth_intent,
+        terms_version,
+        privacy_notice_version,
+        legal_acknowledged,
+    ) = match state_string {
         Some(ref s) => {
-            let mut parts = s.splitn(4, '\n');
+            let mut parts = s.splitn(8, '\n');
             let n = parts.next().unwrap_or("").trim().to_string();
             let o = parts.next().unwrap_or("").trim().to_string();
             let r = parts.next().unwrap_or("").trim().to_string();
             let c = parts.next().unwrap_or("").trim().to_string();
+            let intent = parts.next().unwrap_or("login").trim().to_string();
+            let terms = parts.next().unwrap_or("").trim().to_string();
+            let privacy = parts.next().unwrap_or("").trim().to_string();
+            let acknowledged = parts.next().unwrap_or("0").trim() == "1";
             if n.is_empty() || o.is_empty() || !r.starts_with('/') {
                 tracing::warn!(
                     "OAuth state parsing failed. nonce_present={}, origin_len={}, redirect_len={}, pkce_challenge_present={}",
@@ -1756,9 +1858,22 @@ async fn google_oauth_callback(
                     "http://localhost:5173".to_string(),
                     "/app/friends".to_string(),
                     None,
+                    "login".to_string(),
+                    String::new(),
+                    String::new(),
+                    false,
                 )
             } else {
-                (n, o, r, if c.is_empty() { None } else { Some(c) })
+                (
+                    n,
+                    o,
+                    r,
+                    if c.is_empty() { None } else { Some(c) },
+                    intent,
+                    terms,
+                    privacy,
+                    acknowledged,
+                )
             }
         }
         None => {
@@ -1768,6 +1883,10 @@ async fn google_oauth_callback(
                 "http://localhost:5173".to_string(),
                 "/app/friends".to_string(),
                 None,
+                "login".to_string(),
+                String::new(),
+                String::new(),
+                false,
             )
         }
     };
@@ -1782,7 +1901,7 @@ async fn google_oauth_callback(
                 let prefix = "oauth_state=";
                 if let Some(cookie_val) = part.strip_prefix(prefix) {
                     found_oauth_state = Some(cookie_val.to_string());
-                    if !nonce.is_empty() && constant_time_eq(&nonce, cookie_val) {
+                    if oauth_state_matches_cookie(q.state.as_deref(), cookie_val) {
                         is_csrf_valid = true;
                     }
                     break;
@@ -1901,6 +2020,25 @@ async fn google_oauth_callback(
         }
         Ok(None) => {
             // New user: create account
+            if oauth_intent != "register"
+                || !legal_acknowledged
+                || validate_registration_documents(
+                    true,
+                    &terms_version,
+                    true,
+                    &privacy_notice_version,
+                )
+                .is_err()
+            {
+                tracing::warn!(
+                    "Google OAuth account creation rejected without current legal acknowledgement"
+                );
+                return oauth_callback_response(
+                    &origin,
+                    &redirect_path,
+                    Some("registration_terms_required"),
+                );
+            }
             let name = userinfo
                 .name
                 .or(userinfo.given_name)
@@ -1929,19 +2067,48 @@ async fn google_oauth_callback(
             }
             let password_hash = "oauth"; // not a valid Argon2 hash; OAuth-only users cannot password-login
             let id = Uuid::new_v4();
-            if let Err(e) = sqlx::query(
-                r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, email_verified, created_at)
-               VALUES ($1, $2, $3, $4, 'online', 'everyone', $5, TRUE, NOW())"#,
+            let mut tx = match state.db.begin().await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::warn!("Google OAuth transaction start failed: {}", e);
+                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                }
+            };
+            let insert_result = sqlx::query(
+                r#"INSERT INTO users
+                   (id, username, email, password_hash, status, dm_privacy, google_id,
+                    email_verified, created_at, terms_version, terms_accepted_at,
+                    privacy_notice_version, privacy_notice_acknowledged_at)
+                   VALUES ($1, $2, $3, $4, 'online', 'everyone', $5, TRUE, NOW(),
+                           $6, NOW(), $7, NOW())"#,
             )
             .bind(id)
             .bind(&username)
             .bind(&email)
             .bind(password_hash)
             .bind(&google_id)
-            .execute(&state.db)
+            .bind(CURRENT_TERMS_VERSION)
+            .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+            .execute(&mut *tx)
+            .await;
+            if let Err(e) = insert_result {
+                tracing::warn!("Google OAuth insert user failed: {}", e);
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            }
+            if let Err(e) = record_privacy_event(
+                &mut tx,
+                id,
+                "account_registered",
+                Some(CURRENT_TERMS_VERSION),
+                Some(CURRENT_PRIVACY_NOTICE_VERSION),
+            )
             .await
             {
-                tracing::warn!("Google OAuth insert user failed: {}", e);
+                tracing::warn!("Google OAuth privacy audit failed: {}", e);
+                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            }
+            if let Err(e) = tx.commit().await {
+                tracing::warn!("Google OAuth transaction commit failed: {}", e);
                 return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
             let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1")
@@ -2530,12 +2697,88 @@ async fn ensure_deleted_placeholder_user(
     Ok(id)
 }
 
-/// GET /api/auth/data-export
-/// GDPR/KVKK: returns JSON export for the authenticated user.
+fn safe_export_filename(name: &str, fallback: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .filter_map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => Some('_'),
+            ch if ch.is_control() => None,
+            ch => Some(ch),
+        })
+        .take(96)
+        .collect();
+    let sanitized = sanitized.trim().trim_matches('.');
+    if sanitized.is_empty() {
+        fallback.to_string()
+    } else {
+        sanitized.to_string()
+    }
+}
+
+fn export_avatar_file(avatar_url: Option<&str>) -> Option<(String, Vec<u8>)> {
+    let raw = avatar_url?.trim();
+    let (mime, encoded) = raw.strip_prefix("data:")?.split_once(";base64,")?;
+    let extension = match mime.to_ascii_lowercase().as_str() {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        _ => return None,
+    };
+    let bytes = BASE64.decode(encoded.as_bytes()).ok()?;
+    if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 {
+        return None;
+    }
+    Some((format!("files/avatar.{extension}"), bytes))
+}
+
+fn build_data_export_zip(
+    payload: &serde_json::Value,
+    files: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<u8>, AppError> {
+    let json = serde_json::to_vec_pretty(payload)
+        .map_err(|error| AppError::Internal(format!("Failed to serialize data export: {error}")))?;
+    let total_uncompressed_bytes = files
+        .iter()
+        .try_fold(json.len(), |total, (_, bytes)| total.checked_add(bytes.len()))
+        .ok_or_else(|| AppError::Conflict("The export archive is too large to create safely".into()))?;
+    if total_uncompressed_bytes > DATA_EXPORT_MAX_ARCHIVE_BYTES as usize {
+        return Err(AppError::Conflict(
+            "The self-service archive exceeds 256 MB. Use the formal privacy request process for a complete export".into(),
+        ));
+    }
+
+    let cursor = Cursor::new(Vec::new());
+    let mut archive = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o600);
+
+    archive
+        .start_file("voxpery-data-export.json", options)
+        .and_then(|_| archive.write_all(&json).map_err(zip::result::ZipError::Io))
+        .map_err(|error| AppError::Internal(format!("Failed to create data export: {error}")))?;
+
+    for (path, bytes) in files {
+        archive
+            .start_file(path, options)
+            .and_then(|_| archive.write_all(&bytes).map_err(zip::result::ZipError::Io))
+            .map_err(|error| {
+                AppError::Internal(format!("Failed to create data export: {error}"))
+            })?;
+    }
+
+    archive
+        .finish()
+        .map(Cursor::into_inner)
+        .map_err(|error| AppError::Internal(format!("Failed to finalize data export: {error}")))
+}
+
+/// POST /api/auth/data-export
+/// Creates a bounded self-service archive after recent identity verification.
 async fn export_my_data(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
-) -> Result<(HeaderMap, Json<serde_json::Value>), AppError> {
+    Json(body): Json<DataExportRequest>,
+) -> Result<Response, AppError> {
     enforce_rate_limit(
         &state.redis,
         format!("auth:data_export:{}", claims.sub),
@@ -2547,7 +2790,8 @@ async fn export_my_data(
 
     let account = sqlx::query_as::<_, ExportAccountRow>(
         r#"SELECT username, email, avatar_url, status, dm_privacy, created_at,
-                  (google_id IS NOT NULL) AS google_connected
+                  (google_id IS NOT NULL) AS google_connected,
+                  password_hash
            FROM users
            WHERE id = $1"#,
     )
@@ -2555,6 +2799,29 @@ async fn export_my_data(
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound("User not found".into()))?;
+
+    if account.password_hash == "oauth" {
+        let now = chrono::Utc::now().timestamp().max(0) as usize;
+        if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
+            return Err(AppError::ReauthenticationRequired(
+                "Sign in with Google again before creating a data export".into(),
+            ));
+        }
+    } else {
+        let password = body
+            .password
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                AppError::ReauthenticationRequired(
+                    "Enter your current password before creating a data export".into(),
+                )
+            })?;
+        if !verify_password(password, &account.password_hash)? {
+            return Err(AppError::InvalidCredentials);
+        }
+    }
 
     let memberships = sqlx::query_as::<_, ExportMembershipRow>(
         r#"SELECT s.name AS server_name,
@@ -2609,9 +2876,10 @@ async fn export_my_data(
            INNER JOIN servers s ON s.id = c.server_id
            WHERE m.user_id = $1
            ORDER BY m.created_at DESC
-           LIMIT 20000"#,
+           LIMIT $2"#,
     )
     .bind(claims.sub)
+    .bind(DATA_EXPORT_MESSAGE_LIMIT)
     .fetch_all(&state.db)
     .await?;
 
@@ -2631,9 +2899,10 @@ async fn export_my_data(
            ) AS peer ON TRUE
            WHERE m.user_id = $1
            ORDER BY m.created_at DESC
-           LIMIT 20000"#,
+           LIMIT $2"#,
     )
     .bind(claims.sub)
+    .bind(DATA_EXPORT_MESSAGE_LIMIT)
     .fetch_all(&state.db)
     .await?;
 
@@ -2664,20 +2933,82 @@ async fn export_my_data(
         })
         .collect();
 
+    let attachments = sqlx::query_as::<_, ExportAttachmentRow>(
+        r#"SELECT storage_backend, storage_key, original_name, content_type, size_bytes
+           FROM uploaded_attachments
+           WHERE user_id = $1 AND scan_status = 'clean'
+           ORDER BY created_at ASC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
+    let total_file_bytes = attachments
+        .iter()
+        .try_fold(0i64, |total, item| total.checked_add(item.size_bytes))
+        .ok_or_else(|| {
+            AppError::Conflict("The export archive is too large to create safely".into())
+        })?;
+    if total_file_bytes > DATA_EXPORT_MAX_ARCHIVE_BYTES {
+        return Err(AppError::Conflict(
+            "The self-service archive exceeds 256 MB. Use the formal privacy request process for a complete export".into(),
+        ));
+    }
+
+    let mut archive_files = Vec::with_capacity(attachments.len() + 1);
+    let mut file_manifest = Vec::with_capacity(attachments.len() + 1);
+    if let Some((path, bytes)) = export_avatar_file(account.avatar_url.as_deref()) {
+        file_manifest.push(serde_json::json!({
+            "archive_path": path,
+            "kind": "profile_avatar",
+            "size_bytes": bytes.len()
+        }));
+        archive_files.push((path, bytes));
+    }
+    for (index, attachment) in attachments.iter().enumerate() {
+        if attachment.storage_backend != "local" {
+            return Err(AppError::Conflict(
+                "A stored file is not available to the self-service exporter. Use the formal privacy request process".into(),
+            ));
+        }
+        let safe_name = safe_export_filename(&attachment.original_name, "attachment");
+        let path = format!("files/attachments/{:04}-{safe_name}", index + 1);
+        let bytes = state
+            .attachment_service
+            .read_local_attachment_bytes(&attachment.storage_key)
+            .await?;
+        file_manifest.push(serde_json::json!({
+            "archive_path": path,
+            "kind": "uploaded_attachment",
+            "name": attachment.original_name,
+            "content_type": attachment.content_type,
+            "size_bytes": attachment.size_bytes
+        }));
+        archive_files.push((path, bytes));
+    }
+
     let payload = serde_json::json!({
         "export": {
-            "format": "voxpery-user-data-v2",
+            "format": "voxpery-user-data-v3",
+            "scope": "self_service_convenience_export",
+            "is_complete_data_subject_access_response": false,
             "generated_at": chrono::Utc::now().to_rfc3339(),
-            "description": "User-readable export of your Voxpery account, profile, relationships, servers, and authored messages.",
+            "description": "A user-readable, bounded convenience archive of your Voxpery account and authored content.",
+            "formal_request": {
+                "contact": "voxpery@gmail.com",
+                "instructions": "See DATA_SUBJECT_REQUESTS.md or the hosted Privacy Notice to request all applicable personal data after identity verification."
+            },
             "privacy_notes": [
                 "Internal database identifiers, password hashes, sessions, tokens, and infrastructure values are not included.",
                 "Other users are represented with minimal display context needed to understand your relationships and conversations.",
-                "Message attachment entries are summarized without signed download URLs or storage identifiers."
+                "Message attachment entries contain no signed download URLs or storage identifiers.",
+                "This ZIP file is not encrypted. Store it securely and delete it when it is no longer needed."
             ],
             "limits": {
                 "server_messages": "Most recent 20000 authored server messages.",
                 "direct_messages": "Most recent 20000 authored direct messages."
-            }
+            },
+            "files": file_manifest
         },
         "account": {
             "username": account.username,
@@ -2719,18 +3050,29 @@ async fn export_my_data(
         }
     });
 
+    let archive = build_data_export_zip(&payload, archive_files)?;
+
+    let mut tx = state.db.begin().await?;
+    record_privacy_event(&mut tx, claims.sub, "data_export_created", None, None).await?;
+    tx.commit().await?;
+
     let date = chrono::Utc::now().format("%Y-%m-%d");
-    let filename = format!("voxpery-data-export-{date}.json");
+    let filename = format!("voxpery-data-export-{date}.zip");
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
         headers.insert(header::CONTENT_DISPOSITION, v);
     }
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
+        HeaderValue::from_static("application/zip"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
     );
 
-    Ok((headers, Json(payload)))
+    Ok((headers, Body::from(archive)).into_response())
 }
 
 /// DELETE /api/auth/account

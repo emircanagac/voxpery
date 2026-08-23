@@ -187,6 +187,9 @@ docker compose up -d --build  # Full stack
 
 ## Documentation
 
+- [Hosted Privacy Notice](docs/PRIVACY_NOTICE.md) · [KVKK Aydınlatma Metni](docs/KVKK_AYDINLATMA_METNI.md) · [Terms of Service](docs/TERMS_OF_SERVICE.md)
+- Self-host operators must publish their own legal documents; start with the [self-host privacy template](docs/SELF_HOST_PRIVACY_TEMPLATE.md).
+
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - Development setup, workflow, contribution areas
 - **[CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** - Community standards, enforcement
 - **[SECURITY.md](SECURITY.md)** - Private vulnerability reporting policy and supported versions

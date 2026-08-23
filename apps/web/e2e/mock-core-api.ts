@@ -62,6 +62,7 @@ export interface MockCoreState {
   resetPasswordRequestCount: number
   validPasswordResetTokens: string[]
   dataExportRequestCount: number
+  lastDataExportPassword: string | null
   changePasswordRequestCount: number
   deleteAccountRequestCount: number
   lastDeleteAccountConfirm: string | null
@@ -357,6 +358,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     resetPasswordRequestCount: 0,
     validPasswordResetTokens: ['valid-reset-token'],
     dataExportRequestCount: 0,
+    lastDataExportPassword: null,
     changePasswordRequestCount: 0,
     deleteAccountRequestCount: 0,
     lastDeleteAccountConfirm: null,
@@ -490,39 +492,18 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
-  if (pathname === '/api/auth/data-export' && method === 'GET') {
+  if (pathname === '/api/auth/data-export' && method === 'POST') {
     state.dataExportRequestCount += 1
-    await json(route, {
-      export: {
-        format: 'voxpery-data-export-v1',
-        generated_at: new Date(Date.UTC(2026, 0, 15, 12, 0, 0)).toISOString(),
-        description: 'Mocked Playwright data export.',
-        privacy_notes: ['No internal tokens are included.'],
-        limits: {
-          server_messages: 'mocked',
-          direct_messages: 'mocked',
-        },
+    const body = parseJsonBody<{ password?: string }>(request)
+    state.lastDataExportPassword = body.password ?? null
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'application/zip',
+        'content-disposition': 'attachment; filename="voxpery-data-export-2026-01-15.zip"',
+        'cache-control': 'no-store',
       },
-      account: {
-        username: state.user.username,
-        email: state.user.email ?? '',
-        status: state.user.status ?? 'online',
-        dm_privacy: state.user.dm_privacy ?? 'friends',
-        created_at: new Date(Date.UTC(2026, 0, 1)).toISOString(),
-        google_connected: !!state.user.google_connected,
-      },
-      profile: {
-        has_avatar: !!state.user.avatar_url,
-      },
-      servers: [],
-      relationships: {
-        friends: state.friends,
-        friend_requests: [],
-      },
-      messages: {
-        server: [],
-        direct: [],
-      },
+      body: 'mock protected ZIP archive',
     })
     return
   }

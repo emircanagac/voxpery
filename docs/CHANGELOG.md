@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-08-23
+
+### Added
+- Published versioned Terms of Service, Privacy Notice, and KVKK notice for the hosted service, together with self-host guidance and a documented data-subject request process.
+- Recorded privacy-safe proof of the legal document versions acknowledged during password and Google registration.
+
+### Changed
+- Replaced the basic JSON data export with a re-authenticated, size-limited ZIP containing the user's account data, authored messages, avatar, and eligible uploaded files.
+- Clarified that the self-service archive is a bounded convenience export rather than a complete formal privacy access response.
+
 ### Fixed
 - Fixed desktop remote-audio mixing so microphone and watched screen-share audio use one persistent output stream, preventing local speaking activity from ducking or interrupting shared audio.
 - Made deafen synchronously gate every remote microphone bus, including tracks that arrive during reconnect, without muting independently watched screen-share audio.
+- Bound the complete Google OAuth state to its HttpOnly cookie so registration intent, legal versions, redirect metadata, and PKCE values cannot be changed before callback validation.
 
 ## [0.2.11] - 2026-08-22
 

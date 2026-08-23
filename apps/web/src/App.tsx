@@ -23,6 +23,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AboutPage = lazy(() => import('./pages/AboutPage'))
+const LegalPage = lazy(() => import('./pages/LegalPage'))
 
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
@@ -255,6 +256,9 @@ function App() {
           <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
           <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
           <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
+          <Route path={ROUTES.privacy} element={<LegalPage />} />
+          <Route path={ROUTES.terms} element={<LegalPage />} />
+          <Route path={ROUTES.kvkk} element={<LegalPage />} />
           <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
           <Route path="*" element={<AuthRedirect />} />
         </Routes>
@@ -268,6 +272,9 @@ function App() {
       <RnnoisePreloadOnInteraction />
       <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
         <Routes>
+          <Route path={ROUTES.privacy} element={<LegalPage />} />
+          <Route path={ROUTES.terms} element={<LegalPage />} />
+          <Route path={ROUTES.kvkk} element={<LegalPage />} />
           <Route path={ROUTES.landing} element={<Navigate to={ROUTES.home} replace />} />
           <Route path={ROUTES.about} element={<AboutPage />} />
           <Route element={<ConnectedAppShell />}>

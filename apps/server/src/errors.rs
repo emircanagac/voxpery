@@ -35,6 +35,9 @@ pub enum AppError {
     #[error("Feature disabled: {0}")]
     FeatureDisabled(String),
 
+    #[error("Reauthentication required: {0}")]
+    ReauthenticationRequired(String),
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -58,6 +61,9 @@ impl IntoResponse for AppError {
                 msg.clone(),
                 Some("FEATURE_DISABLED"),
             ),
+            AppError::ReauthenticationRequired(msg) => {
+                (StatusCode::FORBIDDEN, msg.clone(), Some("REAUTH_REQUIRED"))
+            }
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 (
@@ -112,6 +118,10 @@ mod tests {
             (
                 AppError::FeatureDisabled("x".into()),
                 StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                AppError::ReauthenticationRequired("x".into()),
+                StatusCode::FORBIDDEN,
             ),
         ];
         for (err, expected) in test_cases {

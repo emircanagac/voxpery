@@ -25,6 +25,8 @@ test.describe('Critical CRUD Flows', () => {
     await page.getByPlaceholder(/username/i).fill(testUser.username)
     await page.getByPlaceholder(/email/i).fill(testUser.email)
     await page.getByPlaceholder(/password/i).fill(testUser.password)
+    await page.getByRole('checkbox').nth(0).check()
+    await page.getByRole('checkbox').nth(1).check()
     await page.getByRole('button', { name: /sign up/i }).click()
 
     // Wait for redirect to app

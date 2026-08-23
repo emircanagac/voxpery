@@ -24,7 +24,15 @@ async function registerUser(
   const password = 'TestPassword123!'
 
   const res = await ctx.post('/api/auth/register', {
-    data: { email, username, password },
+    data: {
+      email,
+      username,
+      password,
+      terms_accepted: true,
+      terms_version: '2026-08-23',
+      privacy_notice_acknowledged: true,
+      privacy_notice_version: '2026-08-23',
+    },
   })
   expect(res.ok()).toBeTruthy()
   const body = await res.json()

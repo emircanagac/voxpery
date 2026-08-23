@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-server"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 description = "Voxpery - Privacy-first communication server"
 license = "AGPL-3.0-only"
@@ -45,6 +45,7 @@ sha2 = "0.10"
 unicode-normalization = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 ipnet = "=2.12.1"
+zip = { version = "6", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
