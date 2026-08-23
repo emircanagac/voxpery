@@ -142,6 +142,7 @@ const RemoteAudioPlaybackLayer = memo(function RemoteAudioPlaybackLayer({
 export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId }: ActiveCallBarProps) {
   const navigate = useNavigate()
   const lightweightMobileVoice = useMemo(() => shouldUseLightweightMobileVoicePipeline(), [])
+  const desktopRuntime = useMemo(() => isTauri(), [])
   const {
     state,
     joinVoice,
@@ -405,16 +406,22 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     trackIds: string,
     element: VoxperyAudioElement,
   ) => {
-    if (shouldUseDirectRemoteAudioPlayback(kind, lightweightMobileVoice, playbackStream.getAudioTracks().length)) {
+    if (shouldUseDirectRemoteAudioPlayback(
+      kind,
+      lightweightMobileVoice,
+      desktopRuntime,
+      playbackStream.getAudioTracks().length,
+    )) {
       disposeRemotePlaybackGraph(playbackKey)
-      element.srcObject = playbackStream
+      if (element.srcObject !== playbackStream) element.srcObject = playbackStream
+      element.muted = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
       element.__voxpery_trackIds = trackIds
       return
     }
 
     const current = remotePlaybackGraphsRef.current.get(playbackKey)
     if (current?.trackIds === trackIds) {
-      element.srcObject = current.destination.stream
+      if (element.srcObject !== current.destination.stream) element.srcObject = current.destination.stream
       element.muted = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
       element.__voxpery_trackIds = trackIds
       return
@@ -463,7 +470,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       element.muted = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
       element.__voxpery_trackIds = trackIds
     }
-  }, [disposeRemotePlaybackGraph, getPlaybackVolumeFactor, getRemoteAudioContext, lightweightMobileVoice, parseRemoteAudioPlaybackKey])
+  }, [desktopRuntime, disposeRemotePlaybackGraph, getPlaybackVolumeFactor, getRemoteAudioContext, lightweightMobileVoice, parseRemoteAudioPlaybackKey])
 
   const ensureRemoteAudioPlayback = useCallback((playbackKey: string, el: HTMLAudioElement) => {
     const retryTimers = remoteAudioRetryTimerRef.current
