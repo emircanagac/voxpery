@@ -25,6 +25,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] On a clean macOS install, the first voice join prompts for microphone access and Voxpery appears in Privacy & Security -> Microphone after the decision.
 - [ ] Rebinding or clearing the mute shortcut takes effect immediately; a conflicting desktop shortcut shows an error without losing the previous working binding.
 - [ ] Deafen stops remote microphone playback and restores it when disabled; watched screen-share audio continues at its independent stream volume.
+- [ ] While deafened, reconnect a participant and subscribe to a newly arriving microphone track; no voice leaks before or after the track appears, while watched screen-share audio continues.
 - [ ] On web and desktop, voice ping starts in the measuring state, uses a real backend WebSocket RTT while RTC settles, and switches to the selected ICE path only after stable samples; joining another channel or reconnecting never flashes a stale or implausible `1 ms` value.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
@@ -60,6 +61,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B chooses `Watch stream`; both `ScreenShare` and `ScreenShareAudio` subscribe, while User A's microphone remains continuously audible.
 - [ ] While User B watches a stream, hiding/minimizing Voxpery pauses screen video but keeps screen-share audio continuous; restoring the app resumes video without an audio gap or replayed media cue.
 - [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, `dtx: false`, and `red: true`.
+- [ ] While User B watches User A's shared-audio stream, User B repeatedly speaks and stops speaking; the stream and all remote microphones remain simultaneously audible without ducking, gaps, output-device changes, or playback restarts. Repeat with at least five participants on web and desktop.
 - [ ] Sharing a source/platform that provides no audio still publishes video without a misleading warning toast.
 - [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
 - [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.
