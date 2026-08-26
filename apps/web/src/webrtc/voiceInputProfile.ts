@@ -5,6 +5,7 @@ import {
 } from './sensitivityThreshold'
 
 export const VOICE_INPUT_PROFILE_KEY = 'voxpery-settings-voice-input-profile'
+export const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 
 export type VoiceInputProfile = 'isolation' | 'studio' | 'custom'
 export type VoiceSuppressionTuning = 'off' | 'balanced' | 'high'
@@ -64,6 +65,19 @@ export function getVoiceProfileSummary(profile: VoiceInputProfile): string {
   if (profile === 'studio') return 'Raw voice with minimal processing for maximum natural tone.'
   if (profile === 'custom') return 'Fine-tuned sensitivity and mode with noise isolation kept active when enabled.'
   return 'Default isolation profile optimized for keyboard and room-noise suppression.'
+}
+
+export function getStoredVoiceMode(): VoiceInputProfileConfig['voiceMode'] {
+  if (typeof localStorage === 'undefined') return 'voice_activity'
+
+  const profileRaw = localStorage.getItem(VOICE_INPUT_PROFILE_KEY)
+  if (profileRaw === 'isolation' || profileRaw === 'studio') {
+    return getVoiceInputProfileConfig(profileRaw).voiceMode
+  }
+
+  return localStorage.getItem(VOICE_MODE_KEY) === 'push_to_talk'
+    ? 'push_to_talk'
+    : 'voice_activity'
 }
 
 export function shouldUseAggressiveVoiceIsolation(

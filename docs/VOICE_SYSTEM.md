@@ -13,7 +13,7 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
                            Low-level noise taming
                            VAD analyser tap
                            Input gain
-                           VAD gate (optional)
+                           VAD monitoring (sender stays live)
                            Sensitivity threshold
 ```
 
@@ -78,7 +78,7 @@ VAD analyser tap (post-denoise + post-floor suppression, pre-volume)
     |
 GainNode (input volume)
     |
-VAD gate (optional, voice_activity mode)
+Published-track health monitor
     |
 LiveKit LocalAudioTrack (high-quality mono Opus with DTX + RED)
     |
@@ -125,7 +125,10 @@ Room.localParticipant.publishTrack
   - Spectral isolation and attack/recovery smoothing are profile-aware: `Balanced` recovers speech faster and attenuates it less, while `Noisy room` applies stronger isolation only to noise-dominant frames such as keyboard and fan fixtures.
   - Clean speech bypasses post-RNNoise floor and spectral attenuation in both presets. Quiet speech remains fully open in `Balanced`; `Noisy room` may apply bounded cleanup but must not mute or hard-gate it.
 - **Microphone publish quality**
-  - The processed microphone track is published with LiveKit's high-quality mono Opus preset.
+  - Firefox, Chromium, and desktop webviews use the same 48 kHz processing graph required by RNNoise. A zero-volume connection to the hardware destination keeps that graph rendering without playing the local microphone through the speakers.
+  - Browser identity never bypasses noise suppression. If Web Audio is unavailable before publication, Voxpery uses the browser-native capture track; it does not replace a healthy processed sender based on a browser-local analyser reading.
+  - Built-in input profiles are authoritative for activation mode and suppression, while explicit push-to-talk remains available through the custom profile.
+  - The selected microphone track is published with LiveKit's high-quality mono Opus preset.
   - Mobile web/PWA clients use the resilient 48 kbps mono Opus preset. Desktop clients keep the 96 kbps preset; both retain RED and DTX so unstable mobile uplinks do not have to carry the desktop bitrate.
   - DTX remains enabled to avoid sending unnecessary silence, and RED remains enabled for packet-loss resilience.
   - Stereo is forced off for microphone audio so bitrate stays focused on voice clarity rather than duplicate channels.
@@ -187,6 +190,7 @@ Speaker
 
 - **Output volume**: Global 1-100%, per-peer microphone 0-200%, and per-screen-share audio 0-100%.
 - **Desktop-safe playback**: Tauri plays each remote microphone and watched screen-share track through its own direct media element. This avoids routing incoming audio through a WebView-specific `MediaStreamAudioDestination` bridge while preserving source-level mute, volume, output-device, and playback recovery controls.
+- **Stable startup**: Output-device changes are serialized per media element, and an unchanged remote track has at most one pending playback start. Initial LiveKit subscription and mute-state events therefore cannot restart watched screen audio while the first playback promise settles.
 - **Source-aware browser dynamics**: Browser microphone amplification keeps its peak limiter, while screen-share audio bypasses voice compression so music and game dynamics are preserved. Tauri and mobile web keep the more resilient direct media path.
 - **Deafen**: Mutes remote microphone playback while leaving watched screen-share audio under its independent stream volume/mute controls
 - **Immediate deafen**: Every active browser microphone bus is set to zero synchronously with the control click. Direct Tauri and mobile microphone elements are muted in the same pass, and newly subscribed microphone outputs start muted while deafened, closing reconnect and render/effect windows where voice could otherwise leak briefly.
@@ -203,6 +207,7 @@ Speaker
 - Permission failures, devices that are temporarily busy, and output-selection policy failures do not overwrite a valid custom preference.
 - The same microphone fallback is used by call preflight, LiveKit capture, the microphone test, and the legacy WebRTC path.
 - Mobile browsers use their hardware/browser AEC and noise suppression with a lightweight Web Audio gain path. They skip the desktop RNNoise analyser/refinement loop and play remote microphone tracks through the browser's direct media path, so capture and multiple remote playbacks do not compete for the mobile main thread.
+- Desktop browsers also play remote microphone and watched screen audio directly at normal volume. The independent Web Audio voice gain path is created only for an explicit per-user voice level above 100%; screen audio remains direct and independently controlled from 0% to 100%.
 
 ## Screen Sharing
 
@@ -221,7 +226,10 @@ Speaker
 const stream = await navigator.mediaDevices.getDisplayMedia({
   video: { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } },
   systemAudio: 'include',
-  audio: { suppressLocalAudioPlayback: false }  // Shared audio without ducking the active call
+  audio: {
+    restrictOwnAudio: true,
+    suppressLocalAudioPlayback: false,
+  } // Exclude Voxpery's own call audio while keeping the call audible locally
 })
 await room.localParticipant.publishTrack(videoTrack, {
   source: Track.Source.ScreenShare,
@@ -254,7 +262,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, continuous transmission (`dtx = false`), and RED packet-loss resilience preserve system, game, and music audio independently from the mono speech microphone profile.
 - **Camera video**: `contentHint = 'motion'` (optimizes for movement). On mobile devices with more than one camera, the local preview exposes a front/rear switch that restarts the existing published LiveKit video track in place. Devices with only one available camera do not show the control.
 - A share is not published without a live video track. A missing system/tab audio track is treated as an intentional silent share; capture or publication failures still surface as errors. System-audio availability is determined by the operating system, browser/runtime, selected share surface, and the picker audio option rather than the GPU vendor.
-- Display capture requests selected-window audio for window shares, exclude Voxpery's own browser surface, and let the native picker expose broader system-audio capture only for surfaces where the runtime supports it. Voxpery never substitutes whole-system audio when selected-window audio is unavailable.
+- Display capture requests selected-window audio for window shares, excludes Voxpery's own call playback and browser surface where supported, and lets the native picker expose broader system-audio capture only for surfaces where the runtime supports it. Voxpery never substitutes whole-system audio when selected-window audio is unavailable.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
 - Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio sample rate/channel count/content hint/publish profile, codec/scalability mode, simulcast state, outbound video resolution/FPS/bitrate/packet/quality-limitation samples, and actual screen-audio Opus bitrate/channel/packet samples without device identifiers.
 
@@ -269,7 +277,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Global output volume remains a top-level playback control for both sources without rewriting either per-source preference. Deafen suppresses remote microphone playback only; watched screen-share audio remains controlled by its independent stream volume and mute state.
 - When the Voxpery window is hidden or minimized, camera and watched screen video subscriptions pause while microphone and explicitly watched screen-share audio continue. Video resumes when the app becomes visible, without replaying media-start cues.
 - Returning from the native screen picker, restoring the app, or refocusing Voxpery reasserts the configured output device, volume, and remote playback without changing per-user volume settings.
-- Remote microphone publications remain subscribed in foreground and background. Failed subscriptions are retried, missing subscribed tracks are reconciled after LiveKit reconnect, ended tracks are removed immediately, and replacement tracks supersede stale tracks from the same logical source.
+- Existing remote microphone publications are hydrated by LiveKit as part of the room join, independent of participant join order, and remain subscribed in foreground and background. Selective rules then unsubscribe only unwatched screen shares and hidden video. Failed subscriptions are retried, missing subscribed tracks are reconciled after LiveKit reconnect, ended tracks are removed immediately, and replacement tracks supersede stale tracks from the same logical source.
 - Speaking indicators monitor microphone tracks only; screen-share audio cannot incorrectly keep a participant marked as speaking.
 
 ### Voice Event Cues

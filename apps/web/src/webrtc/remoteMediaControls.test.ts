@@ -60,13 +60,14 @@ describe('remote media controls', () => {
     expect(shouldMuteRemoteAudioPlayback('screen', false)).toBe(false)
   })
 
-  it('uses direct playback in mobile and Tauri runtimes while keeping Web Audio for browsers', () => {
+  it('uses native playback by default and reserves Web Audio for browser voice amplification', () => {
     expect(shouldUseDirectRemoteAudioPlayback('mic', true, false, 1)).toBe(true)
     expect(shouldUseDirectRemoteAudioPlayback('screen', true, false, 1)).toBe(true)
     expect(shouldUseDirectRemoteAudioPlayback('mic', false, true, 1)).toBe(true)
     expect(shouldUseDirectRemoteAudioPlayback('screen', false, true, 1)).toBe(true)
-    expect(shouldUseDirectRemoteAudioPlayback('mic', false, false, 1)).toBe(false)
-    expect(shouldUseDirectRemoteAudioPlayback('screen', false, false, 1)).toBe(false)
+    expect(shouldUseDirectRemoteAudioPlayback('mic', false, false, 1)).toBe(true)
+    expect(shouldUseDirectRemoteAudioPlayback('screen', false, false, 1)).toBe(true)
     expect(shouldUseDirectRemoteAudioPlayback('screen', false, false, 0)).toBe(true)
+    expect(shouldUseDirectRemoteAudioPlayback('mic', false, false, 1, 1.01)).toBe(false)
   })
 })

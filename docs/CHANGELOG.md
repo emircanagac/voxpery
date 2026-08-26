@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Stabilized initial watched screen-share audio by coalescing output-device assignment and starting each unchanged remote track only once while subscription events settle.
+- Prevented supported browsers from recapturing Voxpery's own call playback into a shared-audio track.
+- Unified Firefox, Chromium, and desktop microphone publication behind one RNNoise/Web Audio engine, kept the processing graph alive without local monitor playback, and reconciled built-in voice profiles with stale activation-mode settings so a client cannot silently remain in push-to-talk.
+- Restored atomic LiveKit subscription hydration for participants already in a voice room, preventing join order from producing one-way audio while preserving selective camera and screen-share bandwidth controls.
+- Kept normal remote microphone and screen audio on native media-element playback across browsers, using an isolated Web Audio gain graph only when a user explicitly amplifies voice above 100%, so Firefox senders remain audible to Chromium receivers without coupling voice and stream volume.
+
 ## [0.2.12] - 2026-08-23
 
 ### Added

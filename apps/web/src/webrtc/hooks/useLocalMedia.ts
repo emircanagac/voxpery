@@ -88,6 +88,7 @@ export function toScreenShareConstraintsForProfile(profile: ScreenShareProfile):
 }
 
 type DisplayAudioConstraints = MediaTrackConstraints & {
+    restrictOwnAudio: boolean
     suppressLocalAudioPlayback: boolean
 }
 
@@ -112,6 +113,9 @@ export function toScreenShareDisplayMediaOptions(
         selfBrowserSurface: 'exclude',
         surfaceSwitching: 'include',
         audio: {
+            // Do not feed Voxpery's own remote call playback back into the
+            // shared-audio track when the browser supports this constraint.
+            restrictOwnAudio: true,
             // Keep the active call audible while the native/macOS share picker changes focus.
             suppressLocalAudioPlayback: false,
         } as DisplayAudioConstraints,

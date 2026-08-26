@@ -68,6 +68,14 @@ interface RemoteAudioPlaybackGraph {
   destination: MediaStreamAudioDestinationNode
 }
 
+type RemoteAudioPlaybackStatus = 'pending' | 'playing' | 'retrying'
+
+interface RemoteAudioPlaybackAttempt {
+  element: HTMLAudioElement
+  trackIds: string
+  status: RemoteAudioPlaybackStatus
+}
+
 interface VoxperyHTMLDivElement extends HTMLDivElement {
   _idleTimeout?: ReturnType<typeof setTimeout>
 }
@@ -286,6 +294,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const micTestPrevMutedRef = useRef(false)
   const remoteAudioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteAudioRetryTimerRef = useRef<Map<string, number>>(new Map())
+  const remoteAudioPlaybackAttemptsRef = useRef<Map<string, RemoteAudioPlaybackAttempt>>(new Map())
   const remoteAudioContextRef = useRef<AudioContext | null>(null)
   const remotePlaybackGraphsRef = useRef<Map<string, RemoteAudioPlaybackGraph>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -406,11 +415,22 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     trackIds: string,
     element: VoxperyAudioElement,
   ) => {
+    if (element.__voxpery_trackIds !== trackIds) {
+      remoteAudioPlaybackAttemptsRef.current.delete(playbackKey)
+      const retryTimer = remoteAudioRetryTimerRef.current.get(playbackKey)
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+        remoteAudioRetryTimerRef.current.delete(playbackKey)
+      }
+    }
+    const { peerId } = parseRemoteAudioPlaybackKey(playbackKey)
+    const playbackVolumeFactor = getPlaybackVolumeFactor(peerId, kind)
     if (shouldUseDirectRemoteAudioPlayback(
       kind,
       lightweightMobileVoice,
       desktopRuntime,
       playbackStream.getAudioTracks().length,
+      playbackVolumeFactor,
     )) {
       disposeRemotePlaybackGraph(playbackKey)
       if (element.srcObject !== playbackStream) element.srcObject = playbackStream
@@ -443,10 +463,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       const gain = context.createGain()
       const destination = context.createMediaStreamDestination()
       const limiter = kind === 'mic' ? context.createDynamicsCompressor() : null
-      const { peerId } = parseRemoteAudioPlaybackKey(playbackKey)
       gain.gain.value = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
         ? 0
-        : getPlaybackVolumeFactor(peerId, kind)
+        : playbackVolumeFactor
       source.connect(gain)
       if (limiter) {
         limiter.threshold.value = -1
@@ -472,8 +491,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
   }, [desktopRuntime, disposeRemotePlaybackGraph, getPlaybackVolumeFactor, getRemoteAudioContext, lightweightMobileVoice, parseRemoteAudioPlaybackKey])
 
-  const ensureRemoteAudioPlayback = useCallback((playbackKey: string, el: HTMLAudioElement) => {
+  const ensureRemoteAudioPlayback = useCallback((
+    playbackKey: string,
+    el: VoxperyAudioElement,
+    force = false,
+  ) => {
     const retryTimers = remoteAudioRetryTimerRef.current
+    const playbackAttempts = remoteAudioPlaybackAttemptsRef.current
     const clearRetry = () => {
       const t = retryTimers.get(playbackKey)
       if (t != null) {
@@ -481,39 +505,73 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         retryTimers.delete(playbackKey)
       }
     }
+    const trackIds = el.__voxpery_trackIds ?? ''
+    if (!trackIds) {
+      clearRetry()
+      playbackAttempts.delete(playbackKey)
+      return
+    }
+    const current = playbackAttempts.get(playbackKey)
+    const samePlayback = current?.element === el && current.trackIds === trackIds
+    if (samePlayback && (current.status !== 'playing' || !force)) return
+
+    clearRetry()
+    const playbackAttempt: RemoteAudioPlaybackAttempt = {
+      element: el,
+      trackIds,
+      status: 'pending',
+    }
+    playbackAttempts.set(playbackKey, playbackAttempt)
+
     const attempt = () => {
+      if (playbackAttempts.get(playbackKey) !== playbackAttempt) return
       // Check if element is still available and not muted/deafened
       if (!el || !el.isConnected) {
         console.warn('[ensureRemoteAudioPlayback] Element not connected for playback', playbackKey)
         clearRetry()
+        playbackAttempts.delete(playbackKey)
         return
       }
       const { kind } = parseRemoteAudioPlaybackKey(playbackKey)
       if (el.muted || shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)) {
         clearRetry()
+        playbackAttempts.delete(playbackKey)
         return
       }
       if (!el.srcObject) {
         console.warn('[ensureRemoteAudioPlayback] No srcObject for playback', playbackKey)
         clearRetry()
+        playbackAttempts.delete(playbackKey)
         return
       }
 
-      const p = el.play()
+      playbackAttempt.status = 'pending'
+      void applyPreferredAudioOutputDevice(el)
+      let p: Promise<void> | undefined
+      try {
+        p = el.play()
+      } catch {
+        p = Promise.reject(new Error('Remote audio playback failed'))
+      }
       if (!p || typeof p.catch !== 'function') {
         console.warn('[ensureRemoteAudioPlayback] play() did not return a promise for playback', playbackKey)
         clearRetry()
+        playbackAttempt.status = 'playing'
         return
       }
       p.then(() => {
+        if (playbackAttempts.get(playbackKey) !== playbackAttempt) return
         clearRetry()
+        playbackAttempt.status = 'playing'
       }).catch(() => {
+        if (playbackAttempts.get(playbackKey) !== playbackAttempt) return
         // Suppress expected "The play() request was interrupted by a new load request" warnings
         // Expected interruptions are retried below without surfacing a noisy console warning.
         clearRetry()
+        playbackAttempt.status = 'retrying'
         const retry = window.setTimeout(() => {
           attempt()
-        }, 500) // Increased delay to 500ms for more stable retry
+        }, 500)
         retryTimers.set(playbackKey, retry)
       })
     }
@@ -567,7 +625,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)) continue
       const stream = element.srcObject
       if (!(stream instanceof MediaStream) || stream.getAudioTracks().length === 0) continue
-      ensureRemoteAudioPlayback(playbackKey, element)
+      ensureRemoteAudioPlayback(playbackKey, element as VoxperyAudioElement, true)
     }
   }, [applyOutputDeviceToElements, applyOutputVolumeToElements, ensureRemoteAudioPlayback, parseRemoteAudioPlaybackKey])
 
@@ -727,7 +785,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
         const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
         const prevTrackIds = el.__voxpery_trackIds
-        if (currentTrackIds !== prevTrackIds) {
+        const directPlaybackExpected = shouldUseDirectRemoteAudioPlayback(
+          kind,
+          lightweightMobileVoice,
+          desktopRuntime,
+          playbackStream.getAudioTracks().length,
+          getPlaybackVolumeFactor(peerId, kind),
+        )
+        const playbackModeChanged = remotePlaybackGraphsRef.current.has(playbackKey) === directPlaybackExpected
+        if (currentTrackIds !== prevTrackIds || playbackModeChanged) {
           attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, el)
         }
         const playbackGraph = remotePlaybackGraphsRef.current.get(playbackKey)
@@ -737,7 +803,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           const { peerId: graphPeerId } = parseRemoteAudioPlaybackKey(playbackKey)
           playbackGraph.gain.gain.value = shouldMute ? 0 : getPlaybackVolumeFactor(graphPeerId, kind)
         }
-        void applyPreferredAudioOutputDevice(el)
         if (!shouldMute && currentTrackIds) {
           ensureRemoteAudioPlayback(playbackKey, el)
         }
@@ -752,16 +817,18 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (context?.state === 'running') void context.suspend().catch(() => {})
     }
     applyOutputVolumeToElements(outputVolumeRef.current / 100)
-  }, [applyOutputVolumeToElements, attachRemoteAudioPlaybackStream, disposeRemotePlaybackGraph, getPlaybackVolumeFactor, parseRemoteAudioPlaybackKey, watchedRemoteScreenPeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
+  }, [applyOutputVolumeToElements, attachRemoteAudioPlaybackStream, desktopRuntime, disposeRemotePlaybackGraph, getPlaybackVolumeFactor, lightweightMobileVoice, parseRemoteAudioPlaybackKey, watchedRemoteScreenPeerIds, remoteAudioPlaybackKey, stablePeerIds, remoteAudioTrackCount, ensureRemoteAudioPlayback, state.remoteStreams])
 
   useEffect(() => {
     const retryTimers = remoteAudioRetryTimerRef.current
+    const playbackAttempts = remoteAudioPlaybackAttemptsRef.current
     const playbackGraphs = remotePlaybackGraphsRef.current
     return () => {
       for (const t of retryTimers.values()) {
         window.clearTimeout(t)
       }
       retryTimers.clear()
+      playbackAttempts.clear()
       for (const playbackKey of playbackGraphs.keys()) {
         disposeRemotePlaybackGraph(playbackKey)
       }
@@ -791,7 +858,15 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             remoteAudioRefsRef.current.set(playbackKey, audioEl)
             const playbackStream = include ? createRemoteAudioKindPlaybackStream(stream, kind) : new MediaStream()
             const currentTrackIds = playbackStream.getTracks().map(t => t.id).sort().join(',')
-            if (audioEl.__voxpery_trackIds !== currentTrackIds) {
+            const directPlaybackExpected = shouldUseDirectRemoteAudioPlayback(
+              kind,
+              lightweightMobileVoice,
+              desktopRuntime,
+              playbackStream.getAudioTracks().length,
+              getPlaybackVolumeFactor(peerId, kind),
+            )
+            const playbackModeChanged = remotePlaybackGraphsRef.current.has(playbackKey) === directPlaybackExpected
+            if (audioEl.__voxpery_trackIds !== currentTrackIds || playbackModeChanged) {
               attachRemoteAudioPlaybackStream(playbackKey, kind, playbackStream, currentTrackIds, audioEl)
             }
             const shouldMute = shouldMuteRemoteAudioPlayback(kind, deafenedRef.current)
@@ -805,20 +880,28 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               : Math.min(1, Math.max(0, (outputVolumeRef.current / 100) * peerFactor))
             try { audioEl.volume = vol } catch (e) { console.warn('[ActiveCallBar] Failed to set volume:', e) }
             audioEl.muted = shouldMute
-            void applyPreferredAudioOutputDevice(audioEl)
             if (!shouldMute && currentTrackIds) ensureRemoteAudioPlayback(playbackKey, audioEl)
           } else {
-            remoteAudioRefsRef.current.delete(playbackKey)
-            const timer = remoteAudioRetryTimerRef.current.get(playbackKey)
-            if (timer != null) {
-              window.clearTimeout(timer)
-              remoteAudioRetryTimerRef.current.delete(playbackKey)
-            }
+            const detachedElement = remoteAudioRefsRef.current.get(playbackKey)
+            queueMicrotask(() => {
+              // React briefly invokes an old callback ref with null when the
+              // same keyed audio node receives a new ref callback. Only tear
+              // down playback state after a real DOM detach or replacement.
+              if (!detachedElement || detachedElement.isConnected) return
+              if (remoteAudioRefsRef.current.get(playbackKey) !== detachedElement) return
+              remoteAudioRefsRef.current.delete(playbackKey)
+              remoteAudioPlaybackAttemptsRef.current.delete(playbackKey)
+              const timer = remoteAudioRetryTimerRef.current.get(playbackKey)
+              if (timer != null) {
+                window.clearTimeout(timer)
+                remoteAudioRetryTimerRef.current.delete(playbackKey)
+              }
+            })
           }
         }}
       />
     )
-  }, [attachRemoteAudioPlaybackStream, ensureRemoteAudioPlayback, getPlaybackVolumeFactor, remoteAudioPlaybackKey])
+  }, [attachRemoteAudioPlaybackStream, desktopRuntime, ensureRemoteAudioPlayback, getPlaybackVolumeFactor, lightweightMobileVoice, remoteAudioPlaybackKey])
 
   const showActiveCallBar = !!(state.joinedChannelId || state.localStream || state.isJoining)
   const channelParticipants = useMemo(() => {

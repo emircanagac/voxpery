@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { shouldUseLightweightMobileVoicePipeline } from './useAudioEngine'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  connectSilentVoicePipelineKeepAlive,
+  shouldUseLightweightMobileVoicePipeline,
+} from './useAudioEngine'
 
 describe('mobile voice pipeline selection', () => {
   it('uses the lightweight native-processing path on mobile runtimes', () => {
@@ -18,5 +21,25 @@ describe('mobile voice pipeline selection', () => {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       maxTouchPoints: 0,
     })).toBe(false)
+  })
+})
+
+describe('processed microphone pipeline keep-alive', () => {
+  it('keeps the shared graph rendering without playing the microphone locally', () => {
+    const destination = {} as AudioDestinationNode
+    const gain = {
+      gain: { value: 1 },
+      connect: vi.fn(),
+    } as unknown as GainNode
+    const ctx = {
+      destination,
+      createGain: vi.fn(() => gain),
+    } as unknown as AudioContext
+    const source = { connect: vi.fn() } as unknown as AudioNode
+
+    expect(connectSilentVoicePipelineKeepAlive(ctx, source)).toBe(gain)
+    expect(gain.gain.value).toBe(0)
+    expect(source.connect).toHaveBeenCalledWith(gain)
+    expect(gain.connect).toHaveBeenCalledWith(destination)
   })
 })

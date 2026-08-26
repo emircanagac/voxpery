@@ -180,4 +180,32 @@ describe('voice device preferences', () => {
     expect(setSinkId).toHaveBeenCalledOnce()
     expect(localStorage.getItem(VOICE_OUTPUT_DEVICE_KEY)).toBe('custom-speaker')
   })
+
+  it('coalesces concurrent assignments to the same output device', async () => {
+    Object.defineProperty(HTMLMediaElement.prototype, 'setSinkId', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const element = document.createElement('audio') as HTMLAudioElement & {
+      sinkId?: string
+      setSinkId: (sinkId: string) => Promise<void>
+    }
+    let resolveAssignment: (() => void) | undefined
+    const setSinkId = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      resolveAssignment = resolve
+    }))
+    Object.defineProperty(element, 'setSinkId', {
+      configurable: true,
+      value: setSinkId,
+    })
+    localStorage.setItem(VOICE_OUTPUT_DEVICE_KEY, 'custom-speaker')
+
+    const first = applyPreferredAudioOutputDevice(element)
+    const second = applyPreferredAudioOutputDevice(element)
+
+    expect(setSinkId).toHaveBeenCalledOnce()
+    expect(setSinkId).toHaveBeenCalledWith('custom-speaker')
+    resolveAssignment?.()
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+  })
 })

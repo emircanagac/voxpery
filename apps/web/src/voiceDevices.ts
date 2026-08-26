@@ -228,6 +228,13 @@ type SinkSelectableAudioElement = HTMLAudioElement & {
   setSinkId?: (sinkId: string) => Promise<void>
 }
 
+type OutputDeviceAssignment = {
+  targetId: string
+  promise: Promise<boolean>
+}
+
+const outputDeviceAssignments = new WeakMap<HTMLAudioElement, OutputDeviceAssignment>()
+
 export async function applyPreferredAudioOutputDevice(element: HTMLAudioElement): Promise<boolean> {
   if (!supportsAudioOutputSelection()) return false
   const sinkElement = element as SinkSelectableAudioElement
@@ -235,21 +242,38 @@ export async function applyPreferredAudioOutputDevice(element: HTMLAudioElement)
 
   const preferredSinkId = getStoredVoiceOutputDeviceId() || 'default'
 
-  try {
-    if (sinkElement.sinkId !== preferredSinkId) {
-      await sinkElement.setSinkId(preferredSinkId)
-    }
-    return true
-  } catch (error) {
-    if (preferredSinkId !== 'default' && isUnavailableDeviceError(error)) {
-      clearStoredDeviceId(VOICE_OUTPUT_DEVICE_KEY)
-      try {
-        await sinkElement.setSinkId('default')
-        return true
-      } catch {
-        // ignore fallback failures
+  const currentAssignment = outputDeviceAssignments.get(element)
+  if (currentAssignment?.targetId === preferredSinkId) return currentAssignment.promise
+
+  const assign = async (): Promise<boolean> => {
+    try {
+      if (sinkElement.sinkId !== preferredSinkId) {
+        await sinkElement.setSinkId(preferredSinkId)
       }
+      return true
+    } catch (error) {
+      if (preferredSinkId !== 'default' && isUnavailableDeviceError(error)) {
+        clearStoredDeviceId(VOICE_OUTPUT_DEVICE_KEY)
+        try {
+          await sinkElement.setSinkId('default')
+          return true
+        } catch {
+          // ignore fallback failures
+        }
+      }
+      return false
     }
-    return false
   }
+
+  const promise = currentAssignment
+    ? currentAssignment.promise.catch(() => false).then(assign)
+    : assign()
+  outputDeviceAssignments.set(element, { targetId: preferredSinkId, promise })
+  const clearAssignment = () => {
+    if (outputDeviceAssignments.get(element)?.promise === promise) {
+      outputDeviceAssignments.delete(element)
+    }
+  }
+  void promise.then(clearAssignment, clearAssignment)
+  return promise
 }

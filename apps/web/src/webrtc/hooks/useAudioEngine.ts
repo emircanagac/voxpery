@@ -33,6 +33,19 @@ export function shouldUseLightweightMobileVoicePipeline(
         || (userAgent.includes('macintosh') && navigatorTarget.maxTouchPoints > 1)
 }
 
+export type MicrophonePipelineSource = 'processed-webaudio' | 'browser-native'
+
+export function connectSilentVoicePipelineKeepAlive(
+    ctx: AudioContext,
+    source: AudioNode,
+): GainNode {
+    const keepAliveGain = ctx.createGain()
+    keepAliveGain.gain.value = 0
+    source.connect(keepAliveGain)
+    keepAliveGain.connect(ctx.destination)
+    return keepAliveGain
+}
+
 function dbToLinear(db: number): number {
     return Math.pow(10, db / 20)
 }
@@ -413,7 +426,12 @@ export function useAudioEngine() {
         rawMicTrackRef: React.MutableRefObject<MediaStreamTrack | null>,
         inputGainNodeRef: React.MutableRefObject<GainNode | null>,
         noiseSuppressionEnabled: boolean,
-    ): Promise<{ track: MediaStreamTrack; vadStream: MediaStream; cancelGate: () => void }> => {
+    ): Promise<{
+        track: MediaStreamTrack
+        vadStream: MediaStream
+        cancelGate: () => void
+        source: MicrophonePipelineSource
+    }> => {
         const rawTrack = sourceStream.getAudioTracks()[0]
         if (!rawTrack) throw new Error('No microphone track available')
 
@@ -421,7 +439,14 @@ export function useAudioEngine() {
         rawTrack.enabled = !muted
 
         const ctx = getAudioContext()
-        if (!ctx) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
+        if (!ctx) {
+            return {
+                track: rawTrack,
+                vadStream: sourceStream,
+                cancelGate: () => {},
+                source: 'browser-native',
+            }
+        }
         if (ctx.state === 'suspended') {
             await ctx.resume()
         }
@@ -434,6 +459,7 @@ export function useAudioEngine() {
             rawMicTrackSettings: toVoiceTrackSettingsDiagnostics(rawTrack.getSettings?.()),
             audioContext: toVoiceAudioContextDiagnostics(ctx),
             inputVolume: roundVoiceDiagnosticNumber(volumeFactor, 2),
+            nativeMicrophonePipeline: false,
         })
 
         if (shouldUseLightweightMobileVoicePipeline()) {
@@ -446,11 +472,18 @@ export function useAudioEngine() {
             gain.gain.value = volumeFactor
             source.connect(gain)
             gain.connect(destination)
+            const keepAliveGain = connectSilentVoicePipelineKeepAlive(ctx, gain)
             const processedTrack = destination.stream.getAudioTracks()[0]
             if (!processedTrack) {
                 source.disconnect()
                 gain.disconnect()
-                return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
+                keepAliveGain.disconnect()
+                return {
+                    track: rawTrack,
+                    vadStream: sourceStream,
+                    cancelGate: () => {},
+                    source: 'browser-native',
+                }
             }
             inputGainNodeRef.current = gain
             updateVoiceDiagnostics({
@@ -463,7 +496,9 @@ export function useAudioEngine() {
                 cancelGate: () => {
                     try { source.disconnect() } catch { /* ignore */ }
                     try { gain.disconnect() } catch { /* ignore */ }
+                    try { keepAliveGain.disconnect() } catch { /* ignore */ }
                 },
+                source: 'processed-webaudio',
             }
         }
 
@@ -522,6 +557,7 @@ export function useAudioEngine() {
         noiseFloorGainNode.connect(vadDestination) // branch for VAD after final floor suppression
         noiseFloorGainNode.connect(volumeGainNode)
         volumeGainNode.connect(destination)
+        const keepAliveGain = connectSilentVoicePipelineKeepAlive(ctx, volumeGainNode)
 
         const liveSuppressionNodes = {
             ctx,
@@ -537,7 +573,14 @@ export function useAudioEngine() {
         liveSuppressionSignatureRef.current = `${noiseSuppressionEnabled}:${aggressiveIsolation}:${suppressionTuning}`
 
         const processedTrack = destination.stream.getAudioTracks()[0]
-        if (!processedTrack) return { track: rawTrack, vadStream: sourceStream, cancelGate: () => {} }
+        if (!processedTrack) {
+            return {
+                track: rawTrack,
+                vadStream: sourceStream,
+                cancelGate: () => {},
+                source: 'browser-native',
+            }
+        }
 
         updateVoiceDiagnostics({
             processedMicTrackSettings: toVoiceTrackSettingsDiagnostics(processedTrack.getSettings?.()),
@@ -643,6 +686,11 @@ export function useAudioEngine() {
             } catch {
                 // ignore
             }
+            try {
+                keepAliveGain.disconnect()
+            } catch {
+                // ignore
+            }
         }
 
         const tickNoiseFloor = () => {
@@ -710,7 +758,12 @@ export function useAudioEngine() {
 
         rafId = requestAnimationFrame(tickNoiseFloor)
 
-        return { track: processedTrack, vadStream: vadDestination.stream, cancelGate }
+        return {
+            track: processedTrack,
+            vadStream: vadDestination.stream,
+            cancelGate,
+            source: 'processed-webaudio',
+        }
     }, [getAudioContext])
 
     const updateMicProcessingSettings = useCallback((noiseSuppressionEnabled: boolean) => {
