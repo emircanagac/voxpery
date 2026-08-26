@@ -11,6 +11,24 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
+  test('keeps hosted legal pages touch-scrollable on a phone viewport', async ({ page }) => {
+    for (const path of ['/privacy', '/terms', '/kvkk']) {
+      await page.goto(path)
+
+      const scrollRegion = page.locator('.legal-page')
+      await expect(scrollRegion).toBeVisible()
+      await expectScrollable(scrollRegion)
+      await expect.poll(async () => scrollRegion.evaluate((element) => (
+        getComputedStyle(element).touchAction.includes('pan-y')
+      ))).toBe(true)
+
+      await scrollRegion.evaluate((element) => element.scrollTo({ top: element.scrollHeight }))
+      await expect.poll(async () => scrollRegion.evaluate((element) => (
+        element.scrollTop + element.clientHeight >= element.scrollHeight - 1
+      ))).toBe(true)
+    }
+  })
+
   test('keeps theme settings usable and persistent on a phone viewport', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)

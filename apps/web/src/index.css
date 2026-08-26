@@ -7518,10 +7518,29 @@ body {
 }
 
 .legal-page {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  max-height: 100vh;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+@supports (height: 100dvh) {
+  .legal-page {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
+.legal-page:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 .legal-page-nav {
@@ -7574,6 +7593,33 @@ body {
 
 .legal-document a {
   color: var(--text-link);
+}
+
+@media (max-width: 700px) {
+  .legal-page {
+    scrollbar-gutter: auto;
+  }
+
+  .legal-page-nav {
+    min-height: 50px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 16px;
+  }
+
+  .legal-document {
+    width: min(100% - 28px, 820px);
+    padding: 28px 0 52px;
+  }
+
+  .legal-document h1 {
+    font-size: 26px;
+  }
+
+  .legal-document h2 {
+    margin-top: 26px;
+  }
 }
 
 .chat-loading-state--centered {

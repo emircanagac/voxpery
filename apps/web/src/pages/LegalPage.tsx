@@ -76,7 +76,11 @@ export default function LegalPage() {
     : pathname === '/kvkk'
       ? <KvkkNotice />
       : <EnglishPrivacyNotice />
-  return <main className="legal-page">
+  return <main
+    className="legal-page"
+    tabIndex={0}
+    aria-label="Hosted service legal information"
+  >
     <div className="legal-page-nav"><Link to="/">Voxpery</Link><span>Hosted service legal information</span></div>
     <article className="legal-document">{content}</article>
   </main>
