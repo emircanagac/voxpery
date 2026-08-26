@@ -7,6 +7,7 @@ import {
   getPreferredScreenShareCodec,
   getScreenShareAudioPublishOptions,
   getScreenSharePublishOptions,
+  LIVEKIT_AUTO_SUBSCRIBE,
   reconcileLiveKitVoicePresence,
   reconcileFinalMediaDisconnect,
   remoteMediaKindForSource,
@@ -41,6 +42,12 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+})
+
+describe('initial remote subscription policy', () => {
+  it('hydrates existing microphone publications during room join', () => {
+    expect(LIVEKIT_AUTO_SUBSCRIBE).toBe(true)
   })
 })
 

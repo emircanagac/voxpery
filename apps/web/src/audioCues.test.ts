@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { VOICE_CUE_TONES, type VoiceCueKind } from './audioCues'
+import {
+  getPreferredVoiceAudioContextOptions,
+  VOICE_AUDIO_SAMPLE_RATE,
+  VOICE_CUE_TONES,
+  type VoiceCueKind,
+} from './audioCues'
 
 const cueKinds = Object.keys(VOICE_CUE_TONES) as VoiceCueKind[]
 
@@ -14,6 +19,11 @@ function signature(kind: VoiceCueKind) {
 }
 
 describe('voice cue catalog', () => {
+  it('uses the 48 kHz sample rate required by the shared RNNoise pipeline', () => {
+    expect(VOICE_AUDIO_SAMPLE_RATE).toBe(48_000)
+    expect(getPreferredVoiceAudioContextOptions()).toEqual({ sampleRate: 48_000 })
+  })
+
   it('gives every voice and media event a distinct sound profile', () => {
     const signatures = cueKinds.map(signature)
     expect(new Set(signatures).size).toBe(cueKinds.length)

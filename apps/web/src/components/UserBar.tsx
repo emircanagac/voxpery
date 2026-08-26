@@ -24,10 +24,12 @@ import { ROUTES } from '../routes'
 import {
   DEFAULT_VOICE_INPUT_PROFILE,
   getStoredVoiceInputProfile,
+  getStoredVoiceMode,
   getVoiceInputProfileConfig,
   isVoiceInputProfile,
   type VoiceInputProfile,
   VOICE_INPUT_PROFILE_KEY,
+  VOICE_MODE_KEY,
 } from '../webrtc/voiceInputProfile'
 import {
   checkForUpdates,
@@ -92,7 +94,6 @@ const INPUT_VOL_KEY = 'voxpery-settings-input-volume'
 const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
 const DEFAULT_INPUT_VOLUME = 80
 const DEFAULT_OUTPUT_VOLUME = 80
-const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
 const SPEAKING_THRESHOLD_KEY = SENSITIVITY_THRESHOLD_KEY
@@ -553,7 +554,8 @@ export default function UserBar() {
     const sound = localStorage.getItem(SOUND_KEY)
     const input = localStorage.getItem(INPUT_VOL_KEY)
     const output = localStorage.getItem(OUTPUT_VOL_KEY)
-    const mode = localStorage.getItem(VOICE_MODE_KEY)
+    const storedMode = localStorage.getItem(VOICE_MODE_KEY)
+    const mode = getStoredVoiceMode()
     const ptt = localStorage.getItem(PTT_KEY_KEY)
     const ns = localStorage.getItem(NOISE_SUPPRESSION_KEY)
     const speaking = localStorage.getItem(SPEAKING_THRESHOLD_KEY)
@@ -566,7 +568,7 @@ export default function UserBar() {
     setPushNotificationPermission(getPushNotificationPermission())
     if (input != null) setInputVolume(Math.min(100, Math.max(1, Number(input) || DEFAULT_INPUT_VOLUME)))
     if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || DEFAULT_OUTPUT_VOLUME)))
-    if (mode === 'push_to_talk' || mode === 'voice_activity') setVoiceMode(mode)
+    setVoiceMode(mode)
     if (ptt) setPttKey(ptt)
     if (ns != null) {
       setNoiseSuppressionEnabled(ns === '1')
@@ -622,9 +624,25 @@ export default function UserBar() {
     }
     if (isVoiceInputProfile(profileRaw)) {
       setVoiceInputProfile(profileRaw)
+      if (profileRaw !== 'custom') {
+        const defaults = getVoiceInputProfileConfig(profileRaw)
+        setVoiceMode(defaults.voiceMode)
+        setNoiseSuppressionEnabled(defaults.noiseSuppressionEnabled)
+        setSpeakingPreset(defaults.speakingPreset)
+        setSpeakingThreshold(defaults.speakingThreshold)
+        try {
+          localStorage.setItem(VOICE_MODE_KEY, defaults.voiceMode)
+          localStorage.setItem(NOISE_SUPPRESSION_KEY, defaults.noiseSuppressionEnabled ? '1' : '0')
+          localStorage.setItem(SPEAKING_PRESET_KEY, defaults.speakingPreset)
+          localStorage.setItem(SPEAKING_THRESHOLD_KEY, String(defaults.speakingThreshold))
+          window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
+        } catch {
+          // ignore storage errors
+        }
+      }
     } else {
       const hasExplicitLegacyVoiceSettings =
-        mode != null || ns != null || preset != null || speaking != null
+        storedMode != null || ns != null || preset != null || speaking != null
       const inferredProfile = hasExplicitLegacyVoiceSettings ? 'custom' : DEFAULT_VOICE_INPUT_PROFILE
       setVoiceInputProfile(inferredProfile)
       try {

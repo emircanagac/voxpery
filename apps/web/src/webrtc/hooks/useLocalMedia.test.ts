@@ -73,6 +73,7 @@ describe('screen share quality profiles', () => {
       selfBrowserSurface: 'exclude',
       surfaceSwitching: 'include',
       audio: {
+        restrictOwnAudio: true,
         suppressLocalAudioPlayback: false,
       },
     })

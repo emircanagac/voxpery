@@ -67,10 +67,26 @@ export const VOICE_CUE_TONES: Readonly<Record<VoiceCueKind, readonly CueTone[]>>
 
 type AudioWindow = Window & { webkitAudioContext?: typeof AudioContext }
 
+export const VOICE_AUDIO_SAMPLE_RATE = 48_000
+
+export function getPreferredVoiceAudioContextOptions(): AudioContextOptions {
+  return { sampleRate: VOICE_AUDIO_SAMPLE_RATE }
+}
+
+function createVoiceAudioContext(AudioCtor: typeof AudioContext): AudioContext {
+  try {
+    return new AudioCtor(getPreferredVoiceAudioContextOptions())
+  } catch {
+    return new AudioCtor()
+  }
+}
+
 export function getOrCreateAudioContext(ref: { current: AudioContext | null }): AudioContext | null {
   const AudioCtor = window.AudioContext || (window as AudioWindow).webkitAudioContext
   if (!AudioCtor) return null
-  if (!ref.current) ref.current = new AudioCtor()
+  if (!ref.current || ref.current.state === 'closed') {
+    ref.current = createVoiceAudioContext(AudioCtor)
+  }
   const ctx = ref.current
   if (ctx.state === 'suspended') {
     void ctx.resume().catch(() => {})

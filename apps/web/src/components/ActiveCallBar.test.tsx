@@ -330,13 +330,16 @@ describe('ActiveCallBar regressions', () => {
     expect((preview.srcObject as MediaStream).getVideoTracks()).toEqual(localScreen.getVideoTracks())
   })
 
-  it('reasserts remote microphone playback after the macOS share picker returns', () => {
+  it('reasserts remote microphone playback after the macOS share picker returns', async () => {
     const remoteMic = mediaTrack('audio', 'peer-mic')
     const remoteStream = new MediaStream([remoteMic])
     const play = vi.mocked(HTMLMediaElement.prototype.play)
 
     renderActiveCallBar({
       remoteStreams: new Map([['peer-1', remoteStream]]),
+    })
+    await act(async () => {
+      await Promise.resolve()
     })
     play.mockClear()
 
@@ -445,7 +448,7 @@ describe('ActiveCallBar regressions', () => {
     expect(screenAudio.muted).toBe(false)
   })
 
-  it('immediately gates desktop microphone buses while keeping watched screen audio active', () => {
+  it('immediately mutes native microphone playback while keeping watched screen audio active', () => {
     const audioContexts = installAudioContextMock()
     const micTrack = mediaTrack('audio', 'peer-mic')
     const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')
@@ -457,18 +460,13 @@ describe('ActiveCallBar regressions', () => {
       watchedRemoteScreenPeerIds: new Set(['peer-1']),
     })
 
-    expect(audioContexts).toHaveLength(1)
-    const gainNodes = audioContexts[0].createGain.mock.results.map((result) => result.value)
-    const microphoneBus = gainNodes[0]
-    const screenBus = gainNodes[1]
-    if (!microphoneBus || !screenBus) throw new Error('Remote playback gain buses were not created.')
+    expect(audioContexts).toHaveLength(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
 
-    expect(microphoneBus.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 0)
-    expect(screenBus.gain.setValueAtTime).not.toHaveBeenCalled()
-    expect(screenBus.gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.015)
+    const microphoneOutput = container.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
     const screenOutput = container.querySelector('audio[data-remote-audio-kind="screen"]') as HTMLAudioElement | null
+    expect(microphoneOutput?.muted).toBe(true)
     expect(screenOutput?.muted).toBe(false)
   })
 
@@ -492,10 +490,7 @@ describe('ActiveCallBar regressions', () => {
       </MemoryRouter>
     )
 
-    expect(audioContexts).toHaveLength(1)
-    const microphoneBus = audioContexts[0].createGain.mock.results[0]?.value
-    if (!microphoneBus) throw new Error('The reconnecting microphone bus was not created.')
-    expect(microphoneBus.gain.value).toBe(0)
+    expect(audioContexts).toHaveLength(0)
     const remoteMic = document.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
     expect(remoteMic?.muted).toBe(true)
   })
@@ -570,9 +565,7 @@ describe('ActiveCallBar regressions', () => {
         remoteStreams: 5,
       },
     })
-    expect(audioContexts).toHaveLength(1)
-    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledTimes(6)
-    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
+    expect(audioContexts).toHaveLength(0)
     const sourceElements = Array.from(container.querySelectorAll<HTMLAudioElement>(
       'audio[data-remote-audio-kind="mic"], audio[data-peer-id="peer-1"][data-remote-audio-kind="screen"]',
     ))
@@ -588,12 +581,103 @@ describe('ActiveCallBar regressions', () => {
 
     expect(play).not.toHaveBeenCalled()
     expect(sourceElements.map((element) => element.srcObject)).toEqual(initialOutputStreams)
-    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledTimes(6)
-    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledTimes(6)
   })
 
-  it('falls back to direct remote playback when Web Audio graph creation fails', () => {
-    const audioContexts = installAudioContextMock({ failMediaStreamSource: true })
+  it('starts newly watched screen audio only once while subscription state settles', async () => {
+    installAudioContextMock()
+    const screenAudio = mediaTrack('audio', 'peer-screen-audio')
+    markRemoteAudioTrackSource(screenAudio, 'screen')
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+    let resolvePlayback!: () => void
+    play.mockImplementation(() => new Promise<void>((resolve) => {
+      resolvePlayback = resolve
+    }))
+    const remoteStream = new MediaStream([screenAudio])
+
+    const { voice, rerender } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    expect(play).toHaveBeenCalledOnce()
+    for (let update = 0; update < 3; update += 1) {
+      voice.state = voiceState({
+        remoteStreams: new Map([['peer-1', new MediaStream([screenAudio])]]),
+        watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      })
+      rerender(
+        <MemoryRouter>
+          <ActiveCallBar
+            selectedVoiceChannelId={voiceChannel.id}
+            activeChannelId={voiceChannel.id}
+          />
+        </MemoryRouter>
+      )
+    }
+
+    expect(play).toHaveBeenCalledOnce()
+    await act(async () => {
+      resolvePlayback()
+      await Promise.resolve()
+    })
+
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenAudio])]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar
+          selectedVoiceChannelId={voiceChannel.id}
+          activeChannelId={voiceChannel.id}
+        />
+      </MemoryRouter>
+    )
+
+    expect(play).toHaveBeenCalledOnce()
+  })
+
+  it('starts screen audio again after the viewer stops and resumes watching', async () => {
+    installAudioContextMock()
+    const screenAudio = mediaTrack('audio', 'peer-screen-audio')
+    markRemoteAudioTrackSource(screenAudio, 'screen')
+    const remoteStream = new MediaStream([screenAudio])
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+    const { voice, rerender } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(play).toHaveBeenCalledOnce()
+
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      watchedRemoteScreenPeerIds: new Set(),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
+      </MemoryRouter>
+    )
+    expect(play).toHaveBeenCalledOnce()
+
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
+      </MemoryRouter>
+    )
+
+    expect(play).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses direct remote playback at normal voice volume without creating Web Audio', () => {
+    const audioContexts = installAudioContextMock()
     const remoteMic = mediaTrack('audio', 'peer-mic')
     markRemoteAudioTrackSource(remoteMic, 'voice')
     const play = vi.mocked(HTMLMediaElement.prototype.play)
@@ -607,13 +691,28 @@ describe('ActiveCallBar regressions', () => {
     ) as HTMLAudioElement | null
     if (!remoteMicOutput) throw new Error('Remote microphone output was not rendered.')
 
-    expect(audioContexts).toHaveLength(1)
-    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledOnce()
-    expect(audioContexts[0].createMediaStreamDestination).not.toHaveBeenCalled()
+    expect(audioContexts).toHaveLength(0)
     expect(remoteMicOutput.srcObject).toBeInstanceOf(MediaStream)
     expect((remoteMicOutput.srcObject as MediaStream).getAudioTracks()).toEqual([remoteMic])
     expect(remoteMicOutput.muted).toBe(false)
     expect(play.mock.instances).toContain(remoteMicOutput)
+  })
+
+  it('creates an isolated Web Audio gain graph only for voice amplification above 100 percent', () => {
+    const audioContexts = installAudioContextMock()
+    writeRemotePlaybackVolumes({ 'voice:peer-1': 150 })
+    const remoteMic = mediaTrack('audio', 'amplified-peer-mic')
+    markRemoteAudioTrackSource(remoteMic, 'voice')
+
+    renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([remoteMic])]]),
+    })
+
+    expect(audioContexts).toHaveLength(1)
+    expect(audioContexts[0].createMediaStreamSource).toHaveBeenCalledOnce()
+    expect(audioContexts[0].createMediaStreamDestination).toHaveBeenCalledOnce()
+    const gain = audioContexts[0].createGain.mock.results[0]?.value
+    expect(gain?.gain.value).toBe(1.5)
   })
 
   it('uses direct remote playback in Tauri without creating a Web Audio destination', () => {

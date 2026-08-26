@@ -15,6 +15,8 @@ The goal is to verify the real user path, not every implementation detail. Run t
 
 - [ ] User A joins a voice channel and User B sees A in the channel list.
 - [ ] User B joins the same voice channel and both users hear the join cue.
+- [ ] Repeat two-way microphone transmission with Firefox as the first participant and Chromium as the second, then reverse the join order and repeat with the desktop app. Every receiver hears every sender while the speaking indicator is active and RNNoise remains available on each browser.
+- [ ] At the default per-user voice level, Firefox-to-Chromium and Chromium-to-Firefox audio use stable native playback. Raising one user's voice above 100% enables amplification without changing screen-share volume or interrupting any other participant.
 - [ ] Mute/unmute changes local mic state and does not disconnect the room.
 - [ ] The configured mute shortcut toggles the microphone while the web tab is focused.
 - [ ] A new/default user joins with the operating system's current default microphone and speaker.
@@ -62,7 +64,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] User B chooses `Watch stream`; both `ScreenShare` and `ScreenShareAudio` subscribe, while User A's microphone remains continuously audible.
 - [ ] While User B watches a stream, hiding/minimizing Voxpery pauses screen video but keeps screen-share audio continuous; restoring the app resumes video without an audio gap or replayed media cue.
 - [ ] Shared system, game, and music audio remains stereo and continuous without speech-style gating; diagnostics report `musicHighQualityStereo`, 128 kbps, `forceStereo: true`, `dtx: false`, and `red: true`.
-- [ ] On a freshly installed or updated Tauri build, two users hear each other immediately after joining, then while User B watches User A's shared-audio stream, User B repeatedly speaks and stops speaking; the stream and all remote microphones remain simultaneously audible without ducking, gaps, output-device changes, or playback restarts. Repeat with at least five participants on web and desktop.
+- [ ] On a freshly installed or updated Tauri build, two users hear each other immediately after joining, then while User B watches User A's shared-audio stream, User B speaks and stops at least five times immediately after playback begins; the stream and all remote microphones remain simultaneously audible without startup ducking, gaps, output-device changes, or playback restarts. Repeat with at least five participants on web and desktop.
 - [ ] Sharing a source/platform that provides no audio still publishes video without a misleading warning toast.
 - [ ] With opt-in diagnostics enabled, requested and actual capture resolution/FPS, audio sample rate/channel count/content hint/publication profile, simulcast, outbound video bitrate/FPS, actual screen-audio Opus bitrate/channels/packets, packet loss, and quality limitation reason are present without device identifiers.
 - [ ] Under constrained bandwidth, screen share remains watchable by stepping down to a lower simulcast layer instead of freezing on a single high-quality layer.

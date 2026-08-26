@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/app'
 import { getThresholdsFromStorage } from '../sensitivityThreshold'
-import { getStoredVoiceInputProfile, shouldUseAggressiveVoiceIsolation } from '../voiceInputProfile'
+import {
+    getStoredVoiceInputProfile,
+    getStoredVoiceMode,
+    shouldUseAggressiveVoiceIsolation,
+} from '../voiceInputProfile'
 import { evaluateVoiceGateFrame } from '../voiceGate'
 import { linearToDbDiagnostic, updateVoiceDiagnostics } from '../voiceDiagnostics'
 
-const VOICE_MODE_KEY = 'voxpery-settings-voice-mode'
 const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -20,10 +23,7 @@ export function useVoiceActivity(options: {
     setLocalMicMuted: (muted: boolean) => Promise<void>
 }) {
     const { userId, joinedChannelId, localStream, getAudioContext, setLocalMicMuted } = options
-    const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
-        const modeRaw = localStorage.getItem(VOICE_MODE_KEY)
-        return modeRaw === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
-    })
+    const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => getStoredVoiceMode())
 
     const pttPressedRef = useRef(false)
     const voiceActivitySpeakingRef = useRef(false)
@@ -32,8 +32,7 @@ export function useVoiceActivity(options: {
     const monitorAnalyserRef = useRef<AnalyserNode | null>(null)
 
     const getVoiceModeSettings = useCallback((): { mode: VoiceMode; key: string } => {
-        const modeRaw = localStorage.getItem(VOICE_MODE_KEY)
-        const mode = modeRaw === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
+        const mode = getStoredVoiceMode()
         const keyRaw = localStorage.getItem(PTT_KEY_KEY)
         const key = keyRaw && keyRaw.trim().length > 0 ? keyRaw.trim() : 'V'
         return { mode, key }
@@ -208,8 +207,7 @@ export function useVoiceActivity(options: {
             applyPushToTalkGate()
         }
         const onSettingsChanged = () => {
-            const nextModeRaw = localStorage.getItem(VOICE_MODE_KEY)
-            const nextMode = nextModeRaw === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
+            const nextMode = getStoredVoiceMode()
             setVoiceMode(nextMode)
             pttPressedRef.current = false
             if (nextMode === 'push_to_talk') {

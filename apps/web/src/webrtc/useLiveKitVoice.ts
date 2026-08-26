@@ -19,7 +19,10 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
-import { shouldUseLightweightMobileVoicePipeline, useAudioEngine } from './hooks/useAudioEngine'
+import {
+  shouldUseLightweightMobileVoicePipeline,
+  useAudioEngine,
+} from './hooks/useAudioEngine'
 import { useLocalMedia, type ScreenShareCaptureResult } from './hooks/useLocalMedia'
 import { useVoiceActivity } from './hooks/useVoiceActivity'
 import { useWebrtcDiagnostics } from './hooks/useWebrtcDiagnostics'
@@ -46,6 +49,8 @@ if (import.meta.env.PROD) {
 type PeerId = string
 type RemoteMediaStartCueKind = 'camera' | 'screen'
 type RemoteMediaCuePhase = 'start' | 'stop'
+
+export const LIVEKIT_AUTO_SUBSCRIBE = true
 
 type VoiceControlState = {
   muted?: boolean
@@ -909,7 +914,6 @@ export function useLiveKitVoice() {
       if (!rawMicTrack) throw new Error('No microphone track available')
 
       const audioContext = getAudioContext()
-      if (!audioContext && !mobileOptimizedVoice) throw new Error('Audio context required for voice processors')
       if (audioContext?.state === 'suspended') {
         await audioContext.resume()
       }
@@ -920,10 +924,15 @@ export function useLiveKitVoice() {
       // runs when enabled, and browser NS acts as a reliable fallback layer.
       await applyLocalMicSettings(rawMicTrack)
 
-      // Build the processed audio pipeline: mic → RNNoise (if enabled) → volume gain → publishTrack
+      // Build one processed publication source for desktop browsers and webviews.
       gateCancelRef.current?.()
       gateCancelRef.current = null
-      const { track: publishTrack, vadStream, cancelGate } = await buildMicSendTrack(
+      const {
+        track: publishTrack,
+        vadStream,
+        cancelGate,
+        source: microphoneSource,
+      } = await buildMicSendTrack(
         preflightStream,
         getInputVolumeFactor(),
         desiredMicMutedRef.current,
@@ -967,7 +976,7 @@ export function useLiveKitVoice() {
           adaptiveStream: true,
           dynacast: true,
           microphonePublished: false,
-          microphoneSource: 'processed-webaudio',
+          microphoneSource,
         },
       })
       roomRef.current = room
@@ -1136,7 +1145,10 @@ export function useLiveKitVoice() {
         })
 
       const connectPromise = room.connect(ws_url, lkToken, {
-        autoSubscribe: false,
+        // Hydrate existing microphone publications atomically with room join.
+        // Selective media rules immediately unsubscribe unwatched screen
+        // shares and hidden video without racing required voice audio.
+        autoSubscribe: LIVEKIT_AUTO_SUBSCRIBE,
         rtcConfig: { iceServers },
       })
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -1166,7 +1178,7 @@ export function useLiveKitVoice() {
           adaptiveStream: true,
           dynacast: true,
           microphonePublished: true,
-          microphoneSource: 'processed-webaudio',
+          microphoneSource,
           microphoneAudioPreset: mobileOptimizedVoice ? 'music' : 'musicHighQuality',
           microphoneDtx: true,
           microphoneRed: true,
@@ -1183,9 +1195,7 @@ export function useLiveKitVoice() {
       await setLocalMicMuted(desiredMicMutedRef.current)
 
       refreshLocalStreams()
-      // Feed the speaking monitor with the post-RNNoise signal so the
-      // indicator only lights up when actual voice passes through the
-      // denoiser — background noise (claps, keyboard, fan) won't trigger it.
+      // Monitor the exact source selected for publication.
       startLocalSpeakingMonitor(vadStreamRef.current)
 
       if (voiceMode === 'push_to_talk') {
