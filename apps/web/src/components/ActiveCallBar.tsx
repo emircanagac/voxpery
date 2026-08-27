@@ -1360,6 +1360,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
   const stageColumns = getStageColumns(totalStageTiles)
+  const stageDensity = totalStageTiles > 9 ? 'dense' : totalStageTiles > 6 ? 'crowded' : 'standard'
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
   const roomReconnecting = roomState === 'reconnecting'
@@ -1465,7 +1466,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       {showActiveCallBar && (
         <>
           {showVoiceStage && (
-            <div className="screen-share-stage" style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}>
+            <div
+              className="screen-share-stage"
+              data-stage-density={stageDensity}
+              data-stage-columns={stageColumns}
+              style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
+            >
               {channelParticipants.map((p) => {
                 const isLocal = p.user_id === user?.id
                 const participantControl = voiceControls[p.user_id]

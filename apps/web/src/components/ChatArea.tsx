@@ -1,8 +1,9 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, Sticker } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, Sticker, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { Attachment } from '../types'
+import type { Attachment, MessageReaction } from '../types'
+import type { GifOption } from '../emoji'
 import { resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
@@ -11,6 +12,7 @@ import EmojiPicker from './EmojiPicker'
 import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
 import { useAuthStore } from '../stores/auth'
+import { getFavoriteGifs, toggleFavoriteGif } from '../expressionPreferences'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -92,6 +94,98 @@ function extractEmbeddedMediaMarkdown(content: string): { text: string; gifUrls:
         })
         .trim()
     return { text, gifUrls, stickerUrls }
+}
+
+const EMOJI_ONLY_CONTENT = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F|\u200D|\u20E3|\s)+$/u
+const EMOJI_CODE_POINT = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
+
+function getEmojiOnlyCount(content: string): number {
+    const parsed = parseReplyContent(content)
+    if (parsed) return 0
+    const { text, gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
+    const visibleText = text.trim()
+    if (!visibleText || gifUrls.length > 0 || stickerUrls.length > 0 || !EMOJI_ONLY_CONTENT.test(visibleText)) return 0
+    const count = Array.from(visibleText).filter((character) => EMOJI_CODE_POINT.test(character)).length
+    return count > 0 && count <= 4 ? count : 0
+}
+
+function savedGifOption(url: string): GifOption {
+    return {
+        id: url,
+        label: 'Saved GIF',
+        url,
+        previewUrl: url,
+        keywords: [],
+    }
+}
+
+function ReactionButton({
+    reaction,
+    disabled,
+    onToggle,
+}: {
+    reaction: MessageReaction
+    disabled: boolean
+    onToggle: () => void
+}) {
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+    const triggerRef = useRef<HTMLButtonElement | null>(null)
+    const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+    const usernames = reaction.users?.map((user) => user.username).filter(Boolean) ?? []
+    const reactionLabel = usernames.length > 0
+        ? `${reaction.emoji} reaction from ${usernames.join(', ')}`
+        : `${reaction.emoji} reaction, ${reaction.count} total`
+
+    const syncPosition = useCallback(() => {
+        const rect = triggerRef.current?.getBoundingClientRect()
+        if (!rect) return
+        setPosition({
+            left: Math.max(8, Math.min(window.innerWidth - 8, rect.left + rect.width / 2)),
+            top: Math.max(8, rect.top - 8),
+        })
+    }, [])
+
+    useLayoutEffect(() => {
+        if (!isDetailsOpen || usernames.length === 0) return
+        syncPosition()
+        window.addEventListener('resize', syncPosition)
+        window.addEventListener('scroll', syncPosition, true)
+        return () => {
+            window.removeEventListener('resize', syncPosition)
+            window.removeEventListener('scroll', syncPosition, true)
+        }
+    }, [isDetailsOpen, syncPosition, usernames.length])
+
+    return (
+        <>
+            <button
+                ref={triggerRef}
+                type="button"
+                className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
+                disabled={disabled}
+                aria-label={reactionLabel}
+                onPointerEnter={() => setIsDetailsOpen(true)}
+                onPointerLeave={() => setIsDetailsOpen(false)}
+                onFocus={() => setIsDetailsOpen(true)}
+                onBlur={() => setIsDetailsOpen(false)}
+                onClick={onToggle}
+            >
+                <span>{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+            </button>
+            {isDetailsOpen && usernames.length > 0 && position && typeof document !== 'undefined' && createPortal(
+                <div
+                    className="message-reaction-details"
+                    role="tooltip"
+                    style={{ left: position.left, top: position.top }}
+                >
+                    <strong>{reaction.emoji}</strong>
+                    <span>{usernames.join(', ')}</span>
+                </div>,
+                document.body,
+            )}
+        </>
+    )
 }
 
 function AttachmentImagePreviewModal({
@@ -601,6 +695,7 @@ interface ChatAreaProps {
     onPinMessage?: (messageId: string) => void
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
+    onOpenDirectMessage?: (userId: string, username: string) => void
     canSendMessages?: boolean
     typingIndicatorLabel?: string | null
     seenMessageId?: string | null
@@ -653,6 +748,7 @@ export default function ChatArea({
     onPinMessage,
     onUnpinMessage,
     onToggleReaction,
+    onOpenDirectMessage,
     canSendMessages = true,
     typingIndicatorLabel = null,
     seenMessageId = null,
@@ -760,6 +856,14 @@ export default function ChatArea({
     const reactionPickerRef = useRef<HTMLDivElement | null>(null)
     const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [reactionPickerPosition, setReactionPickerPosition] = useState<{ top: number; left: number } | null>(null)
+    const [messageUserContextMenu, setMessageUserContextMenu] = useState<{
+        userId: string
+        username: string
+        x: number
+        y: number
+    } | null>(null)
+    const messageUserLongPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+    const [favoriteGifUrls, setFavoriteGifUrls] = useState(() => new Set(getFavoriteGifs().map((gif) => gif.url)))
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
     const mentionCandidates = useMemo(() => {
@@ -1937,6 +2041,88 @@ export default function ChatArea({
         onPickAttachments(dataTransfer.files)
     }
 
+    useEffect(() => {
+        if (!messageUserContextMenu) return
+        const close = () => setMessageUserContextMenu(null)
+        const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+            if (event.key === 'Escape') close()
+        }
+        window.addEventListener('pointerdown', close)
+        window.addEventListener('keydown', closeOnEscape)
+        return () => {
+            window.removeEventListener('pointerdown', close)
+            window.removeEventListener('keydown', closeOnEscape)
+        }
+    }, [messageUserContextMenu])
+
+    useEffect(() => () => {
+        if (messageUserLongPressRef.current !== null) {
+            window.clearTimeout(messageUserLongPressRef.current)
+        }
+    }, [])
+
+    const toggleGifFavorite = useCallback((url: string) => {
+        const next = toggleFavoriteGif(savedGifOption(url))
+        setFavoriteGifUrls(new Set(next.map((gif) => gif.url)))
+    }, [])
+
+    const showMessageUserContextMenu = useCallback((
+        author: UiMessage['author'],
+        clientX: number,
+        clientY: number,
+    ) => {
+        if (!onOpenDirectMessage || !author?.user_id || author.user_id === currentUserId) return
+        const menuWidth = 196
+        const menuHeight = 42
+        setMessageUserContextMenu({
+            userId: author.user_id,
+            username: author.username,
+            x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
+            y: Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8)),
+        })
+    }, [currentUserId, onOpenDirectMessage])
+
+    const openMessageUserContextMenu = useCallback((
+        event: React.MouseEvent<HTMLElement>,
+        author: UiMessage['author'],
+    ) => {
+        event.preventDefault()
+        event.stopPropagation()
+        showMessageUserContextMenu(author, event.clientX, event.clientY)
+    }, [showMessageUserContextMenu])
+
+    const openMessageUserContextMenuFromKeyboard = useCallback((
+        event: KeyboardEvent<HTMLElement>,
+        author: UiMessage['author'],
+    ) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+        event.preventDefault()
+        const rect = event.currentTarget.getBoundingClientRect()
+        showMessageUserContextMenu(author, rect.left + rect.width / 2, rect.bottom)
+    }, [showMessageUserContextMenu])
+
+    const startMessageUserTouchMenu = useCallback((
+        event: PointerEvent<HTMLElement>,
+        author: UiMessage['author'],
+    ) => {
+        if (event.pointerType !== 'touch') return
+        if (messageUserLongPressRef.current !== null) {
+            window.clearTimeout(messageUserLongPressRef.current)
+        }
+        const { clientX, clientY } = event
+        messageUserLongPressRef.current = window.setTimeout(() => {
+            showMessageUserContextMenu(author, clientX, clientY)
+            messageUserLongPressRef.current = null
+        }, 500)
+    }, [showMessageUserContextMenu])
+
+    const cancelMessageUserTouchMenu = useCallback(() => {
+        if (messageUserLongPressRef.current !== null) {
+            window.clearTimeout(messageUserLongPressRef.current)
+            messageUserLongPressRef.current = null
+        }
+    }, [])
+
     const renderMessageWithMentions = (content: string) => {
         const { text, gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
         // Split by mentions OR direct http/https URLs
@@ -2006,12 +2192,21 @@ export default function ChatArea({
                                 <div
                                     key={`${url}-${index}`}
                                     className="chat-inline-gif-link"
-                                    onClickCapture={(event) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                    }}
                                 >
                                     <InlineMediaImage src={url} alt="GIF preview" className="chat-inline-gif" />
+                                    <button
+                                        type="button"
+                                        className={`chat-inline-gif-favorite${favoriteGifUrls.has(url) ? ' is-favorited' : ''}`}
+                                        title={favoriteGifUrls.has(url) ? 'Remove GIF from favorites' : 'Add GIF to favorites'}
+                                        aria-label={favoriteGifUrls.has(url) ? 'Remove GIF from favorites' : 'Add GIF to favorites'}
+                                        onClick={(event) => {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            toggleGifFavorite(url)
+                                        }}
+                                    >
+                                        <Star size={14} fill={favoriteGifUrls.has(url) ? 'currentColor' : 'none'} />
+                                    </button>
                                 </div>
                             )
                         })}
@@ -2034,7 +2229,12 @@ export default function ChatArea({
                 </div>
             )
         }
-        return <div className="message-text">{renderMessageWithMentions(content)}</div>
+        const emojiOnlyCount = getEmojiOnlyCount(content)
+        return (
+            <div className={`message-text${emojiOnlyCount > 0 ? ` message-text--emoji-only message-text--emoji-count-${emojiOnlyCount}` : ''}`}>
+                {renderMessageWithMentions(content)}
+            </div>
+        )
     }
 
     if (!activeChannel) {
@@ -2410,7 +2610,14 @@ export default function ChatArea({
                                         </div>
                                     )}
                                     <div className={`message${isGrouped ? ' message-compact' : ''}${highlightedMessageId === msg.id ? ' message-highlight-jump' : ''}`}>
-                                        <div className="message-avatar" aria-hidden={isGrouped ? 'true' : undefined}>
+                                        <div
+                                            className="message-avatar"
+                                            aria-hidden={isGrouped ? 'true' : undefined}
+                                            onContextMenu={(event) => openMessageUserContextMenu(event, msg.author)}
+                                            onPointerDown={(event) => startMessageUserTouchMenu(event, msg.author)}
+                                            onPointerUp={cancelMessageUserTouchMenu}
+                                            onPointerCancel={cancelMessageUserTouchMenu}
+                                        >
                                             {!isGrouped && (
                                                 getAuthorAvatarUrl(msg.author || {}) ? (
                                                     <img src={getAuthorAvatarUrl(msg.author || {}) ?? ''} alt="" />
@@ -2426,6 +2633,13 @@ export default function ChatArea({
                                                     <span
                                                         className="message-author"
                                                         style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
+                                                        tabIndex={0}
+                                                        role="button"
+                                                        onContextMenu={(event) => openMessageUserContextMenu(event, msg.author)}
+                                                        onKeyDown={(event) => openMessageUserContextMenuFromKeyboard(event, msg.author)}
+                                                        onPointerDown={(event) => startMessageUserTouchMenu(event, msg.author)}
+                                                        onPointerUp={cancelMessageUserTouchMenu}
+                                                        onPointerCancel={cancelMessageUserTouchMenu}
                                                     >
                                                         {msg.author.username}
                                                     </span>
@@ -2493,16 +2707,12 @@ export default function ChatArea({
                                             {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
                                                 <div className="message-reactions">
                                                     {msg.reactions.map((reaction) => (
-                                                        <button
+                                                        <ReactionButton
                                                             key={`${msg.id}-${reaction.emoji}`}
-                                                            type="button"
-                                                            className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
+                                                            reaction={reaction}
                                                             disabled={!onToggleReaction}
-                                                            onClick={() => toggleReactionPreservingBottomAnchor(msg.id, reaction.emoji, !!reaction.reacted)}
-                                                        >
-                                                            <span>{reaction.emoji}</span>
-                                                            <span>{reaction.count}</span>
-                                                        </button>
+                                                            onToggle={() => toggleReactionPreservingBottomAnchor(msg.id, reaction.emoji, !!reaction.reacted)}
+                                                        />
                                                     ))}
                                                 </div>
                                             )}
@@ -2749,6 +2959,27 @@ export default function ChatArea({
                     />
                 </div>,
                 document.body
+            )}
+            {messageUserContextMenu && onOpenDirectMessage && createPortal(
+                <div
+                    className="chat-user-context-menu"
+                    role="menu"
+                    aria-label={`Actions for ${messageUserContextMenu.username}`}
+                    style={{ left: messageUserContextMenu.x, top: messageUserContextMenu.y }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                >
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                            onOpenDirectMessage(messageUserContextMenu.userId, messageUserContextMenu.username)
+                            setMessageUserContextMenu(null)
+                        }}
+                    >
+                        Send direct message
+                    </button>
+                </div>,
+                document.body,
             )}
             {clickedLink && createPortal(
                 <div className="modal-overlay" onClick={() => setClickedLink(null)}>

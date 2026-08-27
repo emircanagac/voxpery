@@ -13,7 +13,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     models::{
-        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor,
+        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser,
+        MessageWithAuthor,
         SendMessageRequest,
     },
     services::{
@@ -237,6 +238,7 @@ struct MessageReactionRow {
     emoji: String,
     count: i64,
     reacted: bool,
+    usernames: Vec<String>,
 }
 
 fn normalize_reaction_emoji(raw: &str) -> Result<String, AppError> {
@@ -268,9 +270,11 @@ async fn attach_message_reactions(
         r#"SELECT mr.message_id,
                   mr.emoji,
                   COUNT(*)::BIGINT AS count,
-                  BOOL_OR(mr.user_id = $2) AS reacted
+                  BOOL_OR(mr.user_id = $2) AS reacted,
+                  ARRAY_AGG(u.username ORDER BY mr.created_at ASC) AS usernames
            FROM message_reactions mr
-           WHERE mr.message_id = ANY($1)
+           INNER JOIN users u ON u.id = mr.user_id
+          WHERE mr.message_id = ANY($1)
            GROUP BY mr.message_id, mr.emoji
            ORDER BY mr.message_id ASC, MIN(mr.created_at) ASC"#,
     )
@@ -288,6 +292,11 @@ async fn attach_message_reactions(
                 emoji: row.emoji,
                 count: row.count,
                 reacted: row.reacted,
+                users: row
+                    .usernames
+                    .into_iter()
+                    .map(|username| MessageReactionUser { username })
+                    .collect(),
             });
     }
 

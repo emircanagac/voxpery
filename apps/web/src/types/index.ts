@@ -70,6 +70,9 @@ export interface MessageReaction {
     emoji: string;
     count: number;
     reacted: boolean;
+    users?: Array<{
+        username: string;
+    }>;
 }
 
 export interface SignalingMessage {

@@ -515,6 +515,27 @@ describe('ActiveCallBar regressions', () => {
     expect(remoteTile?.querySelector('.voice-stage-name')).toHaveClass('is-speaking')
   })
 
+  it('uses a stable scrollable grid for crowded voice stages', () => {
+    const crowdedMembers = Array.from({ length: 7 }, (_, index) => ({
+      user_id: index === 0 ? localUser.id : `peer-${index}`,
+      username: index === 0 ? localUser.username : `peer${index}`,
+      avatar_url: null,
+      role: 'member',
+      status: 'online',
+      role_color: null,
+    }))
+    useAppStore.setState({
+      members: crowdedMembers,
+      voiceStates: Object.fromEntries(crowdedMembers.map((member) => [member.user_id, voiceChannel.id])),
+    })
+
+    const { container } = renderActiveCallBar()
+    const stage = container.querySelector('.screen-share-stage')
+    expect(stage).toHaveAttribute('data-stage-density', 'crowded')
+    expect(stage).toHaveAttribute('data-stage-columns', '3')
+    expect(stage?.querySelectorAll('.voice-stage-tile')).toHaveLength(7)
+  })
+
   it('keeps five remote voices and watched screen audio stable across speaking changes', () => {
     const audioContexts = installAudioContextMock()
     const sharerMic = mediaTrack('audio', 'peer-1-mic')

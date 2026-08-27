@@ -159,6 +159,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const location = useLocation()
   const routeDmNotificationAnchor = readDmNotificationAnchor(location.state)
   const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+  const pushToast = useToastStore((s) => s.pushToast)
 
   const [view, setView] = useState<SocialView>('friends')
   const isDmConversationVisible = isMessagesView && location.pathname === ROUTES.dm && view === 'dm'
@@ -180,6 +181,31 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const dmChannels = storeDmChannels
   const showSocialBootstrapLoading = socialBootstrapLoading && !socialDataReady
 
+  const openDirectMessage = useCallback(async (peerId: string) => {
+    if (!user || peerId === user.id || openingDmPeerId) return
+    setOpeningDmPeerId(peerId)
+    try {
+      const channel = await dmApi.getOrCreateChannel(peerId, token)
+      const nextChannels = upsertDmChannel(useAppStore.getState().dmChannels, channel)
+      setStoreDmChannels(nextChannels)
+      setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
+      setActiveDmChannelId(channel.id)
+      clearDmUnread(channel.id)
+      setView('dm')
+      setPersistedSocialView('dm')
+      navigate(ROUTES.dm, { replace: true, state: {} })
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'DM failed',
+        message: err instanceof Error ? err.message : 'Could not open direct message.',
+      })
+      navigate(ROUTES.home, { replace: true, state: {} })
+    } finally {
+      setOpeningDmPeerId(null)
+    }
+  }, [clearDmUnread, navigate, openingDmPeerId, pushToast, setActiveDmChannelId, setDmChannelIds, setStoreDmChannels, token, user])
+
   // Social paths (/social and /social/dm): restore last social tab and optional deep-linked DM.
   useEffect(() => {
     const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
@@ -198,7 +224,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       return
     }
     const openDmUserId = (location.state as { openDmUserId?: string } | null)?.openDmUserId
-    if (openDmUserId && dmChannels.length > 0) {
+    if (openDmUserId) {
       const channel = isUuid(openDmUserId)
         ? dmChannels.find((c) => c.peer_id === openDmUserId)
         : dmChannels.find((c) => c.peer_username === decodeURIComponent(openDmUserId))
@@ -208,6 +234,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         setPersistedSocialView('dm')
         clearDmUnread(channel.id)
         navigate(ROUTES.dm, { replace: true, state: {} })
+      } else if (isUuid(openDmUserId)) {
+        void openDirectMessage(openDmUserId)
+      } else {
+        navigate(ROUTES.home, { replace: true, state: {} })
       }
       return
     }
@@ -223,7 +253,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       navigate(ROUTES.home, { replace: true })
     }
     setView('friends')
-  }, [location.pathname, location.state, routeDmNotificationAnchor, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate])
+  }, [location.pathname, location.state, routeDmNotificationAnchor, activeDmChannelId, dmChannels, setActiveDmChannelId, clearDmUnread, navigate, openDirectMessage])
 
   const voxperyServer = useMemo(
     () => storeServers.find((s) => s.invite_code === 'voxpery' || s.name === 'Voxpery') ?? null,
@@ -257,7 +287,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setDmInput(value)
     saveMessageDraft(userId, 'dm', activeDmChannelId, value)
   }, [activeDmChannelId, userId])
-  const pushToast = useToastStore((s) => s.pushToast)
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
   useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
   useEffect(() => {
@@ -642,40 +671,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     return () => unsub()
   }, [isMessagesView, refreshFriendRequests, subscribe, userId])
 
-  const openMessageForFriend = useCallback(async (friendId: string) => {
-    if (!user || openingDmPeerId) return
-    setOpeningDmPeerId(friendId)
-    try {
-      const channel = await dmApi.getOrCreateChannel(friendId, token)
-      const nextChannels = upsertDmChannel(useAppStore.getState().dmChannels, channel)
-
-      setStoreDmChannels(nextChannels)
-      setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
-      setActiveDmChannelId(channel.id)
-      clearDmUnread(channel.id)
-      setView('dm')
-      setPersistedSocialView('dm')
-      navigate(ROUTES.dm)
-    } catch (err) {
-      pushToast({
-        level: 'error',
-        title: 'DM failed',
-        message: err instanceof Error ? err.message : 'Could not open direct message.',
-      })
-    } finally {
-      setOpeningDmPeerId(null)
-    }
-  }, [
-    clearDmUnread,
-    navigate,
-    openingDmPeerId,
-    pushToast,
-    setActiveDmChannelId,
-    setDmChannelIds,
-    setStoreDmChannels,
-    token,
-    user,
-  ])
+  const openMessageForFriend = openDirectMessage
 
   const sendFriendRequest = async () => {
     if (!user || !addFriendUsername.trim()) return

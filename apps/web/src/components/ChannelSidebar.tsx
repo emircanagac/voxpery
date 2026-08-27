@@ -567,6 +567,8 @@ export default function ChannelSidebar({
                                                     <div
                                                         key={vm.user_id}
                                                         className="voice-participant"
+                                                        tabIndex={0}
+                                                        aria-label={`${vm.username} in voice`}
                                                         onContextMenu={(e) => {
                                                             e.preventDefault()
                                                             if (user?.id === vm.user_id) {
