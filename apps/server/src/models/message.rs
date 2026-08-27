@@ -20,6 +20,13 @@ pub struct MessageReactionSummary {
     pub emoji: String,
     pub count: i64,
     pub reacted: bool,
+    #[serde(default)]
+    pub users: Vec<MessageReactionUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageReactionUser {
+    pub username: String,
 }
 
 /// Message with author info for API responses.

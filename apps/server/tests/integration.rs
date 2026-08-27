@@ -1634,6 +1634,21 @@ async fn create_channel_list_channels_send_message_list_messages() {
     let msg: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let message_id = msg["id"].as_str().unwrap();
 
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/messages/item/{message_id}/reactions"))
+        .header("Authorization", &auth_header)
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&json!({ "emoji": "👍" })).unwrap()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "add reaction: {}",
+        String::from_utf8_lossy(&body)
+    );
+
     // List messages (with limit)
     let req = Request::builder()
         .uri(format!("/api/messages/{}?limit=10", channel_id))
@@ -1650,6 +1665,12 @@ async fn create_channel_list_channels_send_message_list_messages() {
     assert!(messages
         .iter()
         .any(|m| m["content"].as_str() == Some("Hello integration test")));
+    let listed_message = messages
+        .iter()
+        .find(|message| message["id"].as_str() == Some(message_id))
+        .expect("sent message should be listed");
+    assert_eq!(listed_message["reactions"][0]["emoji"], "👍");
+    assert_eq!(listed_message["reactions"][0]["users"][0]["username"], username);
 
     // List messages with before (pagination)
     let req = Request::builder()

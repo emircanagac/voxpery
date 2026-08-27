@@ -12,7 +12,9 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
-    models::{MessageAuthor, MessageQuery, MessageReactionSummary, MessageWithAuthor},
+    models::{
+        MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser, MessageWithAuthor,
+    },
     services::{
         idempotency::normalize_client_request_id,
         rate_limit::enforce_rate_limit,
@@ -150,6 +152,7 @@ struct DmMessageReactionRow {
     emoji: String,
     count: i64,
     reacted: bool,
+    usernames: Vec<String>,
 }
 
 fn normalize_reaction_emoji(raw: &str) -> Result<String, AppError> {
@@ -181,9 +184,11 @@ async fn attach_dm_message_reactions(
         r#"SELECT r.message_id,
                   r.emoji,
                   COUNT(*)::BIGINT AS count,
-                  BOOL_OR(r.user_id = $2) AS reacted
+                  BOOL_OR(r.user_id = $2) AS reacted,
+                  ARRAY_AGG(u.username ORDER BY r.created_at ASC) AS usernames
            FROM dm_message_reactions r
-           WHERE r.message_id = ANY($1)
+           INNER JOIN users u ON u.id = r.user_id
+          WHERE r.message_id = ANY($1)
            GROUP BY r.message_id, r.emoji
            ORDER BY r.message_id ASC, MIN(r.created_at) ASC"#,
     )
@@ -201,6 +206,11 @@ async fn attach_dm_message_reactions(
                 emoji: row.emoji,
                 count: row.count,
                 reacted: row.reacted,
+                users: row
+                    .usernames
+                    .into_iter()
+                    .map(|username| MessageReactionUser { username })
+                    .collect(),
             });
     }
 

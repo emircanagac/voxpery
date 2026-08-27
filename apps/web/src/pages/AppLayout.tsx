@@ -1,5 +1,6 @@
 import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router'
 import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
@@ -46,6 +47,7 @@ import {
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { createReplyContentSnippet } from '../replyPreview'
 import { createSecureId } from '../secureId'
+import { ROUTES } from '../routes'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -296,6 +298,7 @@ function messageMentionsUser(content: string | undefined, username: string | und
 export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
+    const navigate = useNavigate()
     const {
         servers, serversLoading, activeServerId, activeChannelId, channels, members,
         setServers, setServersLoading, setActiveServer, setActiveChannel, setChannels, setMembers,
@@ -2996,6 +2999,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
                 onReorderChannels={handleReorderChannels}
+                onOpenDirectMessage={(userId) => navigate(ROUTES.dm, { state: { openDmUserId: userId } })}
             />
             {mobileSidebarPanel === 'channels' && (
                 <button

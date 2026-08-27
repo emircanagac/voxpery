@@ -107,6 +107,7 @@ function mockDecodedImages() {
 describe('ChatArea regressions', () => {
   beforeEach(() => {
     vi.useRealTimers()
+    localStorage.clear()
     scrollToIndex.mockClear()
     measureVirtualElement.mockClear()
     measureVirtualizer.mockClear()
@@ -708,5 +709,44 @@ describe('ChatArea regressions', () => {
       'reaction-row-2',
       'reaction-row-3',
     ]))
+  })
+
+  it('enlarges emoji-only messages without changing regular message text', () => {
+    const { container } = renderChatArea({
+      messages: [
+        message('emoji-only', '😀', 0),
+        message('emoji-in-text', 'Hello 😀', 1),
+      ],
+    })
+
+    expect(container.querySelector('[data-message-id="emoji-only"] .message-text')).toHaveClass('message-text--emoji-only')
+    expect(container.querySelector('[data-message-id="emoji-in-text"] .message-text')).not.toHaveClass('message-text--emoji-only')
+  })
+
+  it('shows reaction authors on hover when the API provides them', () => {
+    renderChatArea({
+      messages: [{
+        ...message('reaction-authors', 'Thanks', 0),
+        reactions: [{
+          emoji: '👍',
+          count: 2,
+          reacted: false,
+          users: [{ username: 'alice' }, { username: 'bob' }],
+        }],
+      }],
+      onToggleReaction: vi.fn(),
+    })
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: /reaction from alice, bob/i }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent('alice, bob')
+  })
+
+  it('lets a shared GIF be saved to the same favorites store as the picker', () => {
+    renderChatArea({
+      messages: [message('shared-gif', '![gif](https://cdn.example.test/shared.gif)', 0)],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add GIF to favorites' }))
+    expect(screen.getByRole('button', { name: 'Remove GIF from favorites' })).toBeVisible()
   })
 })
