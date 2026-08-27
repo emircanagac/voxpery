@@ -2999,6 +2999,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onRenameChannel={openRenameChannelModal}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
                 onReorderChannels={handleReorderChannels}
+                onOpenDirectMessage={(userId) => navigate(ROUTES.dm, { state: { openDmUserId: userId } })}
             />
             {mobileSidebarPanel === 'channels' && (
                 <button
@@ -3055,7 +3056,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 onPinMessage={canManagePins ? handlePinChannelMessage : undefined}
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
-                onOpenDirectMessage={(userId) => navigate(ROUTES.dm, { state: { openDmUserId: userId } })}
                 canSendMessages={canSendMessages}
                 showMemberSheetButton={isMobileViewport && !!activeServerId}
                 onOpenMemberSheet={() => setShowMobileMemberSheet(true)}

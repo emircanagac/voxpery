@@ -5260,16 +5260,6 @@ body {
   line-height: 20px;
 }
 
-.message-author[role="button"] {
-  cursor: context-menu;
-}
-
-.message-author[role="button"]:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-
 .message-author.owner {
   color: var(--accent-primary);
 }
@@ -6359,8 +6349,7 @@ body {
 }
 
 .chat-inline-gif-link:hover .chat-inline-gif-favorite,
-.chat-inline-gif-link:focus-within .chat-inline-gif-favorite,
-.chat-inline-gif-favorite.is-favorited {
+.chat-inline-gif-favorite:focus-visible {
   opacity: 1;
   transform: translateY(0);
 }
@@ -6374,36 +6363,6 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.chat-user-context-menu {
-  position: fixed;
-  z-index: 10080;
-  min-width: 196px;
-  padding: 4px;
-  border: 1px solid rgba(var(--ui-contrast-rgb), 0.16);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-medium);
-}
-
-.chat-user-context-menu button {
-  width: 100%;
-  min-height: 34px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  padding: 0 9px;
-}
-
-.chat-user-context-menu button:hover,
-.chat-user-context-menu button:focus-visible {
-  background: rgba(var(--ui-contrast-rgb), 0.08);
 }
 
 .chat-inline-gif {
@@ -6636,11 +6595,13 @@ body {
 }
 
 .member-volume-menu {
-  min-width: 176px;
+  width: min(224px, calc(100vw - 16px));
+  min-width: 0;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   padding: 3px 0;
   overflow: auto;
+  box-sizing: border-box;
 }
 
 .member-volume-menu .server-context-menu-item {
@@ -6661,6 +6622,14 @@ body {
   cursor: default;
 }
 
+.member-volume-menu-section-label--personal {
+  color: var(--accent-primary);
+}
+
+.member-volume-menu-section-label--moderation {
+  color: var(--text-warning);
+}
+
 .member-volume-menu-section-hint {
   padding: 0 10px 6px;
   color: var(--text-muted);
@@ -6679,11 +6648,14 @@ body {
   gap: 6px;
 }
 
-.member-volume-menu-username {
+.member-volume-menu .member-volume-menu-username {
+  padding: 7px 10px 5px;
+  margin: 0;
   cursor: default;
-  opacity: 0.92;
+  opacity: 1;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .member-volume-menu-control {

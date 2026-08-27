@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -42,6 +42,7 @@ interface ChannelSidebarProps {
     onRenameChannel?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
     onReorderChannels?: (draggedChannelId: string, targetChannelId: string, position: 'before' | 'after') => void
+    onOpenDirectMessage?: (userId: string) => void
     loading?: boolean
 }
 
@@ -65,6 +66,7 @@ export default function ChannelSidebar({
     onRenameChannel,
     onDeleteChannel,
     onReorderChannels,
+    onOpenDirectMessage,
     loading = false,
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
@@ -575,14 +577,14 @@ export default function ChannelSidebar({
                                                                 setParticipantMenu(null)
                                                                 return
                                                             }
-                                                            const estimatedWidth = 192
+                                                            const estimatedWidth = 224
                                                             const moderationActions =
                                                                 (canMuteMembers ? 1 : 0)
                                                                 + (canDeafenMembers ? 1 : 0)
                                                                 + (canDisconnectMembers ? 1 : 0)
-                                                            const estimatedHeight = moderationActions > 0
-                                                                ? 154 + moderationActions * 46
-                                                                : 116
+                                                            const estimatedHeight = 194 + (moderationActions > 0
+                                                                ? 54 + moderationActions * 32
+                                                                : 0)
                                                             const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
@@ -820,9 +822,29 @@ export default function ChannelSidebar({
                         <div className="server-context-menu-item member-volume-menu-username">
                             {participantMenu.username}
                         </div>
+                        {onOpenDirectMessage && (
+                            <>
+                                <div className="member-volume-menu-section-label member-volume-menu-section-label--personal">
+                                    <MessageCircle size={12} />
+                                    Member actions
+                                </div>
+                                <button
+                                    type="button"
+                                    className="server-context-menu-item member-volume-menu-action-with-icon"
+                                    onClick={() => {
+                                        onOpenDirectMessage(participantMenu.userId)
+                                        setParticipantMenu(null)
+                                    }}
+                                >
+                                    <MessageCircle size={14} />
+                                    Send direct message
+                                </button>
+                            </>
+                        )}
                         {!isSelf && (canMuteMembers || canDeafenMembers || canDisconnectMembers) && (
                             <>
-                                <div className="member-volume-menu-section-label">
+                                <div className="member-volume-menu-divider" />
+                                <div className="member-volume-menu-section-label member-volume-menu-section-label--moderation">
                                     <Shield size={12} />
                                     Server moderation
                                 </div>
@@ -891,9 +913,9 @@ export default function ChannelSidebar({
 
                         <div className="member-volume-menu-divider" />
                         <div className="server-context-menu-item member-volume-menu-control">
-                            <div className="member-volume-menu-section-label">
+                            <div className="member-volume-menu-section-label member-volume-menu-section-label--personal">
                                 <Volume2 size={12} />
-                                User Volume
+                                Your playback
                             </div>
                             <div className="member-volume-menu-section-hint">Only affects what you hear</div>
                             <div className="member-volume-menu-label">

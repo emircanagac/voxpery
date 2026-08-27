@@ -150,6 +150,31 @@ describe('ChannelSidebar voice media presence', () => {
         expect(getRemotePlaybackVolume(volumes, 'screen', remoteMember.user_id)).toBe(0)
     })
 
+    it('opens a direct message from a voice participant context menu', () => {
+        const onOpenDirectMessage = vi.fn()
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                onOpenDirectMessage={onOpenDirectMessage}
+            />,
+        )
+
+        fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        expect(screen.getByText('Member actions')).toBeInTheDocument()
+        expect(screen.getByText('Your playback')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Send direct message' }))
+        expect(onOpenDirectMessage).toHaveBeenCalledWith(remoteMember.user_id)
+    })
+
     it('offers compact, permission-aware channel creation controls', () => {
         const onOpenCreateChannel = vi.fn()
         const onOpenCreateCategory = vi.fn()

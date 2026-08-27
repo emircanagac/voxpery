@@ -741,36 +741,6 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('alice, bob')
   })
 
-  it('opens a direct message action from another message author', () => {
-    const onOpenDirectMessage = vi.fn()
-    renderChatArea({
-      messages: [{
-        ...message('other-author', 'Hello', 0),
-        author: { user_id: 'friend-1', username: 'friend' },
-      }],
-      currentUserId: 'current-user',
-      onOpenDirectMessage,
-    })
-
-    fireEvent.contextMenu(screen.getByText('friend'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Send direct message' }))
-    expect(onOpenDirectMessage).toHaveBeenCalledWith('friend-1', 'friend')
-  })
-
-  it('opens the message user menu from the keyboard', () => {
-    renderChatArea({
-      messages: [{
-        ...message('keyboard-author', 'Hello', 0),
-        author: { user_id: 'friend-2', username: 'keyboard friend' },
-      }],
-      currentUserId: 'current-user',
-      onOpenDirectMessage: vi.fn(),
-    })
-
-    fireEvent.keyDown(screen.getByText('keyboard friend'), { key: 'ContextMenu' })
-    expect(screen.getByRole('menuitem', { name: 'Send direct message' })).toBeVisible()
-  })
-
   it('lets a shared GIF be saved to the same favorites store as the picker', () => {
     renderChatArea({
       messages: [message('shared-gif', '![gif](https://cdn.example.test/shared.gif)', 0)],

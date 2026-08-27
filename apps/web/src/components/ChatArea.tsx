@@ -695,7 +695,6 @@ interface ChatAreaProps {
     onPinMessage?: (messageId: string) => void
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
-    onOpenDirectMessage?: (userId: string, username: string) => void
     canSendMessages?: boolean
     typingIndicatorLabel?: string | null
     seenMessageId?: string | null
@@ -748,7 +747,6 @@ export default function ChatArea({
     onPinMessage,
     onUnpinMessage,
     onToggleReaction,
-    onOpenDirectMessage,
     canSendMessages = true,
     typingIndicatorLabel = null,
     seenMessageId = null,
@@ -856,13 +854,6 @@ export default function ChatArea({
     const reactionPickerRef = useRef<HTMLDivElement | null>(null)
     const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [reactionPickerPosition, setReactionPickerPosition] = useState<{ top: number; left: number } | null>(null)
-    const [messageUserContextMenu, setMessageUserContextMenu] = useState<{
-        userId: string
-        username: string
-        x: number
-        y: number
-    } | null>(null)
-    const messageUserLongPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
     const [favoriteGifUrls, setFavoriteGifUrls] = useState(() => new Set(getFavoriteGifs().map((gif) => gif.url)))
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
@@ -2041,86 +2032,9 @@ export default function ChatArea({
         onPickAttachments(dataTransfer.files)
     }
 
-    useEffect(() => {
-        if (!messageUserContextMenu) return
-        const close = () => setMessageUserContextMenu(null)
-        const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-            if (event.key === 'Escape') close()
-        }
-        window.addEventListener('pointerdown', close)
-        window.addEventListener('keydown', closeOnEscape)
-        return () => {
-            window.removeEventListener('pointerdown', close)
-            window.removeEventListener('keydown', closeOnEscape)
-        }
-    }, [messageUserContextMenu])
-
-    useEffect(() => () => {
-        if (messageUserLongPressRef.current !== null) {
-            window.clearTimeout(messageUserLongPressRef.current)
-        }
-    }, [])
-
     const toggleGifFavorite = useCallback((url: string) => {
         const next = toggleFavoriteGif(savedGifOption(url))
         setFavoriteGifUrls(new Set(next.map((gif) => gif.url)))
-    }, [])
-
-    const showMessageUserContextMenu = useCallback((
-        author: UiMessage['author'],
-        clientX: number,
-        clientY: number,
-    ) => {
-        if (!onOpenDirectMessage || !author?.user_id || author.user_id === currentUserId) return
-        const menuWidth = 196
-        const menuHeight = 42
-        setMessageUserContextMenu({
-            userId: author.user_id,
-            username: author.username,
-            x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
-            y: Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8)),
-        })
-    }, [currentUserId, onOpenDirectMessage])
-
-    const openMessageUserContextMenu = useCallback((
-        event: React.MouseEvent<HTMLElement>,
-        author: UiMessage['author'],
-    ) => {
-        event.preventDefault()
-        event.stopPropagation()
-        showMessageUserContextMenu(author, event.clientX, event.clientY)
-    }, [showMessageUserContextMenu])
-
-    const openMessageUserContextMenuFromKeyboard = useCallback((
-        event: KeyboardEvent<HTMLElement>,
-        author: UiMessage['author'],
-    ) => {
-        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-        event.preventDefault()
-        const rect = event.currentTarget.getBoundingClientRect()
-        showMessageUserContextMenu(author, rect.left + rect.width / 2, rect.bottom)
-    }, [showMessageUserContextMenu])
-
-    const startMessageUserTouchMenu = useCallback((
-        event: PointerEvent<HTMLElement>,
-        author: UiMessage['author'],
-    ) => {
-        if (event.pointerType !== 'touch') return
-        if (messageUserLongPressRef.current !== null) {
-            window.clearTimeout(messageUserLongPressRef.current)
-        }
-        const { clientX, clientY } = event
-        messageUserLongPressRef.current = window.setTimeout(() => {
-            showMessageUserContextMenu(author, clientX, clientY)
-            messageUserLongPressRef.current = null
-        }, 500)
-    }, [showMessageUserContextMenu])
-
-    const cancelMessageUserTouchMenu = useCallback(() => {
-        if (messageUserLongPressRef.current !== null) {
-            window.clearTimeout(messageUserLongPressRef.current)
-            messageUserLongPressRef.current = null
-        }
     }, [])
 
     const renderMessageWithMentions = (content: string) => {
@@ -2613,10 +2527,6 @@ export default function ChatArea({
                                         <div
                                             className="message-avatar"
                                             aria-hidden={isGrouped ? 'true' : undefined}
-                                            onContextMenu={(event) => openMessageUserContextMenu(event, msg.author)}
-                                            onPointerDown={(event) => startMessageUserTouchMenu(event, msg.author)}
-                                            onPointerUp={cancelMessageUserTouchMenu}
-                                            onPointerCancel={cancelMessageUserTouchMenu}
                                         >
                                             {!isGrouped && (
                                                 getAuthorAvatarUrl(msg.author || {}) ? (
@@ -2633,13 +2543,6 @@ export default function ChatArea({
                                                     <span
                                                         className="message-author"
                                                         style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
-                                                        tabIndex={0}
-                                                        role="button"
-                                                        onContextMenu={(event) => openMessageUserContextMenu(event, msg.author)}
-                                                        onKeyDown={(event) => openMessageUserContextMenuFromKeyboard(event, msg.author)}
-                                                        onPointerDown={(event) => startMessageUserTouchMenu(event, msg.author)}
-                                                        onPointerUp={cancelMessageUserTouchMenu}
-                                                        onPointerCancel={cancelMessageUserTouchMenu}
                                                     >
                                                         {msg.author.username}
                                                     </span>
@@ -2959,27 +2862,6 @@ export default function ChatArea({
                     />
                 </div>,
                 document.body
-            )}
-            {messageUserContextMenu && onOpenDirectMessage && createPortal(
-                <div
-                    className="chat-user-context-menu"
-                    role="menu"
-                    aria-label={`Actions for ${messageUserContextMenu.username}`}
-                    style={{ left: messageUserContextMenu.x, top: messageUserContextMenu.y }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                >
-                    <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                            onOpenDirectMessage(messageUserContextMenu.userId, messageUserContextMenu.username)
-                            setMessageUserContextMenu(null)
-                        }}
-                    >
-                        Send direct message
-                    </button>
-                </div>,
-                document.body,
             )}
             {clickedLink && createPortal(
                 <div className="modal-overlay" onClick={() => setClickedLink(null)}>
