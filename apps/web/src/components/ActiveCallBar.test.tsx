@@ -283,6 +283,27 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.leaveVoice).not.toHaveBeenCalled()
   })
 
+  it('focuses a watched screen share in the in-app theater view without changing its subscription', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const remoteStream = new MediaStream([screenTrack])
+    const { container, voice } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+
+    expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
+    expect(container.querySelector('.remote-screen-preview')).toHaveClass('is-theater-focused')
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit focus view' }))
+
+    expect(container.querySelector('.screen-share-stage')).not.toHaveClass('screen-share-stage--theater')
+    expect(container.querySelector('.remote-screen-preview')).not.toHaveClass('is-theater-focused')
+  })
+
   it('keeps user volume and stream mute state independent', async () => {
     const micTrack = mediaTrack('audio', 'peer-mic')
     const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')

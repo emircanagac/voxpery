@@ -20,6 +20,34 @@ SERVER_SERVICE=server
 WEB_SERVICE=web
 ```
 
+## Runtime Image Pins
+
+The production Compose stack uses explicit patch releases for its external
+services. This keeps a repeatable deployment base while allowing upgrades to
+be reviewed and smoke-tested deliberately:
+
+| Service | Pinned image |
+| --- | --- |
+| LiveKit | `livekit/livekit-server:v1.13.5` |
+| PostgreSQL | `postgres:16.15-alpine3.24` |
+| Redis | `redis:7.4.11-alpine` |
+| ClamAV | `clamav/clamav:1.4.6` |
+
+Before changing a pin, test the candidate with `docker compose config`, the
+local smoke flow, and the voice/screen-share regression checklist. Record the
+resolved image digest in the release or deployment record after the verified
+pull. Major PostgreSQL or Redis upgrades require a separate backup, restore,
+and compatibility plan.
+
+Verified Linux `amd64` digests for the current pins (2026-08-27):
+
+| Service | Digest |
+| --- | --- |
+| LiveKit | `sha256:d0d1cfdbe95617647bbe91630454526c2cdd88cec83f41114b3495b444918b9a` |
+| PostgreSQL | `sha256:075f7ba66bc9b3ce7d6b8b635208ff61cd7cf1a67d71ec530eec5d7ae0cbe571` |
+| Redis | `sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c` |
+| ClamAV | `sha256:927f99699ed9b74869b77b3d2ba1a8f20b482c5775d65f2883fcf91e543a970a` |
+
 ## 1) Backup Automation (PostgreSQL)
 
 Backup script:

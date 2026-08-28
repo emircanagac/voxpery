@@ -132,7 +132,7 @@ export default function ChannelSidebar({
         }
     }
 
-    const clampParticipantMenuToSidebar = (x: number, y: number, width: number, height: number) => {
+    const clampSidebarMenuPosition = (x: number, y: number, width: number, height: number) => {
         const sidebarRect = sidebarRef.current?.getBoundingClientRect()
         if (!sidebarRect) return clampMenuPosition(x, y, width, height)
 
@@ -285,7 +285,7 @@ export default function ChannelSidebar({
                     const target = e.target as HTMLElement
                     if (target.closest('.channel-category-group, .channel-item')) return
                     e.preventDefault()
-                    const pos = clampMenuPosition(e.clientX, e.clientY, 190, 92)
+                    const pos = clampSidebarMenuPosition(e.clientX, e.clientY, 190, 92)
                     closeAllContextMenus()
                     setCreateMenu(pos)
                 }}
@@ -375,7 +375,7 @@ export default function ChannelSidebar({
                             onContextMenu={(e) => {
                                 if (!canManageChannels) return
                                 e.preventDefault()
-                                const pos = clampMenuPosition(e.clientX, e.clientY, 210, 100)
+                                const pos = clampSidebarMenuPosition(e.clientX, e.clientY, 210, 176)
                                 closeAllContextMenus()
                                 setCategoryMenu({ category, x: pos.x, y: pos.y })
                             }}
@@ -478,8 +478,12 @@ export default function ChannelSidebar({
                                         onContextMenu={(e) => {
                                             if (!canManageChannels && ch.channel_type !== 'text') return
                                             e.preventDefault()
+                                            const menuHeight = canManageChannels
+                                                ? (ch.channel_type === 'text' ? 116 : 80)
+                                                : 44
+                                            const pos = clampSidebarMenuPosition(e.clientX, e.clientY, 210, menuHeight)
                                             closeAllContextMenus()
-                                            setContextMenu({ channelId: ch.id, x: e.clientX, y: e.clientY })
+                                            setContextMenu({ channelId: ch.id, x: pos.x, y: pos.y })
                                         }}
                                         draggable={!!canManageChannels}
                                         onDragStart={(e) => {
@@ -585,7 +589,7 @@ export default function ChannelSidebar({
                                                             const estimatedHeight = 194 + (moderationActions > 0
                                                                 ? 54 + moderationActions * 32
                                                                 : 0)
-                                                            const pos = clampParticipantMenuToSidebar(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
+                                                            const pos = clampSidebarMenuPosition(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
                                                         }}

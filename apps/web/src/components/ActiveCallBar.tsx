@@ -1,4 +1,4 @@
-import { Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
+import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
@@ -198,9 +198,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     const ch = allKnownChannels.find((c) => c.id === id)
     if (!ch) return { full: 'Voice', display: 'Voice' }
     const serverName = servers.find((s) => s.id === ch.server_id)?.name ?? 'Server'
-    const full = `${serverName} / #${ch.name}`
+    const full = `${serverName} / ${ch.name}`
 
-    return { full, display: `#${shorten(ch.name, 24)}` }
+    return { full, display: shorten(ch.name, 24) }
   }, [state.joinedChannelId, selectedVoiceChannelId, allKnownChannels, servers])
   const goToVoiceChannel = () => {
     const id = state.joinedChannelId ?? selectedVoiceChannelId
@@ -276,6 +276,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     () => readRemotePlaybackVolumes(),
   )
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
+  const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
   const lastVoiceQualityWarningRef = useRef<string | null>(null)
@@ -686,6 +687,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   useEffect(() => {
     setHiddenRemoteMediaKeys(new Set())
     setRemoteMediaPlaceholders(new Map())
+    setTheaterStreamKey(null)
   }, [currentVoiceChannelId])
 
   const getRemoteMediaKey = useCallback((peerId: string, kind: RemoteMediaKind) => {
@@ -758,6 +760,23 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return entries
   }, [remoteEntries, state.remoteScreenTrackIds])
+  const activeTheaterStreamKeys = useMemo(() => {
+    const keys: string[] = []
+    if (state.isScreenSharing && state.screenStream) keys.push('local-screen')
+    for (const { peerId, track, kind } of remoteVideoTrackEntries) {
+      if (kind === 'screen' && state.watchedRemoteScreenPeerIds.has(peerId)) {
+        keys.push(`screen-${peerId}-${track.id}`)
+      }
+    }
+    return keys
+  }, [remoteVideoTrackEntries, state.isScreenSharing, state.screenStream, state.watchedRemoteScreenPeerIds])
+  const hasTheaterFocus = theaterStreamKey !== null && activeTheaterStreamKeys.includes(theaterStreamKey)
+
+  useEffect(() => {
+    if (theaterStreamKey && !activeTheaterStreamKeys.includes(theaterStreamKey)) {
+      setTheaterStreamKey(null)
+    }
+  }, [activeTheaterStreamKeys, theaterStreamKey])
   const activeRemoteMediaKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const entry of remoteVideoTrackEntries) {
@@ -1467,10 +1486,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         <>
           {showVoiceStage && (
             <div
-              className="screen-share-stage"
+              className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}`}
               data-stage-density={stageDensity}
               data-stage-columns={stageColumns}
-              style={{ gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
+              data-theater-mode={hasTheaterFocus ? 'true' : undefined}
+              style={hasTheaterFocus ? undefined : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
             >
               {channelParticipants.map((p) => {
                 const isLocal = p.user_id === user?.id
@@ -1536,12 +1556,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </div>
               )}
               {state.isScreenSharing && state.screenStream && (
-                <div className="screen-share-preview voice-stage-share-tile" data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <div className={`screen-share-preview voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   <div className="screen-share-info-overlay"><span className="screen-share-info-text">Screen share · You</span></div>
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
+                      <button
+                        type="button"
+                        className="screen-share-controls-btn"
+                        title={theaterStreamKey === 'local-screen' ? 'Exit focus view' : 'Focus stream'}
+                        aria-label={theaterStreamKey === 'local-screen' ? 'Exit focus view' : 'Focus stream'}
+                        onClick={() => setTheaterStreamKey((current) => current === 'local-screen' ? null : 'local-screen')}
+                      >
+                        {theaterStreamKey === 'local-screen' ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
+                      </button>
                       <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
                         const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                         if (!tile) return
@@ -1606,12 +1635,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   volumeKey,
                 )
                 const tileKey = `${peerId}-${track.id}`
+                const theaterKey = kind === 'screen' ? `screen-${tileKey}` : null
                 const owner = remoteShareOwner(peerId)
                 const isHidden = isRemoteMediaHidden(peerId, kind)
                 if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
                 if (kind === 'camera' && isHidden) return null
                 return (
-                  <div key={tileKey} className="screen-share-preview remote-screen-preview voice-stage-share-tile" data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <div key={tileKey} className={`screen-share-preview remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
                     <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {owner}</span></div>
                     <div className="screen-share-controls-bar">
@@ -1664,14 +1694,36 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         >
                           <EyeOff size={16} />
                         </button>
-                        <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
-                          const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                          if (!tile) return
-                          if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
-                          else void tile.requestFullscreen?.().catch(() => { })
-                        }}>
-                          {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                        </button>
+                        {kind === 'screen' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="screen-share-controls-btn"
+                              title={theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
+                              aria-label={theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
+                              onClick={() => setTheaterStreamKey((current) => current === theaterKey ? null : theaterKey)}
+                            >
+                              {theaterStreamKey === theaterKey ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
+                            </button>
+                            <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                              const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                              if (!tile) return
+                              if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                              else void tile.requestFullscreen?.().catch(() => { })
+                            }}>
+                              {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                            const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                            if (!tile) return
+                            if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                            else void tile.requestFullscreen?.().catch(() => { })
+                          }}>
+                            {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1687,7 +1739,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 renderAudioElement={renderRemoteAudioElement}
               />
               <div className="callbar-status">
-                <button type="button" className="active-call-title active-call-title-btn" onClick={goToVoiceChannel} title={voiceLocation.full}>{voiceLocation.display}</button>
+                <button
+                  type="button"
+                  className="active-call-title active-call-title-btn"
+                  onClick={goToVoiceChannel}
+                  title={`Return to ${voiceLocation.full}`}
+                  aria-label={`Return to ${voiceLocation.full}`}
+                >
+                  <Volume2 className="active-call-title-icon" size={14} aria-hidden="true" />
+                  <span className="active-call-title-label">{voiceLocation.display}</span>
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
               </div>
               <div className="callbar-controls-center">
                 <button
@@ -1695,6 +1757,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   disabled={!state.joinedChannelId || !state.localStream || deafened}
                   className={`callbar-control-btn ${muted ? 'is-off' : (serverMuted || serverDeafened) ? 'is-server-off' : ''}`}
                   aria-label={micControlLabel}
+                  title={micControlLabel}
                 >
                   {(muted || serverMuted || serverDeafened) ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
@@ -1703,28 +1766,29 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   disabled={!state.joinedChannelId}
                   className={`callbar-control-btn ${deafened ? 'is-off' : serverDeafened ? 'is-server-off' : ''}`}
                   aria-label={deafenControlLabel}
+                  title={deafenControlLabel}
                 >
                   {(deafened || serverDeafened) ? <VolumeX size={16} /> : <Volume2 size={16} />}
                 </button>
-                <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} aria-label={cameraControlLabel}>
+                <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} aria-label={cameraControlLabel} title={cameraControlLabel}>
                   {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
                 </button>
                 {!isMobileViewport && (
-                  <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} aria-label={screenShareControlLabel}>
+                  <button onClick={handleScreenShare} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.isScreenSharing ? 'is-live' : ''}`} aria-label={screenShareControlLabel} title={screenShareControlLabel}>
                     <Monitor size={16} />
                   </button>
                 )}
               </div>
               <div className="callbar-controls-right">
                 <span className="callbar-connection-inline">
-                  <span className={`callbar-ping-chip ${pingStateClass}`} role="status" aria-label={pingAriaLabel}>
+                  <span className={`callbar-ping-chip ${pingStateClass}`} role="status" aria-label={pingAriaLabel} title={pingAriaLabel}>
                     <span className="callbar-ping-inline-icon" aria-hidden="true">
                       <Wifi size={14} />
                     </span>
                     <span className="callbar-ping-value">{pingDisplay}</span>
                   </span>
                 </span>
-                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} aria-label={disconnectControlLabel}>
+                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} aria-label={disconnectControlLabel} title={disconnectControlLabel}>
                   <PhoneOff size={16} style={{ transform: isDisconnectVisualActive ? 'none' : 'rotate(135deg)' }} />
                 </button>
               </div>
