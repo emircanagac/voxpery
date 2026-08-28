@@ -230,4 +230,52 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.queryByRole('button', { name: 'Create channels and categories' })).toBeNull()
         expect(screen.queryByRole('button', { name: 'Create channel in Voice' })).toBeNull()
     })
+
+    it('keeps channel and category context menus inside the viewport', () => {
+        const originalInnerWidth = window.innerWidth
+        const originalInnerHeight = window.innerHeight
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 240 })
+
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            activeChannelId: null,
+        })
+
+        const { container } = render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                canManageChannels
+                onRenameChannel={vi.fn()}
+                onRenameCategory={vi.fn()}
+            />,
+        )
+        const sidebar = container.querySelector('.channel-sidebar') as HTMLDivElement
+        vi.spyOn(sidebar, 'getBoundingClientRect').mockReturnValue({
+            bottom: 900,
+            height: 900,
+            left: 0,
+            right: 245,
+            top: 0,
+            width: 245,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        })
+
+        fireEvent.contextMenu(screen.getByText(voiceChannel.name), { clientX: 315, clientY: 235 })
+        let menu = container.querySelector('.channel-context-menu') as HTMLDivElement
+        expect(menu.style.left).toBe('29px')
+        expect(Number.parseInt(menu.style.top, 10)).toBeLessThan(235)
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Voice' }), { clientX: 315, clientY: 235 })
+        menu = container.querySelector('.channel-context-menu') as HTMLDivElement
+        expect(menu.style.left).toBe('29px')
+        expect(Number.parseInt(menu.style.top, 10)).toBeLessThan(235)
+
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalInnerHeight })
+    })
 })

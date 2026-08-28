@@ -1294,6 +1294,8 @@ body {
 .server-context-menu {
   position: fixed;
   min-width: 160px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
   background: var(--bg-surface);
   border: var(--border-subtle);
   border-radius: var(--border-radius-md);
@@ -1304,6 +1306,7 @@ body {
 
 .server-context-menu-item {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1314,6 +1317,7 @@ body {
   font-size: 13px;
   cursor: pointer;
   text-align: left;
+  overflow-wrap: anywhere;
   transition: background var(--transition-fast);
 }
 
@@ -9707,8 +9711,40 @@ a.community-open-btn:hover {
   --voice-stage-tile-min: 132px;
 }
 
+/* Focus view keeps a selected screen share prominent without browser fullscreen. */
+.screen-share-stage--theater {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.screen-share-stage--theater .screen-share-preview.is-theater-focused {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: min(100%, 1280px);
+  height: min(100%, 720px);
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  margin: 0;
+  transform: none;
+}
+
+.screen-share-stage--theater .screen-share-preview.is-theater-focused video {
+  object-fit: cover;
+}
+
+.screen-share-stage--theater .voice-stage-tile,
+.screen-share-stage--theater .voice-stage-hidden-media-tile,
+.screen-share-stage--theater .screen-share-preview:not(.is-theater-focused) {
+  display: none;
+}
+
 .screen-share-preview {
   width: 100%;
+  /* Preserve the shared source aspect ratio without exposing the app theme in letterbox space. */
   background: #000 !important;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
@@ -9722,7 +9758,8 @@ a.community-open-btn:hover {
 .screen-share-preview video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  /* Fill regular and focus tiles; browser fullscreen retains the complete source below. */
+  object-fit: cover;
   display: block;
   background: #000;
 }
@@ -10149,15 +10186,17 @@ a.community-open-btn:hover {
 }
 
 .active-call-title-btn {
-  display: block;
-  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
   width: auto;
   max-width: 100%;
   min-width: 0;
-  background: none;
-  border: 0;
-  border-radius: 0;
-  padding: 0 2px;
+  background: color-mix(in srgb, var(--text-link) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-link) 34%, transparent);
+  border-radius: 6px;
+  padding: 4px 5px 4px 7px;
   cursor: pointer;
   text-align: left;
   font: inherit;
@@ -10166,11 +10205,18 @@ a.community-open-btn:hover {
   transition: all 0.15s ease;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.active-call-title-label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .active-call-title-btn:hover {
   color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-link) 16%, transparent);
+  border-color: color-mix(in srgb, var(--text-link) 58%, transparent);
 }
 
 .active-call-title-btn:focus-visible {
@@ -15217,6 +15263,16 @@ textarea {
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 0;
+  }
+
+  .screen-share-stage--theater {
+    padding: 0;
+  }
+
+  .screen-share-stage--theater .screen-share-preview.is-theater-focused {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
   }
 
   .voice-stage-tile {

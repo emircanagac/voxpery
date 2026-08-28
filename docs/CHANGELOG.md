@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-08-27
+
+### Added
+- Added an in-app theater view for local and watched screen shares so a stream can stay central and prominent without forcing browser fullscreen.
+
+### Changed
+- Pinned the production and CI PostgreSQL/Redis images, plus production LiveKit and ClamAV images, to explicit patch releases for repeatable deployments.
+- Made the active voice-channel return control easier to recognize and added state-aware hover labels to call controls.
+
 ### Fixed
 - Stabilized initial watched screen-share audio by coalescing output-device assignment and starting each unchanged remote track only once while subscription events settle.
 - Prevented supported browsers from recapturing Voxpery's own call playback into a shared-audio track.

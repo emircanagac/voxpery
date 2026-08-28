@@ -10,7 +10,7 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine3.24
     container_name: voxpery-db
     restart: unless-stopped
     environment:
@@ -29,7 +29,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: voxpery-redis
     restart: unless-stopped
     ports:
@@ -44,7 +44,7 @@ services:
       retries: 10
 
   clamav:
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.4.6
     container_name: voxpery-clamav
     restart: unless-stopped
     profiles: ["security"]
@@ -52,7 +52,7 @@ services:
 
   # LiveKit runs on bridge networking for cross-platform Docker compatibility.
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.13.5
     container_name: voxpery-livekit
     restart: unless-stopped
     cpus: ${LIVEKIT_CPUS_LIMIT:-2.0}
