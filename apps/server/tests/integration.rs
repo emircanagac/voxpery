@@ -2950,13 +2950,20 @@ async fn google_only_user_can_set_password_and_login() {
     let new_password = test_credential("set");
 
     sqlx::query(
-        r#"INSERT INTO users (id, username, email, password_hash, status, dm_privacy, google_id, created_at, token_version)
-           VALUES ($1, $2, $3, 'oauth', 'online', 'friends', $4, NOW(), 0)"#,
+        r#"INSERT INTO users
+           (id, username, email, password_hash, status, dm_privacy, google_id, created_at,
+            token_version, terms_version, terms_accepted_at, privacy_notice_version,
+            privacy_notice_acknowledged_at, kvkk_notice_version, kvkk_notice_acknowledged_at)
+           VALUES
+           ($1, $2, $3, 'oauth', 'online', 'friends', $4, NOW(), 0, $5, NOW(), $6, NOW(), $7, NOW())"#,
     )
     .bind(user_id)
     .bind(&username)
     .bind(&email)
     .bind(&google_id)
+    .bind(CURRENT_TERMS_VERSION)
+    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+    .bind(CURRENT_KVKK_NOTICE_VERSION)
     .execute(&state.db)
     .await
     .expect("failed to seed oauth-only test user");
