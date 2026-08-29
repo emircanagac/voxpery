@@ -13,6 +13,7 @@ pub struct User {
     pub password_hash: String,
     pub token_version: i64,
     pub avatar_url: Option<String>,
+    pub about_me: String,
     pub status: String,
     pub dm_privacy: String,
     pub created_at: DateTime<Utc>,
@@ -31,6 +32,7 @@ impl fmt::Debug for User {
             .field("password_hash", &"<redacted>")
             .field("token_version", &self.token_version)
             .field("avatar_url", &self.avatar_url)
+            .field("about_me", &self.about_me)
             .field("status", &self.status)
             .field("dm_privacy", &self.dm_privacy)
             .field("created_at", &self.created_at)
@@ -56,6 +58,7 @@ pub struct UserPublic {
     pub email: String,
     pub email_verified: bool,
     pub avatar_url: Option<String>,
+    pub about_me: String,
     pub status: String,
     pub dm_privacy: String,
     /// True when this account is connected to Google OAuth.
@@ -83,6 +86,7 @@ impl From<User> for UserPublic {
             email: u.email,
             email_verified: u.email_verified,
             avatar_url: u.avatar_url,
+            about_me: u.about_me,
             status: u.status,
             dm_privacy: u.dm_privacy,
             google_connected: u.google_id.is_some(),

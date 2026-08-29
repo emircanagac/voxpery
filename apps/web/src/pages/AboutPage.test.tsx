@@ -38,7 +38,7 @@ describe('AboutPage', () => {
     expect(screen.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeInTheDocument()
     expect(screen.getByText(/a discord alternative for communities/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
-    expect(screen.getByRole('link', { name: /join voxpery community/i })).toHaveAttribute('href', '/register')
+    expect(screen.getByRole('link', { name: /use voxpery in browser/i })).toHaveAttribute('href', '/register')
     expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute(
       'href',
       'https://github.com/emircanagac/voxpery',
@@ -55,13 +55,16 @@ describe('AboutPage', () => {
       'href',
       'https://github.com/emircanagac/voxpery/blob/main/SECURITY.md',
     )
-    expect(screen.getByText(/new accounts join the live community automatically/i)).toBeInTheDocument()
+    expect(screen.getByText(/create an account and start chatting right away/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /self-host with docker/i })).toHaveAttribute(
       'href',
       'https://github.com/emircanagac/voxpery/blob/main/docs/DEPLOYMENT.md',
     )
     expect(screen.getByText('Inspectable by design')).toBeInTheDocument()
     expect(screen.getByText('Your deployment choice')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Privacy Notice' })).toHaveAttribute('href', '/privacy')
+    expect(screen.getByRole('link', { name: 'KVKK Notice' })).toHaveAttribute('href', '/kvkk')
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms')
   })
 
   it('routes authenticated visitors back into the app', () => {

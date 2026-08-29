@@ -4,6 +4,7 @@ export interface User {
     email: string;
     email_verified: boolean;
     avatar_url?: string;
+    about_me?: string;
     status: 'online' | 'dnd' | 'offline' | 'invisible';
     dm_privacy?: 'everyone' | 'friends';
     google_connected?: boolean;
@@ -86,6 +87,6 @@ export interface SignalingMessage {
 }
 
 export interface WsEvent {
-    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'Signal' | 'Pong';
+    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'ScreenShareViewerUpdate' | 'Signal' | 'Pong';
     data: unknown;
 }

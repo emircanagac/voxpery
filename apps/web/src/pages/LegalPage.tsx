@@ -11,7 +11,7 @@ function EnglishPrivacyNotice() {
     <p>The hosted service is operated by Emircan Agac as an individual open-source project operator in Türkiye. Privacy requests can be sent to <a href="mailto:voxpery@gmail.com">voxpery@gmail.com</a>.</p>
     <h2>Data we process</h2>
     <ul>
-      <li>Account and profile data: username, email, password hash, avatar, status, account preferences and linked Google identifier.</li>
+      <li>Account and profile data: username, email, password hash, avatar, optional about-me text, status, account preferences and linked Google identifier.</li>
       <li>Community data: servers, memberships, roles, friends, moderation records, messages, direct messages, reactions and uploaded files.</li>
       <li>Technical and security data: short-lived authentication/session records, rate-limit keys, security logs and privacy-safe reliability events when enabled.</li>
       <li>Voice and video media is routed through the self-hosted LiveKit service. Voxpery does not intentionally record calls, cameras or screen shares.</li>

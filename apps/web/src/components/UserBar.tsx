@@ -233,6 +233,8 @@ export default function UserBar() {
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
     user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'everyone'
   )
+  const [aboutMe, setAboutMe] = useState(user?.about_me ?? '')
+  const [profileDetailsSaving, setProfileDetailsSaving] = useState(false)
   const [speakingThreshold, setSpeakingThreshold] = useState(() => thresholdByPreset(DEFAULT_SPEAKING_PRESET))
   const [speakingPreset, setSpeakingPreset] = useState<SpeakingPreset>(DEFAULT_SPEAKING_PRESET)
   const [pwOld, setPwOld] = useState('')
@@ -736,6 +738,10 @@ export default function UserBar() {
   }, [user?.dm_privacy])
 
   useEffect(() => {
+    setAboutMe(user?.about_me ?? '')
+  }, [user?.about_me])
+
+  useEffect(() => {
     if (!showSettingsPanel && !showStatusMenu && !showExportModal && !showDeleteModal && !showUsernameModal && !showEmailModal && !showPwModal && !openDeviceMenu) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -1029,6 +1035,60 @@ export default function UserBar() {
         title: avatarUrl ? 'Profile photo update failed' : 'Profile photo removal failed',
         message: err instanceof Error ? err.message : 'Could not update your profile photo.',
       })
+    }
+  }
+
+  const saveProfileDetails = async () => {
+    if (isTauri() && !token) return
+    setProfileDetailsSaving(true)
+    try {
+      const updated = await authApi.updateProfile(
+        {
+          about_me: aboutMe,
+        },
+        token ?? null,
+      )
+      setUser(updated)
+
+      const appStore = useAppStore.getState()
+      appStore.setMembers(
+        appStore.members.map((member) =>
+          member.user_id === updated.id
+            ? {
+              ...member,
+              about_me: updated.about_me ?? '',
+            }
+            : member,
+        ),
+      )
+      Object.entries(appStore.membersByServerId).forEach(([serverId, serverMembers]) => {
+        if (!serverMembers.some((member) => member.user_id === updated.id)) return
+        appStore.setMembersForServer(
+          serverId,
+          serverMembers.map((member) =>
+            member.user_id === updated.id
+              ? {
+                ...member,
+                about_me: updated.about_me ?? '',
+              }
+              : member,
+          ),
+        )
+      })
+
+      pushToast({
+        level: 'info',
+        title: 'Profile updated',
+        message: 'Your profile details are visible to members of your shared servers.',
+      })
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title: 'Profile update failed',
+        message: err instanceof Error ? err.message : 'Could not update your profile details.',
+      })
+    } finally {
+      setProfileDetailsSaving(false)
     }
   }
 
@@ -2041,6 +2101,32 @@ export default function UserBar() {
                         Remove
                       </button>
                     )}
+                  </div>
+                </div>
+                <div className="user-profile-fields">
+                  <div className="user-profile-field">
+                    <div className="user-profile-field-header">
+                      <label className="user-profile-field-label" htmlFor="profile-about-me">About me</label>
+                      <button
+                        type="button"
+                        className="user-toggle user-profile-save-button"
+                        onClick={() => void saveProfileDetails()}
+                        disabled={profileDetailsSaving || aboutMe === (user?.about_me ?? '')}
+                        aria-busy={profileDetailsSaving}
+                      >
+                        {profileDetailsSaving ? 'Saving...' : 'Save about me'}
+                      </button>
+                    </div>
+                    <textarea
+                      id="profile-about-me"
+                      className="user-profile-textarea"
+                      value={aboutMe}
+                      onChange={(event) => setAboutMe(event.target.value.slice(0, 190))}
+                      maxLength={190}
+                      rows={3}
+                      placeholder="Tell people a little about yourself"
+                    />
+                    <span className="user-profile-field-count">{aboutMe.length}/190</span>
                   </div>
                 </div>
                 <div className="user-setting-row">

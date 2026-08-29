@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type MouseEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Turnstile } from '@marsidev/react-turnstile'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -135,7 +135,14 @@ export default function RegisterPage() {
     return (
         <div className="auth-page">
             <form className="auth-card" onSubmit={handleSubmit}>
-                <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                <Link
+                    to={ROUTES.landing}
+                    className="auth-landing-link"
+                    aria-label="Back to Voxpery"
+                    title="Back to Voxpery"
+                >
+                    <img src="/1024.png" alt="" className="auth-logo" width={80} height={80} />
+                </Link>
                 <h1>Voxpery</h1>
                 <p>Create an account and jump into the community</p>
 

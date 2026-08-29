@@ -3034,6 +3034,86 @@ body {
   min-width: 0;
 }
 
+.user-profile-fields {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.user-profile-field {
+  display: grid;
+  gap: 6px;
+}
+
+.user-profile-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.user-profile-field-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.user-profile-field-label span,
+.user-profile-field-count {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.user-profile-textarea {
+  width: 100%;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.16);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, var(--bg-surface));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 9px 10px;
+}
+
+.user-profile-textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.user-profile-textarea:focus {
+  border-color: var(--accent-border-strong);
+  outline: none;
+}
+
+.user-profile-field-count {
+  justify-self: end;
+  margin-top: -2px;
+}
+
+.user-settings-modal .user-profile-save-button {
+  width: auto;
+  min-width: 124px;
+  height: 30px;
+  padding: 0 11px;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.user-settings-modal .user-profile-save-button:hover:not(:disabled) {
+  border-color: var(--accent-border-strong);
+  background: var(--accent-soft-hover);
+}
+
+.user-settings-modal .user-profile-save-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
 .profile-status-btn {
   height: 28px;
   min-width: 0;
@@ -6599,7 +6679,7 @@ body {
 }
 
 .member-volume-menu {
-  width: min(224px, calc(100vw - 16px));
+  width: min(208px, calc(100vw - 16px));
   min-width: 0;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
@@ -6807,9 +6887,70 @@ body {
 }
 
 .member-profile-actions {
-  margin-top: 10px;
   display: flex;
-  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.member-profile-action {
+  min-height: 30px;
+  flex: 1 1 0;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--accent-foreground);
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+
+.member-profile-action:hover,
+.member-profile-action:focus-visible {
+  background: var(--accent-soft-hover);
+  border-color: var(--accent-border-strong);
+}
+
+.member-profile-about {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.member-profile-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.member-profile-date {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 68%, var(--bg-surface));
+}
+
+.member-profile-date span,
+.member-profile-date strong {
+  display: block;
+}
+
+.member-profile-date span {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.member-profile-date strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 /* ============================================
@@ -6850,6 +6991,22 @@ body {
   width: 80px;
   height: 80px;
   object-fit: contain;
+}
+
+.auth-landing-link {
+  display: block;
+  width: fit-content;
+  margin: 0 auto;
+  border-radius: 50%;
+}
+
+.auth-landing-link:hover .auth-logo {
+  filter: brightness(1.1);
+}
+
+.auth-landing-link:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 4px;
 }
 
 .auth-card h1 {
@@ -8389,6 +8546,15 @@ body {
   margin: 14px;
   width: auto;
   max-width: calc(100% - 28px);
+}
+
+.home-list-group > .home-onboarding-card .home-onboarding-actions {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.home-list-group > .home-onboarding-card .home-onboarding-btn {
+  width: min(100%, 168px);
 }
 
 .welcome-screen .home-onboarding-card {
@@ -9973,6 +10139,80 @@ a.community-open-btn:hover {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
+.screen-share-viewers {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, 0.72);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.screen-share-viewers-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.screen-share-viewers-avatars {
+  display: flex;
+  flex-direction: row-reverse;
+  padding-left: 3px;
+}
+
+.screen-share-viewer-avatar {
+  width: 22px;
+  height: 22px;
+  margin-left: -5px;
+  border: 2px solid rgba(8, 12, 24, 0.9);
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #3f73d6;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.screen-share-viewer-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.screen-share-viewer-avatar--count {
+  background: #2c3653;
+}
+
+.voice-stage-hidden-media-tile .screen-share-viewers {
+  position: static;
+  margin-top: 4px;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.screen-share-preview:hover .screen-share-viewers,
+.screen-share-preview:focus-within .screen-share-viewers,
+.screen-share-preview:fullscreen:hover .screen-share-viewers,
+.screen-share-preview:fullscreen:focus-within .screen-share-viewers {
+  opacity: 1;
+  transform: none;
+}
+
 .screen-share-preview:hover .screen-share-info-overlay,
 .screen-share-preview:focus-within .screen-share-info-overlay,
 .screen-share-preview:fullscreen:hover .screen-share-info-overlay,
@@ -9988,6 +10228,11 @@ a.community-open-btn:hover {
 .screen-share-preview.is-mouse-idle .screen-share-info-overlay {
   opacity: 0 !important;
   pointer-events: none !important;
+}
+
+.screen-share-preview.is-mouse-idle .screen-share-viewers {
+  opacity: 0 !important;
+  transform: translateY(-4px);
 }
 
 @media (hover: none) {
@@ -12171,6 +12416,40 @@ a.community-open-btn:hover {
   border: 1px solid rgba(143, 171, 222, 0.12);
   background: rgba(0, 0, 0, 0.12);
   padding: 10px;
+}
+
+.member-profile-dialog-overlay {
+  z-index: 10020;
+}
+
+.member-profile-dialog {
+  position: relative;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(560px, calc(100dvh - 32px));
+  overflow: auto;
+  padding: 18px;
+}
+
+.member-profile-dialog-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.member-profile-dialog-close:hover,
+.member-profile-dialog-close:focus-visible {
+  color: var(--text-primary);
+  background: rgba(var(--ui-contrast-rgb), 0.1);
 }
 
 .server-settings-option-group__title {

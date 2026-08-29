@@ -46,6 +46,7 @@ export interface DataExportPayload {
     }
     profile: {
         has_avatar: boolean
+        about_me: string
     }
     servers: unknown[]
     relationships: {
@@ -98,8 +99,11 @@ export interface MemberInfo {
     user_id: string
     username: string
     avatar_url: string | null
+    about_me?: string | null
     role: string
     status: string
+    account_created_at?: string | null
+    server_joined_at?: string | null
     role_color: string | null
     roles?: string[]
 }

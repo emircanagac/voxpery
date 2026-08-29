@@ -72,6 +72,11 @@ interface AppState {
     voiceControls: Record<string, { muted: boolean; deafened: boolean; serverMuted: boolean; serverDeafened: boolean; screenSharing: boolean; cameraOn: boolean }>
     setVoiceControl: (userId: string, muted: boolean, deafened: boolean, screenSharing: boolean, serverMuted?: boolean, serverDeafened?: boolean) => void
     setVoiceCamera: (userId: string, cameraOn: boolean) => void
+    // Active screen-share viewer presence, keyed by publisher user id.
+    screenShareViewerIdsByPublisherId: Record<string, string[]>
+    setScreenShareViewer: (publisherId: string, viewerId: string, watching: boolean) => void
+    clearScreenShareViewerMembership: (userId: string) => void
+    clearScreenShareViewersForPublisher: (publisherId: string) => void
 
     // Voice speaking (for is-speaking halo)
     voiceSpeakingUserIds: string[]
@@ -345,6 +350,43 @@ export const useAppStore = create<AppState>()(
                         },
                     },
                 })),
+            screenShareViewerIdsByPublisherId: {},
+            setScreenShareViewer: (publisherId, viewerId, watching) =>
+                set((s) => {
+                    if (!publisherId || !viewerId || publisherId === viewerId) return s
+                    const current = s.screenShareViewerIdsByPublisherId[publisherId] ?? []
+                    const nextViewerIds = watching
+                        ? (current.includes(viewerId) ? current : [...current, viewerId])
+                        : current.filter((id) => id !== viewerId)
+                    if (watching && nextViewerIds === current) return s
+                    if (!watching && nextViewerIds.length === current.length) return s
+                    const next = { ...s.screenShareViewerIdsByPublisherId }
+                    if (nextViewerIds.length > 0) next[publisherId] = nextViewerIds
+                    else delete next[publisherId]
+                    return { screenShareViewerIdsByPublisherId: next }
+                }),
+            clearScreenShareViewerMembership: (userId) =>
+                set((s) => {
+                    const next: Record<string, string[]> = {}
+                    let changed = false
+                    for (const [publisherId, viewerIds] of Object.entries(s.screenShareViewerIdsByPublisherId)) {
+                        if (publisherId === userId) {
+                            changed = true
+                            continue
+                        }
+                        const filtered = viewerIds.filter((viewerId) => viewerId !== userId)
+                        if (filtered.length !== viewerIds.length) changed = true
+                        if (filtered.length > 0) next[publisherId] = filtered
+                    }
+                    return changed ? { screenShareViewerIdsByPublisherId: next } : s
+                }),
+            clearScreenShareViewersForPublisher: (publisherId) =>
+                set((s) => {
+                    if (!s.screenShareViewerIdsByPublisherId[publisherId]) return s
+                    const next = { ...s.screenShareViewerIdsByPublisherId }
+                    delete next[publisherId]
+                    return { screenShareViewerIdsByPublisherId: next }
+                }),
 
             // Voice speaking
             voiceSpeakingUserIds: [],
@@ -391,6 +433,7 @@ export const useAppStore = create<AppState>()(
                     voiceChannelActiveSince: {},
                     voiceStateServerIds: {},
                     voiceControls: {},
+                    screenShareViewerIdsByPublisherId: {},
                     voiceSpeakingUserIds: [],
                     voiceLocalSpeaking: false,
                     joinedVoiceChannelId: null,

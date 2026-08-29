@@ -276,6 +276,7 @@ All migrations currently present:
 - `043_dm_channel_pinned_state.sql`
 - `044_username_case_insensitive_uniqueness.sql`
 - `045_privacy_compliance.sql`
+- `046_user_profile_fields.sql`
 
 ### Privacy audit log
 

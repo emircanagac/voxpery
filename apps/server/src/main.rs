@@ -100,6 +100,7 @@ async fn main() {
         voice_participant_sids: dashmap::DashMap::new(),
         voice_channel_active_since_ms: dashmap::DashMap::new(),
         voice_controls: dashmap::DashMap::new(),
+        screen_share_viewers: dashmap::DashMap::new(),
         auth_rate_limit_max: config.auth_rate_limit_max,
         auth_rate_limit_window_secs: config.auth_rate_limit_window_secs,
         login_failure_max_attempts: config.login_failure_max_attempts,

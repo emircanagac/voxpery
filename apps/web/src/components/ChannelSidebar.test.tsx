@@ -28,9 +28,12 @@ const remoteMember: MemberInfo = {
     user_id: 'remote-1',
     username: 'a-very-long-remote-username',
     avatar_url: null,
+    about_me: 'Here for voice nights.',
     role: 'member',
     status: 'online',
     role_color: null,
+    account_created_at: '2025-01-03T12:00:00.000Z',
+    server_joined_at: '2025-02-04T12:00:00.000Z',
 }
 
 describe('ChannelSidebar voice media presence', () => {
@@ -150,6 +153,36 @@ describe('ChannelSidebar voice media presence', () => {
         expect(getRemotePlaybackVolume(volumes, 'screen', remoteMember.user_id)).toBe(0)
     })
 
+    it('uses a compact voice participant menu centered within the channel sidebar', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        const { container } = render(<ChannelSidebar channelCategories={['Voice']} />)
+        const sidebar = container.querySelector('.channel-sidebar') as HTMLDivElement
+        vi.spyOn(sidebar, 'getBoundingClientRect').mockReturnValue({
+            bottom: 800,
+            height: 800,
+            left: 0,
+            right: 240,
+            top: 0,
+            width: 240,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        })
+
+        fireEvent.contextMenu(screen.getByText(remoteMember.username), { clientX: 220, clientY: 80 })
+
+        const menu = container.querySelector('.member-volume-menu') as HTMLDivElement
+        expect(menu.style.left).toBe('16px')
+    })
+
     it('opens a direct message from a voice participant context menu', () => {
         const onOpenDirectMessage = vi.fn()
         useAppStore.setState({
@@ -173,6 +206,34 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.getByText('Your playback')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: 'Send direct message' }))
         expect(onOpenDirectMessage).toHaveBeenCalledWith(remoteMember.user_id)
+    })
+
+    it('opens the shared profile dialog and its member actions from a voice participant context menu', () => {
+        const onOpenDirectMessage = vi.fn()
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                onOpenDirectMessage={onOpenDirectMessage}
+            />,
+        )
+
+        fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        fireEvent.click(screen.getByRole('button', { name: `View profile (@${remoteMember.username})` }))
+
+        expect(screen.getByRole('dialog', { name: remoteMember.username })).toBeVisible()
+        expect(screen.getByText('Here for voice nights.')).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: 'Send DM' }))
+        expect(onOpenDirectMessage).toHaveBeenCalledWith(remoteMember.user_id)
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
     it('offers compact, permission-aware channel creation controls', () => {

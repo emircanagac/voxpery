@@ -50,6 +50,7 @@ Important behavior:
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`
+  - Optional profile field: `about_me` (maximum 190 characters).
   - Usernames may contain ASCII letters in either case, digits, underscores, and periods. Display casing is preserved, while uniqueness, login, search, mentions, and friend lookup remain case-insensitive.
   - A username can be changed once every 7 days; the API is the authority for the cooldown.
 - `GET /api/auth/check-username?username=...`

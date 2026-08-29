@@ -11,7 +11,7 @@ The hosted service is operated by **Emircan Agac**, an individual open-source pr
 
 ## Data and purposes
 
-Voxpery processes account/profile data, server and relationship data, authored messages and direct messages, uploaded files, moderation records, authentication/security records, and bounded operational events. This data is used to provide and secure the service, prevent abuse, troubleshoot failures, comply with law, and establish or defend legal claims.
+Voxpery processes account/profile data (including optional about-me text), server and relationship data, authored messages and direct messages, uploaded files, moderation records, authentication/security records, and bounded operational events. This data is used to provide and secure the service, prevent abuse, troubleshoot failures, comply with law, and establish or defend legal claims.
 
 Messages, DMs, and attachments are **not end-to-end encrypted**. The hosted server stores and can technically access them for delivery, export, abuse handling, security, and lawful requests. Voice, camera, and screen-share media is routed through the self-hosted LiveKit service and is not intentionally recorded by Voxpery.
 

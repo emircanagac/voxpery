@@ -49,6 +49,9 @@ export default function AppShell() {
   const {
     setVoiceState,
     setVoiceControl,
+    setScreenShareViewer,
+    clearScreenShareViewerMembership,
+    clearScreenShareViewersForPublisher,
     setJoinedVoiceChannelId,
     dmChannelIds,
     dmChannels,
@@ -70,6 +73,9 @@ export default function AppShell() {
     useShallow((s) => ({
       setVoiceState: s.setVoiceState,
       setVoiceControl: s.setVoiceControl,
+      setScreenShareViewer: s.setScreenShareViewer,
+      clearScreenShareViewerMembership: s.clearScreenShareViewerMembership,
+      clearScreenShareViewersForPublisher: s.clearScreenShareViewersForPublisher,
       setJoinedVoiceChannelId: s.setJoinedVoiceChannelId,
       dmChannelIds: s.dmChannelIds,
       dmChannels: s.dmChannels,
@@ -314,12 +320,13 @@ export default function AppShell() {
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
       try {
-        const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; channel_active_since_ms?: number | null; status?: string; muted?: boolean; deafened?: boolean; server_muted?: boolean; server_deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; message?: { author?: { user_id?: string } } } }
+        const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; channel_active_since_ms?: number | null; status?: string; muted?: boolean; deafened?: boolean; server_muted?: boolean; server_deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; viewer_id?: string; publisher_id?: string; watching?: boolean; message?: { author?: { user_id?: string } } } }
         if (e?.type === 'VoiceStateUpdate') {
           const { user_id, channel_id, server_id, channel_active_since_ms } = e.data ?? {}
           if (user_id) {
             setVoiceState(user_id, channel_id ?? null, channel_active_since_ms ?? null)
             useAppStore.getState().setVoiceStateServerId(user_id, server_id ?? null)
+            if (!channel_id) clearScreenShareViewerMembership(user_id)
             if (user_id === userId) {
               setJoinedVoiceChannelId(channel_id ?? null)
             }
@@ -367,6 +374,13 @@ export default function AppShell() {
           if (user_id) {
             setVoiceControl(user_id, !!muted, !!deafened, !!screen_sharing, !!server_muted, !!server_deafened)
             useAppStore.getState().setVoiceCamera(user_id, !!camera_on)
+            if (!screen_sharing) clearScreenShareViewersForPublisher(user_id)
+          }
+        }
+        if (e?.type === 'ScreenShareViewerUpdate') {
+          const { viewer_id, publisher_id, watching } = e.data ?? {}
+          if (viewer_id && publisher_id) {
+            setScreenShareViewer(publisher_id, viewer_id, !!watching)
           }
         }
         if (e?.type === 'UserUpdated') {
@@ -542,7 +556,7 @@ export default function AppShell() {
       }
     })
     return () => unsub()
-  }, [activeDmChannelId, clearDmUnread, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setJoinedVoiceChannelId, setVoiceControl, setVoiceState, subscribe, syncSocial, token, userId])
+  }, [activeDmChannelId, clearDmUnread, clearScreenShareViewerMembership, clearScreenShareViewersForPublisher, dmChannelIds, dmChannels, incrementDmUnread, location.pathname, myStatus, navigate, pushToast, setActiveDmChannelId, setDmChannelIds, setDmChannels, setDmUnreadFromChannels, setFriends, setJoinedVoiceChannelId, setScreenShareViewer, setVoiceControl, setVoiceState, subscribe, syncSocial, token, userId])
   const activeChannel = useMemo(() => channels.find((c) => c.id === activeChannelId), [channels, activeChannelId])
   // Prefer the voice channel the user is viewing so switching channels leaves current and joins the new one.
   const selectedVoiceChannelId =
