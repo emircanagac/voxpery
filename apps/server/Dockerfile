@@ -12,6 +12,7 @@ RUN mkdir -p src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release --locked
 
 COPY migrations migrations
+COPY build.rs build.rs
 COPY src src
 RUN cargo build --release --locked
 

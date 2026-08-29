@@ -328,6 +328,25 @@ pub async fn ws_handler(
         }
     };
 
+    match crate::services::privacy::has_current_legal_consent(&state.db, claims.sub).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                axum::http::StatusCode::PRECONDITION_REQUIRED,
+                "Current legal documents must be acknowledged",
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::warn!("WebSocket legal-consent check failed: {}", error);
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "Session validation unavailable",
+            )
+                .into_response();
+        }
+    }
+
     if let Err(e) = crate::services::rate_limit::enforce_rate_limit(
         &state.redis,
         format!("ws:{}", claims.sub),
@@ -401,6 +420,9 @@ async fn is_ws_session_still_valid(state: &AppState, token: &str, claims: &Claim
 
     matches!(
         claims_match_current_token_version(&state.db, claims.sub, claims.ver).await,
+        Ok(true)
+    ) && matches!(
+        crate::services::privacy::has_current_legal_consent(&state.db, claims.sub).await,
         Ok(true)
     )
 }

@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.13] - 2026-08-27
+## [0.2.13] - 2026-08-29
 
 ### Added
+- Added a server-enforced, versioned legal-document gate for stale accounts, with atomic Terms, Privacy Notice, and KVKK acknowledgement plus privacy-safe audit evidence.
 - Added an in-app theater view for local and watched screen shares so a stream can stay central and prominent without forcing browser fullscreen.
 
 ### Changed
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the active voice-channel return control easier to recognize and added state-aware hover labels to call controls.
 
 ### Fixed
+- Made desktop push-to-talk follow global key press and release events while Voxpery is unfocused or minimized, with fail-closed release handling on focus loss and mode changes.
 - Stabilized initial watched screen-share audio by coalescing output-device assignment and starting each unchanged remote track only once while subscription events settle.
 - Prevented supported browsers from recapturing Voxpery's own call playback into a shared-audio track.
 - Unified Firefox, Chromium, and desktop microphone publication behind one RNNoise/Web Audio engine, kept the processing graph alive without local monitor playback, and reconciled built-in voice profiles with stale activation-mode settings so a client cannot silently remain in push-to-talk.

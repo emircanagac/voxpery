@@ -4,6 +4,24 @@ import { authApi, getAuthErrorMessage } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 
+type EmailVerificationRequest = ReturnType<typeof authApi.confirmEmailVerification>
+
+const MAX_CACHED_VERIFICATION_REQUESTS = 20
+const verificationRequests = new Map<string, EmailVerificationRequest>()
+
+function confirmEmailOnce(token: string | null, verifyToken: string): EmailVerificationRequest {
+  const existingRequest = verificationRequests.get(verifyToken)
+  if (existingRequest) return existingRequest
+
+  const request = authApi.confirmEmailVerification(token, verifyToken)
+  if (verificationRequests.size >= MAX_CACHED_VERIFICATION_REQUESTS) {
+    const oldestToken = verificationRequests.keys().next().value
+    if (oldestToken) verificationRequests.delete(oldestToken)
+  }
+  verificationRequests.set(verifyToken, request)
+  return request
+}
+
 export default function VerifyEmailPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -13,7 +31,6 @@ export default function VerifyEmailPage() {
   const setUser = useAuthStore((s) => s.setUser)
   const verifyToken = useMemo(() => new URLSearchParams(location.search).get('token')?.trim() ?? '', [location.search])
   const authRef = useRef({ token, user })
-  const verificationRequestsRef = useRef(new Map<string, ReturnType<typeof authApi.confirmEmailVerification>>())
   const [verificationState, setVerificationState] = useState<{
     verifyToken: string
     status: 'success' | 'error'
@@ -35,11 +52,7 @@ export default function VerifyEmailPage() {
     let cancelled = false
     let redirectTimeout: number | null = null
     const { token: currentToken, user: currentUser } = authRef.current
-    let verificationRequest = verificationRequestsRef.current.get(verifyToken)
-    if (!verificationRequest) {
-      verificationRequest = authApi.confirmEmailVerification(currentToken ?? null, verifyToken)
-      verificationRequestsRef.current.set(verifyToken, verificationRequest)
-    }
+    const verificationRequest = confirmEmailOnce(currentToken ?? null, verifyToken)
 
     verificationRequest
       .then(async (result) => {

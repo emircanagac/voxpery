@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/app'
+import {
+    GLOBAL_PUSH_TO_TALK_EVENT,
+    pushToTalkShortcutFromKey,
+    type GlobalPushToTalkState,
+} from '../../globalPushToTalk'
 import { getThresholdsFromStorage } from '../sensitivityThreshold'
 import {
     getStoredVoiceInputProfile,
@@ -34,7 +39,7 @@ export function useVoiceActivity(options: {
     const getVoiceModeSettings = useCallback((): { mode: VoiceMode; key: string } => {
         const mode = getStoredVoiceMode()
         const keyRaw = localStorage.getItem(PTT_KEY_KEY)
-        const key = keyRaw && keyRaw.trim().length > 0 ? keyRaw.trim() : 'V'
+        const key = pushToTalkShortcutFromKey(keyRaw) ?? 'V'
         return { mode, key }
     }, [])
 
@@ -191,8 +196,8 @@ export function useVoiceActivity(options: {
         const onKeyDown = (e: KeyboardEvent) => {
             const { mode, key } = getVoiceModeSettings()
             if (mode !== 'push_to_talk') return
-            const pressed = e.key?.length === 1 ? e.key.toUpperCase() : e.key
-            const target = key.length === 1 ? key.toUpperCase() : key
+            const pressed = pushToTalkShortcutFromKey(e.key)
+            const target = pushToTalkShortcutFromKey(key)
             if (pressed !== target) return
             pttPressedRef.current = true
             applyPushToTalkGate()
@@ -200,9 +205,23 @@ export function useVoiceActivity(options: {
         const onKeyUp = (e: KeyboardEvent) => {
             const { mode, key } = getVoiceModeSettings()
             if (mode !== 'push_to_talk') return
-            const pressed = e.key?.length === 1 ? e.key.toUpperCase() : e.key
-            const target = key.length === 1 ? key.toUpperCase() : key
+            const pressed = pushToTalkShortcutFromKey(e.key)
+            const target = pushToTalkShortcutFromKey(key)
             if (pressed !== target) return
+            pttPressedRef.current = false
+            applyPushToTalkGate()
+        }
+        const onGlobalPushToTalk = (event: Event) => {
+            const { mode } = getVoiceModeSettings()
+            if (mode !== 'push_to_talk') return
+            const state = (event as CustomEvent<GlobalPushToTalkState>).detail
+            if (state !== 'Pressed' && state !== 'Released') return
+            pttPressedRef.current = state === 'Pressed'
+            applyPushToTalkGate()
+        }
+        const onWindowBlur = () => {
+            const { mode } = getVoiceModeSettings()
+            if (mode !== 'push_to_talk' || !pttPressedRef.current) return
             pttPressedRef.current = false
             applyPushToTalkGate()
         }
@@ -220,10 +239,18 @@ export function useVoiceActivity(options: {
 
         window.addEventListener('keydown', onKeyDown)
         window.addEventListener('keyup', onKeyUp)
+        window.addEventListener('blur', onWindowBlur)
+        window.addEventListener(GLOBAL_PUSH_TO_TALK_EVENT, onGlobalPushToTalk)
         window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged as EventListener)
         return () => {
+            if (pttPressedRef.current) {
+                pttPressedRef.current = false
+                applyPushToTalkGate()
+            }
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('keyup', onKeyUp)
+            window.removeEventListener('blur', onWindowBlur)
+            window.removeEventListener(GLOBAL_PUSH_TO_TALK_EVENT, onGlobalPushToTalk)
             window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged as EventListener)
         }
     }, [applyPushToTalkGate, applyVoiceActivityGate, getVoiceModeSettings, joinedChannelId])

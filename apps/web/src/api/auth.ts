@@ -1,6 +1,12 @@
 import { isTauri } from '../secureStorage'
 import { apiDownload, apiFetch, effectiveApiBase } from './client'
-import type { AuthResponse, DeleteAccountPayload, EmailVerificationConfirmResponse, UserPublic } from './contracts'
+import type {
+    AuthResponse,
+    DeleteAccountPayload,
+    EmailVerificationConfirmResponse,
+    LegalConsentStatus,
+    UserPublic,
+} from './contracts'
 import type { RegistrationLegalAcceptance } from '../legal'
 
 const DESKTOP_OAUTH_VERIFIER_KEY = 'voxpery.desktop.oauth.code_verifier'
@@ -79,6 +85,8 @@ export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAut
         params.set('terms_version', options.legal.terms_version)
         params.set('privacy_notice_acknowledged', String(options.legal.privacy_notice_acknowledged))
         params.set('privacy_notice_version', options.legal.privacy_notice_version)
+        params.set('kvkk_notice_acknowledged', String(options.legal.kvkk_notice_acknowledged))
+        params.set('kvkk_notice_version', options.legal.kvkk_notice_version)
     }
     return `${effectiveApiBase()}/api/auth/google?${params.toString()}`
 }
@@ -120,6 +128,28 @@ export const authApi = {
     getMe: (token: string | null) =>
         apiFetch<UserPublic>('/api/auth/me', { token: token ?? undefined }),
 
+    getLegalConsent: (token: string | null) =>
+        apiFetch<LegalConsentStatus>('/api/auth/legal-consent', {
+            token: token ?? undefined,
+        }),
+
+    acknowledgeLegalConsent: (
+        payload: {
+            terms_accepted: boolean
+            terms_version: string
+            privacy_notice_acknowledged: boolean
+            privacy_notice_version: string
+            kvkk_notice_acknowledged: boolean
+            kvkk_notice_version: string
+        },
+        token: string | null,
+    ) =>
+        apiFetch<LegalConsentStatus>('/api/auth/legal-consent', {
+            method: 'POST',
+            body: payload,
+            token: token ?? undefined,
+        }),
+
     /** GET /api/auth/check-username?username=xxx — returns { available: boolean }. */
     checkUsername: (username: string, token: string | null) =>
         apiFetch<{ available: boolean }>(
@@ -145,8 +175,11 @@ export const authApi = {
         }),
 
     /** Clears httpOnly auth cookie (web). No token needed; call with credentials. */
-    logout: () =>
-        apiFetch<void>('/api/auth/logout', { method: 'POST' }),
+    logout: (token: string | null = null) =>
+        apiFetch<void>('/api/auth/logout', {
+            method: 'POST',
+            token: token ?? undefined,
+        }),
 
     /** Change password. Returns success message and clears cookie (forces re-login). */
     changePassword: (oldPassword: string, newPassword: string, token: string | null) =>

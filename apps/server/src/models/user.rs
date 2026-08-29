@@ -117,6 +117,8 @@ pub struct RegisterRequest {
     pub terms_version: String,
     pub privacy_notice_acknowledged: bool,
     pub privacy_notice_version: String,
+    pub kvkk_notice_acknowledged: Option<bool>,
+    pub kvkk_notice_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

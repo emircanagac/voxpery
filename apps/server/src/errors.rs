@@ -38,6 +38,9 @@ pub enum AppError {
     #[error("Reauthentication required: {0}")]
     ReauthenticationRequired(String),
 
+    #[error("Current legal documents must be acknowledged")]
+    LegalConsentRequired,
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -64,6 +67,11 @@ impl IntoResponse for AppError {
             AppError::ReauthenticationRequired(msg) => {
                 (StatusCode::FORBIDDEN, msg.clone(), Some("REAUTH_REQUIRED"))
             }
+            AppError::LegalConsentRequired => (
+                StatusCode::PRECONDITION_REQUIRED,
+                self.to_string(),
+                Some("LEGAL_CONSENT_REQUIRED"),
+            ),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 (
@@ -122,6 +130,10 @@ mod tests {
             (
                 AppError::ReauthenticationRequired("x".into()),
                 StatusCode::FORBIDDEN,
+            ),
+            (
+                AppError::LegalConsentRequired,
+                StatusCode::PRECONDITION_REQUIRED,
             ),
         ];
         for (err, expected) in test_cases {

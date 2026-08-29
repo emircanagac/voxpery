@@ -120,6 +120,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
 - [ ] Voice join succeeds after permission grant.
+- [ ] An account with missing or stale Terms, Privacy Notice, or KVKK versions sees the blocking legal review before app/voice data loads; all three links open, unchecked submission is disabled, acceptance unlocks the same session, refresh stays unlocked, and logout remains available.
+- [ ] While the desktop app is unfocused, minimized, and hidden in the tray, holding the configured push-to-talk key transmits and releasing it stops transmission; focus loss, channel leave, and switching to Voice Activity do not leave the microphone stuck open.
 - [ ] Active call bar quality indicator shows a colored Wi-Fi icon and current ping while connected, and the visible color matches the visible ping value.
 - [ ] Voice join and leave cues are distinct enough to tell whether a member entered or left the channel.
 - [ ] While already in a voice channel, remote camera and screen-share starts play distinct media cues; stopping camera or screen share stays silent, and joining a channel with existing remote media does not replay old media-start cues.

@@ -149,6 +149,10 @@ Two modes:
    - Suppression-enabled mode requires consecutive speech-like frames before reporting speech, and aggressive isolation rejects noise-dominant frames such as keyboard clicks, mouse clicks, and breath-heavy broadband noise
    - Quiet transport is handled by the processed audio pipeline and Opus DTX. Manual mute, deafen, and push-to-talk remain the only controls that change the microphone's published state.
 2. **Push-to-Talk**: Manual control via keyboard (default: `V` key)
+   - Web uses focused-tab `keydown`/`keyup` events.
+   - Desktop registers the selected key through Tauri's global-shortcut plugin and consumes both `Pressed` and `Released`, so transmission follows the held key while Voxpery is unfocused, minimized, or in the tray.
+   - Focus loss, voice-mode changes, channel leave, and shortcut capture fail closed by returning the microphone to the non-transmitting state.
+   - On Windows, an elevated game can block shortcuts from a non-elevated Voxpery process because of OS integrity-level isolation; run both applications at the same privilege level.
 
 ### Microphone Mute Shortcut
 

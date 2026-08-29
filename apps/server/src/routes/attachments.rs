@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     services::{
         attachments::AttachmentResponseItem,
         idempotency::acquire_transaction_lock,
@@ -32,11 +32,17 @@ const ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .route("/upload", post(upload_attachments))
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_auth_and_current_legal_consent,
+        ));
 
     let content = Router::new()
         .route("/content/{attachment_id}", get(get_attachment_content))
-        .route_layer(middleware::from_fn_with_state(state, require_auth));
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ));
 
     protected.merge(content)
 }

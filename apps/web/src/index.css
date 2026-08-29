@@ -16663,3 +16663,133 @@ textarea {
 :root[data-theme='light'] .mobile-member-sheet {
   background: color-mix(in srgb, var(--bg-surface) 96%, var(--accent-primary) 4%);
 }
+/* Versioned legal-document gate */
+.legal-consent-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #111729;
+  color: #f7f8fc;
+}
+
+.legal-consent-panel {
+  width: min(100%, 560px);
+  padding: 28px;
+  border: 1px solid #34466d;
+  border-radius: 8px;
+  background: #19233b;
+  box-shadow: 0 18px 54px rgb(2 7 18 / 38%);
+}
+
+.legal-consent-heading-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 1px solid #2cbf9d;
+  border-radius: 50%;
+  color: #69dfc2;
+  background: #102f34;
+}
+
+.legal-consent-eyebrow {
+  margin: 0 0 6px;
+  color: #69dfc2;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.legal-consent-panel h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.legal-consent-panel > p:not(.legal-consent-eyebrow) {
+  margin: 10px 0 0;
+  color: #b5c0d8;
+  line-height: 1.55;
+}
+
+.legal-consent-options {
+  margin: 24px 0 20px;
+  border-block: 1px solid #32405f;
+}
+
+.legal-consent-options label {
+  min-height: 54px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px 2px;
+  color: #e8ecf6;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.legal-consent-options label + label {
+  border-top: 1px solid #2b3855;
+}
+
+.legal-consent-options input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin-top: 1px;
+  accent-color: #42cfac;
+}
+
+.legal-consent-options a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #7ee8cc;
+  font-weight: 650;
+}
+
+.legal-consent-options a:hover {
+  color: #adf3e2;
+}
+
+.legal-consent-options a:focus-visible,
+.legal-consent-panel button:focus-visible,
+.legal-consent-options input:focus-visible {
+  outline: 2px solid #f2c14e;
+  outline-offset: 3px;
+}
+
+.legal-consent-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.legal-consent-actions button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .legal-consent-page {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .legal-consent-panel {
+    margin-top: max(8px, env(safe-area-inset-top));
+    padding: 22px 18px;
+  }
+
+  .legal-consent-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

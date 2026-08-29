@@ -65,17 +65,8 @@ pub(crate) async fn claims_match_current_token_version(
     Ok(matches!(current, Some(v) if v == token_version))
 }
 
-/// Middleware that validates the JWT and injects Claims into request extensions.
-/// Accepts token from Authorization Bearer (desktop) or from httpOnly cookie (web).
-pub async fn require_auth(
-    State(state): State<Arc<AppState>>,
-    mut req: Request,
-    next: Next,
-) -> Result<Response, AppError> {
-    let token =
-        token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
-
-    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, &token).await {
+async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, AppError> {
+    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
         Ok(true) => return Err(AppError::Unauthorized),
         Ok(false) => {}
         Err(e) => {
@@ -85,18 +76,53 @@ pub async fn require_auth(
     }
 
     let claims = decode::<Claims>(
-        &token,
+        token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
         &Validation::default(),
     )
     .map_err(|_| AppError::Unauthorized)?
     .claims;
 
+    Ok(claims)
+}
+
+/// Middleware that validates the JWT and injects Claims into request extensions.
+/// Accepts token from Authorization Bearer (desktop) or from httpOnly cookie (web).
+pub async fn require_auth(
+    State(state): State<Arc<AppState>>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let token =
+        token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
+    let claims = authenticate_token(&state, &token).await?;
     let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
         .await
         .map_err(|_| AppError::Unauthorized)?;
     if !version_ok {
         return Err(AppError::Unauthorized);
+    }
+    req.extensions_mut().insert(claims);
+    Ok(next.run(req).await)
+}
+
+/// Authenticates the request and rejects users whose legal-document acknowledgement is stale.
+pub async fn require_auth_and_current_legal_consent(
+    State(state): State<Arc<AppState>>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let token =
+        token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
+    let claims = authenticate_token(&state, &token).await?;
+    match crate::services::privacy::legal_consent_for_token_version(
+        &state.db, claims.sub, claims.ver,
+    )
+    .await?
+    {
+        Some(true) => {}
+        Some(false) => return Err(AppError::LegalConsentRequired),
+        None => return Err(AppError::Unauthorized),
     }
 
     req.extensions_mut().insert(claims);

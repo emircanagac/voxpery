@@ -46,6 +46,7 @@ Key columns:
 - `username_changed_at`
 - `terms_version`, `terms_accepted_at`
 - `privacy_notice_version`, `privacy_notice_acknowledged_at`
+- `kvkk_notice_version`, `kvkk_notice_acknowledged_at`
 - `created_at`
 
 ### `servers`
@@ -277,10 +278,11 @@ All migrations currently present:
 - `044_username_case_insensitive_uniqueness.sql`
 - `045_privacy_compliance.sql`
 - `046_user_profile_fields.sql`
+- `047_versioned_legal_consent.sql`
 
 ### Privacy audit log
 
-`privacy_audit_log` stores only the user reference, allowlisted event type, legal-document versions where applicable, and timestamp. It must never contain message/file content, credentials, IP addresses, export bytes, or archive paths.
+`privacy_audit_log` stores only the user reference, allowlisted event type, Terms/Privacy/KVKK document versions where applicable, and timestamp. `legal_documents_acknowledged` proves a stale account accepted the current set without storing request content. It must never contain message/file content, credentials, IP addresses, export bytes, or archive paths.
 
 ## Notes
 
