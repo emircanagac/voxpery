@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
         MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser, MessageWithAuthor,
     },
@@ -265,7 +265,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/messages/item/{message_id}/reactions",
             axum::routing::post(add_dm_reaction).delete(remove_dm_reaction),
         )
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ))
 }
 
 fn visible_presence(status: &str, has_session: bool) -> String {

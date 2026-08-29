@@ -2,6 +2,7 @@ import { isTauri } from '../secureStorage'
 
 // Prefer localhost so cookie is sent after Google OAuth when frontend is at localhost:5173 (same host).
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+export const LEGAL_CONSENT_REQUIRED_EVENT = 'voxpery-legal-consent-required'
 
 function isLoopbackHostname(hostname: string): boolean {
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
@@ -208,6 +209,9 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
         if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
             authFailureHandler?.()
         }
+        if (res.status === 428 && typeof window !== 'undefined') {
+            window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT))
+        }
         const text = await res.text()
         const message = apiErrorMessageFromText(text, res.status)
         throw new Error(message)
@@ -236,6 +240,9 @@ export async function apiDownload(path: string, options: FetchOptions = {}): Pro
         response = await fetch(url, request)
     }
     if (!response.ok) {
+        if (response.status === 428 && typeof window !== 'undefined') {
+            window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT))
+        }
         const text = await response.text()
         throw new Error(apiErrorMessageFromText(text, response.status))
     }
@@ -283,6 +290,9 @@ export async function apiMultipartFetch<T>(path: string, formData: FormData, tok
     if (!res.ok) {
         if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
             authFailureHandler?.()
+        }
+        if (res.status === 428 && typeof window !== 'undefined') {
+            window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT))
         }
         const text = await res.text()
         const message = apiErrorMessageFromText(text, res.status)

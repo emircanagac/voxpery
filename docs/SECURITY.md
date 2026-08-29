@@ -416,7 +416,7 @@ npm audit fix
 - **COPPA**: No age verification (assume 13+)
 - **Privacy**: No biometrics, no hidden telemetry
 
-The official hosted-service legal documents are [PRIVACY_NOTICE.md](PRIVACY_NOTICE.md), [KVKK_AYDINLATMA_METNI.md](KVKK_AYDINLATMA_METNI.md), and [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md). They do not cover third-party self-hosted deployments.
+The official hosted-service legal documents are [PRIVACY_NOTICE.md](PRIVACY_NOTICE.md), [KVKK_AYDINLATMA_METNI.md](KVKK_AYDINLATMA_METNI.md), and [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md). Authenticated accounts with missing or stale document versions are blocked server-side until all current versions are acknowledged and recorded atomically in the privacy audit log. They do not cover third-party self-hosted deployments.
 
 Self-service exports require recent identity verification, are generated in memory without persistent temporary archives, use `Cache-Control: no-store`, and exclude credentials, sessions, internal IDs, storage keys, and signed URLs. The downloaded ZIP is not encrypted; the UI warns the user before generation.
 

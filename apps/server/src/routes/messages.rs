@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
         EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser,
         MessageWithAuthor,
@@ -63,7 +63,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             delete(unpin_channel_message),
         )
         .route("/{channel_id}", get(get_messages).post(send_message))
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ))
 }
 
 fn escape_ilike_pattern(input: &str) -> String {

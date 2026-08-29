@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a server-enforced, versioned legal-document gate for stale accounts, with atomic Terms, Privacy Notice, and KVKK acknowledgement plus privacy-safe audit evidence.
+
+### Fixed
+- Made desktop push-to-talk follow global key press and release events while Voxpery is unfocused or minimized, with fail-closed release handling on focus loss and mode changes.
+
 ## [0.2.13] - 2026-08-27
 
 ### Added

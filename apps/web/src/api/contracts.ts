@@ -59,6 +59,13 @@ export interface DataExportPayload {
     }
 }
 
+export interface LegalConsentStatus {
+    required: boolean
+    current_terms_version: string
+    current_privacy_notice_version: string
+    current_kvkk_notice_version: string
+}
+
 export interface DeleteAccountPayload {
     confirm: string
     password?: string

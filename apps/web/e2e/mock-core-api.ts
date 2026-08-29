@@ -26,6 +26,9 @@ const ALL_PERMISSIONS = (1 << 13) - 1
 
 export interface MockCoreState {
   authenticated: boolean
+  legalConsentRequired: boolean
+  legalConsentAcknowledgementCount: number
+  logoutRequestCount: number
   user: UserPublic
   features: SystemFeatures
   friends: Friend[]
@@ -322,6 +325,9 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
 
   return {
     authenticated: true,
+    legalConsentRequired: false,
+    legalConsentAcknowledgementCount: 0,
+    logoutRequestCount: 0,
     user,
     features: DEFAULT_FEATURES,
     friends: buildFriends(24),
@@ -489,6 +495,46 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       return
     }
     await json(route, state.user)
+    return
+  }
+
+  if (pathname === '/api/auth/legal-consent' && method === 'GET') {
+    await json(route, {
+      required: state.legalConsentRequired,
+      current_terms_version: '2026-08-23',
+      current_privacy_notice_version: '2026-08-23',
+      current_kvkk_notice_version: '2026-08-23',
+    })
+    return
+  }
+
+  if (pathname === '/api/auth/legal-consent' && method === 'POST') {
+    const body = parseJsonBody<Record<string, unknown>>(request)
+    const current = body.terms_accepted === true
+      && body.terms_version === '2026-08-23'
+      && body.privacy_notice_acknowledged === true
+      && body.privacy_notice_version === '2026-08-23'
+      && body.kvkk_notice_acknowledged === true
+      && body.kvkk_notice_version === '2026-08-23'
+    if (!current) {
+      await json(route, { error: 'All current legal documents must be acknowledged' }, 400)
+      return
+    }
+    if (state.legalConsentRequired) state.legalConsentAcknowledgementCount += 1
+    state.legalConsentRequired = false
+    await json(route, {
+      required: false,
+      current_terms_version: '2026-08-23',
+      current_privacy_notice_version: '2026-08-23',
+      current_kvkk_notice_version: '2026-08-23',
+    })
+    return
+  }
+
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    state.logoutRequestCount += 1
+    state.authenticated = false
+    await json(route, {})
     return
   }
 

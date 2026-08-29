@@ -28,7 +28,9 @@ use voxpery_server::{
     build_app, run_migrations,
     services::{
         auth::generate_token,
-        privacy::{CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION},
+        privacy::{
+            CURRENT_KVKK_NOTICE_VERSION, CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION,
+        },
     },
     AppState,
 };
@@ -57,7 +59,9 @@ fn registration_body(email: &str, username: &str, password: &str) -> serde_json:
         "terms_accepted": true,
         "terms_version": CURRENT_TERMS_VERSION,
         "privacy_notice_acknowledged": true,
-        "privacy_notice_version": CURRENT_PRIVACY_NOTICE_VERSION
+        "privacy_notice_version": CURRENT_PRIVACY_NOTICE_VERSION,
+        "kvkk_notice_acknowledged": true,
+        "kvkk_notice_version": CURRENT_KVKK_NOTICE_VERSION
     })
 }
 
@@ -586,7 +590,9 @@ async fn registration_requires_current_legal_documents() {
         "terms_accepted": true,
         "terms_version": "outdated",
         "privacy_notice_acknowledged": true,
-        "privacy_notice_version": "outdated"
+        "privacy_notice_version": "outdated",
+        "kvkk_notice_acknowledged": true,
+        "kvkk_notice_version": CURRENT_KVKK_NOTICE_VERSION
     });
     let req = Request::builder()
         .method("POST")
@@ -630,8 +636,8 @@ async fn register_login_me_flow() {
     let token = auth["token"].as_str().expect("token in response");
     let user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
 
-    let legal_record: (Option<String>, Option<String>) = sqlx::query_as(
-        r#"SELECT terms_version, privacy_notice_version
+    let legal_record: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        r#"SELECT terms_version, privacy_notice_version, kvkk_notice_version
            FROM users
            WHERE id = $1"#,
     )
@@ -644,6 +650,7 @@ async fn register_login_me_flow() {
         legal_record.1.as_deref(),
         Some(CURRENT_PRIVACY_NOTICE_VERSION)
     );
+    assert_eq!(legal_record.2.as_deref(), Some(CURRENT_KVKK_NOTICE_VERSION));
     let registration_audit_count: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*)
            FROM privacy_audit_log
@@ -681,6 +688,126 @@ async fn register_login_me_flow() {
         .unwrap();
     let (status, _) = oneshot(&mut app, req).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn stale_legal_consent_blocks_protected_routes_until_atomic_acknowledgement() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let email = format!("legal-gate-{uid}@example.com");
+    let username = format!("legal_gate_{}", uid.as_u128() % 1_000_000);
+    let (token, user_id) =
+        register_user(&mut app, &email, &username, test_credential("legal-gate")).await;
+
+    sqlx::query(
+        r#"UPDATE users
+           SET terms_version = 'outdated',
+               terms_accepted_at = NULL,
+               privacy_notice_version = NULL,
+               privacy_notice_acknowledged_at = NULL,
+               kvkk_notice_version = 'outdated',
+               kvkk_notice_acknowledged_at = NULL
+           WHERE id = $1"#,
+    )
+    .bind(user_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let status_request = Request::builder()
+        .uri("/api/auth/legal-consent")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, status_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let status_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status_body["required"], true);
+    assert_eq!(
+        status_body["current_kvkk_notice_version"],
+        CURRENT_KVKK_NOTICE_VERSION
+    );
+
+    let protected_request = Request::builder()
+        .uri("/api/friends")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, protected_request).await;
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["code"], "LEGAL_CONSENT_REQUIRED");
+
+    let me_request = Request::builder()
+        .uri("/api/auth/me")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, me_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let invalid_acceptance = json!({
+        "terms_accepted": true,
+        "terms_version": CURRENT_TERMS_VERSION,
+        "privacy_notice_acknowledged": true,
+        "privacy_notice_version": CURRENT_PRIVACY_NOTICE_VERSION,
+        "kvkk_notice_acknowledged": false,
+        "kvkk_notice_version": CURRENT_KVKK_NOTICE_VERSION
+    });
+    let invalid_request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/legal-consent")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&invalid_acceptance).unwrap()))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, invalid_request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let acceptance = json!({
+        "terms_accepted": true,
+        "terms_version": CURRENT_TERMS_VERSION,
+        "privacy_notice_acknowledged": true,
+        "privacy_notice_version": CURRENT_PRIVACY_NOTICE_VERSION,
+        "kvkk_notice_acknowledged": true,
+        "kvkk_notice_version": CURRENT_KVKK_NOTICE_VERSION
+    });
+    for _ in 0..2 {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/auth/legal-consent")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&acceptance).unwrap()))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, request).await;
+        assert_eq!(status, StatusCode::OK);
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["required"], false);
+    }
+
+    let protected_request = Request::builder()
+        .uri("/api/friends")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, protected_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let legal_audit_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM privacy_audit_log
+           WHERE user_id = $1 AND event_type = 'legal_documents_acknowledged'"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(legal_audit_count, 1);
 }
 
 #[tokio::test]

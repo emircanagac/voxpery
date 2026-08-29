@@ -47,6 +47,11 @@ Important behavior:
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/auth/legal-consent`
+  - Returns whether the authenticated account must acknowledge newer legal documents and the current Terms, Privacy Notice, and KVKK versions.
+- `POST /api/auth/legal-consent`
+  - Requires explicit acknowledgement of all three current document versions.
+  - Updates the account and inserts the privacy-safe audit event in one database transaction; repeating the same current acknowledgement is idempotent.
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`
@@ -75,6 +80,7 @@ Important behavior:
 
 Notes:
 
+- Authenticated application, WebSocket, attachment, and voice endpoints return `428` with code `LEGAL_CONSENT_REQUIRED` while the account's legal-document versions are missing or stale. Session inspection, legal acknowledgement, public legal pages, and logout remain available.
 - `forgot-password` always returns a generic success message to prevent account enumeration.
 - Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password.
@@ -323,9 +329,10 @@ Common statuses:
 - `401` unauthorized
 - `403` forbidden
 - `404` not found
+- `428` current legal-document acknowledgement required
 - `429` too many requests
 - `500` internal error
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-08-29.

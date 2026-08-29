@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
     AppState,
@@ -55,7 +55,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/requests/{request_id}/accept", post(accept_friend_request))
         .route("/requests/{request_id}/reject", post(reject_friend_request))
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ))
 }
 
 fn visible_presence(status: &str, has_session: bool) -> String {

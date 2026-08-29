@@ -23,7 +23,8 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{
-        claims_match_current_token_version, require_auth, token_from_request, Claims,
+        claims_match_current_token_version, require_auth, require_auth_and_current_legal_consent,
+        token_from_request, Claims,
     },
     models::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
@@ -33,9 +34,9 @@ use crate::{
     services::avatar_images::validate_profile_avatar_url,
     services::client_ip::resolve_client_ip,
     services::privacy::{
-        record_privacy_event, validate_registration_documents, CURRENT_PRIVACY_NOTICE_VERSION,
-        CURRENT_TERMS_VERSION, DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT,
-        DATA_EXPORT_REAUTH_MAX_AGE_SECS,
+        has_current_legal_consent, record_privacy_event, validate_current_legal_documents,
+        CURRENT_KVKK_NOTICE_VERSION, CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION,
+        DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT, DATA_EXPORT_REAUTH_MAX_AGE_SECS,
     },
     services::rate_limit::enforce_rate_limit,
     ws::WsEvent,
@@ -134,6 +135,24 @@ fn clear_oauth_state_cookie_header(state: &AppState) -> String {
 
 fn oauth_state_matches_cookie(callback_state: Option<&str>, cookie_state: &str) -> bool {
     callback_state.is_some_and(|value| constant_time_eq(value, cookie_state))
+}
+
+fn parse_oauth_legal_metadata(parts: &[&str]) -> (String, String, String, bool) {
+    let terms = parts.first().copied().unwrap_or("").trim().to_string();
+    let privacy = parts.get(1).copied().unwrap_or("").trim().to_string();
+    let (kvkk, acknowledged) = if parts.len() >= 4 {
+        (
+            parts.get(2).copied().unwrap_or("").trim().to_string(),
+            parts.get(3).copied().unwrap_or("0").trim() == "1",
+        )
+    } else {
+        // v0.2.13 used one Privacy/KVKK acknowledgement and an eight-part OAuth state.
+        (
+            privacy.clone(),
+            parts.get(2).copied().unwrap_or("0").trim() == "1",
+        )
+    };
+    (terms, privacy, kvkk, acknowledged)
 }
 
 fn append_query_param(path: &str, key: &str, value: &str) -> String {
@@ -478,12 +497,30 @@ mod oauth_pkce_tests {
 
     #[test]
     fn oauth_state_integrity_covers_registration_metadata() {
-        let state = "nonce\nhttps://voxpery.com\n/social\n\nregister\n2026-08-23\n2026-08-23\n1";
+        let state = "nonce\nhttps://voxpery.com\n/social\n\nregister\n2026-08-23\n2026-08-23\n2026-08-23\n1";
         let changed = state.replace("register", "login");
 
         assert!(super::oauth_state_matches_cookie(Some(state), state));
         assert!(!super::oauth_state_matches_cookie(Some(&changed), state));
         assert!(!super::oauth_state_matches_cookie(None, state));
+    }
+
+    #[test]
+    fn parses_current_and_rolling_deploy_oauth_legal_metadata() {
+        let current =
+            super::parse_oauth_legal_metadata(&["2026-08-23", "2026-08-23", "2026-08-23", "1"]);
+        assert_eq!(
+            current,
+            (
+                "2026-08-23".into(),
+                "2026-08-23".into(),
+                "2026-08-23".into(),
+                true,
+            )
+        );
+
+        let previous = super::parse_oauth_legal_metadata(&["2026-08-23", "2026-08-23", "1"]);
+        assert_eq!(previous, current);
     }
 }
 
@@ -903,8 +940,15 @@ fn summarize_export_attachments(attachments: &Option<serde_json::Value>) -> Vec<
 }
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    let protected = Router::new()
+    let legal_exempt = Router::new()
         .route("/me", get(get_me))
+        .route(
+            "/legal-consent",
+            get(get_legal_consent).post(acknowledge_legal_consent),
+        )
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let protected = Router::new()
         .route("/status", patch(update_status))
         .route("/profile", patch(update_profile))
         .route("/check-username", get(check_username))
@@ -916,7 +960,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/data-export", post(export_my_data))
         .route("/account", delete(delete_my_account))
-        .route_layer(middleware::from_fn_with_state(state, require_auth));
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ));
 
     Router::new()
         .route("/register", post(register))
@@ -931,6 +978,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/google/callback", get(google_oauth_callback))
         .route("/email/confirm", post(confirm_email_verification))
+        .merge(legal_exempt)
         .merge(protected)
 }
 
@@ -942,12 +990,23 @@ async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
     let email = body.email.trim().to_lowercase();
+    // v0.2.13 clients used one explicit checkbox labelled for both Privacy and KVKK.
+    // Preserve that proof during a rolling deploy while newer clients send both fields.
+    let kvkk_notice_acknowledged = body
+        .kvkk_notice_acknowledged
+        .unwrap_or(body.privacy_notice_acknowledged);
+    let kvkk_notice_version = body
+        .kvkk_notice_version
+        .as_deref()
+        .unwrap_or(body.privacy_notice_version.as_str());
 
-    validate_registration_documents(
+    validate_current_legal_documents(
         body.terms_accepted,
         body.terms_version.trim(),
         body.privacy_notice_acknowledged,
         body.privacy_notice_version.trim(),
+        kvkk_notice_acknowledged,
+        kvkk_notice_version.trim(),
     )?;
 
     // 1) Email-based rate limit
@@ -1087,8 +1146,11 @@ async fn register(
     let user = sqlx::query_as::<_, User>(
         r#"INSERT INTO users
            (id, username, email, password_hash, status, dm_privacy, email_verified, created_at,
-            terms_version, terms_accepted_at, privacy_notice_version, privacy_notice_acknowledged_at)
-           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW(), $5, NOW(), $6, NOW())
+            terms_version, terms_accepted_at, privacy_notice_version,
+            privacy_notice_acknowledged_at, kvkk_notice_version,
+            kvkk_notice_acknowledged_at)
+           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW(),
+                   $5, NOW(), $6, NOW(), $7, NOW())
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
@@ -1097,6 +1159,7 @@ async fn register(
     .bind(&password_hash)
     .bind(CURRENT_TERMS_VERSION)
     .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+    .bind(CURRENT_KVKK_NOTICE_VERSION)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1106,6 +1169,7 @@ async fn register(
         "account_registered",
         Some(CURRENT_TERMS_VERSION),
         Some(CURRENT_PRIVACY_NOTICE_VERSION),
+        Some(CURRENT_KVKK_NOTICE_VERSION),
     )
     .await?;
     tx.commit().await?;
@@ -1599,6 +1663,8 @@ struct GoogleOAuthStartQuery {
     terms_version: Option<String>,
     privacy_notice_acknowledged: Option<bool>,
     privacy_notice_version: Option<String>,
+    kvkk_notice_acknowledged: Option<bool>,
+    kvkk_notice_version: Option<String>,
 }
 
 /// GET /api/auth/google — redirect to Google OAuth. Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_API_URL.
@@ -1664,20 +1730,31 @@ async fn google_oauth_start(
     } else {
         "login"
     };
-    let legal_acknowledged =
-        q.terms_accepted == Some(true) && q.privacy_notice_acknowledged == Some(true);
+    let kvkk_notice_acknowledged = q
+        .kvkk_notice_acknowledged
+        .unwrap_or(q.privacy_notice_acknowledged.unwrap_or(false));
+    let kvkk_notice_version = q
+        .kvkk_notice_version
+        .as_deref()
+        .or(q.privacy_notice_version.as_deref())
+        .unwrap_or("");
+    let legal_acknowledged = q.terms_accepted == Some(true)
+        && q.privacy_notice_acknowledged == Some(true)
+        && kvkk_notice_acknowledged;
     if intent == "register" {
-        if let Err(error) = validate_registration_documents(
+        if let Err(error) = validate_current_legal_documents(
             q.terms_accepted.unwrap_or(false),
             q.terms_version.as_deref().unwrap_or("").trim(),
             q.privacy_notice_acknowledged.unwrap_or(false),
             q.privacy_notice_version.as_deref().unwrap_or("").trim(),
+            kvkk_notice_acknowledged,
+            kvkk_notice_version.trim(),
         ) {
             return error.into_response();
         }
     }
     let state_param = BASE64.encode(format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         nonce,
         origin,
         redirect_path,
@@ -1685,6 +1762,7 @@ async fn google_oauth_start(
         intent,
         q.terms_version.as_deref().unwrap_or(""),
         q.privacy_notice_version.as_deref().unwrap_or(""),
+        kvkk_notice_version,
         if legal_acknowledged { "1" } else { "0" },
     ));
     let scope = "openid email profile";
@@ -1850,18 +1928,18 @@ async fn google_oauth_callback(
         oauth_intent,
         terms_version,
         privacy_notice_version,
+        kvkk_notice_version,
         legal_acknowledged,
     ) = match state_string {
         Some(ref s) => {
-            let mut parts = s.splitn(8, '\n');
+            let mut parts = s.splitn(9, '\n');
             let n = parts.next().unwrap_or("").trim().to_string();
             let o = parts.next().unwrap_or("").trim().to_string();
             let r = parts.next().unwrap_or("").trim().to_string();
             let c = parts.next().unwrap_or("").trim().to_string();
             let intent = parts.next().unwrap_or("login").trim().to_string();
-            let terms = parts.next().unwrap_or("").trim().to_string();
-            let privacy = parts.next().unwrap_or("").trim().to_string();
-            let acknowledged = parts.next().unwrap_or("0").trim() == "1";
+            let legal_parts = parts.collect::<Vec<_>>();
+            let (terms, privacy, kvkk, acknowledged) = parse_oauth_legal_metadata(&legal_parts);
             if n.is_empty() || o.is_empty() || !r.starts_with('/') {
                 tracing::warn!(
                     "OAuth state parsing failed. nonce_present={}, origin_len={}, redirect_len={}, pkce_challenge_present={}",
@@ -1878,6 +1956,7 @@ async fn google_oauth_callback(
                     "login".to_string(),
                     String::new(),
                     String::new(),
+                    String::new(),
                     false,
                 )
             } else {
@@ -1889,6 +1968,7 @@ async fn google_oauth_callback(
                     intent,
                     terms,
                     privacy,
+                    kvkk,
                     acknowledged,
                 )
             }
@@ -1901,6 +1981,7 @@ async fn google_oauth_callback(
                 "/app/friends".to_string(),
                 None,
                 "login".to_string(),
+                String::new(),
                 String::new(),
                 String::new(),
                 false,
@@ -2039,11 +2120,13 @@ async fn google_oauth_callback(
             // New user: create account
             if oauth_intent != "register"
                 || !legal_acknowledged
-                || validate_registration_documents(
+                || validate_current_legal_documents(
                     true,
                     &terms_version,
                     true,
                     &privacy_notice_version,
+                    true,
+                    &kvkk_notice_version,
                 )
                 .is_err()
             {
@@ -2095,9 +2178,10 @@ async fn google_oauth_callback(
                 r#"INSERT INTO users
                    (id, username, email, password_hash, status, dm_privacy, google_id,
                     email_verified, created_at, terms_version, terms_accepted_at,
-                    privacy_notice_version, privacy_notice_acknowledged_at)
+                    privacy_notice_version, privacy_notice_acknowledged_at,
+                    kvkk_notice_version, kvkk_notice_acknowledged_at)
                    VALUES ($1, $2, $3, $4, 'online', 'everyone', $5, TRUE, NOW(),
-                           $6, NOW(), $7, NOW())"#,
+                           $6, NOW(), $7, NOW(), $8, NOW())"#,
             )
             .bind(id)
             .bind(&username)
@@ -2106,6 +2190,7 @@ async fn google_oauth_callback(
             .bind(&google_id)
             .bind(CURRENT_TERMS_VERSION)
             .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+            .bind(CURRENT_KVKK_NOTICE_VERSION)
             .execute(&mut *tx)
             .await;
             if let Err(e) = insert_result {
@@ -2118,6 +2203,7 @@ async fn google_oauth_callback(
                 "account_registered",
                 Some(CURRENT_TERMS_VERSION),
                 Some(CURRENT_PRIVACY_NOTICE_VERSION),
+                Some(CURRENT_KVKK_NOTICE_VERSION),
             )
             .await
             {
@@ -2222,6 +2308,102 @@ async fn get_me(
         .await?
         .ok_or(AppError::NotFound("User not found".into()))?;
     Ok(Json(UserPublic::from(user)))
+}
+
+#[derive(Debug, serde::Serialize)]
+struct LegalConsentStatus {
+    required: bool,
+    current_terms_version: &'static str,
+    current_privacy_notice_version: &'static str,
+    current_kvkk_notice_version: &'static str,
+}
+
+impl LegalConsentStatus {
+    fn new(required: bool) -> Self {
+        Self {
+            required,
+            current_terms_version: CURRENT_TERMS_VERSION,
+            current_privacy_notice_version: CURRENT_PRIVACY_NOTICE_VERSION,
+            current_kvkk_notice_version: CURRENT_KVKK_NOTICE_VERSION,
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LegalConsentRequest {
+    terms_accepted: bool,
+    terms_version: String,
+    privacy_notice_acknowledged: bool,
+    privacy_notice_version: String,
+    kvkk_notice_acknowledged: bool,
+    kvkk_notice_version: String,
+}
+
+/// GET /api/auth/legal-consent — current acknowledgement requirement for this session.
+async fn get_legal_consent(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<LegalConsentStatus>, AppError> {
+    let current = has_current_legal_consent(&state.db, claims.sub).await?;
+    Ok(Json(LegalConsentStatus::new(!current)))
+}
+
+/// POST /api/auth/legal-consent — atomically persist all current legal-document versions.
+async fn acknowledge_legal_consent(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<LegalConsentRequest>,
+) -> Result<Json<LegalConsentStatus>, AppError> {
+    validate_current_legal_documents(
+        body.terms_accepted,
+        body.terms_version.trim(),
+        body.privacy_notice_acknowledged,
+        body.privacy_notice_version.trim(),
+        body.kvkk_notice_acknowledged,
+        body.kvkk_notice_version.trim(),
+    )?;
+
+    let mut tx = state.db.begin().await?;
+    let updated = sqlx::query_scalar::<_, Uuid>(
+        r#"UPDATE users
+           SET terms_version = $2,
+               terms_accepted_at = NOW(),
+               privacy_notice_version = $3,
+               privacy_notice_acknowledged_at = NOW(),
+               kvkk_notice_version = $4,
+               kvkk_notice_acknowledged_at = NOW()
+           WHERE id = $1
+             AND (
+                 terms_version IS DISTINCT FROM $2
+                 OR terms_accepted_at IS NULL
+                 OR privacy_notice_version IS DISTINCT FROM $3
+                 OR privacy_notice_acknowledged_at IS NULL
+                 OR kvkk_notice_version IS DISTINCT FROM $4
+                 OR kvkk_notice_acknowledged_at IS NULL
+             )
+           RETURNING id"#,
+    )
+    .bind(claims.sub)
+    .bind(CURRENT_TERMS_VERSION)
+    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+    .bind(CURRENT_KVKK_NOTICE_VERSION)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if updated.is_some() {
+        record_privacy_event(
+            &mut tx,
+            claims.sub,
+            "legal_documents_acknowledged",
+            Some(CURRENT_TERMS_VERSION),
+            Some(CURRENT_PRIVACY_NOTICE_VERSION),
+            Some(CURRENT_KVKK_NOTICE_VERSION),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(Json(LegalConsentStatus::new(false)))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -3077,7 +3259,7 @@ async fn export_my_data(
     let archive = build_data_export_zip(&payload, archive_files)?;
 
     let mut tx = state.db.begin().await?;
-    record_privacy_event(&mut tx, claims.sub, "data_export_created", None, None).await?;
+    record_privacy_event(&mut tx, claims.sub, "data_export_created", None, None, None).await?;
     tx.commit().await?;
 
     let date = chrono::Utc::now().format("%Y-%m-%d");

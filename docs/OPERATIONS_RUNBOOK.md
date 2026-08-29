@@ -158,6 +158,10 @@ Follow [DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md). Keep request cases 
 
 Before changing hosting, CDN/security, OAuth/email, GIF, storage, or media providers, review the DPA, processing location, transfer mechanism, retention, security controls, and legal-document wording. Version and announce material notice changes before the new processing begins where required.
 
+### Legal-document version rollout
+
+When Terms, Privacy Notice, or KVKK wording changes materially, update the matching server and web version constants in the same release as the published documents. Run migrations before accepting traffic, then verify that a stale test account receives `LEGAL_CONSENT_REQUIRED`, can still read the legal pages and log out, and creates exactly one `legal_documents_acknowledged` audit event after accepting all current versions. Never backfill acceptance timestamps or versions for users who did not perform the acknowledgement action.
+
 The public health endpoint intentionally does not expose dependency names, paths, hostnames, URLs, latency, or configuration state. Use the local ops scripts and server-side Docker commands below for detailed diagnostics.
 
 Recommended alert cron (every 5 minutes):

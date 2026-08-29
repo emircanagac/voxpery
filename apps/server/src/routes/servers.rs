@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
         ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerWithMembers,
@@ -250,7 +250,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/{server_id}/audit-log", get(get_audit_log))
                 .route("/join", post(join_server))
                 .route("/{server_id}/leave", post(leave_server))
-                .route_layer(middleware::from_fn_with_state(state, require_auth)),
+                .route_layer(middleware::from_fn_with_state(
+                    state,
+                    require_auth_and_current_legal_consent,
+                )),
         )
 }
 

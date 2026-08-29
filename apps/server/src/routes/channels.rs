@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::Channel,
     services::audit,
     services::permissions::{self, Permissions},
@@ -53,7 +53,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/reorder", patch(reorder_channels))
         .route("/", post(create_channel))
-        .route_layer(middleware::from_fn_with_state(state, require_auth))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ))
 }
 
 /// POST /api/channels — create a channel in a server.

@@ -98,6 +98,8 @@ describe('auth feature gating', () => {
     expect(openedUrl).toContain('intent=register')
     expect(openedUrl).toContain('terms_accepted=true')
     expect(openedUrl).toContain('privacy_notice_acknowledged=true')
+    expect(openedUrl).toContain('kvkk_notice_acknowledged=true')
+    expect(openedUrl).toContain('kvkk_notice_version=2026-08-23')
   })
 
   it('shows a disabled password reset message instead of the request form', () => {

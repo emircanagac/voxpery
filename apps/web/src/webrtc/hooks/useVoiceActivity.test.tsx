@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '../../stores/app'
+import { GLOBAL_PUSH_TO_TALK_EVENT } from '../../globalPushToTalk'
 import { useVoiceActivity } from './useVoiceActivity'
 
 describe('useVoiceActivity', () => {
@@ -67,5 +68,47 @@ describe('useVoiceActivity', () => {
 
     expect(useAppStore.getState().voiceLocalSpeaking).toBe(false)
     expect(setLocalMicMuted).not.toHaveBeenCalled()
+  })
+
+  it('opens and closes push-to-talk from desktop global press and release events', () => {
+    localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
+    localStorage.setItem('voxpery-settings-ptt-key', 'V')
+    const setLocalMicMuted = vi.fn().mockResolvedValue(undefined)
+    renderHook(() => useVoiceActivity({
+      userId: 'local-user',
+      joinedChannelId: 'voice-1',
+      localStream: null,
+      getAudioContext: () => null,
+      setLocalMicMuted,
+    }))
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(GLOBAL_PUSH_TO_TALK_EVENT, { detail: 'Pressed' }))
+    })
+    expect(setLocalMicMuted).toHaveBeenLastCalledWith(false)
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(GLOBAL_PUSH_TO_TALK_EVENT, { detail: 'Released' }))
+    })
+    expect(setLocalMicMuted).toHaveBeenLastCalledWith(true)
+  })
+
+  it('closes push-to-talk when the window loses focus', () => {
+    localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
+    const setLocalMicMuted = vi.fn().mockResolvedValue(undefined)
+    renderHook(() => useVoiceActivity({
+      userId: 'local-user',
+      joinedChannelId: 'voice-1',
+      localStream: null,
+      getAudioContext: () => null,
+      setLocalMicMuted,
+    }))
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(GLOBAL_PUSH_TO_TALK_EVENT, { detail: 'Pressed' }))
+      window.dispatchEvent(new Event('blur'))
+    })
+
+    expect(setLocalMicMuted).toHaveBeenLastCalledWith(true)
   })
 })

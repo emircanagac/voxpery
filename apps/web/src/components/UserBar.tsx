@@ -86,6 +86,11 @@ import {
   setGlobalMuteShortcutCaptureActive,
   shortcutFromKeyboardEvent,
 } from '../globalMuteShortcut'
+import {
+  pushToTalkShortcutFromKey,
+  registerDesktopGlobalPushToTalk,
+  setGlobalPushToTalkCaptureActive,
+} from '../globalPushToTalk'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
@@ -228,6 +233,7 @@ export default function UserBar() {
   const [voiceMode, setVoiceMode] = useState<'voice_activity' | 'push_to_talk'>('voice_activity')
   const [pttKey, setPttKey] = useState('V')
   const [capturingPtt, setCapturingPtt] = useState(false)
+  const [pttShortcutError, setPttShortcutError] = useState<string | null>(null)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
   const [voiceInputProfile, setVoiceInputProfile] = useState<VoiceInputProfile>(() => getStoredVoiceInputProfile())
   const [dmPrivacy, setDmPrivacy] = useState<'everyone' | 'friends'>(
@@ -571,7 +577,8 @@ export default function UserBar() {
     if (input != null) setInputVolume(Math.min(100, Math.max(1, Number(input) || DEFAULT_INPUT_VOLUME)))
     if (output != null) setOutputVolume(Math.min(100, Math.max(1, Number(output) || DEFAULT_OUTPUT_VOLUME)))
     setVoiceMode(mode)
-    if (ptt) setPttKey(ptt)
+    const storedPttShortcut = pushToTalkShortcutFromKey(ptt)
+    if (storedPttShortcut) setPttKey(storedPttShortcut)
     if (ns != null) {
       setNoiseSuppressionEnabled(ns === '1')
     } else {
@@ -714,23 +721,34 @@ export default function UserBar() {
 
   useEffect(() => {
     if (!capturingPtt) return
+    setGlobalPushToTalkCaptureActive(true)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
+        setPttShortcutError(null)
         setCapturingPtt(false)
         return
       }
       e.preventDefault()
       const key = e.key?.length === 1 ? e.key.toUpperCase() : e.key
       if (!key) return
-      setPttKey(key)
-      localStorage.setItem(PTT_KEY_KEY, key)
+      const shortcut = pushToTalkShortcutFromKey(key)
+      if (!shortcut) {
+        setPttShortcutError('Choose a letter, number, function key, Space, or navigation key.')
+        return
+      }
+      setPttKey(shortcut)
+      setPttShortcutError(null)
+      localStorage.setItem(PTT_KEY_KEY, shortcut)
       markVoiceProfileCustom()
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT))
       setCapturingPtt(false)
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      setGlobalPushToTalkCaptureActive(false)
+    }
   }, [capturingPtt, markVoiceProfileCustom])
 
   useEffect(() => {
@@ -894,6 +912,18 @@ export default function UserBar() {
       setGlobalMuteShortcutError('This shortcut could not be registered. It may be used by another application.')
     })
   }, [globalMuteShortcut])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    const key = voiceMode === 'push_to_talk' ? pttKey : null
+    void registerDesktopGlobalPushToTalk(key).catch(() => {
+      setPttShortcutError('This key could not be registered system-wide. It may be used by another application.')
+    })
+  }, [pttKey, voiceMode])
+
+  useEffect(() => () => {
+    void registerDesktopGlobalPushToTalk(null)
+  }, [])
 
   const saveGlobalMuteShortcut = useCallback(async (shortcut: string | null) => {
     setGlobalMuteShortcutSaving(true)
@@ -1918,12 +1948,22 @@ export default function UserBar() {
                       <div className="user-setting-row user-setting-row--span-two">
                         <div>
                           <div className="user-setting-title">Push-to-talk key</div>
-                          <div className="user-setting-desc">Current key: {pttKey}</div>
+                          <div className="user-setting-desc">
+                            Current key: {pttKey}. {isTauri()
+                              ? 'Works system-wide while Voxpery is running.'
+                              : 'Works while this Voxpery tab is focused.'}
+                          </div>
+                          {pttShortcutError && (
+                            <div className="pw-hint pw-hint-warn">{pttShortcutError}</div>
+                          )}
                         </div>
                         <button
                           type="button"
                           className={`user-toggle ${capturingPtt ? 'active' : ''}`}
-                          onClick={() => setCapturingPtt((v) => !v)}
+                          onClick={() => {
+                            setPttShortcutError(null)
+                            setCapturingPtt((v) => !v)
+                          }}
                         >
                           {capturingPtt ? 'Press key...' : 'Rebind'}
                         </button>

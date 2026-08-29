@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     services::rate_limit::enforce_rate_limit,
     services::voice_revoke::clear_local_voice_session,
     ws::access::can_join_voice_channel,
@@ -45,7 +45,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let authenticated = Router::new()
         .route("/turn-credentials", get(turn_credentials))
         .route("/livekit-token", get(livekit_token))
-        .route_layer(middleware::from_fn_with_state(state, require_auth));
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            require_auth_and_current_legal_consent,
+        ));
 
     let webhook = Router::new()
         .route("/livekit-webhook", post(livekit_webhook))

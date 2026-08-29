@@ -23,8 +23,9 @@ interface AuthState {
 const AUTH_STORAGE_KEY = 'voxpery-auth'
 
 type SetState = (partial: Partial<AuthState> | ((s: AuthState) => Partial<AuthState>)) => void
+type GetState = () => AuthState
 
-const authSlice = (set: SetState): AuthState => ({
+const authSlice = (set: SetState, get: GetState): AuthState => ({
     token: null,
     user: null,
     loggingOut: false,
@@ -49,15 +50,17 @@ const authSlice = (set: SetState): AuthState => ({
         set({ loggingOut: false, token: null, user: null })
     },
     logout: () => {
+        const currentToken = get().token
         if (isTauri()) {
             removeSecureToken().catch(() => { })
             set({ token: null, user: null })
+            authApi.logout(currentToken).catch(() => { })
         } else {
             // Clear state immediately so UI shows login without delay. Set loggingOut so App
             // skips restoring session from cookie. Clear cookie in background.
             set({ loggingOut: true, token: null, user: null })
             authApi
-                .logout()
+                .logout(null)
                 .catch(() => {})
                 .finally(() => set({ loggingOut: false }))
         }
