@@ -41,19 +41,24 @@ async function openServerSettings(page: Page) {
 }
 
 test.describe('mocked server settings UI regressions', () => {
-  test('keeps member profile popout aligned with the active theme', async ({ page }) => {
+  test('keeps the member profile dialog aligned with the active theme', async ({ page }) => {
     const state = createServerSettingsState()
+    const friend = state.membersByServerId[server.id]?.find((member) => member.user_id === 'friend-01')
+    if (!friend) throw new Error('Missing profile fixture member')
+    friend.about_me = 'Testing the profile theme surface.'
+    friend.roles = ['Community member']
     await installMockCoreApi(page, state)
     await page.addInitScript(() => localStorage.setItem('voxpery-settings-theme', 'dark'))
 
     await page.goto('/servers')
-    await page.locator('.member-item', { hasText: 'Friend 01' }).click()
-    const popout = page.locator('.member-profile-popout')
-    await expect(popout).toBeVisible()
+    await page.locator('.member-item', { hasText: 'Friend 01' }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'View profile (@Friend 01)' }).click()
+    const profileDialog = page.getByRole('dialog', { name: 'Friend 01' })
+    await expect(profileDialog).toBeVisible()
 
-    const dark = await readMemberProfileThemeSnapshot(popout)
+    const dark = await readMemberProfileThemeSnapshot(profileDialog)
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
-    const light = await readMemberProfileThemeSnapshot(popout)
+    const light = await readMemberProfileThemeSnapshot(profileDialog)
 
     expect(dark.popoutBackground).not.toBe(light.popoutBackground)
     expect(dark.sectionBackground).not.toBe(light.sectionBackground)
