@@ -1,10 +1,10 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle } from 'lucide-react'
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { resolveAvatarUrl, type Channel } from '../api'
+import { friendApi, resolveAvatarUrl, serverApi, type Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
@@ -18,6 +18,7 @@ import {
     REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT,
     writeRemotePlaybackVolumes,
 } from '../webrtc/remotePlaybackVolume'
+import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
 
 const PERM_CONNECT_VOICE = 1 << 10
 type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
@@ -70,8 +71,8 @@ export default function ChannelSidebar({
     loading = false,
 }: ChannelSidebarProps) {
     const channelTypeOrder = (type: Channel['channel_type']) => (type === 'text' ? 0 : 1)
-    const user = useAuthStore((s) => s.user)
-    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, voiceStates, voiceStateServerIds, voiceChannelActiveSince, voiceSpeakingUserIds, voiceLocalSpeaking, mutedChannelIds, setActiveChannel, toggleMutedChannel, closeMobileSidebar } = useAppStore(
+    const { user, token } = useAuthStore()
+    const { servers, activeServerId, activeChannelId, channels, members, membersByServerId, friends, voiceStates, voiceStateServerIds, voiceChannelActiveSince, voiceSpeakingUserIds, voiceLocalSpeaking, mutedChannelIds, setActiveChannel, toggleMutedChannel, closeMobileSidebar, setFriends } = useAppStore(
         useShallow((s) => ({
             servers: s.servers,
             activeServerId: s.activeServerId,
@@ -79,6 +80,7 @@ export default function ChannelSidebar({
             channels: s.channels,
             members: s.members,
             membersByServerId: s.membersByServerId,
+            friends: s.friends,
             voiceStates: s.voiceStates,
             voiceStateServerIds: s.voiceStateServerIds,
             voiceChannelActiveSince: s.voiceChannelActiveSince,
@@ -88,6 +90,7 @@ export default function ChannelSidebar({
             setActiveChannel: s.setActiveChannel,
             toggleMutedChannel: s.toggleMutedChannel,
             closeMobileSidebar: s.closeMobileSidebar,
+            setFriends: s.setFriends,
         }))
     )
     const pushToast = useToastStore((s) => s.pushToast)
@@ -98,6 +101,7 @@ export default function ChannelSidebar({
     const [categoryMenu, setCategoryMenu] = useState<{ category: string; x: number; y: number } | null>(null)
     const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
     const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; channelId: string; x: number; y: number } | null>(null)
+    const [profileCard, setProfileCard] = useState<{ member: MemberProfileMember; isServerOwner: boolean } | null>(null)
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
     const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
     const [dragOverCategoryForChannel, setDragOverCategoryForChannel] = useState<string | null>(null)
@@ -195,7 +199,7 @@ export default function ChannelSidebar({
     }
 
     useEffect(() => {
-        if (!contextMenu && !participantMenu && !categoryMenu && !createMenu) return
+        if (!contextMenu && !participantMenu && !categoryMenu && !createMenu && !profileCard) return
         const close = () => {
             setContextMenu(null)
             setParticipantMenu(null)
@@ -203,12 +207,17 @@ export default function ChannelSidebar({
             setCreateMenu(null)
         }
         window.addEventListener('click', close)
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setProfileCard(null)
+        }
+        window.addEventListener('keydown', onKeyDown)
         window.addEventListener('scroll', close, true)
         return () => {
             window.removeEventListener('click', close)
+            window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu, participantMenu, categoryMenu, createMenu])
+    }, [contextMenu, participantMenu, categoryMenu, createMenu, profileCard])
 
     useEffect(() => {
         if (Object.keys(voiceChannelActiveSince).length === 0) return
@@ -226,6 +235,42 @@ export default function ChannelSidebar({
         setPeerVolumeByUserId(next)
         window.dispatchEvent(new CustomEvent(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT))
     }
+
+    const handleAddFriend = useCallback(async (member: MemberProfileMember) => {
+        if (!user || member.user_id === user.id) return
+        try {
+            await friendApi.sendRequest(member.username, token)
+            setFriends(await friendApi.list(token))
+        } catch (error) {
+            pushToast({
+                level: 'error',
+                title: 'Add friend failed',
+                message: error instanceof Error ? error.message : 'Could not send friend request.',
+            })
+        }
+    }, [pushToast, setFriends, token, user])
+
+    const openProfile = useCallback((member: MemberProfileMember, isServerOwner: boolean) => {
+        setProfileCard({ member, isServerOwner })
+        if (!activeServerId) return
+
+        void serverApi.get(activeServerId, token)
+            .then((detail) => {
+                const refreshedMember = detail.members.find((entry) => entry.user_id === member.user_id)
+                if (!refreshedMember) return
+                setProfileCard((current) => (
+                    current?.member.user_id === member.user_id
+                        ? {
+                            member: refreshedMember,
+                            isServerOwner: activeServer?.owner_id === refreshedMember.user_id,
+                        }
+                        : current
+                ))
+            })
+            .catch(() => {
+                // Keep the cached member data when a background refresh is unavailable.
+            })
+    }, [activeServer?.owner_id, activeServerId, token])
 
     useEffect(() => {
         const syncPeerVolumes = () => setPeerVolumeByUserId(readRemotePlaybackVolumes())
@@ -581,15 +626,19 @@ export default function ChannelSidebar({
                                                                 setParticipantMenu(null)
                                                                 return
                                                             }
-                                                            const estimatedWidth = 224
+                                                            const estimatedWidth = 208
                                                             const moderationActions =
                                                                 (canMuteMembers ? 1 : 0)
                                                                 + (canDeafenMembers ? 1 : 0)
                                                                 + (canDisconnectMembers ? 1 : 0)
-                                                            const estimatedHeight = 194 + (moderationActions > 0
+                                                            const estimatedHeight = 234 + (moderationActions > 0
                                                                 ? 54 + moderationActions * 32
                                                                 : 0)
-                                                            const pos = clampSidebarMenuPosition(e.clientX, e.clientY, estimatedWidth, estimatedHeight)
+                                                            const sidebarRect = sidebarRef.current?.getBoundingClientRect()
+                                                            const preferredX = sidebarRect
+                                                                ? sidebarRect.left + (sidebarRect.width - estimatedWidth) / 2
+                                                                : e.clientX
+                                                            const pos = clampSidebarMenuPosition(preferredX, e.clientY, estimatedWidth, estimatedHeight)
                                                             closeAllContextMenus()
                                                             setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
                                                         }}
@@ -806,6 +855,7 @@ export default function ChannelSidebar({
 
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
+                const profileMember = memberPool.find((member) => member.user_id === participantMenu.userId) ?? null
                 const currentVolume = getRemotePlaybackVolume(peerVolumeByUserId, 'voice', participantMenu.userId)
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
@@ -823,9 +873,19 @@ export default function ChannelSidebar({
                         style={{ left: participantMenu.x, top: participantMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="server-context-menu-item member-volume-menu-username">
-                            {participantMenu.username}
-                        </div>
+                        {profileMember && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item member-volume-menu-action-with-icon"
+                                onClick={() => {
+                                    openProfile(profileMember, activeServer?.owner_id === profileMember.user_id)
+                                    setParticipantMenu(null)
+                                }}
+                            >
+                                <UserRound size={14} />
+                                View profile (@{participantMenu.username})
+                            </button>
+                        )}
                         {onOpenDirectMessage && (
                             <>
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--personal">
@@ -938,6 +998,26 @@ export default function ChannelSidebar({
                     </div>
                 )
             })()}
+
+            {profileCard && (
+                <MemberProfileDialog
+                    member={profileCard.member}
+                    isServerOwner={profileCard.isServerOwner}
+                    onClose={() => setProfileCard(null)}
+                    actions={profileCard.member.user_id === user?.id ? undefined : {
+                        canSendDm: !!onOpenDirectMessage,
+                        canAddFriend: !friends.some((friend) => friend.id === profileCard.member.user_id),
+                        onSendDm: onOpenDirectMessage ? () => {
+                            onOpenDirectMessage(profileCard.member.user_id)
+                            setProfileCard(null)
+                        } : undefined,
+                        onAddFriend: () => {
+                            void handleAddFriend(profileCard.member)
+                            setProfileCard(null)
+                        },
+                    }}
+                />
+            )}
 
         </div>
     )

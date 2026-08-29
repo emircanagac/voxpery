@@ -79,6 +79,14 @@ pub enum WsEvent {
         screen_sharing: bool,
         camera_on: bool,
     },
+    /// A voice participant started or stopped watching another participant's active screen share.
+    ScreenShareViewerUpdate {
+        viewer_id: Uuid,
+        publisher_id: Uuid,
+        channel_id: Uuid,
+        server_id: Option<Uuid>,
+        watching: bool,
+    },
     /// User profile details updated (safe public subset only).
     UserUpdated {
         user: crate::models::UserBroadcastProfile,
@@ -109,6 +117,53 @@ pub enum SignalingMessage {
     },
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{WsClientMessage, WsEvent};
+    use uuid::Uuid;
+
+    #[test]
+    fn serializes_screen_share_viewer_updates() {
+        let viewer_id = Uuid::new_v4();
+        let publisher_id = Uuid::new_v4();
+        let channel_id = Uuid::new_v4();
+        let server_id = Uuid::new_v4();
+        let event = WsEvent::ScreenShareViewerUpdate {
+            viewer_id,
+            publisher_id,
+            channel_id,
+            server_id: Some(server_id),
+            watching: true,
+        };
+
+        let json = serde_json::to_value(event).expect("viewer update serializes");
+        assert_eq!(json["type"], "ScreenShareViewerUpdate");
+        assert_eq!(json["data"]["viewer_id"], viewer_id.to_string());
+        assert_eq!(json["data"]["publisher_id"], publisher_id.to_string());
+        assert_eq!(json["data"]["channel_id"], channel_id.to_string());
+        assert_eq!(json["data"]["server_id"], server_id.to_string());
+        assert_eq!(json["data"]["watching"], true);
+    }
+
+    #[test]
+    fn parses_screen_share_viewer_subscription_request() {
+        let publisher_id = Uuid::new_v4();
+        let payload = format!(
+            r#"{{"type":"SetScreenShareWatching","data":{{"publisher_user_id":"{publisher_id}","watching":true}}}}"#,
+        );
+
+        let message = serde_json::from_str::<WsClientMessage>(&payload)
+            .expect("viewer subscription request parses");
+        assert!(matches!(
+            message,
+            WsClientMessage::SetScreenShareWatching {
+                publisher_user_id,
+                watching: true,
+            } if publisher_user_id == publisher_id
+        ));
+    }
+}
+
 /// Client-to-server WebSocket messages.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -137,6 +192,11 @@ pub enum WsClientMessage {
         deafened: bool,
         screen_sharing: bool,
         camera_on: bool,
+    },
+    /// Opt in or out of receiving an active participant's screen share.
+    SetScreenShareWatching {
+        publisher_user_id: Uuid,
+        watching: bool,
     },
     /// WebRTC signaling message.
     Signal {

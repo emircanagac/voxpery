@@ -559,6 +559,21 @@ fn validate_username(username: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn validate_profile_text(value: String, field_name: &str, max_chars: usize) -> Result<String, AppError> {
+    let normalized = value.trim().to_string();
+    if normalized.chars().count() > max_chars {
+        return Err(AppError::Validation(format!(
+            "{field_name} must be {max_chars} characters or fewer"
+        )));
+    }
+    if normalized.chars().any(|ch| ch.is_control() && ch != '\n') {
+        return Err(AppError::Validation(format!(
+            "{field_name} cannot contain control characters"
+        )));
+    }
+    Ok(normalized)
+}
+
 fn token_hash_base64(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -762,6 +777,7 @@ struct UpdateProfileRequest {
     clear_avatar: Option<bool>,
     dm_privacy: Option<String>,
     username: Option<String>,
+    about_me: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -806,6 +822,7 @@ struct ExportAccountRow {
     username: String,
     email: String,
     avatar_url: Option<String>,
+    about_me: String,
     status: String,
     dm_privacy: String,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -2317,6 +2334,7 @@ async fn update_profile(
     let mut next_avatar = user.avatar_url.clone();
     let mut next_dm_privacy = user.dm_privacy.clone();
     let mut next_username = user.username.clone();
+    let mut next_about_me = user.about_me.clone();
 
     if let Some(raw_username) = body.username {
         let username = raw_username.trim();
@@ -2363,17 +2381,22 @@ async fn update_profile(
         next_dm_privacy = value;
     }
 
+    if let Some(about_me) = body.about_me {
+        next_about_me = validate_profile_text(about_me, "About me", 190)?;
+    }
+
     let username_changed = next_username != user.username;
     let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
-            SET avatar_url = $1, dm_privacy = $2, username = $3,
-                username_changed_at = CASE WHEN $5 THEN NOW() ELSE username_changed_at END
-            WHERE id = $4
+            SET avatar_url = $1, dm_privacy = $2, username = $3, about_me = $4,
+                username_changed_at = CASE WHEN $6 THEN NOW() ELSE username_changed_at END
+            WHERE id = $5
            RETURNING *"#,
     )
     .bind(next_avatar)
     .bind(next_dm_privacy)
     .bind(&next_username)
+    .bind(next_about_me)
     .bind(claims.sub)
     .bind(username_changed)
     .fetch_one(&state.db)
@@ -2789,7 +2812,7 @@ async fn export_my_data(
     .await?;
 
     let account = sqlx::query_as::<_, ExportAccountRow>(
-        r#"SELECT username, email, avatar_url, status, dm_privacy, created_at,
+        r#"SELECT username, email, avatar_url, about_me, status, dm_privacy, created_at,
                   (google_id IS NOT NULL) AS google_connected,
                   password_hash
            FROM users
@@ -3019,7 +3042,8 @@ async fn export_my_data(
             "google_connected": account.google_connected
         },
         "profile": {
-            "has_avatar": account.avatar_url.is_some()
+            "has_avatar": account.avatar_url.is_some(),
+            "about_me": account.about_me,
         },
         "servers": memberships.iter().map(|membership| {
             serde_json::json!({

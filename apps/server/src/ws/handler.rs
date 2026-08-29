@@ -103,6 +103,58 @@ fn voice_control_event_from_state(
     }
 }
 
+fn screen_share_viewer_event(
+    viewer_id: Uuid,
+    publisher_id: Uuid,
+    channel_id: Uuid,
+    server_id: Option<Uuid>,
+    watching: bool,
+) -> WsEvent {
+    WsEvent::ScreenShareViewerUpdate {
+        viewer_id,
+        publisher_id,
+        channel_id,
+        server_id,
+        watching,
+    }
+}
+
+fn clear_screen_share_viewer_entries_for_user(state: &AppState, user_id: Uuid) {
+    state
+        .screen_share_viewers
+        .retain(|(viewer_id, publisher_id), _| *viewer_id != user_id && *publisher_id != user_id);
+}
+
+async fn clear_screen_share_viewers_for_publisher(
+    state: &Arc<AppState>,
+    publisher_id: Uuid,
+    channel_id: Uuid,
+    server_id: Option<Uuid>,
+) {
+    let viewer_ids = state
+        .screen_share_viewers
+        .iter()
+        .filter_map(|entry| {
+            let ((viewer_id, entry_publisher_id), _) = entry.pair();
+            (*entry_publisher_id == publisher_id).then_some(*viewer_id)
+        })
+        .collect::<Vec<_>>();
+
+    for viewer_id in viewer_ids {
+        if state
+            .screen_share_viewers
+            .remove(&(viewer_id, publisher_id))
+            .is_some()
+        {
+            super::publish_event(
+                state,
+                screen_share_viewer_event(viewer_id, publisher_id, channel_id, server_id, false),
+            )
+            .await;
+        }
+    }
+}
+
 fn visible_presence_from_preference(status: &str) -> &'static str {
     match status.to_ascii_lowercase().as_str() {
         "dnd" => "dnd",
@@ -496,7 +548,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                             user_in_server(&send_state.db, user_id, *server_id).await
                         }
                         WsEvent::VoiceStateUpdate { server_id, .. }
-                        | WsEvent::VoiceControlUpdate { server_id, .. } => {
+                        | WsEvent::VoiceControlUpdate { server_id, .. }
+                        | WsEvent::ScreenShareViewerUpdate { server_id, .. } => {
                             match server_id {
                                 Some(sid) => {
                                     // Re-check current membership so users that were removed from
@@ -684,6 +737,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             ));
                                         }
                                     }
+                                    for entry in recv_state.screen_share_viewers.iter() {
+                                        let ((viewer_id, publisher_id), _) = entry.pair();
+                                        let viewer_channel = recv_state
+                                            .voice_sessions
+                                            .get(viewer_id)
+                                            .map(|entry| *entry);
+                                        let publisher_channel = recv_state
+                                            .voice_sessions
+                                            .get(publisher_id)
+                                            .map(|entry| *entry);
+                                        if viewer_channel != Some(cid)
+                                            || publisher_channel != Some(cid)
+                                        {
+                                            continue;
+                                        }
+                                        let _ = client_tx.send(screen_share_viewer_event(
+                                            *viewer_id,
+                                            *publisher_id,
+                                            cid,
+                                            server_id,
+                                            true,
+                                        ));
+                                    }
                                 }
                             }
                             WsClientMessage::Unsubscribe { channel_ids } => {
@@ -750,6 +826,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     }
                                     Ok(true) => {
                                         // 1. Update voice session
+                                        clear_screen_share_viewer_entries_for_user(
+                                            &recv_state,
+                                            user_id,
+                                        );
                                         let previous_channel_id =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
                                         if let Some(participant_sid) =
@@ -845,6 +925,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 if let Some((_, previous_channel_id)) =
                                     recv_state.voice_sessions.remove(&user_id)
                                 {
+                                    clear_screen_share_viewer_entries_for_user(
+                                        &recv_state,
+                                        user_id,
+                                    );
                                     recv_state.voice_participant_sids.remove(&user_id);
                                     let previous_server_id =
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
@@ -1018,12 +1102,85 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     camera_on,
                                 );
                                 let _ = recv_state.voice_controls.insert(user_id, next_state);
+                                if current.4 && !screen_sharing {
+                                    clear_screen_share_viewers_for_publisher(
+                                        &recv_state,
+                                        user_id,
+                                        actor_channel_id,
+                                        actor_server_id,
+                                    )
+                                    .await;
+                                }
                                 super::publish_event(
                                     &recv_state,
                                     voice_control_event_from_state(
                                         user_id,
                                         actor_server_id,
                                         next_state,
+                                    ),
+                                )
+                                .await;
+                            }
+                            WsClientMessage::SetScreenShareWatching {
+                                publisher_user_id,
+                                watching,
+                            } => {
+                                if publisher_user_id == user_id {
+                                    continue;
+                                }
+                                let viewer_channel =
+                                    recv_state.voice_sessions.get(&user_id).map(|entry| *entry);
+                                let publisher_channel = recv_state
+                                    .voice_sessions
+                                    .get(&publisher_user_id)
+                                    .map(|entry| *entry);
+                                let Some(channel_id) = viewer_channel else {
+                                    recv_state
+                                        .screen_share_viewers
+                                        .remove(&(user_id, publisher_user_id));
+                                    continue;
+                                };
+                                if publisher_channel != Some(channel_id) {
+                                    recv_state
+                                        .screen_share_viewers
+                                        .remove(&(user_id, publisher_user_id));
+                                    continue;
+                                }
+
+                                let is_publisher_sharing = recv_state
+                                    .voice_controls
+                                    .get(&publisher_user_id)
+                                    .map(|control| control.4)
+                                    .unwrap_or(false);
+                                if watching && !is_publisher_sharing {
+                                    continue;
+                                }
+
+                                let changed = if watching {
+                                    recv_state
+                                        .screen_share_viewers
+                                        .insert((user_id, publisher_user_id), ())
+                                        .is_none()
+                                } else {
+                                    recv_state
+                                        .screen_share_viewers
+                                        .remove(&(user_id, publisher_user_id))
+                                        .is_some()
+                                };
+                                if !changed {
+                                    continue;
+                                }
+
+                                let server_id =
+                                    server_id_for_channel(&recv_state.db, channel_id).await;
+                                super::publish_event(
+                                    &recv_state,
+                                    screen_share_viewer_event(
+                                        user_id,
+                                        publisher_user_id,
+                                        channel_id,
+                                        server_id,
+                                        watching,
                                     ),
                                 )
                                 .await;
@@ -1135,6 +1292,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     if last_session_gone {
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
+            clear_screen_share_viewer_entries_for_user(&state, user_id);
             state.voice_participant_sids.remove(&user_id);
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
             let _ = state.voice_controls.remove(&user_id);

@@ -452,6 +452,10 @@ export function useLiveKitVoice() {
       else watchedRemoteScreenPeerIdsRef.current.delete(peerId)
       setWatchedRemoteScreenPeerIds(new Set(watchedRemoteScreenPeerIdsRef.current))
       userHiddenRemoteMediaKeysRef.current.delete(key)
+      send('SetScreenShareWatching', {
+        publisher_user_id: peerId,
+        watching: subscribed,
+      })
     } else if (subscribed) {
       userHiddenRemoteMediaKeysRef.current.delete(key)
     } else {
@@ -479,7 +483,7 @@ export function useLiveKitVoice() {
         publication.setSubscribed(true)
       }
     })
-  }, [remoteMediaSubscriptionKey])
+  }, [remoteMediaSubscriptionKey, send])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1660,6 +1664,12 @@ export function useLiveKitVoice() {
         participantSid: room?.localParticipant.sid ?? null,
         control,
         send,
+      })
+      watchedRemoteScreenPeerIdsRef.current.forEach((publisherUserId) => {
+        send('SetScreenShareWatching', {
+          publisher_user_id: publisherUserId,
+          watching: true,
+        })
       })
     })
     return unsub

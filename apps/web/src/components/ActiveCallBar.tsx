@@ -131,6 +131,36 @@ function RemoteVideoTrack({ track }: { track: MediaStreamTrack }) {
   return <video ref={videoRef} autoPlay muted playsInline />
 }
 
+function ScreenShareViewerAvatars({
+  viewerIds,
+  members,
+}: {
+  viewerIds: string[]
+  members: Array<{ user_id: string; username: string; avatar_url?: string | null }>
+}) {
+  const viewers = viewerIds
+    .map((viewerId) => members.find((member) => member.user_id === viewerId))
+    .filter((member): member is { user_id: string; username: string; avatar_url?: string | null } => !!member)
+  if (viewers.length === 0) return null
+
+  const visibleViewers = viewers.slice(0, 4)
+  const remaining = viewers.length - visibleViewers.length
+  const names = viewers.map((viewer) => viewer.username).join(', ')
+  return (
+    <div className="screen-share-viewers" role="status" aria-label={`Watching: ${names}`} title={`Watching: ${names}`}>
+      <span className="screen-share-viewers-label">Watching</span>
+      <div className="screen-share-viewers-avatars" aria-hidden="true">
+        {visibleViewers.map((viewer) => (
+          <span key={viewer.user_id} className="screen-share-viewer-avatar">
+            {viewer.avatar_url ? <img src={resolveAvatarUrl(viewer.avatar_url) ?? ''} alt="" /> : viewer.username.charAt(0).toUpperCase()}
+          </span>
+        ))}
+        {remaining > 0 && <span className="screen-share-viewer-avatar screen-share-viewer-avatar--count">+{remaining}</span>}
+      </div>
+    </div>
+  )
+}
+
 const RemoteAudioPlaybackLayer = memo(function RemoteAudioPlaybackLayer({
   remoteStreams,
   watchedScreenPeerIds,
@@ -165,7 +195,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     playVoiceCue,
   } = useLiveKitVoice()
   const { user } = useAuthStore()
-  const { members, voiceStates, channels, channelsByServerId, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls } = useAppStore(
+  const { members, voiceStates, channels, channelsByServerId, servers, setActiveServer, setActiveChannel, voiceSpeakingUserIds, voiceLocalSpeaking, voiceControls, screenShareViewerIdsByPublisherId } = useAppStore(
     useShallow((s) => ({
       members: s.members,
       voiceStates: s.voiceStates,
@@ -177,6 +207,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       voiceSpeakingUserIds: s.voiceSpeakingUserIds,
       voiceLocalSpeaking: s.voiceLocalSpeaking,
       voiceControls: s.voiceControls,
+      screenShareViewerIdsByPublisherId: s.screenShareViewerIdsByPublisherId,
     }))
   )
   const allKnownChannels = useMemo(() => {
@@ -942,6 +973,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       !watchedRemoteScreenPeerIds.has(peerId) || !activeRemoteScreenPeerIds.has(peerId)
     ))
   ), [activeRemoteScreenPeerIds, availableRemoteScreenPeerIds, watchedRemoteScreenPeerIds])
+  const getScreenShareViewerIds = useCallback((publisherId: string) => (
+    (screenShareViewerIdsByPublisherId[publisherId] ?? []).filter((viewerId) => (
+      viewerId !== publisherId && voiceStates[viewerId] === currentVoiceChannelId
+    ))
+  ), [currentVoiceChannelId, screenShareViewerIdsByPublisherId, voiceStates])
   useEffect(() => {
     if (remoteMediaPlaceholders.size === 0) return
     const participantIds = new Set(channelParticipants.map((participant) => participant.user_id))
@@ -1559,6 +1595,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 <div className={`screen-share-preview voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   <div className="screen-share-info-overlay"><span className="screen-share-info-text">Screen share · You</span></div>
+                  {user?.id && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(user.id)} members={members} />}
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
@@ -1594,6 +1631,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       {isConnecting ? 'Connecting to stream' : 'Stream available'}
                     </div>
                     <div className="voice-stage-hidden-media-sub">{remoteShareOwner(peerId)}</div>
+                    <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />
                     {!isConnecting && (
                       <button
                         type="button"
@@ -1644,6 +1682,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <div key={tileKey} className={`screen-share-preview remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
                     <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {owner}</span></div>
+                    {kind === 'screen' && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />}
                     <div className="screen-share-controls-bar">
                       <div className="screen-share-controls-left">
                         {kind === 'screen' && (

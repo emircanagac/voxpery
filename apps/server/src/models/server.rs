@@ -76,8 +76,11 @@ pub struct MemberInfo {
     pub user_id: Uuid,
     pub username: String,
     pub avatar_url: Option<String>,
+    pub about_me: String,
     pub role: String,
     pub status: String,
+    pub account_created_at: DateTime<Utc>,
+    pub server_joined_at: DateTime<Utc>,
     /// Display color derived from the highest-positioned role with a color,
     /// similar to Discord's member list behaviour.
     pub role_color: Option<String>,

@@ -9,9 +9,10 @@ import type { StatusValue } from './StatusIcon'
 import { useNavigate } from 'react-router'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
+import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
 
 interface MemberItemProps {
-    member: { user_id: string; username: string; role: string; avatar_url?: string | null; status?: string | null; role_color?: string | null; roles?: string[] }
+    member: MemberProfileMember
     isOwner: boolean
     isServerOwner: boolean
     currentUserId?: string
@@ -23,7 +24,6 @@ interface MemberItemProps {
     myRole: string
     interactive: boolean
     onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
-    onOpenProfile: (e: React.MouseEvent, member: MemberItemProps['member'], isServerOwner: boolean) => void
 }
 
 const MemberItem = memo(function MemberItem({
@@ -39,7 +39,6 @@ const MemberItem = memo(function MemberItem({
     myRole,
     interactive,
     onContextMenu,
-    onOpenProfile,
 }: MemberItemProps) {
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
     const isOnline = status(member) === 'online' || status(member) === 'dnd'
@@ -79,15 +78,11 @@ const MemberItem = memo(function MemberItem({
         member.role !== 'owner' &&
         (myRole === 'owner' || member.role === 'member')
     const canReport = member.user_id !== currentUserId
-    const showContextMenu = interactive && (canMakeAdmin || canAddFriend || canSendDm || canTimeout || canKick || canBan || canReport)
+    const showContextMenu = interactive
 
     return (
         <div
             className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
-            onClick={(e) => {
-                if (!interactive) return
-                onOpenProfile(e, member, isServerOwner)
-            }}
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
@@ -174,6 +169,8 @@ export default function MemberSidebar({
     const [channelMembersById, setChannelMembersById] = useState<Record<string, MemberItemProps['member'][]>>({})
     const [channelScopeRefreshVersion, setChannelScopeRefreshVersion] = useState(0)
     const [contextMenu, setContextMenu] = useState<{
+        member: MemberItemProps['member']
+        isServerOwner: boolean
         userId: string
         username: string
         role: string
@@ -201,12 +198,9 @@ export default function MemberSidebar({
     const [profileCard, setProfileCard] = useState<{
         member: MemberItemProps['member']
         isServerOwner: boolean
-        x: number
-        y: number
     } | null>(null)
-    const menuRef = useRef<HTMLDivElement>(null)
-    const profileRef = useRef<HTMLDivElement>(null)
     const sidebarRef = useRef<HTMLDivElement>(null)
+    const menuRef = useRef<HTMLDivElement>(null)
 
     const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
         const pad = 8
@@ -268,23 +262,16 @@ export default function MemberSidebar({
     useEffect(() => {
         if (!contextMenu && !profileCard) return
         const close = () => setContextMenu(null)
-        const closeProfile = (event: MouseEvent) => {
-            if (!profileRef.current) return
-            if (profileRef.current.contains(event.target as Node)) return
-            setProfileCard(null)
-        }
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') return
             setContextMenu(null)
             setProfileCard(null)
         }
-        window.addEventListener('click', close)
-        window.addEventListener('click', closeProfile)
+        if (contextMenu) window.addEventListener('click', close)
         window.addEventListener('keydown', onKeyDown)
         window.addEventListener('scroll', close, true)
         return () => {
             window.removeEventListener('click', close)
-            window.removeEventListener('click', closeProfile)
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('scroll', close, true)
         }
@@ -318,6 +305,28 @@ export default function MemberSidebar({
         },
         [],
     )
+
+    const openProfile = useCallback((member: MemberItemProps['member'], isServerOwner: boolean) => {
+        setProfileCard({ member, isServerOwner })
+        if (!activeServerId) return
+
+        void serverApi.get(activeServerId, token)
+            .then((detail) => {
+                const refreshedMember = detail.members.find((entry) => entry.user_id === member.user_id)
+                if (!refreshedMember) return
+                setProfileCard((current) => (
+                    current?.member.user_id === member.user_id
+                        ? {
+                            member: refreshedMember,
+                            isServerOwner: activeServer?.owner_id === refreshedMember.user_id,
+                        }
+                        : current
+                ))
+            })
+            .catch(() => {
+                // Keep the cached member data when a background refresh is unavailable.
+            })
+    }, [activeServer?.owner_id, activeServerId, token])
 
     useEffect(() => {
         return subscribeWs((payload: unknown) => {
@@ -514,9 +523,16 @@ export default function MemberSidebar({
         canReport: boolean
     ) => {
         const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canSendDm ? 1 : 0) + (canTimeout ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
-        const pos = clampMenuPosition(e.clientX, e.clientY, 176, 8 + optionCount * 38)
+        const menuWidth = 176
+        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
+        const preferredX = sidebarRect
+            ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
+            : e.clientX
+        const pos = clampMenuPosition(preferredX, e.clientY, menuWidth, 8 + optionCount * 38)
         setProfileCard(null)
         setContextMenu({
+            member,
+            isServerOwner: member.user_id === activeServer?.owner_id,
             userId: member.user_id,
             username: member.username,
             role: member.role,
@@ -530,34 +546,7 @@ export default function MemberSidebar({
             canBan,
             canReport,
         })
-    }, [])
-
-    const handleOpenProfile = useCallback((
-        e: React.MouseEvent,
-        member: MemberItemProps['member'],
-        isServerOwner: boolean,
-    ) => {
-        if (e.button !== 0) return
-        e.preventDefault()
-        e.stopPropagation()
-        setContextMenu(null)
-        const profileWidth = 260
-        const profileHeight = 220
-        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
-        const itemRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        const desiredX = (sidebarRect?.left ?? e.clientX) - profileWidth - 12
-        const desiredY = itemRect.top - 6
-        const pos = clampMenuPosition(desiredX, desiredY, profileWidth, profileHeight)
-        setProfileCard((prev) => {
-            if (prev?.member.user_id === member.user_id) return null
-            return {
-                member,
-                isServerOwner,
-                x: pos.x,
-                y: pos.y,
-            }
-        })
-    }, [])
+    }, [activeServer])
 
     if (!activeServer) return null
 
@@ -576,7 +565,7 @@ export default function MemberSidebar({
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (
-        <div className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`} ref={sidebarRef}>
+        <div ref={sidebarRef} className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`}>
             {onlineMembers.length > 0 && (
                 <>
                     <div className="member-category member-category-online">
@@ -597,7 +586,6 @@ export default function MemberSidebar({
                             myRole={myRole}
                             interactive={interactive}
                             onContextMenu={handleContextMenu}
-                            onOpenProfile={handleOpenProfile}
                         />
                     ))}
                 </>
@@ -623,7 +611,6 @@ export default function MemberSidebar({
                             myRole={myRole}
                             interactive={interactive}
                             onContextMenu={handleContextMenu}
-                            onOpenProfile={handleOpenProfile}
                         />
                     ))}
                 </>
@@ -633,9 +620,22 @@ export default function MemberSidebar({
                 <div
                     ref={menuRef}
                     className="server-context-menu member-context-menu"
+                    role="menu"
+                    aria-label={`Actions for ${contextMenu.username}`}
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    <button
+                        type="button"
+                        className="server-context-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                            openProfile(contextMenu.member, contextMenu.isServerOwner)
+                            setContextMenu(null)
+                        }}
+                    >
+                        View profile (@{contextMenu.username})
+                    </button>
                     {contextMenu.canAddFriend && (
                         <button
                             type="button"
@@ -728,84 +728,23 @@ export default function MemberSidebar({
             )}
 
             {profileCard && (
-                <div
-                    ref={profileRef}
-                    className="member-profile-popout"
-                    style={{ left: profileCard.x, top: profileCard.y }}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {(() => {
-                        const baseRoleNormalized = profileCard.member.role.trim().toLowerCase()
-                        const roleSet = new Set<string>()
-                        for (const roleName of profileCard.member.roles ?? []) {
-                            const trimmed = roleName.trim()
-                            if (!trimmed) continue
-                            const normalized = trimmed.toLowerCase()
-                            if (normalized === 'owner') continue
-                            if (normalized === baseRoleNormalized) continue
-                            roleSet.add(trimmed)
-                        }
-                        const roleLabels = Array.from(roleSet)
-                        const normalizedRole = profileCard.member.role.trim().toLowerCase()
-                        const showBaseRoleBadge =
-                            normalizedRole.length > 0
-                            && !(profileCard.isServerOwner && normalizedRole === 'owner')
-                        return (
-                            <>
-                    <div className="member-profile-header">
-                        <div className="member-profile-avatar">
-                            {profileCard.member.avatar_url ? (
-                                <img src={resolveAvatarUrl(profileCard.member.avatar_url) ?? ''} alt="" className="member-avatar-image" />
-                            ) : (
-                                profileCard.member.username.charAt(0).toUpperCase()
-                            )}
-                        </div>
-                        <div className="member-profile-meta">
-                            <div className="member-profile-username">{profileCard.member.username}</div>
-                            <div className="member-profile-status">{(profileCard.member.status ?? 'offline').toString().toUpperCase()}</div>
-                        </div>
-                    </div>
-                    <div className="member-profile-badges">
-                        {profileCard.isServerOwner && (
-                            <span className="member-profile-badge is-owner">Owner</span>
-                        )}
-                        {showBaseRoleBadge && (
-                            <span
-                                className="member-profile-badge"
-                                style={profileCard.member.role_color ? { borderColor: profileCard.member.role_color, color: profileCard.member.role_color } : undefined}
-                            >
-                                {profileCard.member.role}
-                            </span>
-                        )}
-                    </div>
-                    <div className="member-profile-section">
-                        <div className="member-profile-section-title">Server Profile</div>
-                        <div className="member-profile-section-value">
-                            {profileCard.isServerOwner ? 'Server owner with full access' : `Role: ${profileCard.member.role}`}
-                        </div>
-                    </div>
-                    <div className="member-profile-section">
-                        <div className="member-profile-section-title">Roles in server</div>
-                        {roleLabels.length > 0 ? (
-                            <div className="member-profile-badges member-profile-badges--stack">
-                                {roleLabels.map((label) => (
-                                    <span
-                                        key={label}
-                                        className="member-profile-badge"
-                                        style={profileCard.member.role_color ? { borderColor: profileCard.member.role_color, color: profileCard.member.role_color } : undefined}
-                                    >
-                                        {label}
-                                    </span>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="member-profile-section-value">No custom roles.</div>
-                        )}
-                    </div>
-                            </>
-                        )
-                    })()}
-                </div>
+                <MemberProfileDialog
+                    member={profileCard.member}
+                    isServerOwner={profileCard.isServerOwner}
+                    onClose={() => setProfileCard(null)}
+                    actions={profileCard.member.user_id === user?.id ? undefined : {
+                        canSendDm: true,
+                        canAddFriend: !friendUsernames.has(profileCard.member.username.toLowerCase()),
+                        onSendDm: () => {
+                            void handleSendDm(profileCard.member.user_id, profileCard.member.username)
+                            setProfileCard(null)
+                        },
+                        onAddFriend: () => {
+                            void handleAddFriend(profileCard.member.username)
+                            setProfileCard(null)
+                        },
+                    }}
+                />
             )}
 
             {roleEditor && (

@@ -283,6 +283,29 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.leaveVoice).not.toHaveBeenCalled()
   })
 
+  it('shows only current channel viewers on an active screen share', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    useAppStore.setState({
+      screenShareViewerIdsByPublisherId: {
+        'peer-1': [localUser.id],
+      },
+    })
+
+    renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    expect(screen.getByRole('status', { name: 'Watching: cooluser' })).toBeVisible()
+
+    act(() => {
+      useAppStore.getState().clearScreenShareViewerMembership(localUser.id)
+    })
+
+    expect(screen.queryByRole('status', { name: 'Watching: cooluser' })).not.toBeInTheDocument()
+  })
+
   it('focuses a watched screen share in the in-app theater view without changing its subscription', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const remoteStream = new MediaStream([screenTrack])

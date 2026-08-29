@@ -45,6 +45,9 @@ pub struct AppState {
     pub voice_channel_active_since_ms: DashMap<uuid::Uuid, u64>,
     /// Voice controls: user_id -> (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
     pub voice_controls: DashMap<uuid::Uuid, (bool, bool, bool, bool, bool, bool)>,
+    /// Active screen-share viewers keyed by (viewer_id, publisher_id).
+    /// Entries are in-memory voice presence and are removed when either user leaves voice.
+    pub screen_share_viewers: DashMap<(uuid::Uuid, uuid::Uuid), ()>,
     pub auth_rate_limit_max: usize,
     pub auth_rate_limit_window_secs: u64,
     pub login_failure_max_attempts: usize,

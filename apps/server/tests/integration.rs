@@ -138,6 +138,7 @@ async fn setup_app_with_features(
         voice_participant_sids: DashMap::new(),
         voice_channel_active_since_ms: DashMap::new(),
         voice_controls: DashMap::new(),
+        screen_share_viewers: DashMap::new(),
         auth_rate_limit_max: 100,
         auth_rate_limit_window_secs: 60,
         login_failure_max_attempts: 8,
@@ -1639,7 +1640,9 @@ async fn create_channel_list_channels_send_message_list_messages() {
         .uri(format!("/api/messages/item/{message_id}/reactions"))
         .header("Authorization", &auth_header)
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({ "emoji": "👍" })).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "emoji": "👍" })).unwrap(),
+        ))
         .unwrap();
     let (status, body) = oneshot(&mut app, req).await;
     assert_eq!(
@@ -1670,7 +1673,10 @@ async fn create_channel_list_channels_send_message_list_messages() {
         .find(|message| message["id"].as_str() == Some(message_id))
         .expect("sent message should be listed");
     assert_eq!(listed_message["reactions"][0]["emoji"], "👍");
-    assert_eq!(listed_message["reactions"][0]["users"][0]["username"], username);
+    assert_eq!(
+        listed_message["reactions"][0]["users"][0]["username"],
+        username
+    );
 
     // List messages with before (pagination)
     let req = Request::builder()
@@ -3151,6 +3157,23 @@ async fn data_export_returns_user_profile_and_messages() {
     let (token, user_id) = register_user(&mut app, &email, &username, password).await;
     let auth = format!("Bearer {}", token);
 
+    let profile_req = Request::builder()
+        .method("PATCH")
+        .uri("/api/auth/profile")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "about_me": "Building a thoughtful community."
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let (profile_status, profile_body) = oneshot(&mut app, profile_req).await;
+    assert_eq!(profile_status, StatusCode::OK);
+    let profile: serde_json::Value = serde_json::from_slice(&profile_body).unwrap();
+    assert_eq!(profile["about_me"], "Building a thoughtful community.");
+
     let req = Request::builder()
         .method("POST")
         .uri("/api/servers")
@@ -3318,6 +3341,7 @@ async fn data_export_returns_user_profile_and_messages() {
     assert!(payload["account"].get("password_hash").is_none());
     assert!(payload["account"].get("token_version").is_none());
     assert_eq!(payload["profile"]["has_avatar"], false);
+    assert_eq!(payload["profile"]["about_me"], "Building a thoughtful community.");
     assert!(payload["servers"].is_array());
     assert!(payload["relationships"]["friends"].is_array());
     assert!(payload["relationships"]["friend_requests"].is_array());

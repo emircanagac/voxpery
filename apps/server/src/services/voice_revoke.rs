@@ -92,6 +92,9 @@ pub(crate) async fn clear_local_voice_session(
     }
 
     state.voice_participant_sids.remove(&user_id);
+    state
+        .screen_share_viewers
+        .retain(|(viewer_id, publisher_id), _| *viewer_id != user_id && *publisher_id != user_id);
     let server_id = server_id_for_channel_from_state(state, channel_id).await;
     let _ = state.voice_controls.remove(&user_id);
     cleanup_voice_channel_active_since_if_empty(state, channel_id);

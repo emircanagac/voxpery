@@ -47,6 +47,7 @@ describe('auth feature gating', () => {
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.queryByText('Forgot password?')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Voxpery' })).toHaveAttribute('href', '/')
   })
 
   it('hides Google sign-up on register when Google OAuth is disabled', () => {
@@ -54,6 +55,7 @@ describe('auth feature gating', () => {
 
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign Up' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Voxpery' })).toHaveAttribute('href', '/')
   })
 
   it('does not expose a PKCE-less desktop Google OAuth URL on login', async () => {

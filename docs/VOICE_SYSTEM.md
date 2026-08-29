@@ -270,7 +270,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 
 - Remote camera tiles can be hidden per viewer without leaving the voice channel.
 - A remote screen share appears first as a compact `Stream available` tile. `Watch stream` subscribes that viewer to both `ScreenShare` and `ScreenShareAudio`; `Stop watching` unsubscribes both while leaving microphone audio untouched.
-- Viewer subscription state is local to the current voice session, survives visibility changes and LiveKit reconnects, and resets when the share ends, the participant disconnects, or the viewer leaves voice.
+- Viewer subscription state is local to the current voice session, survives visibility changes and LiveKit reconnects, and resets when the share ends, the participant disconnects, or the viewer leaves voice. The app also broadcasts that explicit watch decision as short-lived voice presence so the publisher and other channel participants can see compact viewer avatars without receiving screen media themselves.
 - Unwatched shares produce no incoming screen video or shared-audio traffic. Hiding Voxpery pauses watched screen video, while watched shared audio remains subscribed so background playback does not cut out.
 - `User Volume` controls only the participant's `Track.Source.Microphone` audio from 0-200%. Values above 100% use a per-user Web Audio gain and limiter path instead of being clamped by `HTMLMediaElement.volume`.
 - `Stream Volume` and stream mute control only `Track.Source.ScreenShareAudio` from 0-100%. Voice and stream values, mute restore values, and persisted keys are independent, so changing one source never unmutes or changes the other.

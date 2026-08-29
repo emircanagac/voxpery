@@ -726,8 +726,11 @@ async fn get_server(
         r#"SELECT sm.user_id,
                   u.username,
                   u.avatar_url,
+                  u.about_me,
                   sm.role,
                   u.status,
+                  u.created_at AS account_created_at,
+                  sm.joined_at AS server_joined_at,
                   rc.color AS role_color,
                   rr.role_names AS roles
            FROM server_members sm
@@ -1557,8 +1560,11 @@ async fn list_channel_visible_members(
         r#"SELECT sm.user_id,
                   u.username,
                   u.avatar_url,
+                  u.about_me,
                   sm.role,
                   u.status,
+                  u.created_at AS account_created_at,
+                  sm.joined_at AS server_joined_at,
                   rc.color AS role_color,
                   rr.role_names AS roles
            FROM server_members sm

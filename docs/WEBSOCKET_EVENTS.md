@@ -167,6 +167,10 @@ Legacy custom signaling event.
     - `screen_sharing`
     - `camera_on`
     - `server_id`
+- `ScreenShareViewerUpdate`
+  - Reports an opt-in viewer's current watch state for one active screen-share publisher.
+  - Includes `viewer_id`, `publisher_id`, `channel_id`, `server_id`, and `watching`.
+  - Delivery is limited to members of the relevant server; the backend accepts updates only when both users are in the same voice channel and the publisher has an active share.
 
 ### Low-level
 
@@ -178,7 +182,7 @@ Legacy custom signaling event.
 1. Client requests `GET /api/webrtc/livekit-token`; the backend validates effective voice permissions.
 2. Client connects to the LiveKit room and publishes its microphone.
 3. Client sends `JoinVoice` over WS only after the media connection succeeds.
-4. Backend updates process-local `voice_sessions` and broadcasts voice state/control events.
+4. Backend updates process-local `voice_sessions` and broadcasts voice state/control events. Explicit screen-share watch decisions also create short-lived viewer-presence entries so the stage can show who is watching without subscribing anyone else to media.
 5. LiveKit owns the reconnect grace window, so temporary `Reconnecting` state keeps sidebar presence intact.
 6. A final room `Disconnected` event sends `LeaveVoice` over the application WebSocket and clears local media state.
 7. The signed LiveKit `participant_left` webhook idempotently clears the same backend voice session for suspended or unreachable clients. The participant SID prevents a delayed leave event from removing a newer rejoin. Backend WebSocket cleanup remains the fallback when both connections are lost.
@@ -190,6 +194,7 @@ Legacy custom signaling event.
 - `JoinVoice` uses permission-aware voice checks.
 - LiveKit webhook payloads require a matching API-key issuer, HS256 signature, expiration, and raw-body SHA-256 claim before they can clear voice state.
 - Voice state/control events are filtered by current server membership.
+- Screen-share viewer updates are accepted only for users in the same voice channel and are cleared when either participant leaves or the publisher stops sharing.
 - `Signal` forwarding is constrained to same voice channel participants.
 
 ---

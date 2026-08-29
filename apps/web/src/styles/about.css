@@ -1,6 +1,9 @@
 .about-page {
+  height: 100dvh;
   min-height: 100dvh;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   background: #0f1320;
   color: #f2f6ff;
 }
@@ -83,6 +86,41 @@
   margin: 0 auto;
   padding: 38px 0 0;
   display: grid;
+}
+
+.about-footer {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 18px 0 26px;
+  border-top: 1px solid rgba(181, 198, 230, 0.16);
+}
+
+.about-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: rgba(211, 222, 244, 0.68);
+  font-size: 12px;
+}
+
+.about-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.about-footer-links a {
+  color: rgba(225, 236, 255, 0.84);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.about-footer-links a:hover,
+.about-footer-links a:focus-visible {
+  color: #fff;
+  text-decoration: underline;
 }
 
 .about-hero {
@@ -307,6 +345,10 @@
     padding-top: 34px;
   }
 
+  .about-footer {
+    width: calc(100% - 28px);
+  }
+
   .about-hero-copy {
     --about-copy-measure: 100%;
   }
@@ -384,6 +426,20 @@
   .about-main {
     width: calc(100% - 28px);
     padding: 22px 0 0;
+  }
+
+  .about-footer {
+    width: calc(100% - 28px);
+    padding: 16px 0 22px;
+  }
+
+  .about-footer-inner {
+    align-items: center;
+  }
+
+  .about-footer-links {
+    justify-content: center;
+    gap: 12px 16px;
   }
 
   .about-brand {

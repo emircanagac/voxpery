@@ -81,7 +81,7 @@ export default function AboutPage() {
   const primaryDownloadLabel = platform === 'unknown' ? 'Download desktop app' : `Download for ${PLATFORM_LABELS[platform]}`
   const loginRoute = isAuthenticated ? ROUTES.home : ROUTES.login
   const appEntryRoute = isAuthenticated ? ROUTES.home : ROUTES.register
-  const appEntryLabel = isAuthenticated ? 'Open Voxpery' : 'Join Voxpery Community'
+  const appEntryLabel = isAuthenticated ? 'Open Voxpery' : 'Use Voxpery in browser'
   const releaseMeta = [releaseTag, releaseDate].filter(Boolean).join(' - ')
 
   return (
@@ -140,7 +140,7 @@ export default function AboutPage() {
               </a>
             </div>
             {!isAuthenticated && (
-              <p className="about-community-note">Free hosted access. New accounts join the live community automatically.</p>
+              <p className="about-community-note">Free hosted access. Create an account and start chatting right away.</p>
             )}
             <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-self-host-link">
               <Server size={16} />
@@ -184,6 +184,16 @@ export default function AboutPage() {
 
         </section>
       </main>
+
+      <footer className="about-footer">
+        <div className="about-footer-inner">
+          <nav className="about-footer-links" aria-label="Legal information">
+            <Link to={ROUTES.privacy}>Privacy Notice</Link>
+            <Link to={ROUTES.kvkk}>KVKK Notice</Link>
+            <Link to={ROUTES.terms}>Terms of Service</Link>
+          </nav>
+        </div>
+      </footer>
     </div>
   )
 }
