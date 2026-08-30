@@ -255,7 +255,7 @@ describe('HomePage friends list', () => {
     expect(Number.parseInt(menu.style.left, 10)).toBeLessThan(window.innerWidth)
     expect(Number.parseInt(menu.style.top, 10)).toBeLessThan(window.innerHeight)
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'View profile' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View profile (@cilo)' }))
     expect(screen.getByRole('dialog', { name: 'cilo' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Send DM' })).toBeVisible()
   })
@@ -333,9 +333,10 @@ describe('HomePage friends list', () => {
     expect(dmRow).not.toBeNull()
     fireEvent.contextMenu(dmRow!)
 
-    expect(screen.getByRole('menuitem', { name: 'View profile' })).toHaveFocus()
+    expect(screen.getByRole('menuitem', { name: 'View profile (@cilo)' })).toHaveFocus()
     expect(screen.queryByRole('menuitem', { name: 'Open direct message' })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Remove friend' })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Close DM' })).toBeVisible()
   })
 

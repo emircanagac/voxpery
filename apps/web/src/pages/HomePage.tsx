@@ -327,12 +327,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const pad = 8
     const rect = event.currentTarget.getBoundingClientRect()
     const sidebarRect = socialSidebarRef.current?.getBoundingClientRect()
-    const preferredX = sidebarRect
+    const shouldAnchorInSidebar = target.kind === 'dm' && !!sidebarRect
+    const preferredX = shouldAnchorInSidebar && sidebarRect
       ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
       : event.clientX || rect.left + Math.min(24, rect.width / 2)
     const requestedY = event.clientY || rect.top + Math.min(24, rect.height / 2)
-    const minX = sidebarRect ? Math.max(pad, sidebarRect.left + pad) : pad
-    const maxX = sidebarRect
+    const minX = shouldAnchorInSidebar && sidebarRect ? Math.max(pad, sidebarRect.left + pad) : pad
+    const maxX = shouldAnchorInSidebar && sidebarRect
       ? Math.min(window.innerWidth - menuWidth - pad, sidebarRect.right - menuWidth - pad)
       : window.innerWidth - menuWidth - pad
     socialContextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : event.currentTarget
@@ -1626,7 +1627,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               }}
             >
               <UserRound size={14} />
-              View profile
+              View profile (@{socialContextMenu.username})
             </button>
             {socialContextMenu.kind === 'friend' && (
               <button
@@ -1658,7 +1659,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 {channel.is_pinned ? 'Unpin Conversation' : 'Pin Conversation'}
               </button>
             )}
-            {friend && (
+            {socialContextMenu.kind === 'friend' && friend && (
               <button
                 type="button"
                 className="server-context-menu-item danger"

@@ -116,8 +116,27 @@ test.describe('mocked social friend UI regressions', () => {
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(390)
     expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(640)
 
-    await menu.getByRole('menuitem', { name: 'View profile' }).click()
+    await menu.getByRole('menuitem', { name: 'View profile (@Friend 01)' }).click()
     await expect(page.getByRole('dialog', { name: 'Friend 01' })).toBeVisible()
+  })
+
+  test('opens a Friends context menu in the main panel instead of the DM sidebar', async ({ page }) => {
+    const state = createMockCoreState({
+      friends: buildFriends(1),
+      incomingRequests: [],
+      outgoingRequests: [],
+    })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: /All/ }).click()
+    await page.getByRole('button', { name: 'Message Friend 01' }).click({ button: 'right' })
+
+    const sidebarBox = await page.locator('.social-sidebar').boundingBox()
+    const menuBox = await page.getByRole('menu', { name: 'Actions for Friend 01' }).boundingBox()
+    expect(sidebarBox).not.toBeNull()
+    expect(menuBox).not.toBeNull()
+    expect(menuBox!.x).toBeGreaterThanOrEqual(sidebarBox!.x + sidebarBox!.width)
   })
 
   test('keeps direct-message context actions available from the Social sidebar', async ({ page }) => {
@@ -146,9 +165,10 @@ test.describe('mocked social friend UI regressions', () => {
     expect(menuBox).not.toBeNull()
     expect(menuBox!.x).toBeGreaterThanOrEqual(sidebarBox!.x)
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(sidebarBox!.x + sidebarBox!.width)
-    await expect(menu.getByRole('menuitem', { name: 'View profile' })).toBeFocused()
+    await expect(menu.getByRole('menuitem', { name: 'View profile (@Friend 01)' })).toBeFocused()
     await expect(menu.getByRole('menuitem', { name: 'Open direct message' })).toHaveCount(0)
     await expect(menu.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Remove friend' })).toHaveCount(0)
     await expect(menu.getByRole('menuitem', { name: 'Close DM' })).toBeVisible()
   })
 })

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Kept remote microphone tracks locally suppressed when a sender unmutes, republishes, or reconnects after the listener has deafened, without muting independently watched screen-share audio.
 - Kept Friends and direct-message context menus inside the Social sidebar and removed the redundant direct-message open action from existing conversations.
+- Kept Friends context menus in the main Social panel, aligned their profile labels with server member menus, and removed friend removal from direct-message menus.
 
 ## [0.2.13] - 2026-08-29
 
