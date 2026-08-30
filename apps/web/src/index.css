@@ -9902,7 +9902,7 @@ a.community-open-btn:hover {
 .screen-share-mini-player {
   position: fixed;
   right: calc(var(--member-sidebar-width) + 20px);
-  bottom: 88px;
+  top: calc(var(--header-height) + 64px);
   z-index: 120;
   width: clamp(236px, 24vw, 360px);
   aspect-ratio: 16 / 9;
@@ -15725,6 +15725,7 @@ textarea {
   .screen-share-mini-player {
     left: calc(var(--server-bar-width) + 12px);
     right: 12px;
+    top: auto;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     width: auto;
     max-width: 420px;
