@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Pin, Send, UserMinus, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -59,6 +59,7 @@ import {
   type DmNotificationAnchor,
 } from '../dmNotificationNavigation'
 import { createSecureId } from '../secureId'
+import MemberProfileDialog, { type MemberProfileMember } from '../components/MemberProfileDialog'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -73,6 +74,17 @@ function presenceLabel(status?: string | null): string {
 }
 
 type UiDmMessage = CachedDmMessage
+
+type SocialContextMenu = {
+  kind: 'friend' | 'dm'
+  userId: string
+  username: string
+  avatarUrl: string | null
+  status: string | null
+  channelId?: string
+  x: number
+  y: number
+}
 
 function OnboardingCard({
   title,
@@ -173,7 +185,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [removingFriend, setRemovingFriend] = useState(false)
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
   const [updatingDmPreferenceId, setUpdatingDmPreferenceId] = useState<string | null>(null)
-  const [dmContextMenu, setDmContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
+  const [socialContextMenu, setSocialContextMenu] = useState<SocialContextMenu | null>(null)
+  const [profileCard, setProfileCard] = useState<MemberProfileMember | null>(null)
   const [pendingDmNotificationAnchor, setPendingDmNotificationAnchor] = useState<DmNotificationAnchor | null>(null)
   const pendingDmNotificationAnchorRef = useRef<DmNotificationAnchor | null>(null)
   const isMobileSocialSidebarOpen = mobileSidebarPanel === 'social'
@@ -277,6 +290,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const pendingDmMessageFingerprintsRef = useRef(new Set<string>())
   const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
+  const socialContextMenuTriggerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     setDmInput(readMessageDraft(userId, 'dm', activeDmChannelId))
@@ -296,11 +310,36 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setPendingDmNotificationAnchor(null)
   }, [activeDmChannelId])
 
+  const closeSocialContextMenu = useCallback((restoreFocus = false) => {
+    setSocialContextMenu(null)
+    if (!restoreFocus) return
+    queueMicrotask(() => socialContextMenuTriggerRef.current?.focus())
+  }, [])
+
+  const openSocialContextMenu = useCallback((
+    event: ReactMouseEvent<HTMLElement>,
+    target: Omit<SocialContextMenu, 'x' | 'y'>,
+  ) => {
+    event.preventDefault()
+    const menuWidth = 224
+    const menuHeight = target.kind === 'friend' ? 132 : 168
+    const pad = 8
+    const rect = event.currentTarget.getBoundingClientRect()
+    const requestedX = event.clientX || rect.left + Math.min(24, rect.width / 2)
+    const requestedY = event.clientY || rect.top + Math.min(24, rect.height / 2)
+    socialContextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : event.currentTarget
+    setSocialContextMenu({
+      ...target,
+      x: Math.min(Math.max(pad, requestedX), Math.max(pad, window.innerWidth - menuWidth - pad)),
+      y: Math.min(Math.max(pad, requestedY), Math.max(pad, window.innerHeight - menuHeight - pad)),
+    })
+  }, [])
+
   useEffect(() => {
-    if (!dmContextMenu) return
-    const closeMenu = () => setDmContextMenu(null)
+    if (!socialContextMenu) return
+    const closeMenu = () => closeSocialContextMenu()
     const closeMenuOnKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu()
+      if (event.key === 'Escape') closeSocialContextMenu(true)
     }
     window.addEventListener('click', closeMenu)
     window.addEventListener('scroll', closeMenu, true)
@@ -312,7 +351,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       window.removeEventListener('resize', closeMenu)
       window.removeEventListener('keydown', closeMenuOnKey)
     }
-  }, [dmContextMenu])
+  }, [closeSocialContextMenu, socialContextMenu])
 
   const rememberDmMessages = useCallback((channelId: string, messages: UiDmMessage[]) => {
     dmMessagesByChannelRef.current[channelId] = messages
@@ -765,7 +804,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const handleHideDmChannel = useCallback(async (channelId: string) => {
     const previousChannels = useAppStore.getState().dmChannels
     const nextChannels = previousChannels.filter((channel) => channel.id !== channelId)
-    setDmContextMenu(null)
+    setSocialContextMenu(null)
     setStoreDmChannels(nextChannels)
     setDmChannelIds(nextChannels.map((channel) => channel.id))
     if (activeDmChannelId === channelId) {
@@ -1138,16 +1177,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               className={`social-dm-item ${view === 'dm' && activeDmChannelId === channel.id ? 'active' : ''}`}
               onPointerEnter={() => prefetchDmConversation(channel.id)}
               onContextMenu={(event) => {
-                event.preventDefault()
-                const rect = event.currentTarget.getBoundingClientRect()
-                const menuWidth = 196
-                const menuHeight = 82
-                const requestedX = event.clientX || rect.right
-                const requestedY = event.clientY || rect.bottom
-                setDmContextMenu({
+                openSocialContextMenu(event, {
+                  kind: 'dm',
                   channelId: channel.id,
-                  x: Math.min(Math.max(8, requestedX), Math.max(8, window.innerWidth - menuWidth - 8)),
-                  y: Math.min(Math.max(8, requestedY), Math.max(8, window.innerHeight - menuHeight - 8)),
+                  userId: channel.peer_id,
+                  username: channel.peer_username,
+                  avatarUrl: channel.peer_avatar_url,
+                  status: channel.peer_status,
                 })
               }}
             >
@@ -1367,6 +1403,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                             key={friend.id}
                             className={`home-member-row is-clickable ${openingDmPeerId === friend.id ? 'is-loading' : ''}`}
                             aria-disabled={openingDmPeerId === friend.id}
+                            onContextMenu={(event) => {
+                              openSocialContextMenu(event, {
+                                kind: 'friend',
+                                userId: friend.id,
+                                username: friend.username,
+                                avatarUrl: friend.avatar_url,
+                                status: friend.status,
+                              })
+                            }}
                           >
                             <button
                               type="button"
@@ -1542,43 +1587,129 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         </div>
       </section>
 
-      {dmContextMenu && (() => {
-        const channel = dmChannels.find((candidate) => candidate.id === dmContextMenu.channelId)
-        if (!channel) return null
+      {socialContextMenu && (() => {
+        const channel = socialContextMenu.channelId
+          ? dmChannels.find((candidate) => candidate.id === socialContextMenu.channelId)
+          : null
+        const friend = friends.find((candidate) => candidate.id === socialContextMenu.userId)
+        const profileMember: MemberProfileMember = {
+          user_id: socialContextMenu.userId,
+          username: socialContextMenu.username,
+          avatar_url: socialContextMenu.avatarUrl,
+          status: socialContextMenu.status,
+          role: '',
+        }
         return createPortal(
           <div
             className="server-context-menu social-dm-context-menu"
             role="menu"
-            aria-label={`Conversation actions for ${channel.peer_username}`}
-            style={{ left: dmContextMenu.x, top: dmContextMenu.y }}
+            aria-label={`Actions for ${socialContextMenu.username}`}
+            style={{ left: socialContextMenu.x, top: socialContextMenu.y }}
             onClick={(event) => event.stopPropagation()}
           >
             <button
               type="button"
               className="server-context-menu-item"
               role="menuitem"
-              disabled={updatingDmPreferenceId === channel.id}
+              autoFocus
               onClick={() => {
-                setDmContextMenu(null)
-                void handleToggleDmPinned(channel.id, !channel.is_pinned)
+                closeSocialContextMenu()
+                setProfileCard(profileMember)
               }}
             >
-              <Pin size={14} />
-              {channel.is_pinned ? 'Unpin Conversation' : 'Pin Conversation'}
+              <UserRound size={14} />
+              View profile
             </button>
             <button
               type="button"
-              className="server-context-menu-item danger"
+              className="server-context-menu-item"
               role="menuitem"
-              onClick={() => void handleHideDmChannel(channel.id)}
+              disabled={openingDmPeerId === socialContextMenu.userId}
+              onClick={() => {
+                closeSocialContextMenu()
+                void openDirectMessage(socialContextMenu.userId)
+              }}
             >
-              <X size={14} />
-              Close DM
+              <MessageCircle size={14} />
+              {socialContextMenu.kind === 'friend' ? 'Send message' : 'Open direct message'}
             </button>
+            {channel && (
+              <button
+                type="button"
+                className="server-context-menu-item"
+                role="menuitem"
+                disabled={updatingDmPreferenceId === channel.id}
+                onClick={() => {
+                  closeSocialContextMenu()
+                  void handleToggleDmPinned(channel.id, !channel.is_pinned)
+                }}
+              >
+                <Pin size={14} />
+                {channel.is_pinned ? 'Unpin Conversation' : 'Pin Conversation'}
+              </button>
+            )}
+            {friend && (
+              <button
+                type="button"
+                className="server-context-menu-item danger"
+                role="menuitem"
+                onClick={() => {
+                  closeSocialContextMenu()
+                  setRemoveFriendTarget(friend)
+                }}
+              >
+                <UserMinus size={14} />
+                Remove friend
+              </button>
+            )}
+            {channel && (
+              <button
+                type="button"
+                className="server-context-menu-item danger"
+                role="menuitem"
+                onClick={() => {
+                  closeSocialContextMenu()
+                  void handleHideDmChannel(channel.id)
+                }}
+              >
+                <X size={14} />
+                Close DM
+              </button>
+            )}
           </div>,
           document.body,
         )
       })()}
+
+      {profileCard && createPortal(
+        <MemberProfileDialog
+          member={profileCard}
+          isServerOwner={false}
+          onClose={() => setProfileCard(null)}
+          actions={{
+            canSendDm: profileCard.user_id !== user?.id,
+            canAddFriend: profileCard.user_id !== user?.id && !friends.some((friend) => friend.id === profileCard.user_id),
+            onSendDm: () => {
+              setProfileCard(null)
+              void openDirectMessage(profileCard.user_id)
+            },
+            onAddFriend: () => {
+              if (profileCard.user_id === user?.id) return
+              void friendApi.sendRequest(profileCard.username, token)
+                .then(() => friendApi.list(token))
+                .then(setStoreFriends)
+                .catch((error: unknown) => {
+                  pushToast({
+                    level: 'error',
+                    title: 'Add friend failed',
+                    message: error instanceof Error ? error.message : 'Could not send friend request.',
+                  })
+                })
+            },
+          }}
+        />,
+        document.body,
+      )}
 
       {removeFriendTarget && createPortal(
         <div className="modal-overlay" onClick={() => !removingFriend && setRemoveFriendTarget(null)}>

@@ -243,6 +243,23 @@ describe('HomePage friends list', () => {
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
   })
 
+  it('opens a friend profile from the viewport-clamped Social context menu', async () => {
+    renderHomePage()
+
+    const friendRow = (await screen.findByRole('button', { name: 'Message cilo' })).closest('.home-member-row')
+    expect(friendRow).not.toBeNull()
+    fireEvent.contextMenu(friendRow!, { clientX: window.innerWidth + 200, clientY: window.innerHeight + 200 })
+
+    const menu = screen.getByRole('menu', { name: 'Actions for cilo' })
+    expect(menu).toBeVisible()
+    expect(Number.parseInt(menu.style.left, 10)).toBeLessThan(window.innerWidth)
+    expect(Number.parseInt(menu.style.top, 10)).toBeLessThan(window.innerHeight)
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View profile' }))
+    expect(screen.getByRole('dialog', { name: 'cilo' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Send DM' })).toBeVisible()
+  })
+
   it('shows a toast when opening a DM fails', async () => {
     apiMocks.getOrCreateDmChannel.mockRejectedValue(new Error('Could not create DM'))
 
@@ -302,6 +319,24 @@ describe('HomePage friends list', () => {
       expect(apiMocks.updateDmChannelPreferences).toHaveBeenLastCalledWith(older.id, false, null)
       expect(useAppStore.getState().dmChannels.map((channel) => channel.id)).toEqual([recent.id, older.id])
     })
+  })
+
+  it('provides profile and conversation actions from a DM context menu', async () => {
+    const channel = dmChannel('dm-cilo')
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+
+    renderHomePage()
+
+    const dmOpenButton = (await screen.findAllByRole('button', { name: 'Open DM with cilo' }))
+      .find((button) => button.classList.contains('social-dm-open'))
+    const dmRow = dmOpenButton?.closest('.social-dm-item')
+    expect(dmRow).not.toBeNull()
+    fireEvent.contextMenu(dmRow!)
+
+    expect(screen.getByRole('menuitem', { name: 'View profile' })).toHaveFocus()
+    expect(screen.getByRole('menuitem', { name: 'Open direct message' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Close DM' })).toBeVisible()
   })
 
   it('shows cached social data without waiting for the server list refresh', async () => {

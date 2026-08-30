@@ -195,7 +195,10 @@ function voiceState(overrides?: Record<string, unknown>) {
   }
 }
 
-function renderActiveCallBar(overrides?: Record<string, unknown>) {
+function renderActiveCallBar(
+  overrides?: Record<string, unknown>,
+  options: { activeChannelId?: string | null } = {},
+) {
   const setRemoteMicrophonePlaybackMuted = vi.fn<(muted: boolean) => void>()
   const voice = {
     state: voiceState(overrides),
@@ -221,7 +224,7 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
     <MemoryRouter>
       <ActiveCallBar
         selectedVoiceChannelId={voiceChannel.id}
-        activeChannelId={voiceChannel.id}
+        activeChannelId={options.activeChannelId ?? voiceChannel.id}
       />
     </MemoryRouter>
   )
@@ -289,6 +292,49 @@ describe('ActiveCallBar regressions', () => {
 
     expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
     expect(voice.leaveVoice).not.toHaveBeenCalled()
+  })
+
+  it('keeps a watched screen share available as a mini player outside the voice view', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container, voice, rerender } = renderActiveCallBar(
+      {
+        remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+        remoteScreenTrackIds: new Set(['screen-track']),
+        watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      },
+      { activeChannelId: 'text-1' },
+    )
+
+    expect(container.querySelector('.screen-share-stage')).toBeNull()
+    expect(screen.getByRole('button', { name: "Return to admin's stream" })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: "Return to admin's stream" }))
+    expect(useAppStore.getState().activeChannelId).toBe(voiceChannel.id)
+
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} />
+      </MemoryRouter>,
+    )
+    expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+  })
+
+  it('removes the mini player immediately when the viewer stops watching', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { voice } = renderActiveCallBar(
+      {
+        remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+        remoteScreenTrackIds: new Set(['screen-track']),
+        watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      },
+      { activeChannelId: 'text-1' },
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: "Stop watching admin's screen share" }))
+
+    expect(voice.setRemoteMediaSubscribed).toHaveBeenCalledWith('peer-1', 'screen', false)
+    expect(screen.queryByRole('button', { name: "Return to admin's stream" })).toBeNull()
   })
 
   it('shows only current channel viewers on an active screen share', () => {
@@ -616,6 +662,28 @@ describe('ActiveCallBar regressions', () => {
     expect(stage).toHaveAttribute('data-stage-density', 'crowded')
     expect(stage).toHaveAttribute('data-stage-columns', '3')
     expect(stage?.querySelectorAll('.voice-stage-tile')).toHaveLength(7)
+  })
+
+  it('uses a four-column dense grid for large voice stages', () => {
+    const crowdedMembers = Array.from({ length: 12 }, (_, index) => ({
+      user_id: index === 0 ? localUser.id : `peer-${index}`,
+      username: index === 0 ? localUser.username : `peer${index}`,
+      avatar_url: null,
+      role: 'member',
+      status: 'online',
+      role_color: null,
+    }))
+    useAppStore.setState({
+      members: crowdedMembers,
+      voiceStates: Object.fromEntries(crowdedMembers.map((member) => [member.user_id, voiceChannel.id])),
+    })
+
+    const { container } = renderActiveCallBar()
+    const stage = container.querySelector('.screen-share-stage')
+
+    expect(stage).toHaveAttribute('data-stage-density', 'dense')
+    expect(stage).toHaveAttribute('data-stage-columns', '4')
+    expect(stage?.querySelectorAll('.voice-stage-tile')).toHaveLength(12)
   })
 
   it('keeps five remote voices and watched screen audio stable across speaking changes', () => {

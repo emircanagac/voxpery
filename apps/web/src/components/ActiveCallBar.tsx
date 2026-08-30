@@ -309,6 +309,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   )
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
   const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
+  const [dismissedMiniPlayerKeys, setDismissedMiniPlayerKeys] = useState<Set<string>>(() => new Set())
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
   const lastVoiceQualityWarningRef = useRef<string | null>(null)
@@ -717,10 +718,12 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return ids.join(',')
   }, [state.remoteStreams])
   const currentVoiceChannelId = state.joinedChannelId
+  const isViewingVoiceChannel = activeChannelId === selectedVoiceChannelId
   useEffect(() => {
     setHiddenRemoteMediaKeys(new Set())
     setRemoteMediaPlaceholders(new Map())
     setTheaterStreamKey(null)
+    setDismissedMiniPlayerKeys(new Set())
   }, [currentVoiceChannelId])
 
   const getRemoteMediaKey = useCallback((peerId: string, kind: RemoteMediaKind) => {
@@ -810,6 +813,34 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       setTheaterStreamKey(null)
     }
   }, [activeTheaterStreamKeys, theaterStreamKey])
+  const watchedRemoteScreenEntries = useMemo(() => (
+    remoteVideoTrackEntries.filter((entry) => (
+      entry.kind === 'screen' && state.watchedRemoteScreenPeerIds.has(entry.peerId)
+    ))
+  ), [remoteVideoTrackEntries, state.watchedRemoteScreenPeerIds])
+  const miniPlayerEntry = useMemo(() => {
+    if (isViewingVoiceChannel || fullscreenTileKey) return null
+    const focused = watchedRemoteScreenEntries.find((entry) => (
+      theaterStreamKey === `screen-${entry.peerId}-${entry.track.id}`
+    ))
+    const candidate = focused ?? watchedRemoteScreenEntries[0]
+    if (!candidate) return null
+    const key = `screen-${candidate.peerId}-${candidate.track.id}`
+    return dismissedMiniPlayerKeys.has(key) ? null : { ...candidate, key }
+  }, [dismissedMiniPlayerKeys, fullscreenTileKey, isViewingVoiceChannel, theaterStreamKey, watchedRemoteScreenEntries])
+
+  useEffect(() => {
+    const activeKeys = new Set(watchedRemoteScreenEntries.map((entry) => `screen-${entry.peerId}-${entry.track.id}`))
+    setDismissedMiniPlayerKeys((current) => {
+      const next = new Set([...current].filter((key) => activeKeys.has(key)))
+      return next.size === current.size ? current : next
+    })
+  }, [watchedRemoteScreenEntries])
+
+  useEffect(() => {
+    if (isViewingVoiceChannel || !document.fullscreenElement) return
+    void document.exitFullscreen().catch(() => {})
+  }, [isViewingVoiceChannel])
   const activeRemoteMediaKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const entry of remoteVideoTrackEntries) {
@@ -1012,7 +1043,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return !!selectedVoiceChannelId && state.joinedChannelId === selectedVoiceChannelId
   }, [selectedVoiceChannelId, state.joinedChannelId])
   // Only show the big voice stage when user is actually viewing the voice channel (clicked it in sidebar), not when on General/Social.
-  const isViewingVoiceChannel = activeChannelId === selectedVoiceChannelId
   const showVoiceStage =
     isViewingVoiceChannel &&
     isInThisChannel &&
@@ -1527,6 +1557,44 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       {typeof document !== 'undefined' && createPortal(cameraModal, document.body)}
       {showActiveCallBar && (
         <>
+          {miniPlayerEntry && (
+            <aside className="screen-share-mini-player" aria-label={`Watching ${remoteShareOwner(miniPlayerEntry.peerId)}'s screen share`}>
+              <button
+                type="button"
+                className="screen-share-mini-player-open"
+                onClick={() => {
+                  setDismissedMiniPlayerKeys((current) => {
+                    const next = new Set(current)
+                    next.delete(miniPlayerEntry.key)
+                    return next
+                  })
+                  setTheaterStreamKey(miniPlayerEntry.key)
+                  goToVoiceChannel()
+                }}
+                title={`Return to ${remoteShareOwner(miniPlayerEntry.peerId)}'s stream`}
+                aria-label={`Return to ${remoteShareOwner(miniPlayerEntry.peerId)}'s stream`}
+              >
+                <RemoteVideoTrack track={miniPlayerEntry.track} />
+                <span className="screen-share-mini-player-label">
+                  <Monitor size={14} aria-hidden="true" />
+                  {remoteShareOwner(miniPlayerEntry.peerId)} is sharing
+                </span>
+              </button>
+              <button
+                type="button"
+                className="screen-share-mini-player-stop"
+                title="Stop watching"
+                aria-label={`Stop watching ${remoteShareOwner(miniPlayerEntry.peerId)}'s screen share`}
+                onClick={() => {
+                  setDismissedMiniPlayerKeys((current) => new Set(current).add(miniPlayerEntry.key))
+                  setTheaterStreamKey((current) => current === miniPlayerEntry.key ? null : current)
+                  setRemoteMediaSubscribed(miniPlayerEntry.peerId, 'screen', false)
+                }}
+              >
+                <EyeOff size={15} aria-hidden="true" />
+              </button>
+            </aside>
+          )}
           {showVoiceStage && (
             <div
               className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}`}
@@ -1630,7 +1698,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               {remoteScreenSharePlaceholders.map((peerId) => {
                 const isConnecting = watchedRemoteScreenPeerIds.has(peerId)
                 return (
-                  <div key={`screen-available-${peerId}`} className="voice-stage-hidden-media-tile">
+                  <div key={`screen-available-${peerId}`} className="voice-stage-hidden-media-tile voice-stage-share-tile">
                     <div className="voice-stage-hidden-media-icon">
                       <Monitor size={18} />
                     </div>
