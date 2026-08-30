@@ -5,12 +5,14 @@ import {
   isScreenShareAudioTrack,
   markRemoteAudioTrackSource,
   remoteMediaVisibilityKey,
+  setRemoteMicrophoneStreamsPlaybackMuted,
+  setRemoteMicrophoneTrackPlaybackMuted,
   shouldMuteRemoteAudioPlayback,
   shouldUseDirectRemoteAudioPlayback,
 } from './remoteMediaControls'
 
 function audioTrack(screenShareAudio = false) {
-  const track = {} as MediaStreamTrack
+  const track = { kind: 'audio', enabled: true } as MediaStreamTrack
   if (screenShareAudio) {
     Object.defineProperty(track, '__voxpery_isScreenShareAudio', { value: true, configurable: true })
   }
@@ -58,6 +60,26 @@ describe('remote media controls', () => {
     expect(shouldMuteRemoteAudioPlayback('screen', true)).toBe(false)
     expect(shouldMuteRemoteAudioPlayback('mic', false)).toBe(false)
     expect(shouldMuteRemoteAudioPlayback('screen', false)).toBe(false)
+  })
+
+  it('keeps the same remote microphone suppressed when its sender unmutes after deafen', () => {
+    const mic = audioTrack()
+    const screen = audioTrack()
+    markRemoteAudioTrackSource(mic, 'voice')
+    markRemoteAudioTrackSource(screen, 'screen')
+    const stream = { getAudioTracks: () => [mic, screen] } as unknown as MediaStream
+
+    setRemoteMicrophoneStreamsPlaybackMuted([stream], true)
+    expect(mic.enabled).toBe(false)
+    expect(screen.enabled).toBe(true)
+
+    mic.enabled = true
+    setRemoteMicrophoneTrackPlaybackMuted(mic, true)
+    expect(mic.enabled).toBe(false)
+
+    setRemoteMicrophoneStreamsPlaybackMuted([stream], false)
+    expect(mic.enabled).toBe(true)
+    expect(screen.enabled).toBe(true)
   })
 
   it('uses native playback by default and reserves Web Audio for browser voice amplification', () => {
