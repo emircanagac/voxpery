@@ -191,6 +191,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     stopCamera,
     switchCamera,
     setVoiceControls,
+    setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed,
     playVoiceCue,
   } = useLiveKitVoice()
@@ -705,9 +706,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     deafenedRef.current = effectiveDeafened
+    setRemoteMicrophonePlaybackMuted(effectiveDeafened)
     outputVolumeRef.current = outputVolume
     applyOutputVolumeToElements(outputVolume / 100)
-  }, [applyOutputVolumeToElements, effectiveDeafened, outputVolume, peerVolumeByUserId])
+  }, [applyOutputVolumeToElements, effectiveDeafened, outputVolume, peerVolumeByUserId, setRemoteMicrophonePlaybackMuted, state.remoteStreams])
 
   const remoteEntries = useMemo(() => Array.from(state.remoteStreams.entries()), [state.remoteStreams])
   const stablePeerIds = useMemo(() => {
@@ -1213,7 +1215,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     micTestAutoDeafenedRef.current = false
     const stream = localStreamRef.current ?? state.localStream
     const nextDeafened = !deafened
-    deafenedRef.current = nextDeafened || serverDeafened
+    const nextEffectiveDeafened = nextDeafened || serverDeafened
+    deafenedRef.current = nextEffectiveDeafened
+    setRemoteMicrophonePlaybackMuted(nextEffectiveDeafened)
     applyOutputVolumeToElements(outputVolumeRef.current / 100)
     if (nextDeafened) {
       prevMutedBeforeDeafenRef.current = muted
@@ -1247,6 +1251,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (enabled) {
         if (deafened) return
         deafenedRef.current = true
+        setRemoteMicrophonePlaybackMuted(true)
         applyOutputVolumeToElements(outputVolumeRef.current / 100)
         micTestPrevMutedRef.current = muted
         micTestAutoDeafenedRef.current = true
@@ -1263,6 +1268,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       micTestAutoDeafenedRef.current = false
       const restoreMuted = micTestPrevMutedRef.current
       deafenedRef.current = false
+      setRemoteMicrophonePlaybackMuted(false)
       applyOutputVolumeToElements(outputVolumeRef.current / 100)
       if (stream) {
         const shouldMuteTrack = restoreMuted || serverMuted || serverDeafened
@@ -1281,6 +1287,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     muted,
     serverDeafened,
     serverMuted,
+    setRemoteMicrophonePlaybackMuted,
     setVoiceControls,
     state.isScreenSharing,
     state.joinedChannelId,

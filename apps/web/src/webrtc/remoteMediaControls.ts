@@ -52,6 +52,22 @@ export function createRemoteAudioKindPlaybackStream(stream: MediaStream, kind: R
   return new MediaStream(tracks)
 }
 
+export function setRemoteMicrophoneTrackPlaybackMuted(track: MediaStreamTrack, muted: boolean): void {
+  if (track.kind !== 'audio' || isScreenShareAudioTrack(track)) return
+  track.enabled = !muted
+}
+
+export function setRemoteMicrophoneStreamsPlaybackMuted(
+  streams: Iterable<MediaStream>,
+  muted: boolean,
+): void {
+  for (const stream of streams) {
+    for (const track of getRemoteMicrophoneAudioTracks(stream)) {
+      setRemoteMicrophoneTrackPlaybackMuted(track, muted)
+    }
+  }
+}
+
 export function shouldMuteRemoteAudioPlayback(kind: RemoteAudioKind, voiceDeafened: boolean): boolean {
   return kind === 'mic' && voiceDeafened
 }

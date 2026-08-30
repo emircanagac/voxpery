@@ -37,6 +37,8 @@ import {
   getRemoteMicrophoneAudioTracks,
   isScreenShareAudioTrack,
   markRemoteAudioTrackSource,
+  setRemoteMicrophoneStreamsPlaybackMuted,
+  setRemoteMicrophoneTrackPlaybackMuted,
   type RemoteMediaKind,
 } from './remoteMediaControls'
 import { reportObservabilityEvent } from '../observability'
@@ -355,6 +357,7 @@ export function useLiveKitVoice() {
   const vadStreamRef = useRef<MediaStream | null>(null)
 
   const remoteStreamsRef = useRef<Map<PeerId, MediaStream>>(new Map())
+  const remoteMicrophonePlaybackMutedRef = useRef(false)
   const remoteMonitorCleanupsRef = useRef<Map<PeerId, () => void>>(new Map())
   const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
   const remoteMediaStartCueReadyRef = useRef(false)
@@ -389,6 +392,10 @@ export function useLiveKitVoice() {
     setRemoteStreamsVersion((v) => v + 1)
     setRemoteScreenTrackIds(new Set(remoteScreenTrackIdsRef.current))
   }
+  const setRemoteMicrophonePlaybackMuted = useCallback((muted: boolean) => {
+    remoteMicrophonePlaybackMutedRef.current = muted
+    setRemoteMicrophoneStreamsPlaybackMuted(remoteStreamsRef.current.values(), muted)
+  }, [])
 
   const [roomState, setRoomState] = useState('disconnected')
   const [participantCount, setParticipantCount] = useState(0)
@@ -1039,6 +1046,7 @@ export function useLiveKitVoice() {
           if (track.kind === Track.Kind.Audio && pub.source !== Track.Source.ScreenShareAudio) {
             markRemoteAudioTrackSource(mediaTrack, 'voice')
           }
+          setRemoteMicrophoneTrackPlaybackMuted(mediaTrack, remoteMicrophonePlaybackMutedRef.current)
 
           for (const existing of combined.getTracks()) {
             if (existing.id === mediaTrack.id || existing.kind !== mediaTrack.kind) continue
@@ -1053,8 +1061,16 @@ export function useLiveKitVoice() {
             }
           }
 
-          mediaTrack.onmute = () => { syncParticipantMediaState(participant); bumpRemote() }
-          mediaTrack.onunmute = () => { syncParticipantMediaState(participant); bumpRemote() }
+          mediaTrack.onmute = () => {
+            setRemoteMicrophoneTrackPlaybackMuted(mediaTrack, remoteMicrophonePlaybackMutedRef.current)
+            syncParticipantMediaState(participant)
+            bumpRemote()
+          }
+          mediaTrack.onunmute = () => {
+            setRemoteMicrophoneTrackPlaybackMuted(mediaTrack, remoteMicrophonePlaybackMutedRef.current)
+            syncParticipantMediaState(participant)
+            bumpRemote()
+          }
           mediaTrack.onended = () => {
             syncParticipantMediaState(participant)
             removeRemoteTrack(peerId, mediaTrack.id)
@@ -1128,6 +1144,9 @@ export function useLiveKitVoice() {
               reconcileLiveKitVoicePresence(participant.identity, channelId, true)
               participant.trackPublications.forEach((publication) => {
                 const mediaTrack = publication.track?.mediaStreamTrack
+                if (mediaTrack) {
+                  setRemoteMicrophoneTrackPlaybackMuted(mediaTrack, remoteMicrophonePlaybackMutedRef.current)
+                }
                 const stream = remoteStreamsRef.current.get(participant.identity)
                 if (publication.isSubscribed && mediaTrack && !stream?.getTrackById(mediaTrack.id)) {
                   retryRemotePublicationSubscription(publication, participant.identity, 50)
@@ -1716,6 +1735,7 @@ export function useLiveKitVoice() {
     switchCamera,
     setVoiceControls,
     setMemberVoiceControls,
+    setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed,
     playVoiceCue,
   }

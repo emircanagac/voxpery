@@ -13,7 +13,10 @@ import {
 } from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
-import { markRemoteAudioTrackSource } from '../webrtc/remoteMediaControls'
+import {
+  markRemoteAudioTrackSource,
+  setRemoteMicrophoneStreamsPlaybackMuted,
+} from '../webrtc/remoteMediaControls'
 import {
   getRemotePlaybackVolume,
   readRemotePlaybackVolumes,
@@ -193,6 +196,7 @@ function voiceState(overrides?: Record<string, unknown>) {
 }
 
 function renderActiveCallBar(overrides?: Record<string, unknown>) {
+  const setRemoteMicrophonePlaybackMuted = vi.fn<(muted: boolean) => void>()
   const voice = {
     state: voiceState(overrides),
     joinVoice: vi.fn(),
@@ -203,9 +207,13 @@ function renderActiveCallBar(overrides?: Record<string, unknown>) {
     stopCamera: vi.fn(),
     switchCamera: vi.fn().mockResolvedValue(undefined),
     setVoiceControls: vi.fn(),
+    setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed: vi.fn(),
     playVoiceCue: vi.fn(),
   }
+  setRemoteMicrophonePlaybackMuted.mockImplementation((muted) => {
+    setRemoteMicrophoneStreamsPlaybackMuted(voice.state.remoteStreams.values(), muted)
+  })
 
   vi.mocked(useLiveKitVoice).mockReturnValue(voice as unknown as ReturnType<typeof useLiveKitVoice>)
 
@@ -537,6 +545,36 @@ describe('ActiveCallBar regressions', () => {
     expect(audioContexts).toHaveLength(0)
     const remoteMic = document.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
     expect(remoteMic?.muted).toBe(true)
+  })
+
+  it('keeps a previously muted microphone suppressed when the same track unmutes after deafen', () => {
+    const micTrack = mediaTrack('audio', 'peer-muted-mic', { muted: true })
+    markRemoteAudioTrackSource(micTrack, 'voice')
+    const remoteStream = new MediaStream([micTrack])
+    const { voice, rerender, container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+    expect(micTrack.enabled).toBe(false)
+
+    Object.assign(micTrack, { muted: false, enabled: true })
+    voice.state = voiceState({
+      remoteStreams: new Map([['peer-1', remoteStream]]),
+    })
+    rerender(
+      <MemoryRouter>
+        <ActiveCallBar
+          selectedVoiceChannelId={voiceChannel.id}
+          activeChannelId={voiceChannel.id}
+        />
+      </MemoryRouter>
+    )
+
+    const remoteMic = container.querySelector('audio[data-remote-audio-kind="mic"]') as HTMLAudioElement | null
+    expect(micTrack.enabled).toBe(false)
+    expect(remoteMic?.muted).toBe(true)
+    expect(voice.setRemoteMicrophonePlaybackMuted).toHaveBeenLastCalledWith(true)
   })
 
   it('hides remote speaking indicators while locally deafened and restores them on undeafen', () => {
