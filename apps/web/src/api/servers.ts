@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogEntry, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerOnboardingGuide, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry, UpdateServerOnboardingGuideRequest } from './contracts'
+import type { AuditLogPage, AuditLogQuery, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerOnboardingGuide, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry, UpdateServerOnboardingGuideRequest } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -39,8 +39,17 @@ export const serverApi = {
     delete: (serverId: string, token: AuthToken) =>
         apiFetch<void>(`/api/servers/${serverId}`, { method: 'DELETE', token }),
 
-    auditLog: (serverId: string, token: AuthToken) =>
-        apiFetch<AuditLogEntry[]>(`/api/servers/${serverId}/audit-log`, { token }),
+    auditLog: (serverId: string, token: AuthToken, query: AuditLogQuery = {}) => {
+        const params = new URLSearchParams()
+        if (query.action) params.set('action', query.action)
+        if (query.actorId) params.set('actor_id', query.actorId)
+        if (query.targetId) params.set('target_id', query.targetId)
+        if (query.channelId) params.set('channel_id', query.channelId)
+        if (query.before) params.set('before', query.before)
+        if (query.limit) params.set('limit', String(query.limit))
+        const suffix = params.size > 0 ? `?${params.toString()}` : ''
+        return apiFetch<AuditLogPage>(`/api/servers/${serverId}/audit-log${suffix}`, { token })
+    },
 
     listBans: (serverId: string, token: AuthToken) =>
         apiFetch<ServerBanEntry[]>(`/api/servers/${serverId}/bans`, { token }),

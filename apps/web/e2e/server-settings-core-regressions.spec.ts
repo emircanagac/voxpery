@@ -132,6 +132,24 @@ test.describe('mocked server settings UI regressions', () => {
 
   test('keeps community, audit, and safety settings tabs wired to data', async ({ page }) => {
     const state = createServerSettingsState()
+    state.auditLogByServerId[server.id].unshift({
+      id: 'audit-voice-move',
+      at: new Date(Date.UTC(2026, 0, 5, 10)).toISOString(),
+      actor_id: 'user-local',
+      server_id: server.id,
+      action: 'voice_member_move',
+      resource_type: 'member',
+      resource_id: 'friend-01',
+      channel_id: `${server.id}-voice-support`,
+      reason: 'Moved after a warning',
+      details: {
+        source_channel_name: 'General',
+        destination_channel_name: 'Support',
+      },
+      actor_username: 'localuser',
+      resource_username: 'Friend 01',
+      channel_name: 'Support',
+    })
     await installMockCoreApi(page, state)
 
     await openServerSettings(page)
@@ -151,6 +169,13 @@ test.describe('mocked server settings UI regressions', () => {
     expect(state.serverRulesByServerId[server.id].some((rule) => rule.rule_text === 'Keep channels readable.')).toBe(true)
 
     await page.getByRole('button', { name: 'Audit Log' }).click()
+    await expect(page.getByText('Updated server settings')).toBeVisible()
+    await expect(page.getByText('from General to Support')).toBeVisible()
+    await expect(page.getByText('Moved after a warning')).toBeVisible()
+    await page.getByLabel('Filter audit log by action').selectOption('voice_member_move')
+    await expect(page.getByText('Updated server settings')).toBeHidden()
+    await expect(page.getByText('from General to Support')).toBeVisible()
+    await page.getByLabel('Filter audit log by action').selectOption('')
     await expect(page.getByText('Updated server settings')).toBeVisible()
 
     await page.getByRole('button', { name: 'Safety' }).click()

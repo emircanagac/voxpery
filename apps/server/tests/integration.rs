@@ -9,6 +9,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use dashmap::DashMap;
+use futures::SinkExt;
 use http_body_util::BodyExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -22,6 +23,7 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
 use uuid::Uuid;
 use voxpery_server::{
@@ -979,7 +981,7 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
     .expect("moderator permissions query should succeed");
 
     assert_eq!(
-        moderator_permissions, 7024,
+        moderator_permissions, 15216,
         "default Voxpery Moderator role should use recommended default permissions"
     );
 
@@ -1467,7 +1469,7 @@ async fn create_server_seeds_recommended_moderator_permissions() {
     .expect("moderator role should exist for newly created server");
 
     assert_eq!(
-        moderator_permissions, 7024,
+        moderator_permissions, 15216,
         "new server Moderator role should use recommended default permissions"
     );
 
@@ -3885,6 +3887,164 @@ async fn websocket_rejects_query_token_but_accepts_protocol_token() {
         .await
         .expect("protocol token websocket must connect");
     assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn voice_moderation_is_audited_and_queryable_with_permission_and_pagination() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let owner_suffix = Uuid::new_v4();
+    let (owner_token, _) = register_user(
+        &mut app,
+        &format!("voice-audit-owner-{owner_suffix}@example.com"),
+        &format!("voice_audit_owner_{}", owner_suffix.as_u128() % 1_000_000),
+        test_credential("owner"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (server_id, _, invite_code) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &owner_auth,
+        "Voice Audit Server",
+    )
+    .await;
+
+    let target_suffix = Uuid::new_v4();
+    let (target_token, target_user_id) = register_user(
+        &mut app,
+        &format!("voice-audit-target-{target_suffix}@example.com"),
+        &format!("voice_audit_target_{}", target_suffix.as_u128() % 1_000_000),
+        test_credential("target"),
+    )
+    .await;
+    let target_auth = format!("Bearer {target_token}");
+    let join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &target_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "target join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    state
+        .voice_sessions
+        .insert(target_user_id, voice_channel_id);
+
+    let ws_app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, ws_app).await;
+    });
+
+    let mut ws_request = format!("ws://{addr}/ws")
+        .into_client_request()
+        .unwrap();
+    ws_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{owner_token}")).unwrap(),
+    );
+    ws_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut ws_stream, _) = connect_async(ws_request)
+        .await
+        .expect("owner websocket must connect");
+    ws_stream
+        .send(WsMessage::Text(
+            json!({
+                "type": "SetVoiceControl",
+                "data": {
+                    "target_user_id": target_user_id,
+                    "muted": true,
+                    "deafened": true,
+                    "screen_sharing": false,
+                    "camera_on": false,
+                    "reason": "Repeated voice disruption"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let mut audit_count = 0_i64;
+    for _ in 0..40 {
+        audit_count = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_log WHERE server_id = $1 AND resource_id = $2 AND action LIKE 'voice_member_%'",
+        )
+        .bind(server_id)
+        .bind(target_user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+        if audit_count == 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(audit_count, 2, "mute and deafen must both be audited");
+
+    let unauthorized_request = Request::builder()
+        .uri(format!("/api/servers/{server_id}/audit-log"))
+        .header("Authorization", &target_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, unauthorized_request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let filtered_request = Request::builder()
+        .uri(format!(
+            "/api/servers/{server_id}/audit-log?action=voice_member_mute&target_id={target_user_id}&channel_id={voice_channel_id}&limit=1"
+        ))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, filtered_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(page["entries"][0]["action"], "voice_member_mute");
+    assert_eq!(page["entries"][0]["resource_id"], target_user_id.to_string());
+    assert_eq!(page["entries"][0]["channel_id"], voice_channel_id.to_string());
+    assert_eq!(page["entries"][0]["reason"], "Repeated voice disruption");
+
+    let paged_request = Request::builder()
+        .uri(format!(
+            "/api/servers/{server_id}/audit-log?target_id={target_user_id}&limit=1"
+        ))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, paged_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+    assert!(page["next_before"].as_str().is_some());
 
     server_handle.abort();
 }

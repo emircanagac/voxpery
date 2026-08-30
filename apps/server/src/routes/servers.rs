@@ -6,6 +6,7 @@ use axum::{
     Extension, Json, Router,
 };
 use chrono::{Duration as ChronoDuration, Utc};
+use sqlx::{Postgres, QueryBuilder};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::{net::SocketAddr, time::Duration};
@@ -47,6 +48,7 @@ const PERM_MANAGE_PINS: i64 = 1 << 9;
 const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
+const PERM_MOVE_MEMBERS: i64 = 1 << 13;
 const MAX_REORDER_ROLE_IDS: usize = 512;
 const MAX_ONBOARDING_CHANNELS: usize = 6;
 const MAX_ONBOARDING_TASKS: usize = 6;
@@ -66,11 +68,31 @@ struct AuditLogEntry {
     action: String,
     resource_type: String,
     resource_id: Option<Uuid>,
+    channel_id: Option<Uuid>,
+    reason: Option<String>,
     details: Option<serde_json::Value>,
     /// Who performed the action (from users.username).
     actor_username: Option<String>,
     /// Target user display name when resource is a user (e.g. kicked member, role change target).
     resource_username: Option<String>,
+    /// Channel display name captured through the current channel relationship.
+    channel_name: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct AuditLogPage {
+    entries: Vec<AuditLogEntry>,
+    next_before: Option<Uuid>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct AuditLogQuery {
+    action: Option<String>,
+    actor_id: Option<Uuid>,
+    target_id: Option<Uuid>,
+    channel_id: Option<Uuid>,
+    before: Option<Uuid>,
+    limit: Option<i64>,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -664,6 +686,7 @@ async fn create_server(
         | PERM_BAN_MEMBERS
         | PERM_MUTE_MEMBERS
         | PERM_DEAFEN_MEMBERS
+        | PERM_MOVE_MEMBERS
         | PERM_VIEW_AUDIT_LOG;
     sqlx::query(
         r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
@@ -1144,7 +1167,8 @@ async fn get_audit_log(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(server_id): Path<Uuid>,
-) -> Result<Json<Vec<AuditLogEntry>>, AppError> {
+    Query(query): Query<AuditLogQuery>,
+) -> Result<Json<AuditLogPage>, AppError> {
     // Require VIEW_AUDIT_LOG permission for audit log access.
     permissions::ensure_server_permission(
         &state.db,
@@ -1154,20 +1178,75 @@ async fn get_audit_log(
     )
     .await?;
 
-    let rows = sqlx::query_as::<_, AuditLogEntry>(
-        r#"SELECT a.id, a.at, a.actor_id, a.server_id, a.action, a.resource_type, a.resource_id, a.details,
+    let action = query
+        .action
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if action.is_some_and(|value| {
+        value.len() > 50
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    }) {
+        return Err(AppError::Validation("Invalid audit action filter".into()));
+    }
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"SELECT a.id, a.at, a.actor_id, a.server_id, a.action, a.resource_type,
+                  a.resource_id, a.channel_id, a.reason, a.details,
                   u_actor.username AS actor_username,
-                  u_resource.username AS resource_username
+                  u_resource.username AS resource_username,
+                  c.name AS channel_name
            FROM audit_log a
            LEFT JOIN users u_actor ON u_actor.id = a.actor_id
            LEFT JOIN users u_resource ON u_resource.id = a.resource_id
-           WHERE a.server_id = $1 ORDER BY a.at DESC LIMIT 500"#,
-    )
-    .bind(server_id)
-    .fetch_all(&state.db)
-    .await?;
+           LEFT JOIN channels c ON c.id = a.channel_id
+           WHERE a.server_id = "#,
+    );
+    builder.push_bind(server_id);
 
-    Ok(Json(rows))
+    if let Some(action) = action {
+        builder.push(" AND a.action = ").push_bind(action);
+    }
+    if let Some(actor_id) = query.actor_id {
+        builder.push(" AND a.actor_id = ").push_bind(actor_id);
+    }
+    if let Some(target_id) = query.target_id {
+        builder.push(" AND a.resource_id = ").push_bind(target_id);
+    }
+    if let Some(channel_id) = query.channel_id {
+        builder.push(" AND a.channel_id = ").push_bind(channel_id);
+    }
+    if let Some(before) = query.before {
+        builder.push(
+            " AND (a.at, a.id) < (SELECT cursor.at, cursor.id FROM audit_log cursor WHERE cursor.id = ",
+        );
+        builder.push_bind(before);
+        builder.push(" AND cursor.server_id = ");
+        builder.push_bind(server_id);
+        builder.push(")");
+    }
+    builder.push(" ORDER BY a.at DESC, a.id DESC LIMIT ");
+    builder.push_bind(limit + 1);
+
+    let mut entries = builder
+        .build_query_as::<AuditLogEntry>()
+        .fetch_all(&state.db)
+        .await?;
+    let has_more = entries.len() > limit as usize;
+    entries.truncate(limit as usize);
+    let next_before = if has_more {
+        entries.last().map(|entry| entry.id)
+    } else {
+        None
+    };
+
+    Ok(Json(AuditLogPage {
+        entries,
+        next_before,
+    }))
 }
 
 /// POST /api/servers/join — join a server via invite code.

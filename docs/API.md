@@ -34,6 +34,7 @@ Role/permission system is bitmask-based (`apps/server/src/services/permissions.r
 - `1 << 10` `CONNECT_VOICE`
 - `1 << 11` `MUTE_MEMBERS`
 - `1 << 12` `DEAFEN_MEMBERS`
+- `1 << 13` `MOVE_MEMBERS`
 
 Important behavior:
 
@@ -150,6 +151,10 @@ Notes:
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
 - `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
+  - Optional exact filters: `action`, `actor_id`, `target_id`, and `channel_id`.
+  - Cursor pagination uses `before=<audit-entry-id>` and `limit` from 1 to 100 (default 50).
+  - Returns `{ entries, next_before }`, newest first. Pass `next_before` as the next request's `before` value.
+  - Voice moderation entries identify the actor, target member, channel, action, and optional reason.
 - `GET /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `POST /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `PATCH /api/servers/:server_id/automod-rules/:rule_id` (requires `MANAGE_MESSAGES`)

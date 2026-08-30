@@ -1210,6 +1210,7 @@ const PERM_MANAGE_PINS: i64 = 1 << 9;
 const PERM_CONNECT_VOICE: i64 = 1 << 10;
 const PERM_MUTE_MEMBERS: i64 = 1 << 11;
 const PERM_DEAFEN_MEMBERS: i64 = 1 << 12;
+const PERM_MOVE_MEMBERS: i64 = 1 << 13;
 const DEFAULT_COMMUNITY_ONBOARDING_TITLE: &str = "Welcome to the Voxpery Community";
 const DEFAULT_COMMUNITY_ONBOARDING_BODY: &str =
     "Start here, say hello, and jump into voice when you are ready.";
@@ -1368,6 +1369,7 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
             | PERM_BAN_MEMBERS
             | PERM_MUTE_MEMBERS
             | PERM_DEAFEN_MEMBERS
+            | PERM_MOVE_MEMBERS
             | PERM_VIEW_AUDIT_LOG;
         sqlx::query(
             r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)

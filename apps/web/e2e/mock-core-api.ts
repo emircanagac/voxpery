@@ -242,9 +242,12 @@ export function buildCoreAuditLog(serverId = 'server-core'): AuditLogEntry[] {
       action: 'server_update',
       resource_type: 'server',
       resource_id: serverId,
+      channel_id: null,
+      reason: null,
       details: { name: 'Core Guild' },
       actor_username: 'localuser',
       resource_username: null,
+      channel_name: null,
     },
   ]
 }
@@ -903,7 +906,12 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   const auditMatch = pathname.match(/^\/api\/servers\/([^/]+)\/audit-log$/)
   if (auditMatch && method === 'GET') {
-    await json(route, state.auditLogByServerId[auditMatch[1]] ?? buildCoreAuditLog(auditMatch[1]))
+    const action = url.searchParams.get('action')
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') ?? 50)))
+    const entries = (state.auditLogByServerId[auditMatch[1]] ?? buildCoreAuditLog(auditMatch[1]))
+      .filter((entry) => !action || entry.action === action)
+      .slice(0, limit)
+    await json(route, { entries, next_before: null })
     return
   }
 

@@ -157,7 +157,8 @@ Uniqueness (case-insensitive):
 
 ### `audit_log`
 
-- `id`, `at`, `actor_id`, `server_id`, `action`, `resource_type`, `resource_id`, `details`
+- `id`, `at`, `actor_id`, `server_id`, `action`, `resource_type`, `resource_id`, `channel_id`, `reason`, `details`
+- Voice moderation rows use `resource_id` for the target member and `channel_id` for the affected or destination voice channel. Move details preserve both source and destination channel names/IDs.
 
 ### `server_bans`
 
@@ -279,6 +280,7 @@ All migrations currently present:
 - `045_privacy_compliance.sql`
 - `046_user_profile_fields.sql`
 - `047_versioned_legal_consent.sql`
+- `048_voice_moderation_audit.sql`
 
 ### Privacy audit log
 

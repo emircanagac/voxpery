@@ -1,5 +1,7 @@
 export type {
     AuditLogEntry,
+    AuditLogPage,
+    AuditLogQuery,
     AutoModRule,
     AutoModTriggerType,
     AuthResponse,

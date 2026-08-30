@@ -378,7 +378,7 @@ CI validates the nginx and Tauri policy files statically. Release smoke validate
 
 ## Audit Logging
 
-Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, and server settings updates) and exposed via server audit endpoints.
+Audit logging is implemented for core moderation/server actions (for example role updates, kick, ban, server settings updates, and server-enforced voice mute/deafen/disconnect/move) and exposed via permission-gated server audit endpoints. Voice moderation changes are rejected when their audit record cannot be persisted, and records include the actor, target member, channel context, and optional bounded reason.
 
 Critical role replacement and channel deletion flows lock their server-scoped database state, re-check authorization on the transaction connection, and commit the mutation with its audit record. External WebSocket and voice reconciliation side effects run after commit so delivery failures do not create ambiguous rollback responses for already-persisted changes.
 

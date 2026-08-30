@@ -10,9 +10,26 @@ export interface AuditLogEntry {
     action: string
     resource_type: string
     resource_id: string | null
+    channel_id: string | null
+    reason: string | null
     details: unknown | null
     actor_username: string | null
     resource_username: string | null
+    channel_name: string | null
+}
+
+export interface AuditLogPage {
+    entries: AuditLogEntry[]
+    next_before: string | null
+}
+
+export interface AuditLogQuery {
+    action?: string
+    actorId?: string
+    targetId?: string
+    channelId?: string
+    before?: string
+    limit?: number
 }
 
 // Re-export User as UserPublic for compat
