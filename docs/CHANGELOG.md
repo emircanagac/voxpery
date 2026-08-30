@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added permission-gated voice member moves and structured moderation audit entries for server mute, deafen, disconnect, and move actions, including target, channel, optional reason, filters, and cursor pagination.
+
 ### Fixed
 - Kept remote microphone tracks locally suppressed when a sender unmutes, republishes, or reconnects after the listener has deafened, without muting independently watched screen-share audio.
 

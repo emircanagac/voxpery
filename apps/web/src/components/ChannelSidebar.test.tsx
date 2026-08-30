@@ -24,6 +24,13 @@ const voiceChannel: Channel = {
     my_permissions: 1 << 10,
 }
 
+const supportVoiceChannel: Channel = {
+    ...voiceChannel,
+    id: 'voice-2',
+    name: 'Support',
+    position: 1,
+}
+
 const remoteMember: MemberInfo = {
     user_id: 'remote-1',
     username: 'a-very-long-remote-username',
@@ -206,6 +213,37 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.getByText('Your playback')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: 'Send direct message' }))
         expect(onOpenDirectMessage).toHaveBeenCalledWith(remoteMember.user_id)
+    })
+
+    it('moves a voice participant through the permission-gated channel picker', () => {
+        const send = vi.fn()
+        useSocketStore.setState({ send })
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel, supportVoiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                canMoveMembers
+            />,
+        )
+
+        fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        fireEvent.change(
+            screen.getByLabelText(`Move ${remoteMember.username} to voice channel`),
+            { target: { value: supportVoiceChannel.id } },
+        )
+
+        expect(send).toHaveBeenCalledWith('MoveVoiceMember', {
+            target_user_id: remoteMember.user_id,
+            channel_id: supportVoiceChannel.id,
+        })
     })
 
     it('opens the shared profile dialog and its member actions from a voice participant context menu', () => {

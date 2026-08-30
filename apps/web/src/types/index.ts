@@ -87,6 +87,6 @@ export interface SignalingMessage {
 }
 
 export interface WsEvent {
-    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'ScreenShareViewerUpdate' | 'Signal' | 'Pong';
+    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'VoiceMemberMoveRequested' | 'ScreenShareViewerUpdate' | 'Signal' | 'Pong';
     data: unknown;
 }

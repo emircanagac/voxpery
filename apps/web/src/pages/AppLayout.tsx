@@ -134,6 +134,7 @@ const PERM_MANAGE_PINS = 1 << 9
 const PERM_CONNECT_VOICE = 1 << 10
 const PERM_MUTE_MEMBERS = 1 << 11
 const PERM_DEAFEN_MEMBERS = 1 << 12
+const PERM_MOVE_MEMBERS = 1 << 13
 
 const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
 
@@ -474,7 +475,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [onboardingError, setOnboardingError] = useState<string | null>(null)
     const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[] | null>(null)
     const [auditLogLoading, setAuditLogLoading] = useState(false)
+    const [auditLogLoadingMore, setAuditLogLoadingMore] = useState(false)
     const [auditLogError, setAuditLogError] = useState<string | null>(null)
+    const [auditLogActionFilter, setAuditLogActionFilter] = useState('')
+    const [auditLogNextBefore, setAuditLogNextBefore] = useState<string | null>(null)
+    const auditLogRequestSequence = useRef(0)
     const [reportEntries, setReportEntries] = useState<ServerReportEntry[] | null>(null)
     const [reportEntriesLoading, setReportEntriesLoading] = useState(false)
     const [reportEntriesError, setReportEntriesError] = useState<string | null>(null)
@@ -1258,11 +1263,30 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     store.setVoiceCamera(user_id, !!camera_on)
                     break
                 }
+                case 'VoiceMemberMoveRequested': {
+                    const sourceChannelId = d.source_channel_id as string | undefined
+                    const channelId = d.channel_id as string | undefined
+                    if (!sourceChannelId || !channelId) break
+                    if (useAppStore.getState().joinedVoiceChannelId !== sourceChannelId) break
+                    const joinVoice = (window as Window & {
+                        __voxperyJoinVoice?: (targetChannelId: string) => void
+                    }).__voxperyJoinVoice
+                    if (joinVoice) {
+                        joinVoice(channelId)
+                    } else {
+                        pushToast({
+                            level: 'error',
+                            title: 'Voice move failed',
+                            message: 'The voice client is not ready to change channels.',
+                        })
+                    }
+                    break
+                }
             }
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -1686,6 +1710,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         hasManageServer || (activePerms & PERM_MUTE_MEMBERS) === PERM_MUTE_MEMBERS
     const canDeafenMembers =
         hasManageServer || (activePerms & PERM_DEAFEN_MEMBERS) === PERM_DEAFEN_MEMBERS
+    const canMoveMembers =
+        hasManageServer || (activePerms & PERM_MOVE_MEMBERS) === PERM_MOVE_MEMBERS
     const canDisconnectMembers = hasManageServer || canMuteMembers || canDeafenMembers
     const canBanMembers = (activePerms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS
     const canManageBans = canBanMembers
@@ -1918,22 +1944,63 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'audit') return
         if (!isLoggedIn || !settingsServerId) return
+        const requestSequence = ++auditLogRequestSequence.current
         const load = async () => {
             setAuditLogLoading(true)
+            setAuditLogLoadingMore(false)
             setAuditLogError(null)
+            setAuditLogEntries(null)
+            setAuditLogNextBefore(null)
             try {
-                const entries = await serverApi.auditLog(settingsServerId, token)
-                setAuditLogEntries(entries)
+                const page = await serverApi.auditLog(settingsServerId, token, {
+                    action: auditLogActionFilter || undefined,
+                    limit: 50,
+                })
+                if (auditLogRequestSequence.current !== requestSequence) return
+                setAuditLogEntries(page.entries)
+                setAuditLogNextBefore(page.next_before)
             } catch (err) {
+                if (auditLogRequestSequence.current !== requestSequence) return
                 const message =
                     err instanceof Error ? err.message : 'Failed to load audit log.'
                 setAuditLogError(message)
             } finally {
-                setAuditLogLoading(false)
+                if (auditLogRequestSequence.current === requestSequence) {
+                    setAuditLogLoading(false)
+                }
             }
         }
         void load()
-    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token])
+        return () => {
+            if (auditLogRequestSequence.current === requestSequence) {
+                auditLogRequestSequence.current += 1
+            }
+        }
+    }, [showServerSettings, serverSettingsTab, isLoggedIn, settingsServerId, token, auditLogActionFilter])
+
+    const loadOlderAuditLog = useCallback(async () => {
+        if (!settingsServerId || !auditLogNextBefore || auditLogLoadingMore) return
+        const requestSequence = auditLogRequestSequence.current
+        setAuditLogLoadingMore(true)
+        setAuditLogError(null)
+        try {
+            const page = await serverApi.auditLog(settingsServerId, token, {
+                action: auditLogActionFilter || undefined,
+                before: auditLogNextBefore,
+                limit: 50,
+            })
+            if (auditLogRequestSequence.current !== requestSequence) return
+            setAuditLogEntries((current) => [...(current ?? []), ...page.entries])
+            setAuditLogNextBefore(page.next_before)
+        } catch (err) {
+            if (auditLogRequestSequence.current !== requestSequence) return
+            setAuditLogError(err instanceof Error ? err.message : 'Failed to load older audit entries.')
+        } finally {
+            if (auditLogRequestSequence.current === requestSequence) {
+                setAuditLogLoadingMore(false)
+            }
+        }
+    }, [auditLogActionFilter, auditLogLoadingMore, auditLogNextBefore, settingsServerId, token])
 
     useEffect(() => {
         if (!showServerSettings || serverSettingsTab !== 'safety' || safetySettingsTab !== 'reports' || !canViewReports) return
@@ -2077,7 +2144,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             PERM_MANAGE_PINS |
             PERM_CONNECT_VOICE |
             PERM_MUTE_MEMBERS |
-            PERM_DEAFEN_MEMBERS
+            PERM_DEAFEN_MEMBERS |
+            PERM_MOVE_MEMBERS
 
         if (isFullAdmin) {
             if (checked) {
@@ -2992,6 +3060,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 canManageChannels={canManageChannels}
                 canMuteMembers={canMuteMembers}
                 canDeafenMembers={canDeafenMembers}
+                canMoveMembers={canMoveMembers}
                 canDisconnectMembers={canDisconnectMembers}
                 unreadByChannel={serverUnreadByChannel}
                 mentionByChannel={serverMentionsByChannel}
@@ -3701,16 +3770,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                             Loading audit log…
                                                         </div>
                                                     )}
-                                                    {!auditLogLoading && auditLogEntries && auditLogEntries.length === 0 && (
-                                                        <div className="server-settings-empty-state">
-                                                            No audit entries yet.
-                                                        </div>
-                                                    )}
-                                                    {!auditLogLoading && auditLogEntries && auditLogEntries.length > 0 && (
+                                                    {!auditLogLoading && auditLogEntries && (
                                                         <ServerSettingsAuditLog
-                                                            key={auditLogEntries[0]?.id ?? 'empty-audit'}
                                                             entries={auditLogEntries}
                                                             memberUsernameById={memberUsernameById}
+                                                            actionFilter={auditLogActionFilter}
+                                                            onActionFilterChange={setAuditLogActionFilter}
+                                                            hasMore={auditLogNextBefore !== null}
+                                                            loadingMore={auditLogLoadingMore}
+                                                            onLoadMore={() => void loadOlderAuditLog()}
                                                         />
                                                     )}
                                                 </section>
@@ -3794,6 +3862,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                     managePins: PERM_MANAGE_PINS,
                                                                     muteMembers: PERM_MUTE_MEMBERS,
                                                                     deafenMembers: PERM_DEAFEN_MEMBERS,
+                                                                    moveMembers: PERM_MOVE_MEMBERS,
                                                                     kickMembers: PERM_KICK_MEMBERS,
                                                                     banMembers: PERM_BAN_MEMBERS,
                                                                 }}

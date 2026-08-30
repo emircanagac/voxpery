@@ -79,6 +79,13 @@ pub enum WsEvent {
         screen_sharing: bool,
         camera_on: bool,
     },
+    /// A moderator requested that the current user join another voice channel.
+    VoiceMemberMoveRequested {
+        source_channel_id: Uuid,
+        channel_id: Uuid,
+        server_id: Uuid,
+        actor_id: Uuid,
+    },
     /// A voice participant started or stopped watching another participant's active screen share.
     ScreenShareViewerUpdate {
         viewer_id: Uuid,
@@ -162,6 +169,52 @@ mod tests {
             } if publisher_user_id == publisher_id
         ));
     }
+
+    #[test]
+    fn parses_voice_member_move_request_with_reason() {
+        let target_user_id = Uuid::new_v4();
+        let channel_id = Uuid::new_v4();
+        let payload = format!(
+            r#"{{"type":"MoveVoiceMember","data":{{"target_user_id":"{target_user_id}","channel_id":"{channel_id}","reason":"Requested support"}}}}"#,
+        );
+
+        let message = serde_json::from_str::<WsClientMessage>(&payload)
+            .expect("voice member move request parses");
+        assert!(matches!(
+            message,
+            WsClientMessage::MoveVoiceMember {
+                target_user_id: parsed_target,
+                channel_id: parsed_channel,
+                reason: Some(reason),
+            } if parsed_target == target_user_id
+                && parsed_channel == channel_id
+                && reason == "Requested support"
+        ));
+    }
+
+    #[test]
+    fn serializes_targeted_voice_member_move_event() {
+        let source_channel_id = Uuid::new_v4();
+        let channel_id = Uuid::new_v4();
+        let server_id = Uuid::new_v4();
+        let actor_id = Uuid::new_v4();
+        let event = WsEvent::VoiceMemberMoveRequested {
+            source_channel_id,
+            channel_id,
+            server_id,
+            actor_id,
+        };
+
+        let json = serde_json::to_value(event).expect("voice member move event serializes");
+        assert_eq!(json["type"], "VoiceMemberMoveRequested");
+        assert_eq!(
+            json["data"]["source_channel_id"],
+            source_channel_id.to_string()
+        );
+        assert_eq!(json["data"]["channel_id"], channel_id.to_string());
+        assert_eq!(json["data"]["server_id"], server_id.to_string());
+        assert_eq!(json["data"]["actor_id"], actor_id.to_string());
+    }
 }
 
 /// Client-to-server WebSocket messages.
@@ -183,7 +236,18 @@ pub enum WsClientMessage {
     /// Leave voice channel.
     LeaveVoice,
     /// Disconnect another member from voice (server moderation).
-    DisconnectVoiceMember { target_user_id: Uuid },
+    DisconnectVoiceMember {
+        target_user_id: Uuid,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    /// Move another member to a voice channel in the same server.
+    MoveVoiceMember {
+        target_user_id: Uuid,
+        channel_id: Uuid,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     /// Update voice controls.
     SetVoiceControl {
         #[serde(default)]
@@ -192,6 +256,8 @@ pub enum WsClientMessage {
         deafened: bool,
         screen_sharing: bool,
         camera_on: bool,
+        #[serde(default)]
+        reason: Option<String>,
     },
     /// Opt in or out of receiving an active participant's screen share.
     SetScreenShareWatching {

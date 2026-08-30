@@ -22,6 +22,7 @@ bitflags::bitflags! {
         const CONNECT_VOICE    = 1 << 10;
         const MUTE_MEMBERS     = 1 << 11;
         const DEAFEN_MEMBERS   = 1 << 12;
+        const MOVE_MEMBERS     = 1 << 13;
     }
 }
 
@@ -388,6 +389,7 @@ mod tests {
         assert!(p.contains(Permissions::VIEW_SERVER));
         assert!(p.contains(Permissions::MANAGE_SERVER));
         assert!(p.contains(Permissions::DEAFEN_MEMBERS));
+        assert!(p.contains(Permissions::MOVE_MEMBERS));
     }
 
     #[test]

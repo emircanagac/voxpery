@@ -262,6 +262,7 @@ export default function ChannelSettingsModal({
         { label: 'Connect to Voice', bit: 1 << 10 }, // PERM_CONNECT_VOICE
         { label: 'Mute Members', bit: 1 << 11 }, // PERM_MUTE_MEMBERS
         { label: 'Deafen Members', bit: 1 << 12 }, // PERM_DEAFEN_MEMBERS
+        { label: 'Move Members', bit: 1 << 13 }, // PERM_MOVE_MEMBERS
     ]
 
     return (

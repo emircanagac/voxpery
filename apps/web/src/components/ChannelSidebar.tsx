@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -36,6 +36,7 @@ interface ChannelSidebarProps {
     canManageChannels?: boolean
     canMuteMembers?: boolean
     canDeafenMembers?: boolean
+    canMoveMembers?: boolean
     canDisconnectMembers?: boolean
     unreadByChannel?: Record<string, number>
     mentionByChannel?: Record<string, number>
@@ -60,6 +61,7 @@ export default function ChannelSidebar({
     canManageChannels,
     canMuteMembers = false,
     canDeafenMembers = false,
+    canMoveMembers = false,
     canDisconnectMembers = false,
     unreadByChannel = {},
     mentionByChannel = {},
@@ -865,6 +867,10 @@ export default function ChannelSidebar({
                     screenSharing: false,
                     cameraOn: false,
                 }
+                const moveDestinationChannels = channels.filter(
+                    (channel) => channel.channel_type === 'voice' && channel.id !== participantMenu.channelId,
+                )
+                const canMoveTarget = canMoveMembers && moveDestinationChannels.length > 0
                 if (isSelf) return null
                 return (
                     <div
@@ -905,7 +911,7 @@ export default function ChannelSidebar({
                                 </button>
                             </>
                         )}
-                        {!isSelf && (canMuteMembers || canDeafenMembers || canDisconnectMembers) && (
+                        {!isSelf && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
                             <>
                                 <div className="member-volume-menu-divider" />
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--moderation">
@@ -956,6 +962,31 @@ export default function ChannelSidebar({
                                     {(targetVoice.serverDeafened ?? false) ? 'Undeafen member (server)' : 'Deafen member (server)'}
                                 </span>
                             </button>
+                        )}
+                        {!isSelf && canMoveTarget && (
+                            <label className="server-context-menu-item member-volume-menu-move">
+                                <span className="member-volume-menu-action-with-icon">
+                                    <MoveRight size={12} />
+                                    Move to voice channel
+                                </span>
+                                <select
+                                    aria-label={`Move ${participantMenu.username} to voice channel`}
+                                    defaultValue=""
+                                    onChange={(event) => {
+                                        if (!event.target.value) return
+                                        sendWs('MoveVoiceMember', {
+                                            target_user_id: participantMenu.userId,
+                                            channel_id: event.target.value,
+                                        })
+                                        setParticipantMenu(null)
+                                    }}
+                                >
+                                    <option value="" disabled>Select channel</option>
+                                    {moveDestinationChannels.map((channel) => (
+                                        <option key={channel.id} value={channel.id}>{channel.name}</option>
+                                    ))}
+                                </select>
+                            </label>
                         )}
                         {!isSelf && canDisconnectMembers && (
                             <button

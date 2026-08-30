@@ -99,7 +99,8 @@ Authorization:
     "muted": false,
     "deafened": false,
     "screen_sharing": false,
-    "camera_on": false
+    "camera_on": false,
+    "reason": "optional moderator reason"
   }
 }
 ```
@@ -107,7 +108,37 @@ Authorization:
 Behavior:
 
 - Without `target_user_id`, updates self voice controls.
-- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`) and only when both users are in the same voice channel.
+- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`). The target must be active in voice and lower in the server role hierarchy.
+- A moderator reason is optional and limited to 500 characters. Server mute/deafen state is not changed unless the corresponding audit entry is persisted.
+
+### `DisconnectVoiceMember`
+
+```json
+{
+  "type": "DisconnectVoiceMember",
+  "data": {
+    "target_user_id": "uuid",
+    "reason": "optional moderator reason"
+  }
+}
+```
+
+Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must be active in voice and lower in the role hierarchy. The affected channel and optional reason are recorded before the voice session is revoked.
+
+### `MoveVoiceMember`
+
+```json
+{
+  "type": "MoveVoiceMember",
+  "data": {
+    "target_user_id": "uuid",
+    "channel_id": "destination-voice-channel-uuid",
+    "reason": "optional moderator reason"
+  }
+}
+```
+
+Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, the target must be able to join the destination, and role hierarchy applies. A successful request is audited and delivered only to the target user.
 
 ### `Signal`
 
@@ -167,6 +198,9 @@ Legacy custom signaling event.
     - `screen_sharing`
     - `camera_on`
     - `server_id`
+- `VoiceMemberMoveRequested`
+  - Targeted event sent only to the moved member after the server validates and audits a `MoveVoiceMember` request.
+  - Includes `source_channel_id`, `channel_id`, `server_id`, and `actor_id`; only a client whose active voice session matches the source switches its LiveKit room.
 - `ScreenShareViewerUpdate`
   - Reports an opt-in viewer's current watch state for one active screen-share publisher.
   - Includes `viewer_id`, `publisher_id`, `channel_id`, `server_id`, and `watching`.

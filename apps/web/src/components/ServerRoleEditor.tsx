@@ -7,6 +7,7 @@ type PermissionBits = {
     managePins: number
     muteMembers: number
     deafenMembers: number
+    moveMembers: number
     kickMembers: number
     banMembers: number
 }
@@ -66,6 +67,7 @@ export default function ServerRoleEditor({
             perms: [
                 { label: 'Mute members', bit: bits.muteMembers },
                 { label: 'Deafen members', bit: bits.deafenMembers },
+                { label: 'Move members', bit: bits.moveMembers },
             ],
         },
         {

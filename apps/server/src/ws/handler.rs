@@ -18,7 +18,10 @@ use uuid::Uuid;
 use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
-use crate::services::permissions::{get_user_server_permissions, Permissions};
+use crate::services::audit::{self, VoiceModerationAuditEntry};
+use crate::services::permissions::{
+    get_user_highest_role_position, get_user_server_permissions, Permissions,
+};
 use crate::services::voice_revoke;
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::AppState;
@@ -30,6 +33,54 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
         .await
         .ok()
         .flatten()
+}
+
+async fn voice_channel_context(
+    db: &sqlx::PgPool,
+    channel_id: Uuid,
+) -> Option<(Uuid, String)> {
+    sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT server_id, name FROM channels WHERE id = $1 AND channel_type = 'voice'",
+    )
+    .bind(channel_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn can_moderate_voice_target(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    actor_id: Uuid,
+    target_id: Uuid,
+) -> bool {
+    if actor_id == target_id {
+        return false;
+    }
+
+    let actor_position = get_user_highest_role_position(db, server_id, actor_id).await;
+    let target_position = get_user_highest_role_position(db, server_id, target_id).await;
+    match (actor_position, target_position) {
+        (Ok(actor_position), Ok(target_position)) => actor_position < target_position,
+        (actor_result, target_result) => {
+            tracing::warn!(
+                "Voice moderation hierarchy lookup failed: actor={:?}, target={:?}",
+                actor_result.err(),
+                target_result.err()
+            );
+            false
+        }
+    }
+}
+
+fn normalize_voice_moderation_reason(reason: Option<String>) -> Option<Option<String>> {
+    let reason = reason.map(|value| value.trim().to_string());
+    match reason {
+        Some(value) if value.chars().count() > 500 => None,
+        Some(value) if !value.is_empty() => Some(Some(value)),
+        _ => Some(None),
+    }
 }
 
 fn current_epoch_ms() -> u64 {
@@ -607,6 +658,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 None => false,
                             }
                         }
+                        WsEvent::VoiceMemberMoveRequested { .. } => false,
                         WsEvent::Pong { .. } => false,
                         WsEvent::Signal { .. } => false,
                     };
@@ -981,15 +1033,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     .await;
                                 }
                             }
-                            WsClientMessage::DisconnectVoiceMember { target_user_id } => {
+                            WsClientMessage::DisconnectVoiceMember {
+                                target_user_id,
+                                reason,
+                            } => {
+                                let Some(reason) = normalize_voice_moderation_reason(reason) else {
+                                    continue;
+                                };
                                 let target_channel =
                                     recv_state.voice_sessions.get(&target_user_id).map(|r| *r);
                                 let Some(target_channel_id) = target_channel else {
                                     continue;
                                 };
-                                let target_server_id =
-                                    server_id_for_channel(&recv_state.db, target_channel_id).await;
-                                let Some(target_server_id) = target_server_id else {
+                                let Some((target_server_id, target_channel_name)) =
+                                    voice_channel_context(&recv_state.db, target_channel_id).await
+                                else {
                                     continue;
                                 };
 
@@ -1017,6 +1075,41 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 }
 
+                                if !can_moderate_voice_target(
+                                    &recv_state.db,
+                                    target_server_id,
+                                    user_id,
+                                    target_user_id,
+                                )
+                                .await
+                                {
+                                    continue;
+                                }
+
+                                let audit_entries = [VoiceModerationAuditEntry {
+                                    action: audit::VOICE_MEMBER_DISCONNECT,
+                                    details: serde_json::json!({
+                                        "channel_name": target_channel_name,
+                                    }),
+                                }];
+                                if let Err(e) = audit::log_voice_moderation(
+                                    &recv_state.db,
+                                    user_id,
+                                    target_server_id,
+                                    target_user_id,
+                                    target_channel_id,
+                                    reason.as_deref(),
+                                    &audit_entries,
+                                )
+                                .await
+                                {
+                                    tracing::error!(
+                                        "DisconnectVoiceMember audit log failed: {}",
+                                        e
+                                    );
+                                    continue;
+                                }
+
                                 if let Err(e) = voice_revoke::revoke_active_voice_session(
                                     &recv_state,
                                     target_user_id,
@@ -1030,25 +1123,142 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     );
                                 }
                             }
+                            WsClientMessage::MoveVoiceMember {
+                                target_user_id,
+                                channel_id,
+                                reason,
+                            } => {
+                                let Some(reason) = normalize_voice_moderation_reason(reason) else {
+                                    continue;
+                                };
+                                let Some(source_channel_id) = recv_state
+                                    .voice_sessions
+                                    .get(&target_user_id)
+                                    .map(|entry| *entry)
+                                else {
+                                    continue;
+                                };
+                                if source_channel_id == channel_id {
+                                    continue;
+                                }
+
+                                let Some((source_server_id, source_channel_name)) =
+                                    voice_channel_context(&recv_state.db, source_channel_id).await
+                                else {
+                                    continue;
+                                };
+                                let Some((destination_server_id, destination_channel_name)) =
+                                    voice_channel_context(&recv_state.db, channel_id).await
+                                else {
+                                    continue;
+                                };
+                                if source_server_id != destination_server_id {
+                                    continue;
+                                }
+
+                                let perms = match get_user_server_permissions(
+                                    &recv_state.db,
+                                    source_server_id,
+                                    user_id,
+                                )
+                                .await
+                                {
+                                    Ok(perms) => perms,
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "MoveVoiceMember permission lookup failed: {}",
+                                            e
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if !perms.contains(Permissions::MOVE_MEMBERS)
+                                    && !perms.contains(Permissions::MANAGE_SERVER)
+                                {
+                                    continue;
+                                }
+                                if !can_moderate_voice_target(
+                                    &recv_state.db,
+                                    source_server_id,
+                                    user_id,
+                                    target_user_id,
+                                )
+                                .await
+                                {
+                                    continue;
+                                }
+                                if !matches!(
+                                    can_join_voice_channel(
+                                        &recv_state.db,
+                                        target_user_id,
+                                        channel_id,
+                                    )
+                                    .await,
+                                    Ok(true)
+                                ) {
+                                    continue;
+                                }
+
+                                let audit_entries = [VoiceModerationAuditEntry {
+                                    action: audit::VOICE_MEMBER_MOVE,
+                                    details: serde_json::json!({
+                                        "source_channel_id": source_channel_id,
+                                        "source_channel_name": source_channel_name,
+                                        "destination_channel_id": channel_id,
+                                        "destination_channel_name": destination_channel_name,
+                                    }),
+                                }];
+                                if let Err(e) = audit::log_voice_moderation(
+                                    &recv_state.db,
+                                    user_id,
+                                    source_server_id,
+                                    target_user_id,
+                                    channel_id,
+                                    reason.as_deref(),
+                                    &audit_entries,
+                                )
+                                .await
+                                {
+                                    tracing::error!("MoveVoiceMember audit log failed: {}", e);
+                                    continue;
+                                }
+
+                                super::publish_user_event(
+                                    &recv_state,
+                                    target_user_id,
+                                    WsEvent::VoiceMemberMoveRequested {
+                                        source_channel_id,
+                                        channel_id,
+                                        server_id: source_server_id,
+                                        actor_id: user_id,
+                                    },
+                                )
+                                .await;
+                            }
                             WsClientMessage::SetVoiceControl {
                                 target_user_id,
                                 muted,
                                 deafened,
                                 screen_sharing,
                                 camera_on,
+                                reason,
                             } => {
                                 let target_id = target_user_id.unwrap_or(user_id);
 
                                 if target_id != user_id {
+                                    let Some(reason) = normalize_voice_moderation_reason(reason)
+                                    else {
+                                        continue;
+                                    };
                                     let target_channel =
                                         recv_state.voice_sessions.get(&target_id).map(|r| *r);
                                     let Some(target_channel_id) = target_channel else {
                                         continue;
                                     };
-                                    let target_server_id =
-                                        server_id_for_channel(&recv_state.db, target_channel_id)
-                                            .await;
-                                    let Some(target_server_id) = target_server_id else {
+                                    let Some((target_server_id, target_channel_name)) =
+                                        voice_channel_context(&recv_state.db, target_channel_id)
+                                            .await
+                                    else {
                                         continue;
                                     };
 
@@ -1082,6 +1292,63 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         continue;
                                     }
                                     if deafened != current.3 && !can_deafen {
+                                        continue;
+                                    }
+                                    if !can_moderate_voice_target(
+                                        &recv_state.db,
+                                        target_server_id,
+                                        user_id,
+                                        target_id,
+                                    )
+                                    .await
+                                    {
+                                        continue;
+                                    }
+
+                                    let mut audit_entries = Vec::with_capacity(2);
+                                    if muted != current.2 {
+                                        audit_entries.push(VoiceModerationAuditEntry {
+                                            action: if muted {
+                                                audit::VOICE_MEMBER_MUTE
+                                            } else {
+                                                audit::VOICE_MEMBER_UNMUTE
+                                            },
+                                            details: serde_json::json!({
+                                                "channel_name": target_channel_name,
+                                                "previous_server_muted": current.2,
+                                                "server_muted": muted,
+                                            }),
+                                        });
+                                    }
+                                    if deafened != current.3 {
+                                        audit_entries.push(VoiceModerationAuditEntry {
+                                            action: if deafened {
+                                                audit::VOICE_MEMBER_DEAFEN
+                                            } else {
+                                                audit::VOICE_MEMBER_UNDEAFEN
+                                            },
+                                            details: serde_json::json!({
+                                                "channel_name": target_channel_name,
+                                                "previous_server_deafened": current.3,
+                                                "server_deafened": deafened,
+                                            }),
+                                        });
+                                    }
+                                    if audit_entries.is_empty() {
+                                        continue;
+                                    }
+                                    if let Err(e) = audit::log_voice_moderation(
+                                        &recv_state.db,
+                                        user_id,
+                                        target_server_id,
+                                        target_id,
+                                        target_channel_id,
+                                        reason.as_deref(),
+                                        &audit_entries,
+                                    )
+                                    .await
+                                    {
+                                        tracing::error!("SetVoiceControl audit log failed: {}", e);
                                         continue;
                                     }
 
