@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -292,6 +292,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const dmMessagesRequestRef = useRef(0)
   const socialContextMenuTriggerRef = useRef<HTMLElement | null>(null)
   const socialSidebarRef = useRef<HTMLElement | null>(null)
+  const socialContentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setDmInput(readMessageDraft(userId, 'dm', activeDmChannelId))
@@ -327,14 +328,19 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const pad = 8
     const rect = event.currentTarget.getBoundingClientRect()
     const sidebarRect = socialSidebarRef.current?.getBoundingClientRect()
-    const shouldAnchorInSidebar = target.kind === 'dm' && !!sidebarRect
-    const preferredX = shouldAnchorInSidebar && sidebarRect
+    const socialContentRect = socialContentRef.current?.getBoundingClientRect()
+    const menuContainerRect = target.kind === 'dm' ? sidebarRect : socialContentRect
+    const shouldCenterInSidebar = target.kind === 'dm' && !!sidebarRect
+    const shouldOpenFriendMenuLeft = target.kind === 'friend' && event.type === 'click'
+    const preferredX = shouldCenterInSidebar && sidebarRect
       ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
-      : event.clientX || rect.left + Math.min(24, rect.width / 2)
+      : shouldOpenFriendMenuLeft
+        ? rect.right - menuWidth
+        : event.clientX || rect.left + Math.min(24, rect.width / 2)
     const requestedY = event.clientY || rect.top + Math.min(24, rect.height / 2)
-    const minX = shouldAnchorInSidebar && sidebarRect ? Math.max(pad, sidebarRect.left + pad) : pad
-    const maxX = shouldAnchorInSidebar && sidebarRect
-      ? Math.min(window.innerWidth - menuWidth - pad, sidebarRect.right - menuWidth - pad)
+    const minX = menuContainerRect ? Math.max(pad, menuContainerRect.left + pad) : pad
+    const maxX = menuContainerRect
+      ? Math.min(window.innerWidth - menuWidth - pad, menuContainerRect.right - menuWidth - pad)
       : window.innerWidth - menuWidth - pad
     socialContextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : event.currentTarget
     setSocialContextMenu({
@@ -1253,7 +1259,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       )}
 
       <section className={`home-main${view === 'dm' ? ' home-main-dm' : ''}`}>
-        <div className={`social-content${view === 'dm' ? ' social-content-dm' : ''}`}>
+        <div ref={socialContentRef} className={`social-content${view === 'dm' ? ' social-content-dm' : ''}`}>
           {view === 'friends' && (
             <>
               <div className="home-chip-row">
@@ -1449,29 +1455,22 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                             <div className="home-member-actions">
                               <button
                                 type="button"
-                                className="home-member-action home-member-action--message"
-                                title="Send message"
-                                aria-label={`Open DM with ${friend.username}`}
+                                className="home-member-action"
+                                title={`More actions for ${friend.username}`}
+                                aria-label={`More actions for ${friend.username}`}
                                 disabled={openingDmPeerId === friend.id}
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  void openMessageForFriend(friend.id)
+                                  openSocialContextMenu(e, {
+                                    kind: 'friend',
+                                    userId: friend.id,
+                                    username: friend.username,
+                                    avatarUrl: friend.avatar_url,
+                                    status: friend.status,
+                                  })
                                 }}
                               >
-                                <MessageCircle size={15} />
-                              </button>
-                              <button
-                                type="button"
-                                className="home-member-action danger"
-                                title="Remove friend"
-                                aria-label={`Remove ${friend.username} as friend`}
-                                disabled={openingDmPeerId === friend.id}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setRemoveFriendTarget(friend)
-                                }}
-                              >
-                                <UserMinus size={15} />
+                                <MoreHorizontal size={16} />
                               </button>
                             </div>
                           </div>

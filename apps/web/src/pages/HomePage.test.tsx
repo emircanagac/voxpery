@@ -229,18 +229,30 @@ describe('HomePage friends list', () => {
     })
   })
 
-  it('opens a DM from the friend action button', async () => {
+  it('opens a DM from the friend row', async () => {
     apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
 
     renderHomePage()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open DM with cilo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Message cilo' }))
 
     await waitFor(() => {
       expect(apiMocks.getOrCreateDmChannel).toHaveBeenCalledWith('friend-cilo', null)
       expect(useAppStore.getState().activeDmChannelId).toBe('dm-cilo')
     })
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
+  })
+
+  it('opens the friend context menu from the more-actions button', async () => {
+    renderHomePage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for cilo' }))
+
+    const menu = screen.getByRole('menu', { name: 'Actions for cilo' })
+    expect(menu).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'View profile (@cilo)' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Send message' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Remove friend' })).toBeVisible()
   })
 
   it('opens a friend profile from the viewport-clamped Social context menu', async () => {

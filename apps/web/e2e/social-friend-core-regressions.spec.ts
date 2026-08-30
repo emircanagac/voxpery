@@ -79,14 +79,16 @@ test.describe('mocked social friend UI regressions', () => {
 
     await page.goto('/social')
     await page.getByRole('button', { name: /All/ }).click()
-    await page.getByRole('button', { name: 'Remove Friend 01 as friend' }).click()
+    await page.getByRole('button', { name: 'More actions for Friend 01' }).click()
+    await page.getByRole('menuitem', { name: 'Remove friend' }).click()
 
     await expect(page.getByRole('heading', { name: 'Remove friend?' })).toBeVisible()
     await page.getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByRole('button', { name: 'Message Friend 01' })).toBeVisible()
     expect(state.friends.some((friend) => friend.id === 'friend-01')).toBe(true)
 
-    await page.getByRole('button', { name: 'Remove Friend 01 as friend' }).click()
+    await page.getByRole('button', { name: 'More actions for Friend 01' }).click()
+    await page.getByRole('menuitem', { name: 'Remove friend' }).click()
     await page.getByRole('button', { name: 'Remove', exact: true }).click()
 
     await expect(page.getByRole('button', { name: 'Message Friend 01' })).toBeHidden()
@@ -120,7 +122,7 @@ test.describe('mocked social friend UI regressions', () => {
     await expect(page.getByRole('dialog', { name: 'Friend 01' })).toBeVisible()
   })
 
-  test('opens a Friends context menu in the main panel instead of the DM sidebar', async ({ page }) => {
+  test('opens a Friends more-actions menu in the main panel instead of the DM sidebar', async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(1),
       incomingRequests: [],
@@ -130,13 +132,14 @@ test.describe('mocked social friend UI regressions', () => {
 
     await page.goto('/social')
     await page.getByRole('button', { name: /All/ }).click()
-    await page.getByRole('button', { name: 'Message Friend 01' }).click({ button: 'right' })
+    await page.getByRole('button', { name: 'More actions for Friend 01' }).click()
 
-    const sidebarBox = await page.locator('.social-sidebar').boundingBox()
+    const socialContentBox = await page.locator('.social-content').boundingBox()
     const menuBox = await page.getByRole('menu', { name: 'Actions for Friend 01' }).boundingBox()
-    expect(sidebarBox).not.toBeNull()
+    expect(socialContentBox).not.toBeNull()
     expect(menuBox).not.toBeNull()
-    expect(menuBox!.x).toBeGreaterThanOrEqual(sidebarBox!.x + sidebarBox!.width)
+    expect(menuBox!.x).toBeGreaterThanOrEqual(socialContentBox!.x)
+    expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(socialContentBox!.x + socialContentBox!.width)
   })
 
   test('keeps direct-message context actions available from the Social sidebar', async ({ page }) => {
