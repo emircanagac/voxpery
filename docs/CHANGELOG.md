@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-08-31
+
 ### Added
 - Added permission-gated voice member moves and structured moderation audit entries for server mute, deafen, disconnect, and move actions, including target, channel, optional reason, filters, and cursor pagination.
+- Added a persistent in-app mini player for watched screen shares when navigating to text chat or Social, with a direct return-to-stream action and independent stop-watching control.
+- Added profile-first context menus for Friends and direct-message entries, including viewport-safe positioning and relevant message, pin, close, and friend-management actions.
+
+### Changed
+- Made crowded voice stages keep screen and camera tiles prioritized while their grid contracts safely for larger participant counts; tightened desktop voice participant spacing without reducing mobile touch targets.
+- Moved the desktop watched screen-share mini player to the upper-right content area while keeping its mobile placement above the bottom dock.
+- Replaced inline Friends message and removal controls with one compact more-actions menu, matching the right-click actions and supporting touch devices.
 
 ### Fixed
 - Kept remote microphone tracks locally suppressed when a sender unmutes, republishes, or reconnects after the listener has deafened, without muting independently watched screen-share audio.
+- Kept Friends and direct-message context menus inside the Social sidebar and removed the redundant direct-message open action from existing conversations.
+- Kept Friends context menus in the main Social panel, aligned their profile labels with server member menus, and removed friend removal from direct-message menus.
 
 ## [0.2.13] - 2026-08-29
 

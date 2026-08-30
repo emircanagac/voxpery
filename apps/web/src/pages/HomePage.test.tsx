@@ -229,18 +229,47 @@ describe('HomePage friends list', () => {
     })
   })
 
-  it('opens a DM from the friend action button', async () => {
+  it('opens a DM from the friend row', async () => {
     apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
 
     renderHomePage()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open DM with cilo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Message cilo' }))
 
     await waitFor(() => {
       expect(apiMocks.getOrCreateDmChannel).toHaveBeenCalledWith('friend-cilo', null)
       expect(useAppStore.getState().activeDmChannelId).toBe('dm-cilo')
     })
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
+  })
+
+  it('opens the friend context menu from the more-actions button', async () => {
+    renderHomePage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for cilo' }))
+
+    const menu = screen.getByRole('menu', { name: 'Actions for cilo' })
+    expect(menu).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'View profile (@cilo)' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Send message' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Remove friend' })).toBeVisible()
+  })
+
+  it('opens a friend profile from the viewport-clamped Social context menu', async () => {
+    renderHomePage()
+
+    const friendRow = (await screen.findByRole('button', { name: 'Message cilo' })).closest('.home-member-row')
+    expect(friendRow).not.toBeNull()
+    fireEvent.contextMenu(friendRow!, { clientX: window.innerWidth + 200, clientY: window.innerHeight + 200 })
+
+    const menu = screen.getByRole('menu', { name: 'Actions for cilo' })
+    expect(menu).toBeVisible()
+    expect(Number.parseInt(menu.style.left, 10)).toBeLessThan(window.innerWidth)
+    expect(Number.parseInt(menu.style.top, 10)).toBeLessThan(window.innerHeight)
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View profile (@cilo)' }))
+    expect(screen.getByRole('dialog', { name: 'cilo' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Send DM' })).toBeVisible()
   })
 
   it('shows a toast when opening a DM fails', async () => {
@@ -302,6 +331,25 @@ describe('HomePage friends list', () => {
       expect(apiMocks.updateDmChannelPreferences).toHaveBeenLastCalledWith(older.id, false, null)
       expect(useAppStore.getState().dmChannels.map((channel) => channel.id)).toEqual([recent.id, older.id])
     })
+  })
+
+  it('keeps the DM context menu compact and removes the redundant open action', async () => {
+    const channel = dmChannel('dm-cilo')
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+
+    renderHomePage()
+
+    const dmOpenButton = (await screen.findAllByRole('button', { name: 'Open DM with cilo' }))
+      .find((button) => button.classList.contains('social-dm-open'))
+    const dmRow = dmOpenButton?.closest('.social-dm-item')
+    expect(dmRow).not.toBeNull()
+    fireEvent.contextMenu(dmRow!)
+
+    expect(screen.getByRole('menuitem', { name: 'View profile (@cilo)' })).toHaveFocus()
+    expect(screen.queryByRole('menuitem', { name: 'Open direct message' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Remove friend' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Close DM' })).toBeVisible()
   })
 
   it('shows cached social data without waiting for the server list refresh', async () => {

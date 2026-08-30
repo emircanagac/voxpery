@@ -1786,18 +1786,18 @@ body {
 }
 
 .voice-participants {
-  margin: 0 8px 4px 32px;
+  margin: 0 8px 2px 32px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .voice-participant {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 6px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: 8px;
   font-size: 13px;
@@ -9880,8 +9880,7 @@ a.community-open-btn:hover {
   z-index: 70;
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
-  --voice-stage-tile-min: 180px;
-  grid-auto-rows: minmax(var(--voice-stage-tile-min), 1fr);
+  grid-auto-rows: minmax(0, 1fr);
   gap: 12px;
   align-content: stretch;
   align-items: stretch;
@@ -9893,11 +9892,86 @@ a.community-open-btn:hover {
 }
 
 .screen-share-stage[data-stage-density="crowded"] {
-  --voice-stage-tile-min: 156px;
+  gap: 10px;
 }
 
 .screen-share-stage[data-stage-density="dense"] {
-  --voice-stage-tile-min: 132px;
+  gap: 8px;
+}
+
+.screen-share-mini-player {
+  position: fixed;
+  right: calc(var(--member-sidebar-width) + 20px);
+  top: calc(var(--header-height) + 64px);
+  z-index: 120;
+  width: clamp(236px, 24vw, 360px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(96, 165, 250, 0.56);
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+}
+
+.screen-share-mini-player-open {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: #000;
+  cursor: pointer;
+}
+
+.screen-share-mini-player-open video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.screen-share-mini-player-open:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -3px;
+}
+
+.screen-share-mini-player-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 18px 10px 8px;
+  color: #f8fafc;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.84), transparent);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.screen-share-mini-player-stop {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, 0.74);
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.screen-share-mini-player-stop:hover {
+  background: rgba(185, 28, 28, 0.92);
 }
 
 /* Focus view keeps a selected screen share prominent without browser fullscreen. */
@@ -10281,7 +10355,7 @@ a.community-open-btn:hover {
   background: linear-gradient(180deg, rgba(30, 39, 70, 0.9), rgba(20, 28, 52, 0.95));
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  min-height: clamp(180px, 28vh, 340px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -10321,6 +10395,10 @@ a.community-open-btn:hover {
 }
 
 .voice-stage-name {
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
@@ -10341,11 +10419,13 @@ a.community-open-btn:hover {
 }
 
 .voice-stage-share-tile {
+  order: -1;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  min-height: 0;
 }
 
 .voice-stage-hidden-media-tile {
-  min-height: clamp(150px, 22vh, 260px);
+  min-height: 0;
   border: 1px dashed rgba(148, 163, 184, 0.32);
   border-radius: 10px;
   background: linear-gradient(180deg, rgba(24, 32, 58, 0.78), rgba(17, 24, 43, 0.88));
@@ -10399,6 +10479,31 @@ a.community-open-btn:hover {
 .voice-stage-hidden-media-show:hover {
   background: rgba(59, 130, 246, 0.22);
   border-color: rgba(147, 197, 253, 0.48);
+}
+
+.screen-share-stage[data-stage-density="crowded"] .voice-stage-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+}
+
+.screen-share-stage[data-stage-density="crowded"] .voice-stage-tile {
+  gap: 6px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 17px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-tile {
+  gap: 4px;
+  padding: 8px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-sub {
+  display: none;
 }
 
 .active-call-bar {
@@ -15609,13 +15714,27 @@ textarea {
     top: 120px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     gap: 8px;
-    --voice-stage-tile-min: 128px;
-    grid-auto-rows: minmax(var(--voice-stage-tile-min), 1fr);
+    grid-auto-rows: minmax(0, 1fr);
     justify-items: stretch;
     align-content: stretch;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 0;
+  }
+
+  .screen-share-mini-player {
+    left: calc(var(--server-bar-width) + 12px);
+    right: 12px;
+    top: auto;
+    bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: 420px;
+    margin-left: auto;
+  }
+
+  .voice-participant {
+    min-height: 36px;
+    padding-block: 4px;
   }
 
   .screen-share-stage--theater {
@@ -16582,8 +16701,7 @@ textarea {
     top: 112px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     gap: 6px;
-    --voice-stage-tile-min: 112px;
-    grid-auto-rows: minmax(var(--voice-stage-tile-min), 1fr);
+    grid-auto-rows: minmax(0, 1fr);
     align-content: stretch;
     overflow-y: auto;
   }
