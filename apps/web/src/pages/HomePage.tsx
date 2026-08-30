@@ -291,6 +291,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
   const socialContextMenuTriggerRef = useRef<HTMLElement | null>(null)
+  const socialSidebarRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     setDmInput(readMessageDraft(userId, 'dm', activeDmChannelId))
@@ -321,16 +322,23 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     target: Omit<SocialContextMenu, 'x' | 'y'>,
   ) => {
     event.preventDefault()
-    const menuWidth = 224
-    const menuHeight = target.kind === 'friend' ? 132 : 168
+    const menuWidth = 196
+    const menuHeight = 116
     const pad = 8
     const rect = event.currentTarget.getBoundingClientRect()
-    const requestedX = event.clientX || rect.left + Math.min(24, rect.width / 2)
+    const sidebarRect = socialSidebarRef.current?.getBoundingClientRect()
+    const preferredX = sidebarRect
+      ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
+      : event.clientX || rect.left + Math.min(24, rect.width / 2)
     const requestedY = event.clientY || rect.top + Math.min(24, rect.height / 2)
+    const minX = sidebarRect ? Math.max(pad, sidebarRect.left + pad) : pad
+    const maxX = sidebarRect
+      ? Math.min(window.innerWidth - menuWidth - pad, sidebarRect.right - menuWidth - pad)
+      : window.innerWidth - menuWidth - pad
     socialContextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : event.currentTarget
     setSocialContextMenu({
       ...target,
-      x: Math.min(Math.max(pad, requestedX), Math.max(pad, window.innerWidth - menuWidth - pad)),
+      x: Math.min(Math.max(preferredX, minX), Math.max(minX, maxX)),
       y: Math.min(Math.max(pad, requestedY), Math.max(pad, window.innerHeight - menuHeight - pad)),
     })
   }, [])
@@ -1131,7 +1139,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   return (
     <div className={`home-page ${isMobileSocialSidebarOpen ? 'home-page--mobile-sidebar-open' : ''}`}>
-      <aside className={`social-sidebar ${isMobileSocialSidebarOpen ? 'social-sidebar--mobile-open' : ''}`}>
+      <aside ref={socialSidebarRef} className={`social-sidebar ${isMobileSocialSidebarOpen ? 'social-sidebar--mobile-open' : ''}`}>
         <div className="social-sidebar-header">Social</div>
         <button
           type="button"
@@ -1620,19 +1628,21 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <UserRound size={14} />
               View profile
             </button>
-            <button
-              type="button"
-              className="server-context-menu-item"
-              role="menuitem"
-              disabled={openingDmPeerId === socialContextMenu.userId}
-              onClick={() => {
-                closeSocialContextMenu()
-                void openDirectMessage(socialContextMenu.userId)
-              }}
-            >
-              <MessageCircle size={14} />
-              {socialContextMenu.kind === 'friend' ? 'Send message' : 'Open direct message'}
-            </button>
+            {socialContextMenu.kind === 'friend' && (
+              <button
+                type="button"
+                className="server-context-menu-item"
+                role="menuitem"
+                disabled={openingDmPeerId === socialContextMenu.userId}
+                onClick={() => {
+                  closeSocialContextMenu()
+                  void openDirectMessage(socialContextMenu.userId)
+                }}
+              >
+                <MessageCircle size={14} />
+                Send message
+              </button>
+            )}
             {channel && (
               <button
                 type="button"

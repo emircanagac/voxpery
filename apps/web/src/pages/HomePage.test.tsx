@@ -321,7 +321,7 @@ describe('HomePage friends list', () => {
     })
   })
 
-  it('provides profile and conversation actions from a DM context menu', async () => {
+  it('keeps the DM context menu compact and removes the redundant open action', async () => {
     const channel = dmChannel('dm-cilo')
     apiMocks.listDmChannels.mockResolvedValue([channel])
 
@@ -334,7 +334,7 @@ describe('HomePage friends list', () => {
     fireEvent.contextMenu(dmRow!)
 
     expect(screen.getByRole('menuitem', { name: 'View profile' })).toHaveFocus()
-    expect(screen.getByRole('menuitem', { name: 'Open direct message' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Open direct message' })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: 'Close DM' })).toBeVisible()
   })
