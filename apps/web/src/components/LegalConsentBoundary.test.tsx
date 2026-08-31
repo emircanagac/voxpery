@@ -66,7 +66,8 @@ describe('LegalConsentBoundary', () => {
     const user = userEvent.setup()
     renderBoundary()
 
-    expect(await screen.findByRole('heading', { name: /review voxpery's legal documents/i })).toHaveFocus()
+    const heading = await screen.findByRole('heading', { name: /review voxpery's legal documents/i })
+    await waitFor(() => expect(heading).toHaveFocus())
     expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
     const continueButton = screen.getByRole('button', { name: 'Accept and continue' })
     expect(continueButton).toBeDisabled()
