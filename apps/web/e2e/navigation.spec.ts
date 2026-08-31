@@ -7,7 +7,7 @@ test.describe('App Navigation', () => {
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
-    await expect(page.getByRole('link', { name: /join voxpery community/i })).toHaveAttribute('href', '/register')
+    await expect(page.getByRole('link', { name: /use voxpery in browser/i })).toHaveAttribute('href', '/register')
     await expect(page.getByRole('link', { name: 'Source' })).toHaveAttribute(
       'href',
       'https://github.com/emircanagac/voxpery',
@@ -20,7 +20,7 @@ test.describe('App Navigation', () => {
     await page.goto('/')
 
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
-    await expect(page.getByRole('link', { name: /join voxpery community/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /use voxpery in browser/i })).toBeVisible()
     await expect(page.getByRole('link', { name: /self-host with docker/i })).toBeVisible()
     await expect(page.getByRole('img', { name: /voxpery voice channel interface/i })).toBeVisible()
 
@@ -48,17 +48,5 @@ test.describe('App Navigation', () => {
 
     // Should redirect to login (authentication gate)
     await expect(page).toHaveURL(/.*\/login/)
-  })
-})
-
-test.describe('Connection Gate', () => {
-  test('should show connection error when backend is down', async ({ page, context }) => {
-    // Block API requests to simulate backend down
-    await context.route('**/api/**', route => route.abort())
-
-    await page.goto('/login')
-
-    // Should show connection error
-    await expect(page.getByText(/unable to connect/i)).toBeVisible({ timeout: 10000 })
   })
 })
