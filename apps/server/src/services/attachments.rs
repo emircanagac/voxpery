@@ -428,6 +428,13 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<Vec<u8>, AppError> {
+        // Keep a direct traversal guard at each filesystem sink in addition to
+        // segment validation and the canonical storage-root boundary below.
+        if storage_key.contains("..") {
+            return Err(AppError::Validation(
+                "Invalid attachment storage key".into(),
+            ));
+        }
         let path = self.resolve_existing_local_path(storage_key).await?;
         fs::read(path)
             .await
@@ -438,6 +445,13 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<fs::File, AppError> {
+        // Keep this check local to the sink so static analysis and reviewers can
+        // see that untrusted traversal input cannot reach File::open.
+        if storage_key.contains("..") {
+            return Err(AppError::Validation(
+                "Invalid attachment storage key".into(),
+            ));
+        }
         let path = self.resolve_existing_local_path(storage_key).await?;
         fs::File::open(path)
             .await
@@ -1434,6 +1448,63 @@ mod tests {
         }
 
         assert!(parse_storage_key_segments("attachments/2026/05/file-01_abc.png").is_ok());
+    }
+
+    #[tokio::test]
+    async fn local_read_and_open_reject_traversal_keys() {
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+
+        for key in ["../secret", "attachments/2026/05/../../secret"] {
+            assert!(matches!(
+                service.read_local_attachment_bytes(key).await,
+                Err(AppError::Validation(_))
+            ));
+            assert!(matches!(
+                service.open_local_attachment_file(key).await,
+                Err(AppError::Validation(_))
+            ));
+        }
+
+        fs::remove_dir_all(test_root).await.expect("cleanup");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn local_read_and_open_reject_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let test_base = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let test_root = test_base.join("storage");
+        let outside_file = test_base.join("outside.txt");
+        let service = AttachmentService::new_local_for_tests(test_root)
+            .await
+            .expect("service");
+        fs::write(&outside_file, b"outside")
+            .await
+            .expect("outside file");
+
+        let storage_key = format!("attachments/2026/08/{}", Uuid::new_v4());
+        let linked_path = service
+            .resolve_local_path(&storage_key)
+            .expect("validated path");
+        fs::create_dir_all(linked_path.parent().expect("storage parent"))
+            .await
+            .expect("storage parent");
+        symlink(&outside_file, &linked_path).expect("outside symlink");
+
+        assert!(matches!(
+            service.read_local_attachment_bytes(&storage_key).await,
+            Err(AppError::Validation(_))
+        ));
+        assert!(matches!(
+            service.open_local_attachment_file(&storage_key).await,
+            Err(AppError::Validation(_))
+        ));
+
+        fs::remove_dir_all(test_base).await.expect("cleanup");
     }
 
     #[tokio::test]

@@ -25,41 +25,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  changes:
-    name: Detect changed areas
-    runs-on: ubuntu-latest
-    outputs:
-      rust: ${{ steps.filter.outputs.rust }}
-      js: ${{ steps.filter.outputs.js }}
-      actions: ${{ steps.filter.outputs.actions }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Filter changed files
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            rust:
-              - 'apps/server/**/*.rs'
-              - 'apps/server/Cargo.toml'
-              - 'apps/server/Cargo.lock'
-              - 'apps/desktop/src-tauri/**/*.rs'
-              - 'apps/desktop/src-tauri/Cargo.toml'
-              - 'apps/desktop/src-tauri/Cargo.lock'
-            js:
-              - 'apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}'
-              - 'apps/web/package.json'
-              - 'apps/web/package-lock.json'
-            actions:
-              - '.github/workflows/**'
-              - '.github/actions/**'
-
   analyze-rust:
     name: Analyze (rust)
-    needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,8 +48,6 @@ jobs:
 
   analyze-js:
     name: Analyze (javascript-typescript)
-    needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.js == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -101,8 +66,6 @@ jobs:
 
   analyze-actions:
     name: Analyze (actions)
-    needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.actions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

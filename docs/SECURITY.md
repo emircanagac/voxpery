@@ -263,6 +263,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - **Storage backends**:
   - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
   - Local files are written to a same-directory temporary path, flushed, and atomically renamed so partially written files are never exposed under final storage keys
+  - Attachment read/open sinks reject traversal input directly, allow only validated relative storage-key segments, and require the canonical target to remain under the canonical storage root so symlink escapes cannot be served
   - Upload metadata persisted in `uploaded_attachments`
   - Multi-file requests reserve quota and insert metadata in one database transaction; any request or commit failure rolls back the transaction and removes every file already finalized by that request
   - Retry-equivalent uploads are serialized by content identity and reuse the existing clean attachment record, preventing duplicate files and quota accounting
