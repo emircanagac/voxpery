@@ -2257,10 +2257,9 @@ async fn strict_username_validation_rejects_invalid_usernames() {
         assert_eq!(
             status,
             StatusCode::BAD_REQUEST,
-            "username '{}' should be rejected but got status {}. body: {}",
+            "username '{}' should be rejected but got status {}",
             username,
-            status,
-            String::from_utf8_lossy(&body)
+            status
         );
         let resp: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let err_msg = resp["error"].as_str().unwrap_or("");
