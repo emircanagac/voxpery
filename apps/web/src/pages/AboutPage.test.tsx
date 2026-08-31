@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { releaseApi } from '../api'
@@ -16,12 +16,13 @@ vi.mock('../api', async (importOriginal) => {
 })
 
 afterEach(() => {
+  cleanup()
   useAuthStore.setState({ token: null, user: null, loggingOut: false })
   vi.mocked(releaseApi.getLatest).mockReset()
 })
 
 describe('AboutPage', () => {
-  it('presents the hosted and self-hosted paths to new visitors', () => {
+  it('presents the hosted and self-hosted paths to new visitors', async () => {
     vi.mocked(releaseApi.getLatest).mockResolvedValue({
       tag: 'v0.2.3',
       html_url: 'https://github.com/emircanagac/voxpery/releases/tag/v0.2.3',
@@ -65,9 +66,10 @@ describe('AboutPage', () => {
     expect(screen.getByRole('link', { name: 'Privacy Notice' })).toHaveAttribute('href', '/privacy')
     expect(screen.getByRole('link', { name: 'KVKK Notice' })).toHaveAttribute('href', '/kvkk')
     expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms')
+    expect(await screen.findByText(/Latest release: v0\.2\.3/)).toBeInTheDocument()
   })
 
-  it('routes authenticated visitors back into the app', () => {
+  it('routes authenticated visitors back into the app', async () => {
     vi.mocked(releaseApi.getLatest).mockRejectedValue(new Error('release unavailable'))
     useAuthStore.setState({
       token: 'test-token',
@@ -90,5 +92,6 @@ describe('AboutPage', () => {
     expect(screen.getByRole('link', { name: 'Go to app' })).toHaveAttribute('href', '/social')
     expect(screen.getByRole('link', { name: /open voxpery/i })).toHaveAttribute('href', '/social')
     expect(screen.queryByRole('link', { name: 'Login' })).not.toBeInTheDocument()
+    await waitFor(() => expect(releaseApi.getLatest).toHaveBeenCalledTimes(1))
   })
 })

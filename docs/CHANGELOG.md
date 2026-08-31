@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved the desktop watched screen-share mini player to the upper-right content area while keeping its mobile placement above the bottom dock.
 - Replaced inline Friends message and removal controls with one compact more-actions menu, matching the right-click actions and supporting touch devices.
 - Refocused release web E2E coverage on isolated core UI regressions, removed legacy stateful browser suites that duplicated backend integration coverage, and enabled Redis-backed rate-limit tests in CI.
+- Removed the Vite native-config warning and made asynchronous auth and landing-page tests settle before cleanup, keeping release CI output deterministic.
 
 ### Fixed
 - Kept remote microphone tracks locally suppressed when a sender unmutes, republishes, or reconnects after the listener has deafened, without muting independently watched screen-share audio.
