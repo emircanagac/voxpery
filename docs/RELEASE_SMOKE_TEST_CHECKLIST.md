@@ -44,7 +44,14 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Release deploy guardrails verified registry presence for both images, three consecutive origin stack health checks, public web `/healthz`, immutable image tag format, stable entry-point cache policy, and the exact `/version.json` image tag.
 - [ ] Production top bar shows the expected `Beta` version badge tag (`vX.Y.Z` or `sha-<commit>`).
 
-## 3) Web Smoke Tests (mandatory)
+## 3) Focused Interaction Regression Pass (when affected)
+
+- [ ] While watching a remote screen share, open channel chat and Social/DM: the mini player remains in the upper-right without covering navigation, returns to the correct voice channel when opened, stops only the viewer subscription when closed, and disappears when the publisher stops or the viewer leaves voice. Repeat once at a narrow mobile viewport.
+- [ ] With at least 12 voice participants plus an active camera and screen share, desktop and mobile grids remain inside the viewport, preserve the shared-screen priority, and do not overlap the call bar or each other.
+- [ ] In Friends and Direct Messages, open actions through both right click and the three-dot button near every viewport edge: menus stay inside their owning panel, keyboard focus starts on the first action, and only context-appropriate profile/message/friend/DM actions appear.
+- [ ] In the desktop app, verify global push-to-talk while Voxpery is focused, unfocused, minimized, and hidden in the tray: hold transmits, release stops, and focus loss, channel leave, shortcut changes, or switching to Voice Activity never leaves the microphone open.
+
+## 4) Web Smoke Tests (mandatory)
 
 - [ ] Register works.
 - [ ] Login works.
@@ -88,7 +95,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Automated core UI smoke includes invite/join, server settings, social/friend, auth/account, release/settings, permission, and desktop-runtime regressions.
 - [ ] Automated mobile web smoke completed for the release candidate or CI run, covering Social, DM, server chat, mobile composer actions, and the mobile member sheet.
 
-## 4) Desktop Smoke Tests (mandatory)
+## 5) Desktop Smoke Tests (mandatory)
 
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
 - [ ] App opens maximized by default and reaches login screen.
@@ -121,7 +128,6 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
 - [ ] Voice join succeeds after permission grant.
 - [ ] An account with missing or stale Terms, Privacy Notice, or KVKK versions sees the blocking legal review before app/voice data loads; all three links open, unchecked submission is disabled, acceptance unlocks the same session, refresh stays unlocked, and logout remains available.
-- [ ] While the desktop app is unfocused, minimized, and hidden in the tray, holding the configured push-to-talk key transmits and releasing it stops transmission; focus loss, channel leave, and switching to Voice Activity do not leave the microphone stuck open.
 - [ ] Active call bar quality indicator shows a colored Wi-Fi icon and current ping while connected, and the visible color matches the visible ping value.
 - [ ] Voice join and leave cues are distinct enough to tell whether a member entered or left the channel.
 - [ ] While already in a voice channel, remote camera and screen-share starts play distinct media cues; stopping camera or screen share stays silent, and joining a channel with existing remote media does not replay old media-start cues.
@@ -140,7 +146,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` completed and recorded as `GO` when suppression, CSP, service workers, build output, or production deployment config changed.
 - [ ] Voice join deny/error UX is understandable (no broken or stuck state).
 
-## 5) Final Sign-off
+## 6) Final Sign-off
 
 - [ ] Changelog updated (`docs/CHANGELOG.md`).
 - [ ] Deployment notes updated if needed (`docs/DEPLOYMENT.md`).
