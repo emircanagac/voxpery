@@ -87,6 +87,11 @@ mod tests {
     use super::*;
     use redis::AsyncCommands;
 
+    fn redis_test_client() -> Option<redis::Client> {
+        let url = std::env::var("TEST_REDIS_URL").ok()?;
+        Some(redis::Client::open(url).expect("TEST_REDIS_URL must be a valid Redis URL"))
+    }
+
     #[test]
     fn rate_limit_members_are_unique_per_request() {
         let now_ms = 1_700_000_000_000;
@@ -98,11 +103,11 @@ mod tests {
         assert!(second.starts_with(&format!("{now_ms}:")));
     }
 
-    /// These tests require a local Redis instance on redis://127.0.0.1:6379.
-    #[ignore]
     #[tokio::test]
     async fn allows_requests_under_limit() {
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let Some(client) = redis_test_client() else {
+            return;
+        };
         let key = format!("test:under_limit:{}", now_epoch_millis());
         let window = Duration::from_secs(60);
         for _ in 0..3 {
@@ -112,10 +117,11 @@ mod tests {
         }
     }
 
-    #[ignore]
     #[tokio::test]
     async fn rejects_over_limit() {
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let Some(client) = redis_test_client() else {
+            return;
+        };
         let key = format!("test:over_limit:{}", now_epoch_millis());
         let window = Duration::from_secs(60);
         let max = 2usize;
@@ -134,26 +140,28 @@ mod tests {
         }
     }
 
-    #[ignore]
     #[tokio::test]
     async fn window_expires_old_entries() {
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let Some(client) = redis_test_client() else {
+            return;
+        };
         let key = format!("test:window:{}", now_epoch_millis());
-        let window = Duration::from_millis(50);
+        let window = Duration::from_millis(200);
         enforce_rate_limit(&client, key.clone(), 1, window, "limit")
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(60)).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
         // After window, one more request should be allowed
         enforce_rate_limit(&client, key.clone(), 1, window, "limit")
             .await
             .unwrap();
     }
 
-    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_requests_are_capped_atomically() {
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let Some(client) = redis_test_client() else {
+            return;
+        };
         let key = format!("test:concurrent:{}", now_epoch_millis());
         let window = Duration::from_secs(60);
         let max = 5usize;

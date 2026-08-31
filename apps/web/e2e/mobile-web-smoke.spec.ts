@@ -84,9 +84,9 @@ test.describe('mocked mobile web smoke', () => {
     await expectScrollable(friendsScroller)
     await friendsScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
     await expect(page.getByText('Friend 24')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Open DM with Friend 24' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'More actions for Friend 24' })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Open DM with Friend 24' }).click()
+    await page.getByRole('button', { name: 'Message Friend 24' }).click()
     await expect(page).toHaveURL(/\/social\/dm/)
     await expect(page.getByPlaceholder('Message', { exact: true })).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))

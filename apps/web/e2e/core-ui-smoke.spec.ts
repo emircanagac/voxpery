@@ -29,7 +29,7 @@ test.describe('mocked core UI smoke', () => {
     await page.getByRole('button', { name: /All/ }).click()
     await expect(page.getByText('All Friends — 30')).toBeVisible()
     await expectScrollable(page.locator('.home-friends-scroll').first())
-    await expect(page.getByRole('button', { name: 'Open DM with Friend 01' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'More actions for Friend 01' })).toBeVisible()
 
     const allScroller = page.locator('.home-friends-scroll').first()
     await allScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
@@ -45,13 +45,13 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByText('Request Out 30')).toBeVisible()
   })
 
-  test('opens a DM from the Friends action button and sends a message', async ({ page }) => {
+  test('opens a DM from a Friends row and sends a message', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(8) })
     await installMockCoreApi(page, state)
 
     await page.goto('/social')
     await page.getByRole('button', { name: /All/ }).click()
-    await page.getByRole('button', { name: 'Open DM with Friend 01' }).click()
+    await page.getByRole('button', { name: 'Message Friend 01' }).click()
 
     await expect(page).toHaveURL(/\/social\/dm/)
     const messageInput = page.getByPlaceholder('Message @Friend 01')
@@ -77,8 +77,8 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByRole('button', { name: /Requests/ })).toBeVisible()
 
     await page.getByRole('button', { name: /All/ }).click()
-    await expect(page.getByRole('button', { name: 'Open DM with Friend 01' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Message Friend 01' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'More actions for Friend 01' })).toBeVisible()
 
     const hasHorizontalOverflow = await page.locator('.home-main').evaluate((element) => {
       return element.scrollWidth > element.clientWidth + 1
