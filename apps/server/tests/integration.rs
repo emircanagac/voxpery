@@ -2254,13 +2254,7 @@ async fn strict_username_validation_rejects_invalid_usernames() {
             .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
             .unwrap();
         let (status, body) = oneshot(&mut app, req).await;
-        assert_eq!(
-            status,
-            StatusCode::BAD_REQUEST,
-            "username '{}' should be rejected but got status {}",
-            username,
-            status
-        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         let resp: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let err_msg = resp["error"].as_str().unwrap_or("");
         assert!(err_msg.contains("Username cannot") || err_msg.contains("Username may only"));
