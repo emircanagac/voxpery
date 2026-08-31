@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteMediaStartCue,
+  createRemoteTrackMuteChangeHandler,
   getLiveKitParticipantCount,
   getMicrophonePublishOptions,
   nextCameraFacingMode,
@@ -20,7 +21,8 @@ import {
   shouldPlayRemoteMediaStopCue,
   shouldRecoverMicrophoneTrack,
 } from './useLiveKitVoice'
-import { AudioPresets, Track } from 'livekit-client'
+import { AudioPresets, Track, type Participant, type RemoteParticipant, type TrackPublication } from 'livekit-client'
+import { isScreenShareAudioTrack } from './remoteMediaControls'
 import { useAppStore } from '../stores/app'
 
 describe('microphone publish options', () => {
@@ -155,6 +157,76 @@ describe('remote media subscriptions', () => {
     expect(remoteMediaKindForSource(Track.Source.ScreenShare)).toBe('screen')
     expect(remoteMediaKindForSource(Track.Source.ScreenShareAudio)).toBe('screen')
     expect(remoteMediaKindForSource(Track.Source.Microphone)).toBeNull()
+  })
+})
+
+describe('remote LiveKit mute changes', () => {
+  function audioTrack(enabled = true) {
+    return { kind: 'audio', enabled } as MediaStreamTrack
+  }
+
+  function publication(source: Track.Source, mediaStreamTrack: MediaStreamTrack) {
+    return {
+      source,
+      track: { mediaStreamTrack },
+    } as unknown as TrackPublication
+  }
+
+  it('reapplies deafen after LiveKit reenables a remote microphone on unmute', () => {
+    const localParticipant = { identity: 'local' } as Participant
+    const remoteParticipant = { identity: 'remote' } as RemoteParticipant
+    const onRemotePublicationChanged = vi.fn()
+    const handleMuteChanged = createRemoteTrackMuteChangeHandler({
+      isLocalParticipant: (participant) => participant === localParticipant,
+      isMicrophonePlaybackMuted: () => true,
+      onRemotePublicationChanged,
+    })
+    const microphone = audioTrack(false)
+
+    // RemoteTrack.setMuted(false) enables the MediaStreamTrack before emitting
+    // RoomEvent.TrackUnmuted. The handler must reassert the local deafen state.
+    microphone.enabled = true
+    handleMuteChanged(publication(Track.Source.Microphone, microphone), remoteParticipant)
+
+    expect(microphone.enabled).toBe(false)
+    expect(isScreenShareAudioTrack(microphone)).toBe(false)
+    expect(onRemotePublicationChanged).toHaveBeenCalledWith(remoteParticipant)
+  })
+
+  it('does not suppress screen-share audio or alter local publications', () => {
+    const localParticipant = { identity: 'local' } as Participant
+    const remoteParticipant = { identity: 'remote' } as RemoteParticipant
+    const handleMuteChanged = createRemoteTrackMuteChangeHandler({
+      isLocalParticipant: (participant) => participant === localParticipant,
+      isMicrophonePlaybackMuted: () => true,
+      onRemotePublicationChanged: vi.fn(),
+    })
+    const screenAudio = audioTrack()
+    const localMicrophone = audioTrack()
+
+    handleMuteChanged(publication(Track.Source.ScreenShareAudio, screenAudio), remoteParticipant)
+    handleMuteChanged(publication(Track.Source.Microphone, localMicrophone), localParticipant)
+
+    expect(screenAudio.enabled).toBe(true)
+    expect(isScreenShareAudioTrack(screenAudio)).toBe(true)
+    expect(localMicrophone.enabled).toBe(true)
+  })
+
+  it('preserves LiveKit sender mute state when the listener is not deafened', () => {
+    const remoteParticipant = { identity: 'remote' } as RemoteParticipant
+    const handleMuteChanged = createRemoteTrackMuteChangeHandler({
+      isLocalParticipant: () => false,
+      isMicrophonePlaybackMuted: () => false,
+      onRemotePublicationChanged: vi.fn(),
+    })
+    const senderMutedMicrophone = audioTrack(false)
+
+    handleMuteChanged(
+      publication(Track.Source.Microphone, senderMutedMicrophone),
+      remoteParticipant,
+    )
+
+    expect(senderMutedMicrophone.enabled).toBe(false)
   })
 })
 

@@ -10,7 +10,9 @@ import {
   supportsVP9,
   Track,
   VideoPreset,
+  type Participant,
   type RemoteTrackPublication,
+  type TrackPublication,
   type TrackPublishOptions,
   type VideoCodec,
 } from 'livekit-client'
@@ -60,6 +62,33 @@ type VoiceControlState = {
   screenSharing?: boolean
   cameraOn?: boolean
 } | null | undefined
+
+type RemoteTrackMuteChangeHandlerOptions = {
+  isLocalParticipant: (participant: Participant) => boolean
+  isMicrophonePlaybackMuted: () => boolean
+  onRemotePublicationChanged: (participant: RemoteParticipant) => void
+}
+
+export function createRemoteTrackMuteChangeHandler({
+  isLocalParticipant,
+  isMicrophonePlaybackMuted,
+  onRemotePublicationChanged,
+}: RemoteTrackMuteChangeHandlerOptions) {
+  return (publication: TrackPublication, participant: Participant): void => {
+    if (isLocalParticipant(participant)) return
+
+    const mediaTrack = publication.track?.mediaStreamTrack
+    if (mediaTrack?.kind === 'audio') {
+      const source = publication.source === Track.Source.ScreenShareAudio ? 'screen' : 'voice'
+      markRemoteAudioTrackSource(mediaTrack, source)
+      if (source === 'voice' && isMicrophonePlaybackMuted()) {
+        setRemoteMicrophoneTrackPlaybackMuted(mediaTrack, true)
+      }
+    }
+
+    onRemotePublicationChanged(participant as RemoteParticipant)
+  }
+}
 
 export function getMicrophonePublishOptions(mobileOptimized = false): TrackPublishOptions {
   return {
@@ -1015,6 +1044,15 @@ export function useLiveKitVoice() {
         // Ignore TURN errors in dev
       }
 
+      const handleRemoteTrackMuteChanged = createRemoteTrackMuteChangeHandler({
+        isLocalParticipant: (participant) => participant === room.localParticipant,
+        isMicrophonePlaybackMuted: () => remoteMicrophonePlaybackMutedRef.current,
+        onRemotePublicationChanged: (participant) => {
+          syncParticipantMediaState(participant)
+          bumpRemote()
+        },
+      })
+
       room.on(RoomEvent.TrackPublished, (publication, participant) => {
         if (publication.source === Track.Source.ScreenShare) {
           playRemoteMediaStartCue(participant, 'screen')
@@ -1087,6 +1125,8 @@ export function useLiveKitVoice() {
           syncParticipantMediaState(participant)
           updateRoomStats()
         })
+        .on(RoomEvent.TrackMuted, handleRemoteTrackMuteChanged)
+        .on(RoomEvent.TrackUnmuted, handleRemoteTrackMuteChanged)
         .on(RoomEvent.TrackUnpublished, (publication, participant) => {
           if (publication.source === Track.Source.ScreenShare) {
             scheduleRemoteMediaStopCue(participant, 'screen')
