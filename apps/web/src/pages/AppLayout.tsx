@@ -1293,16 +1293,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 }
                 case 'VoiceMemberMoveResult': {
                     const success = d.success === true
-                    const message = typeof d.message === 'string'
-                        ? d.message
-                        : success
-                            ? 'The member changed voice channels.'
-                            : 'The member could not be moved.'
-                    pushToast({
-                        level: success ? 'info' : 'error',
-                        title: success ? 'Voice move completed' : 'Voice move failed',
-                        message,
-                    })
+                    if (!success) {
+                        pushToast({
+                            level: 'error',
+                            title: 'Voice move failed',
+                            message: typeof d.message === 'string'
+                                ? d.message
+                                : 'The member could not be moved.',
+                        })
+                    }
                     break
                 }
             }
