@@ -26,7 +26,7 @@ describe('ThemeSettings', () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(screen.getByRole('button', { name: /Dark/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: /^DefaultThe original/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Default' })).toBeVisible()
     expect(screen.getByRole('button', { name: /Custom/ })).toBeVisible()
   })
 
@@ -91,7 +91,7 @@ describe('ThemeSettings', () => {
     expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBe('#2f9b78')
   })
 
-  it('explains incomplete and overlong hex values without replacing the saved color', () => {
+  it('explains incomplete values and prevents overlong hex input', () => {
     render(<ThemeSettings />)
     const accentInput = screen.getByRole('textbox', { name: 'Custom accent hex color' })
 
@@ -101,9 +101,7 @@ describe('ThemeSettings', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('need six digits')
 
     fireEvent.change(accentInput, { target: { value: '#1234567' } })
-    fireEvent.blur(accentInput)
-    expect(screen.getByRole('alert')).toHaveTextContent('exactly six digits')
-    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBeNull()
+    expect(accentInput).toHaveValue('#123456')
   })
 
   it('changes and resets the accent without replacing the selected theme', () => {

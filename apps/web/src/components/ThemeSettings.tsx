@@ -60,6 +60,8 @@ function HexColorControl({
   onReset,
   resetDisabled,
 }: HexColorControlProps) {
+  const limitDraft = (value: string) => formatHexColorDraft(value).slice(0, 7)
+
   return (
     <div className={`theme-hex-control ${onReset ? 'has-reset' : ''}`}>
       <label className="theme-color-picker" title={pickerLabel}>
@@ -73,10 +75,11 @@ function HexColorControl({
       <input
         className={`theme-accent-input ${error ? 'is-invalid' : ''}`}
         value={draft}
-        onChange={(event) => onDraftChange(formatHexColorDraft(event.target.value))}
+        maxLength={7}
+        onChange={(event) => onDraftChange(limitDraft(event.target.value))}
         onPaste={(event) => {
           event.preventDefault()
-          const pasted = formatHexColorDraft(event.clipboardData.getData('text'))
+          const pasted = limitDraft(event.clipboardData.getData('text'))
           onDraftChange(pasted)
           if (normalizeHexColor(pasted)) onCommit(pasted)
         }}
@@ -103,7 +106,6 @@ function HexColorControl({
           aria-label="Reset accent color"
         >
           <RotateCcw size={14} aria-hidden />
-          <span>Use theme color</span>
         </button>
       )}
     </div>
@@ -200,11 +202,8 @@ export default function ThemeSettings() {
       <h3 className="user-settings-section-title" id="appearance-settings-title">Appearance</h3>
       <div className="theme-settings-heading">
         <div className="theme-settings-copy">
-          <div className="theme-setting-title-row">
-            <strong>Base theme</strong>
-            <span className="theme-setting-scope">Surfaces</span>
-          </div>
-          <span>Sets the app background, panels, and text palette.</span>
+          <strong>Theme</strong>
+          <span>Choose how Voxpery looks.</span>
         </div>
         <button
           type="button"
@@ -248,7 +247,6 @@ export default function ThemeSettings() {
                     Custom
                     {preference.customThemeColor && <Check size={14} aria-hidden />}
                   </span>
-                  <span className="theme-option-description">Pick one color and Voxpery handles the rest.</span>
                 </span>
               </button>
             )
@@ -283,7 +281,6 @@ export default function ThemeSettings() {
                   {option.id === 'voxpery' ? 'Default' : option.label}
                   {selected && <Check size={14} aria-hidden />}
                 </span>
-                <span className="theme-option-description">{option.description}</span>
               </span>
             </button>
           )
@@ -293,7 +290,6 @@ export default function ThemeSettings() {
       {preference.customThemeColor && <div className="theme-custom-panel is-active" aria-label="Custom theme controls">
         <div className="theme-custom-panel-copy">
           <strong>Custom theme color</strong>
-          <span>One color generates the complete surface palette.</span>
         </div>
         <HexColorControl
           draft={themeColorDraft}
@@ -312,11 +308,8 @@ export default function ThemeSettings() {
 
       <div className="theme-accent-panel" aria-labelledby="theme-accent-title">
         <div className="theme-custom-panel-copy">
-          <div className="theme-setting-title-row">
-            <strong id="theme-accent-title">Accent color</strong>
-            <span className="theme-setting-scope">Controls</span>
-          </div>
-          <span>Used by buttons, links, selections, and default avatars.</span>
+          <strong id="theme-accent-title">Accent color</strong>
+          <span>Changes buttons, links, and selections.</span>
         </div>
         <div className="theme-accent-controls">
           <div className="theme-accent-swatches" role="group" aria-label="Accent color presets">
@@ -348,11 +341,6 @@ export default function ThemeSettings() {
             onReset={resetAccent}
             resetDisabled={!preference.customAccent}
           />
-        </div>
-        <div className="theme-accent-preview" aria-label="Accent preview">
-          <span className="theme-accent-preview-selection">Selected item</span>
-          <span className="theme-accent-preview-button">Button</span>
-          <span className="theme-accent-preview-link">Link</span>
         </div>
         {accentError && <div className="theme-accent-error" id="custom-accent-hex-color-error" role="alert">{accentError}</div>}
       </div>
