@@ -982,7 +982,7 @@ export default function ChannelSidebar({
                                         setParticipantMenu(null)
                                     }}
                                 >
-                                    <option value="" disabled>Select channel</option>
+                                    <option value="" disabled hidden>Select channel</option>
                                     {moveDestinationChannels.map((channel) => (
                                         <option key={channel.id} value={channel.id}>{channel.name}</option>
                                     ))}

@@ -246,8 +246,10 @@ describe('ChannelSidebar voice media presence', () => {
         )
 
         fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        const picker = screen.getByLabelText(`Move ${remoteMember.username} to voice channel`)
+        expect(picker.querySelector('option[value=""]')).toHaveAttribute('hidden')
         fireEvent.change(
-            screen.getByLabelText(`Move ${remoteMember.username} to voice channel`),
+            picker,
             { target: { value: supportVoiceChannel.id } },
         )
 

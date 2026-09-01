@@ -203,6 +203,7 @@ function renderActiveCallBar(
   const voice = {
     state: voiceState(overrides),
     joinVoice: vi.fn(),
+    moveVoice: vi.fn().mockResolvedValue(undefined),
     leaveVoice: vi.fn(),
     startScreenShare: vi.fn().mockResolvedValue({ hasAudio: true, audioPublished: true }),
     stopScreenShare: vi.fn(),
@@ -411,6 +412,21 @@ describe('ActiveCallBar regressions', () => {
     expect(container.querySelector('.remote-screen-preview')).toHaveClass('is-theater-focused')
     expect(screen.getByRole('button', { name: 'Exit focus view' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+  })
+
+  it('switches an existing voice session without starting a new microphone preflight', async () => {
+    const { voice } = renderActiveCallBar({ joinedChannelId: voiceChannel.id })
+    const exposedJoin = (window as Window & {
+      __voxperyJoinVoice?: (channelId: string) => Promise<void>
+    }).__voxperyJoinVoice
+
+    expect(exposedJoin).toBeDefined()
+    await act(async () => {
+      await exposedJoin?.('voice-destination')
+    })
+
+    expect(voice.moveVoice).toHaveBeenCalledWith('voice-destination')
+    expect(voice.joinVoice).not.toHaveBeenCalled()
   })
 
   it('keeps user volume and stream mute state independent', async () => {

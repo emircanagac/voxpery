@@ -139,7 +139,7 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 }
 ```
 
-Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The server verifies the destination participant before source cleanup and audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
+Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The target reuses its active authorized microphone capture when switching rooms, including from a background browser tab. The server retries briefly while the destination participant becomes visible, then verifies the room, identity, and participant SID before source cleanup and audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
 
 ### `Signal`
 

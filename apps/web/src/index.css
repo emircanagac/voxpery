@@ -6813,6 +6813,12 @@ body {
   color: var(--text-primary);
   background: var(--bg-tertiary);
   font: inherit;
+  color-scheme: inherit;
+}
+
+.member-volume-menu-move select option {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
 }
 
 .member-volume-menu-move select:focus-visible {

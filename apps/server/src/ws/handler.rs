@@ -92,6 +92,8 @@ const WS_MESSAGE_RATE_LIMIT_MAX: usize = 120;
 const WS_MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 const WS_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(75);
 const VOICE_MOVE_TIMEOUT: Duration = Duration::from_secs(30);
+const VOICE_MOVE_LIVEKIT_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
+const VOICE_MOVE_LIVEKIT_VERIFY_INTERVAL: Duration = Duration::from_millis(250);
 
 fn voice_move_result_event(
     request_id: Uuid,
@@ -203,8 +205,10 @@ async fn complete_voice_member_move(
     }
 
     let participant_sid = participant_sid.expect("participant SID checked above");
+    let verification_deadline = tokio::time::Instant::now() + VOICE_MOVE_LIVEKIT_VERIFY_TIMEOUT;
     let mut livekit_verified = false;
-    for attempt in 0..10 {
+    let mut verification_error = None;
+    loop {
         match voice_revoke::livekit_participant_matches(
             state,
             pending.destination_channel_id,
@@ -217,19 +221,24 @@ async fn complete_voice_member_move(
                 livekit_verified = true;
                 break;
             }
-            Ok(false) if attempt < 9 => tokio::time::sleep(Duration::from_millis(200)).await,
-            Ok(false) => break,
+            Ok(false) => {}
             Err(error) => {
-                tracing::warn!(
-                    "Voice move {} LiveKit verification failed: {}",
-                    request_id,
-                    error
-                );
-                break;
+                verification_error = Some(error.to_string());
             }
         }
+        if tokio::time::Instant::now() >= verification_deadline {
+            break;
+        }
+        tokio::time::sleep(VOICE_MOVE_LIVEKIT_VERIFY_INTERVAL).await;
     }
     if !livekit_verified {
+        if let Some(error) = verification_error {
+            tracing::warn!(
+                "Voice move {} LiveKit verification timed out after an error: {}",
+                request_id,
+                error
+            );
+        }
         publish_voice_move_result(
             state,
             &pending,

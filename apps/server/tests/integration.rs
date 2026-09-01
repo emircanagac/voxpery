@@ -17,7 +17,10 @@ use sqlx::postgres::PgPoolOptions;
 use std::{
     io::{Cursor, Read},
     path::Path,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
@@ -4127,17 +4130,29 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
         return;
     };
 
+    let participant_lookup_attempts = Arc::new(AtomicUsize::new(0));
+    let livekit_lookup_attempts = participant_lookup_attempts.clone();
     let livekit_app = axum::Router::new()
         .route(
             "/twirp/livekit.RoomService/GetParticipant",
-            axum::routing::post(
-                |axum::Json(body): axum::Json<serde_json::Value>| async move {
-                    axum::Json(json!({
-                        "sid": "PA_moved",
-                        "identity": body["identity"],
-                    }))
-                },
-            ),
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let livekit_lookup_attempts = livekit_lookup_attempts.clone();
+                async move {
+                    let attempt = livekit_lookup_attempts.fetch_add(1, Ordering::SeqCst);
+                    let status = if attempt < 2 {
+                        StatusCode::NOT_FOUND
+                    } else {
+                        StatusCode::OK
+                    };
+                    (
+                        status,
+                        axum::Json(json!({
+                            "sid": "PA_moved",
+                            "identity": body["identity"],
+                        })),
+                    )
+                }
+            }),
         )
         .route(
             "/twirp/livekit.RoomService/RemoveParticipant",
@@ -4402,6 +4417,10 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
     let result = receive_ws_event(&mut moderator_ws, "VoiceMemberMoveResult").await;
     assert_eq!(result["data"]["request_id"], request_id.to_string());
     assert_eq!(result["data"]["success"], true);
+    assert!(
+        participant_lookup_attempts.load(Ordering::SeqCst) >= 3,
+        "voice move verification must tolerate delayed LiveKit participant visibility"
+    );
     assert_eq!(
         state
             .voice_sessions

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cloneLiveMicrophoneStream,
   clearRemoteMediaStartCue,
   createRemoteTrackMuteChangeHandler,
   getLiveKitParticipantCount,
@@ -44,6 +45,32 @@ describe('microphone publish options', () => {
       red: true,
       forceStereo: false,
     })
+  })
+})
+
+describe('voice room switching microphone capture', () => {
+  it('clones an active microphone track without requesting a new capture', () => {
+    const clonedTrack = { kind: 'audio', readyState: 'live' } as MediaStreamTrack
+    const sourceTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      clone: vi.fn(() => clonedTrack),
+    } as unknown as MediaStreamTrack
+
+    const stream = cloneLiveMicrophoneStream(sourceTrack)
+
+    expect(sourceTrack.clone).toHaveBeenCalledOnce()
+    expect(stream?.getAudioTracks()).toEqual([clonedTrack])
+  })
+
+  it('does not reuse an ended microphone track', () => {
+    const sourceTrack = {
+      readyState: 'ended',
+      clone: vi.fn(),
+    } as unknown as MediaStreamTrack
+
+    expect(cloneLiveMicrophoneStream(sourceTrack)).toBeUndefined()
+    expect(sourceTrack.clone).not.toHaveBeenCalled()
   })
 })
 

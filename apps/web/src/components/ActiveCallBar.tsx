@@ -184,6 +184,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const {
     state,
     joinVoice,
+    moveVoice,
     leaveVoice,
     startScreenShare,
     stopScreenShare,
@@ -1103,7 +1104,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (state.isJoining) throw new Error('Another voice connection is already in progress.')
       if (state.joinedChannelId === channelId) return
       if (state.joinedChannelId && state.joinedChannelId !== channelId) {
-        leaveVoice({ skipLeaveSound: true })
+        await moveVoice(channelId)
+        return
       }
       if (preflightStream) {
         await joinVoice(channelId, { preflightStream })
@@ -1138,7 +1140,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice
       }
     }
-  }, [joinVoice, leaveVoice, mapMicPreflightError, pushToast, state.isJoining, state.joinedChannelId])
+  }, [joinVoice, mapMicPreflightError, moveVoice, pushToast, state.isJoining, state.joinedChannelId])
 
   useEffect(() => {
     if (!blockedAutoJoinChannelId) return
