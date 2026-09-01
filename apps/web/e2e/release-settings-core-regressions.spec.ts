@@ -110,11 +110,12 @@ test.describe('mocked release and settings regressions', () => {
     await modal.getByRole('button', { name: /Custom/ }).click()
     await expect(modal.locator('.theme-custom-panel')).toBeVisible()
     const customThemeInput = modal.getByRole('textbox', { name: 'Custom theme hex color' })
-    await customThemeInput.fill('#7b3fc6')
+    await customThemeInput.fill('7b3fc6')
     await customThemeInput.press('Enter')
+    await expect(customThemeInput).toHaveValue('#7b3fc6')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
-    await expect(modal.getByText('Choose your color', { exact: true })).toBeVisible()
+    await expect(modal.getByText('Custom theme color', { exact: true })).toBeVisible()
     await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
     const customAccentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
     await expect(customAccentInput).toBeVisible()
@@ -122,6 +123,9 @@ test.describe('mocked release and settings regressions', () => {
     await customAccentInput.press('Enter')
     await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
     await expect(page.locator('html')).toHaveCSS('--user-accent', '#2f9b78')
+    await expectNoHorizontalOverflow(modal)
+
+    await page.setViewportSize({ width: 390, height: 844 })
     await expectNoHorizontalOverflow(modal)
 
     const generatedBackground = await page.locator('html').evaluate((element) => (

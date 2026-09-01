@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
+
 ### Fixed
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
 - Confirmed voice member moves against the destination LiveKit participant before writing audit success, added explicit moderator results, and repaired custom-role hierarchy behavior for roles created below Everyone.
+- Kept color fields anchored to `#`, normalized pasted hex values with or without a prefix, and added specific feedback for incomplete, invalid, and overlong colors while preserving stored appearance preferences.
 
 ## [0.2.14] - 2026-08-31
 

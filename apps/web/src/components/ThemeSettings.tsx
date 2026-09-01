@@ -3,6 +3,7 @@ import { useState, type CSSProperties } from 'react'
 import {
   createCustomThemePalette,
   DEFAULT_THEME,
+  formatHexColorDraft,
   getStoredThemePreference,
   getThemeOption,
   normalizeHexColor,
@@ -27,6 +28,87 @@ const ACCENT_SWATCHES = [
   { label: 'Violet', color: '#7955c7' },
   { label: 'Coral', color: '#d65f5f' },
 ] as const
+
+function getHexColorError(value: string): string {
+  const draft = formatHexColorDraft(value)
+  if (draft === '#') return 'Enter six hex digits after #.'
+  if (/^#[0-9a-f]+$/i.test(draft) && draft.length < 7) return 'Hex colors need six digits.'
+  if (/^#[0-9a-f]+$/i.test(draft) && draft.length > 7) return 'Hex colors use exactly six digits.'
+  return 'Use only the numbers 0-9 and letters A-F.'
+}
+
+interface HexColorControlProps {
+  draft: string
+  error: string | null
+  fallbackColor: string
+  pickerLabel: string
+  inputLabel: string
+  onDraftChange: (value: string) => void
+  onCommit: (value: string) => void
+  onReset?: () => void
+  resetDisabled?: boolean
+}
+
+function HexColorControl({
+  draft,
+  error,
+  fallbackColor,
+  pickerLabel,
+  inputLabel,
+  onDraftChange,
+  onCommit,
+  onReset,
+  resetDisabled,
+}: HexColorControlProps) {
+  return (
+    <div className={`theme-hex-control ${onReset ? 'has-reset' : ''}`}>
+      <label className="theme-color-picker" title={pickerLabel}>
+        <input
+          type="color"
+          value={normalizeHexColor(draft) ?? fallbackColor}
+          onChange={(event) => onCommit(event.target.value)}
+          aria-label={pickerLabel}
+        />
+      </label>
+      <input
+        className={`theme-accent-input ${error ? 'is-invalid' : ''}`}
+        value={draft}
+        onChange={(event) => onDraftChange(formatHexColorDraft(event.target.value))}
+        onPaste={(event) => {
+          event.preventDefault()
+          const pasted = formatHexColorDraft(event.clipboardData.getData('text'))
+          onDraftChange(pasted)
+          if (normalizeHexColor(pasted)) onCommit(pasted)
+        }}
+        onBlur={() => onCommit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            onCommit(draft)
+          }
+        }}
+        aria-label={inputLabel}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${inputLabel.replace(/\s+/g, '-').toLowerCase()}-error` : undefined}
+        spellCheck={false}
+        autoCapitalize="none"
+      />
+      {onReset && (
+        <button
+          type="button"
+          className="theme-accent-reset"
+          onClick={onReset}
+          disabled={resetDisabled}
+          title="Use the theme accent"
+          aria-label="Reset accent color"
+        >
+          <RotateCcw size={14} aria-hidden />
+          <span>Use theme color</span>
+        </button>
+      )}
+    </div>
+  )
+}
 
 export default function ThemeSettings() {
   const [preference, setPreference] = useState<ThemePreference>(() => getStoredThemePreference())
@@ -70,7 +152,7 @@ export default function ThemeSettings() {
   const selectCustomThemeColor = (color: string) => {
     const normalized = normalizeHexColor(color)
     if (!normalized) {
-      setThemeColorError('Enter a six-digit hex color such as #4f7fd8.')
+      setThemeColorError(getHexColorError(color))
       return
     }
     setThemeColorError(null)
@@ -85,7 +167,7 @@ export default function ThemeSettings() {
   const selectAccent = (color: string) => {
     const normalized = normalizeHexColor(color)
     if (!normalized) {
-      setAccentError('Enter a six-digit hex color such as #4f7fd8.')
+      setAccentError(getHexColorError(color))
       return
     }
     setAccentError(null)
@@ -118,8 +200,11 @@ export default function ThemeSettings() {
       <h3 className="user-settings-section-title" id="appearance-settings-title">Appearance</h3>
       <div className="theme-settings-heading">
         <div className="theme-settings-copy">
-          <strong>Theme</strong>
-          <span>Choose a ready-made look or create one from a color.</span>
+          <div className="theme-setting-title-row">
+            <strong>Base theme</strong>
+            <span className="theme-setting-scope">Surfaces</span>
+          </div>
+          <span>Sets the app background, panels, and text palette.</span>
         </div>
         <button
           type="button"
@@ -207,42 +292,31 @@ export default function ThemeSettings() {
 
       {preference.customThemeColor && <div className="theme-custom-panel is-active" aria-label="Custom theme controls">
         <div className="theme-custom-panel-copy">
-          <strong>Choose your color</strong>
-          <span>Voxpery automatically creates a readable theme from it.</span>
+          <strong>Custom theme color</strong>
+          <span>One color generates the complete surface palette.</span>
         </div>
-        <div className="theme-accent-custom theme-custom-color-controls">
-          <label className="theme-color-picker" title="Choose custom theme color">
-            <input
-              type="color"
-              value={normalizeHexColor(themeColorDraft) ?? activeTheme.defaultAccent}
-              onChange={(event) => selectCustomThemeColor(event.target.value)}
-              aria-label="Choose custom theme color"
-            />
-          </label>
-          <input
-            className={`theme-accent-input ${themeColorError ? 'is-invalid' : ''}`}
-            value={themeColorDraft}
-            onChange={(event) => setThemeColorDraft(event.target.value)}
-            onBlur={() => selectCustomThemeColor(themeColorDraft)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                selectCustomThemeColor(themeColorDraft)
-              }
-            }}
-            aria-label="Custom theme hex color"
-            aria-invalid={Boolean(themeColorError)}
-            spellCheck={false}
-            maxLength={7}
-          />
-        </div>
+        <HexColorControl
+          draft={themeColorDraft}
+          error={themeColorError}
+          fallbackColor={activeTheme.defaultAccent}
+          pickerLabel="Choose custom theme color"
+          inputLabel="Custom theme hex color"
+          onDraftChange={(value) => {
+            setThemeColorDraft(value)
+            setThemeColorError(null)
+          }}
+          onCommit={selectCustomThemeColor}
+        />
       </div>}
-      {themeColorError && <div className="theme-accent-error" role="alert">{themeColorError}</div>}
+      {themeColorError && <div className="theme-accent-error" id="custom-theme-hex-color-error" role="alert">{themeColorError}</div>}
 
       <div className="theme-accent-panel" aria-labelledby="theme-accent-title">
         <div className="theme-custom-panel-copy">
-          <strong id="theme-accent-title">Accent color</strong>
-          <span>Change buttons, active states, links, and default avatars without changing the theme.</span>
+          <div className="theme-setting-title-row">
+            <strong id="theme-accent-title">Accent color</strong>
+            <span className="theme-setting-scope">Controls</span>
+          </div>
+          <span>Used by buttons, links, selections, and default avatars.</span>
         </div>
         <div className="theme-accent-controls">
           <div className="theme-accent-swatches" role="group" aria-label="Accent color presets">
@@ -260,44 +334,27 @@ export default function ThemeSettings() {
               />
             })}
           </div>
-          <div className="theme-accent-custom">
-            <label className="theme-color-picker" title="Choose accent color">
-              <input
-                type="color"
-                value={normalizeHexColor(accentDraft) ?? automaticAccent}
-                onChange={(event) => selectAccent(event.target.value)}
-                aria-label="Choose accent color"
-              />
-            </label>
-            <input
-              className={`theme-accent-input ${accentError ? 'is-invalid' : ''}`}
-              value={accentDraft}
-              onChange={(event) => setAccentDraft(event.target.value)}
-              onBlur={() => selectAccent(accentDraft)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  selectAccent(accentDraft)
-                }
-              }}
-              aria-label="Custom accent hex color"
-              aria-invalid={Boolean(accentError)}
-              spellCheck={false}
-              maxLength={7}
-            />
-            <button
-              type="button"
-              className="theme-accent-reset"
-              onClick={resetAccent}
-              disabled={!preference.customAccent}
-              title="Use the theme accent"
-              aria-label="Reset accent color"
-            >
-              <RotateCcw size={14} aria-hidden />
-            </button>
-          </div>
+          <HexColorControl
+            draft={accentDraft}
+            error={accentError}
+            fallbackColor={automaticAccent}
+            pickerLabel="Choose accent color"
+            inputLabel="Custom accent hex color"
+            onDraftChange={(value) => {
+              setAccentDraft(value)
+              setAccentError(null)
+            }}
+            onCommit={selectAccent}
+            onReset={resetAccent}
+            resetDisabled={!preference.customAccent}
+          />
         </div>
-        {accentError && <div className="theme-accent-error" role="alert">{accentError}</div>}
+        <div className="theme-accent-preview" aria-label="Accent preview">
+          <span className="theme-accent-preview-selection">Selected item</span>
+          <span className="theme-accent-preview-button">Button</span>
+          <span className="theme-accent-preview-link">Link</span>
+        </div>
+        {accentError && <div className="theme-accent-error" id="custom-accent-hex-color-error" role="alert">{accentError}</div>}
       </div>
     </section>
   )

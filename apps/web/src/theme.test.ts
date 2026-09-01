@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_THEME,
   createCustomThemePalette,
+  formatHexColorDraft,
   getAccessibleAccentText,
   getContrastRatio,
   getStoredThemePreference,
@@ -41,7 +42,11 @@ describe('theme preferences', () => {
   it('normalizes supported hex colors', () => {
     expect(normalizeHexColor('#AbC')).toBe('#aabbcc')
     expect(normalizeHexColor('#12AF90')).toBe('#12af90')
-    expect(normalizeHexColor('12af90')).toBeNull()
+    expect(normalizeHexColor('12af90')).toBe('#12af90')
+    expect(normalizeHexColor(' abc ')).toBe('#aabbcc')
+    expect(normalizeHexColor('#1234567')).toBeNull()
+    expect(formatHexColorDraft('')).toBe('#')
+    expect(formatHexColorDraft('##12AF90')).toBe('#12af90')
   })
 
   it('persists and applies a safe custom accent independently of the theme', () => {
