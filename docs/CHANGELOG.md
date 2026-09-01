@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Confirmed voice member moves against the destination LiveKit participant before writing audit success, added explicit moderator results, and repaired custom-role hierarchy behavior for roles created below Everyone.
 - Kept color fields anchored to `#`, normalized pasted hex values with or without a prefix, and added specific feedback for incomplete, invalid, and overlong colors while preserving stored appearance preferences.
 - Removed the redundant focus-view action while a screen share is browser-fullscreen and made the fullscreen control expose its current enter/exit action.
+- Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.
 
 ## [0.2.14] - 2026-08-31
 

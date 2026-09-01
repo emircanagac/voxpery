@@ -3144,8 +3144,11 @@ body {
 }
 
 .user-profile-textarea {
+  height: 78px;
   min-height: 78px;
-  resize: vertical;
+  max-height: 78px;
+  overflow-y: auto;
+  resize: none;
 }
 
 .user-profile-textarea:focus {

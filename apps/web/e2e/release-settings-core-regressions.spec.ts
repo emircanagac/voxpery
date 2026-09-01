@@ -238,6 +238,16 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
 
+    const aboutMe = page.getByLabel('About me')
+    await expect(aboutMe).toBeVisible()
+    const aboutMeLayout = await aboutMe.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { height: style.height, minHeight: style.minHeight, maxHeight: style.maxHeight, resize: style.resize }
+    })
+    expect(aboutMeLayout).toEqual({ height: '78px', minHeight: '78px', maxHeight: '78px', resize: 'none' })
+    await aboutMe.fill('a'.repeat(190))
+    await expect(page.locator('.user-profile-field-count')).toHaveText('190/190')
+
     await page.locator('.user-setting-row', { hasText: 'Password' }).getByRole('button', { name: 'Change' }).click()
     const passwordModal = page.locator('.pw-modal', { hasText: 'Change password' })
     await expect(passwordModal).toBeVisible()
