@@ -2993,9 +2993,7 @@ body {
 }
 
 .user-profile-preview-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  display: block;
   margin-bottom: 12px;
   padding: 14px;
   width: 100%;
@@ -3065,10 +3063,18 @@ body {
   min-width: 0;
 }
 
+.user-profile-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .user-profile-fields {
   display: grid;
   gap: 10px;
-  margin: 0 0 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
 }
 
 .user-profile-field {
@@ -3076,10 +3082,10 @@ body {
   gap: 6px;
 }
 
-.user-profile-field-header {
+.user-profile-field-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -3122,8 +3128,7 @@ body {
 }
 
 .user-profile-field-count {
-  justify-self: end;
-  margin-top: -2px;
+  margin-right: 2px;
 }
 
 .user-settings-modal .user-profile-save-button {
@@ -16280,7 +16285,7 @@ textarea {
     width: 100%;
   }
 
-  .user-profile-preview-card {
+  .user-profile-preview-header {
     align-items: flex-start;
     flex-wrap: wrap;
   }

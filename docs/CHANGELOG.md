@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplified Appearance into compact theme and accent controls, kept color fields anchored to `#`, capped hex input at six digits, normalized pasted values, and preserved preferences without internal scrolling in the widest layout.
 - Made the fullscreen focus action exit browser fullscreen directly into the selected stream's in-app focus view, while keeping fullscreen controls explicit about their enter/exit state.
 - Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.
-- Standardized Profile settings actions to one consistent button size across avatar, About me, account, and logout controls.
+- Combined the Profile preview and About me editor into one cohesive card, moved its save action beside the character count, and standardized all Profile action sizes.
 
 ## [0.2.14] - 2026-08-31
 

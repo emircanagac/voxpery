@@ -254,8 +254,10 @@ test.describe('mocked release and settings regressions', () => {
     expect(new Set(profileActionSizes.map(({ width }) => width))).toEqual(new Set(['112px']))
     expect(new Set(profileActionSizes.map(({ height }) => height))).toEqual(new Set(['32px']))
 
-    const aboutMe = page.getByLabel('About me')
+    const profileCard = page.locator('.user-profile-preview-card')
+    const aboutMe = profileCard.getByLabel('About me')
     await expect(aboutMe).toBeVisible()
+    await expect(profileCard.getByRole('button', { name: 'Save about me' })).toBeVisible()
     const aboutMeLayout = await aboutMe.evaluate((element) => {
       const style = getComputedStyle(element)
       return { height: style.height, minHeight: style.minHeight, maxHeight: style.maxHeight, resize: style.resize }

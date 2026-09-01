@@ -2089,84 +2089,86 @@ export default function UserBar() {
               <section className="user-settings-section">
                 <h3 className="user-settings-section-title">Profile</h3>
                 <div className="user-profile-preview-card">
-                  <div className={`user-profile-preview-avatar avatar-status-${(user?.status ?? 'online') as StatusValue}`} aria-hidden>
-                    {user?.avatar_url ? (
-                      <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" className="user-avatar-image" />
-                    ) : (
-                      user ? getInitial(user.username) : '?'
-                    )}
-                  </div>
-                  <div className="user-profile-preview-meta">
-                    <div className="user-profile-preview-eyebrow">Current profile</div>
-                    <div className="user-profile-preview-name">{user?.username ?? 'Unknown user'}</div>
-                    <div className="profile-status-actions" role="group" aria-label="Set status">
-                      {(['online', 'dnd', 'invisible'] as const).map((status) => {
-                        const isActive = (user?.status === 'offline' && status === 'invisible') || user?.status === status
-                        return (
-                          <button
-                            key={status}
-                            type="button"
-                            className={`profile-status-btn profile-status-btn-${status} ${isActive ? 'is-active' : ''}`}
-                            onClick={() => updateMyStatus(status)}
-                            disabled={statusSaving}
-                            aria-label={`Set status to ${statusLabel(status)}`}
-                            aria-pressed={isActive}
-                          >
-                            <span className={`profile-status-btn-dot ${status}`} aria-hidden />
-                            {footerStatusLabel(status)}
-                          </button>
-                        )
-                      })}
+                  <div className="user-profile-preview-header">
+                    <div className={`user-profile-preview-avatar avatar-status-${(user?.status ?? 'online') as StatusValue}`} aria-hidden>
+                      {user?.avatar_url ? (
+                        <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" className="user-avatar-image" />
+                      ) : (
+                        user ? getInitial(user.username) : '?'
+                      )}
+                    </div>
+                    <div className="user-profile-preview-meta">
+                      <div className="user-profile-preview-eyebrow">Current profile</div>
+                      <div className="user-profile-preview-name">{user?.username ?? 'Unknown user'}</div>
+                      <div className="profile-status-actions" role="group" aria-label="Set status">
+                        {(['online', 'dnd', 'invisible'] as const).map((status) => {
+                          const isActive = (user?.status === 'offline' && status === 'invisible') || user?.status === status
+                          return (
+                            <button
+                              key={status}
+                              type="button"
+                              className={`profile-status-btn profile-status-btn-${status} ${isActive ? 'is-active' : ''}`}
+                              onClick={() => updateMyStatus(status)}
+                              disabled={statusSaving}
+                              aria-label={`Set status to ${statusLabel(status)}`}
+                              aria-pressed={isActive}
+                            >
+                              <span className={`profile-status-btn-dot ${status}`} aria-hidden />
+                              {footerStatusLabel(status)}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="user-profile-preview-actions">
+                      <label className="user-toggle account-action-btn">
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            void onPickProfileAvatar(e.target.files)
+                            e.currentTarget.value = ''
+                          }}
+                        />
+                      </label>
+                      {user?.avatar_url && (
+                        <button
+                          type="button"
+                          className="user-toggle account-action-btn"
+                          onClick={() => void updateProfileAvatar(null)}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="user-profile-preview-actions">
-                    <label className="user-toggle account-action-btn">
-                      Upload
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                          void onPickProfileAvatar(e.target.files)
-                          e.currentTarget.value = ''
-                        }}
-                      />
-                    </label>
-                    {user?.avatar_url && (
-                      <button
-                        type="button"
-                        className="user-toggle account-action-btn"
-                        onClick={() => void updateProfileAvatar(null)}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="user-profile-fields">
-                  <div className="user-profile-field">
-                    <div className="user-profile-field-header">
+                  <div className="user-profile-fields">
+                    <div className="user-profile-field">
                       <label className="user-profile-field-label" htmlFor="profile-about-me">About me</label>
-                      <button
-                        type="button"
-                        className="user-toggle user-profile-save-button"
-                        onClick={() => void saveProfileDetails()}
-                        disabled={profileDetailsSaving || aboutMe === (user?.about_me ?? '')}
-                        aria-busy={profileDetailsSaving}
-                      >
-                        {profileDetailsSaving ? 'Saving...' : 'Save about me'}
-                      </button>
+                      <textarea
+                        id="profile-about-me"
+                        className="user-profile-textarea"
+                        value={aboutMe}
+                        onChange={(event) => setAboutMe(event.target.value.slice(0, 190))}
+                        maxLength={190}
+                        rows={3}
+                        placeholder="Tell people a little about yourself"
+                      />
+                      <div className="user-profile-field-footer">
+                        <span className="user-profile-field-count">{aboutMe.length}/190</span>
+                        <button
+                          type="button"
+                          className="user-toggle user-profile-save-button"
+                          onClick={() => void saveProfileDetails()}
+                          disabled={profileDetailsSaving || aboutMe === (user?.about_me ?? '')}
+                          aria-busy={profileDetailsSaving}
+                        >
+                          {profileDetailsSaving ? 'Saving...' : 'Save about me'}
+                        </button>
+                      </div>
                     </div>
-                    <textarea
-                      id="profile-about-me"
-                      className="user-profile-textarea"
-                      value={aboutMe}
-                      onChange={(event) => setAboutMe(event.target.value.slice(0, 190))}
-                      maxLength={190}
-                      rows={3}
-                      placeholder="Tell people a little about yourself"
-                    />
-                    <span className="user-profile-field-count">{aboutMe.length}/190</span>
                   </div>
                 </div>
                 <div className="user-setting-row">
