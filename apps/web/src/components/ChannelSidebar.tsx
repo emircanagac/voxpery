@@ -858,6 +858,17 @@ export default function ChannelSidebar({
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
                 const profileMember = memberPool.find((member) => member.user_id === participantMenu.userId) ?? null
+                const actorMember = user?.id
+                    ? memberPool.find((member) => member.user_id === user.id) ?? null
+                    : null
+                const actorIsOwner = activeServer?.owner_id === user?.id
+                const actorRolePosition = actorMember?.highest_role_position
+                const targetRolePosition = profileMember?.highest_role_position
+                const canModerateTarget = actorIsOwner || (
+                    typeof actorRolePosition === 'number'
+                    && typeof targetRolePosition === 'number'
+                    && actorRolePosition < targetRolePosition
+                )
                 const currentVolume = getRemotePlaybackVolume(peerVolumeByUserId, 'voice', participantMenu.userId)
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
@@ -870,7 +881,7 @@ export default function ChannelSidebar({
                 const moveDestinationChannels = channels.filter(
                     (channel) => channel.channel_type === 'voice' && channel.id !== participantMenu.channelId,
                 )
-                const canMoveTarget = canMoveMembers && moveDestinationChannels.length > 0
+                const canMoveTarget = canModerateTarget && canMoveMembers && moveDestinationChannels.length > 0
                 if (isSelf) return null
                 return (
                     <div
@@ -911,7 +922,7 @@ export default function ChannelSidebar({
                                 </button>
                             </>
                         )}
-                        {!isSelf && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
+                        {!isSelf && canModerateTarget && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
                             <>
                                 <div className="member-volume-menu-divider" />
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--moderation">
@@ -921,7 +932,7 @@ export default function ChannelSidebar({
                                 <div className="member-volume-menu-section-hint">Affects everyone in this server</div>
                             </>
                         )}
-                        {!isSelf && canMuteMembers && (
+                        {!isSelf && canModerateTarget && canMuteMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
@@ -942,7 +953,7 @@ export default function ChannelSidebar({
                                 </span>
                             </button>
                         )}
-                        {!isSelf && canDeafenMembers && (
+                        {!isSelf && canModerateTarget && canDeafenMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
@@ -975,6 +986,7 @@ export default function ChannelSidebar({
                                     onChange={(event) => {
                                         if (!event.target.value) return
                                         sendWs('MoveVoiceMember', {
+                                            request_id: crypto.randomUUID(),
                                             target_user_id: participantMenu.userId,
                                             channel_id: event.target.value,
                                         })
@@ -988,7 +1000,7 @@ export default function ChannelSidebar({
                                 </select>
                             </label>
                         )}
-                        {!isSelf && canDisconnectMembers && (
+                        {!isSelf && canModerateTarget && canDisconnectMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item danger"

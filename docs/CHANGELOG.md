@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
+- Confirmed voice member moves against the destination LiveKit participant before writing audit success, added explicit moderator results, and repaired custom-role hierarchy behavior for roles created below Everyone.
 
 ## [0.2.14] - 2026-08-31
 

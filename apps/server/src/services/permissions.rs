@@ -358,7 +358,9 @@ pub async fn get_user_highest_role_position(
         r#"SELECT MIN(sr.position)
            FROM server_roles sr
            INNER JOIN server_member_roles smr ON sr.id = smr.role_id
-           WHERE smr.server_id = $1 AND smr.user_id = $2"#,
+           WHERE smr.server_id = $1
+             AND smr.user_id = $2
+             AND LOWER(sr.name) <> 'everyone'"#,
     )
     .bind(server_id)
     .bind(user_id)

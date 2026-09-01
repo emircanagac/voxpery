@@ -758,7 +758,11 @@ async fn get_server(
                   u.created_at AS account_created_at,
                   sm.joined_at AS server_joined_at,
                   rc.color AS role_color,
-                  rr.role_names AS roles
+                  rr.role_names AS roles,
+                  CASE
+                      WHEN sm.user_id = $2 THEN -1
+                      ELSE COALESCE(rp.highest_role_position, 2147483647)
+                  END AS highest_role_position
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -782,10 +786,19 @@ async fn get_server(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rr ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT MIN(sr.position) AS highest_role_position
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND LOWER(sr.name) <> 'everyone'
+           ) rp ON TRUE
            WHERE sm.server_id = $1
            ORDER BY sm.role ASC, u.username ASC"#,
     )
     .bind(server_id)
+    .bind(server.owner_id)
     .fetch_all(&state.db)
     .await?;
 
@@ -875,9 +888,20 @@ async fn create_role(
     )
     .await?;
 
-    // Next position after existing roles.
+    // Keep custom roles above the implicit Everyone role. Existing servers use a
+    // large fixed position for Everyone, so including it in MAX would create new
+    // roles below every ordinary member in the moderation hierarchy.
     let next_position: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(position) + 1, 0) FROM server_roles WHERE server_id = $1",
+        r#"SELECT COALESCE(MAX(position) + 1, 0)
+           FROM server_roles
+           WHERE server_id = $1
+             AND LOWER(name) <> 'everyone'
+             AND position < COALESCE(
+                 (SELECT position
+                  FROM server_roles
+                  WHERE server_id = $1 AND LOWER(name) = 'everyone'),
+                 2147483647
+             )"#,
     )
     .bind(server_id)
     .fetch_one(&state.db)
@@ -1648,7 +1672,11 @@ async fn list_channel_visible_members(
                   u.created_at AS account_created_at,
                   sm.joined_at AS server_joined_at,
                   rc.color AS role_color,
-                  rr.role_names AS roles
+                  rr.role_names AS roles,
+                  CASE
+                      WHEN sm.user_id = (SELECT owner_id FROM servers WHERE id = $1) THEN -1
+                      ELSE COALESCE(rp.highest_role_position, 2147483647)
+                  END AS highest_role_position
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -1672,6 +1700,14 @@ async fn list_channel_visible_members(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rr ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT MIN(sr.position) AS highest_role_position
+               FROM server_member_roles smr2
+               INNER JOIN server_roles sr ON sr.id = smr2.role_id
+               WHERE smr2.server_id = sm.server_id
+                 AND smr2.user_id = sm.user_id
+                 AND LOWER(sr.name) <> 'everyone'
+           ) rp ON TRUE
            WHERE sm.server_id = $1
            ORDER BY sm.role ASC, u.username ASC"#,
     )

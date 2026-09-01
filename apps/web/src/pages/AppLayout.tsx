@@ -48,6 +48,7 @@ import { shouldShowPushNotification, showPushNotification } from '../pushNotific
 import { createReplyContentSnippet } from '../replyPreview'
 import { createSecureId } from '../secureId'
 import { ROUTES } from '../routes'
+import { handleVoiceMemberMoveRequested } from '../webrtc/voiceMemberMove'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -1264,29 +1265,51 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     break
                 }
                 case 'VoiceMemberMoveRequested': {
+                    const requestId = d.request_id as string | undefined
                     const sourceChannelId = d.source_channel_id as string | undefined
                     const channelId = d.channel_id as string | undefined
-                    if (!sourceChannelId || !channelId) break
-                    if (useAppStore.getState().joinedVoiceChannelId !== sourceChannelId) break
+                    if (!requestId || !sourceChannelId || !channelId) break
                     const joinVoice = (window as Window & {
-                        __voxperyJoinVoice?: (targetChannelId: string) => void
+                        __voxperyJoinVoice?: (targetChannelId: string) => Promise<void>
                     }).__voxperyJoinVoice
-                    if (joinVoice) {
-                        joinVoice(channelId)
-                    } else {
-                        pushToast({
-                            level: 'error',
-                            title: 'Voice move failed',
-                            message: 'The voice client is not ready to change channels.',
-                        })
-                    }
+                    void handleVoiceMemberMoveRequested(
+                        {
+                            requestId,
+                            sourceChannelId,
+                            destinationChannelId: channelId,
+                        },
+                        {
+                            getJoinedVoiceChannelId: () => useAppStore.getState().joinedVoiceChannelId,
+                            joinVoice,
+                            send,
+                            onError: (message) => pushToast({
+                                level: 'error',
+                                title: 'Voice move failed',
+                                message,
+                            }),
+                        },
+                    )
+                    break
+                }
+                case 'VoiceMemberMoveResult': {
+                    const success = d.success === true
+                    const message = typeof d.message === 'string'
+                        ? d.message
+                        : success
+                            ? 'The member changed voice channels.'
+                            : 'The member could not be moved.'
+                    pushToast({
+                        level: success ? 'info' : 'error',
+                        title: success ? 'Voice move completed' : 'Voice move failed',
+                        message,
+                    })
                     break
                 }
             }
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {

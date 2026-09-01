@@ -130,6 +130,7 @@ export interface MemberInfo {
     server_joined_at?: string | null
     role_color: string | null
     roles?: string[]
+    highest_role_position?: number
 }
 
 export interface Friend {

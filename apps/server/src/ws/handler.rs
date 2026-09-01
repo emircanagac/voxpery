@@ -6,6 +6,7 @@ use axum::{
     http::header,
     response::{IntoResponse, Response},
 };
+use dashmap::mapref::entry::Entry;
 use futures::{SinkExt, StreamExt};
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +25,7 @@ use crate::services::permissions::{
 };
 use crate::services::voice_revoke;
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
-use crate::AppState;
+use crate::{AppState, PendingVoiceMove};
 
 async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uuid> {
     sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
@@ -120,6 +121,215 @@ const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
 const WS_MESSAGE_RATE_LIMIT_MAX: usize = 120;
 const WS_MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 const WS_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(75);
+const VOICE_MOVE_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn voice_move_result_event(
+    request_id: Uuid,
+    target_user_id: Uuid,
+    channel_id: Uuid,
+    success: bool,
+    message: impl Into<String>,
+) -> WsEvent {
+    WsEvent::VoiceMemberMoveResult {
+        request_id,
+        target_user_id,
+        channel_id,
+        success,
+        message: message.into(),
+    }
+}
+
+fn send_voice_move_result(
+    sender: &mpsc::UnboundedSender<WsEvent>,
+    request_id: Uuid,
+    target_user_id: Uuid,
+    channel_id: Uuid,
+    success: bool,
+    message: impl Into<String>,
+) {
+    let _ = sender.send(voice_move_result_event(
+        request_id,
+        target_user_id,
+        channel_id,
+        success,
+        message,
+    ));
+}
+
+async fn publish_voice_move_result(
+    state: &Arc<AppState>,
+    pending: &PendingVoiceMove,
+    success: bool,
+    message: impl Into<String>,
+) {
+    super::publish_user_event(
+        state,
+        pending.actor_id,
+        voice_move_result_event(
+            pending.request_id,
+            pending.target_user_id,
+            pending.destination_channel_id,
+            success,
+            message,
+        ),
+    )
+    .await;
+}
+
+async fn complete_voice_member_move(
+    state: &Arc<AppState>,
+    target_user_id: Uuid,
+    request_id: Uuid,
+    success: bool,
+    client_error: Option<String>,
+) {
+    let Some((_, pending)) = state
+        .pending_voice_moves
+        .remove_if(&target_user_id, |_, pending| {
+            pending.request_id == request_id
+        })
+    else {
+        return;
+    };
+
+    if !success {
+        let error = client_error
+            .map(|value| value.trim().chars().take(160).collect::<String>())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "target client rejected the move".to_string());
+        tracing::warn!(
+            "Voice move {} failed on target client {}: {}",
+            request_id,
+            target_user_id,
+            error
+        );
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "The member could not change voice channels.",
+        )
+        .await;
+        return;
+    }
+
+    let active_channel = state
+        .voice_sessions
+        .get(&target_user_id)
+        .map(|entry| *entry);
+    let participant_sid = state
+        .voice_participant_sids
+        .get(&target_user_id)
+        .map(|entry| entry.clone());
+    if active_channel != Some(pending.destination_channel_id) || participant_sid.is_none() {
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "The member did not establish the destination voice connection.",
+        )
+        .await;
+        return;
+    }
+
+    let participant_sid = participant_sid.expect("participant SID checked above");
+    let mut livekit_verified = false;
+    for attempt in 0..10 {
+        match voice_revoke::livekit_participant_matches(
+            state,
+            pending.destination_channel_id,
+            target_user_id,
+            &participant_sid,
+        )
+        .await
+        {
+            Ok(true) => {
+                livekit_verified = true;
+                break;
+            }
+            Ok(false) if attempt < 9 => tokio::time::sleep(Duration::from_millis(200)).await,
+            Ok(false) => break,
+            Err(error) => {
+                tracing::warn!(
+                    "Voice move {} LiveKit verification failed: {}",
+                    request_id,
+                    error
+                );
+                break;
+            }
+        }
+    }
+    if !livekit_verified {
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "LiveKit could not verify the destination voice connection.",
+        )
+        .await;
+        return;
+    }
+
+    if let Err(error) = voice_revoke::remove_livekit_participant_checked(
+        state,
+        pending.source_channel_id,
+        target_user_id,
+        "voice member moved",
+    )
+    .await
+    {
+        tracing::warn!("Voice move {} source cleanup failed: {}", request_id, error);
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "The destination connected, but the previous voice session could not be closed.",
+        )
+        .await;
+        return;
+    }
+
+    let audit_entries = [VoiceModerationAuditEntry {
+        action: audit::VOICE_MEMBER_MOVE,
+        details: serde_json::json!({
+            "request_id": pending.request_id,
+            "source_channel_id": pending.source_channel_id,
+            "source_channel_name": pending.source_channel_name,
+            "destination_channel_id": pending.destination_channel_id,
+            "destination_channel_name": pending.destination_channel_name,
+            "participant_sid": participant_sid,
+        }),
+    }];
+    if let Err(error) = audit::log_voice_moderation(
+        &state.db,
+        pending.actor_id,
+        pending.server_id,
+        pending.target_user_id,
+        pending.destination_channel_id,
+        pending.reason.as_deref(),
+        &audit_entries,
+    )
+    .await
+    {
+        tracing::error!("Voice move {} audit log failed: {}", request_id, error);
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "The member moved, but the audit record could not be written.",
+        )
+        .await;
+        return;
+    }
+
+    publish_voice_move_result(
+        state,
+        &pending,
+        true,
+        format!("Member moved to {}.", pending.destination_channel_name),
+    )
+    .await;
+}
 
 async fn enforce_ws_frame_rate_limit(
     state: &AppState,
@@ -494,6 +704,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
 
     // Register this session
     state.sessions.entry(user_id).or_default().push(tx.clone());
+    if let Some(pending) = state.pending_voice_moves.get(&user_id) {
+        let _ = tx.send(WsEvent::VoiceMemberMoveRequested {
+            request_id: pending.request_id,
+            source_channel_id: pending.source_channel_id,
+            channel_id: pending.destination_channel_id,
+            server_id: pending.server_id,
+            actor_id: pending.actor_id,
+        });
+    }
 
     // Subscribe to broadcast channel
     let mut broadcast_rx = state.tx.subscribe();
@@ -658,7 +877,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 None => false,
                             }
                         }
-                        WsEvent::VoiceMemberMoveRequested { .. } => false,
+                        WsEvent::VoiceMemberMoveRequested { .. }
+                        | WsEvent::VoiceMemberMoveResult { .. } => false,
                         WsEvent::Pong { .. } => false,
                         WsEvent::Signal { .. } => false,
                     };
@@ -1124,11 +1344,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 }
                             }
                             WsClientMessage::MoveVoiceMember {
+                                request_id,
                                 target_user_id,
                                 channel_id,
                                 reason,
                             } => {
+                                let request_id = request_id.unwrap_or_else(Uuid::new_v4);
                                 let Some(reason) = normalize_voice_moderation_reason(reason) else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The moderation reason is too long.",
+                                    );
                                     continue;
                                 };
                                 let Some(source_channel_id) = recv_state
@@ -1136,23 +1366,63 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     .get(&target_user_id)
                                     .map(|entry| *entry)
                                 else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The member is no longer connected to voice.",
+                                    );
                                     continue;
                                 };
                                 if source_channel_id == channel_id {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The member is already in that voice channel.",
+                                    );
                                     continue;
                                 }
 
                                 let Some((source_server_id, source_channel_name)) =
                                     voice_channel_context(&recv_state.db, source_channel_id).await
                                 else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The source voice channel is no longer available.",
+                                    );
                                     continue;
                                 };
                                 let Some((destination_server_id, destination_channel_name)) =
                                     voice_channel_context(&recv_state.db, channel_id).await
                                 else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The destination voice channel is no longer available.",
+                                    );
                                     continue;
                                 };
                                 if source_server_id != destination_server_id {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "Members can only be moved within the same server.",
+                                    );
                                     continue;
                                 }
 
@@ -1169,12 +1439,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             "MoveVoiceMember permission lookup failed: {}",
                                             e
                                         );
+                                        send_voice_move_result(
+                                            &client_tx,
+                                            request_id,
+                                            target_user_id,
+                                            channel_id,
+                                            false,
+                                            "Voice move permissions could not be verified.",
+                                        );
                                         continue;
                                     }
                                 };
                                 if !perms.contains(Permissions::MOVE_MEMBERS)
                                     && !perms.contains(Permissions::MANAGE_SERVER)
                                 {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "You do not have permission to move this member.",
+                                    );
                                     continue;
                                 }
                                 if !can_moderate_voice_target(
@@ -1185,6 +1471,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 )
                                 .await
                                 {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "Your highest role must be above the target member's role.",
+                                    );
                                     continue;
                                 }
                                 if !matches!(
@@ -1196,42 +1490,88 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     .await,
                                     Ok(true)
                                 ) {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The member cannot connect to the destination voice channel.",
+                                    );
                                     continue;
                                 }
 
-                                let audit_entries = [VoiceModerationAuditEntry {
-                                    action: audit::VOICE_MEMBER_MOVE,
-                                    details: serde_json::json!({
-                                        "source_channel_id": source_channel_id,
-                                        "source_channel_name": source_channel_name,
-                                        "destination_channel_id": channel_id,
-                                        "destination_channel_name": destination_channel_name,
-                                    }),
-                                }];
-                                if let Err(e) = audit::log_voice_moderation(
-                                    &recv_state.db,
-                                    user_id,
-                                    source_server_id,
+                                let pending = PendingVoiceMove {
+                                    request_id,
+                                    actor_id: user_id,
                                     target_user_id,
-                                    channel_id,
-                                    reason.as_deref(),
-                                    &audit_entries,
-                                )
-                                .await
-                                {
-                                    tracing::error!("MoveVoiceMember audit log failed: {}", e);
-                                    continue;
+                                    source_channel_id,
+                                    source_channel_name,
+                                    destination_channel_id: channel_id,
+                                    destination_channel_name,
+                                    server_id: source_server_id,
+                                    reason,
+                                };
+                                match recv_state.pending_voice_moves.entry(target_user_id) {
+                                    Entry::Occupied(_) => {
+                                        send_voice_move_result(
+                                            &client_tx,
+                                            request_id,
+                                            target_user_id,
+                                            channel_id,
+                                            false,
+                                            "Another voice move is already in progress for this member.",
+                                        );
+                                        continue;
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(pending.clone());
+                                    }
                                 }
 
                                 super::publish_user_event(
                                     &recv_state,
                                     target_user_id,
                                     WsEvent::VoiceMemberMoveRequested {
+                                        request_id,
                                         source_channel_id,
                                         channel_id,
                                         server_id: source_server_id,
                                         actor_id: user_id,
                                     },
+                                )
+                                .await;
+
+                                let timeout_state = recv_state.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(VOICE_MOVE_TIMEOUT).await;
+                                    if let Some((_, timed_out)) = timeout_state
+                                        .pending_voice_moves
+                                        .remove_if(&target_user_id, |_, pending| {
+                                            pending.request_id == request_id
+                                        })
+                                    {
+                                        publish_voice_move_result(
+                                            &timeout_state,
+                                            &timed_out,
+                                            false,
+                                            "The voice move timed out before the member connected.",
+                                        )
+                                        .await;
+                                    }
+                                });
+                            }
+                            WsClientMessage::AcknowledgeVoiceMemberMove {
+                                request_id,
+                                success,
+                                error,
+                            } => {
+                                complete_voice_member_move(
+                                    &recv_state,
+                                    user_id,
+                                    request_id,
+                                    success,
+                                    error,
                                 )
                                 .await;
                             }

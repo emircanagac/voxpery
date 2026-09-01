@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
@@ -32,6 +32,12 @@ struct LivekitAdminClaims {
 struct RemoveParticipantRequest<'a> {
     room: &'a str,
     identity: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct LivekitParticipantInfo {
+    sid: String,
+    identity: String,
 }
 
 fn server_id_for_channel_from_state(
@@ -177,29 +183,86 @@ async fn remove_livekit_participant(
     user_id: Uuid,
     reason: &str,
 ) {
-    let Some(ws_url) = state.livekit_ws_url.as_deref() else {
-        return;
-    };
-    let Some(api_key) = state.livekit_api_key.as_deref() else {
-        return;
-    };
-    let Some(api_secret) = state.livekit_api_secret.as_deref() else {
-        return;
-    };
-    let Some(base_url) = livekit_http_base_url(ws_url) else {
-        tracing::warn!("Cannot revoke LiveKit participant because LIVEKIT_WS_URL is invalid");
-        return;
-    };
+    if let Err(e) = remove_livekit_participant_checked(state, channel_id, user_id, reason).await {
+        tracing::warn!(
+            "LiveKit participant revoke failed for user {} room {}: {}",
+            user_id,
+            channel_id,
+            e
+        );
+    }
+}
+
+fn livekit_admin_request_parts(
+    state: &AppState,
+    channel_id: Uuid,
+) -> Result<(String, String, String), AppError> {
+    let ws_url = state
+        .livekit_ws_url
+        .as_deref()
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
+    let api_key = state
+        .livekit_api_key
+        .as_deref()
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
+    let api_secret = state
+        .livekit_api_secret
+        .as_deref()
+        .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
+    let base_url = livekit_http_base_url(ws_url)
+        .ok_or_else(|| AppError::Internal("LIVEKIT_WS_URL is invalid".into()))?;
 
     let room = channel_id.to_string();
+    let token = sign_livekit_admin_token(api_key, api_secret, &room)?;
+    Ok((base_url, room, token))
+}
+
+pub(crate) async fn livekit_participant_matches(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    expected_sid: &str,
+) -> Result<bool, AppError> {
+    let (base_url, room, token) = livekit_admin_request_parts(state, channel_id)?;
     let identity = user_id.to_string();
-    let token = match sign_livekit_admin_token(api_key, api_secret, &room) {
-        Ok(token) => token,
-        Err(e) => {
-            tracing::warn!("Cannot revoke LiveKit participant: {}", e);
-            return;
+    let url = format!("{base_url}/twirp/livekit.RoomService/GetParticipant");
+    let response = state
+        .release_http_client
+        .post(url)
+        .bearer_auth(token)
+        .json(&RemoveParticipantRequest {
+            room: &room,
+            identity: &identity,
+        })
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("LiveKit participant lookup failed: {e}")))?;
+
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "LiveKit participant lookup returned {}",
+            response.status()
+        )));
         }
-    };
+
+    let participant = response
+        .json::<LivekitParticipantInfo>()
+        .await
+        .map_err(|e| AppError::Internal(format!("Invalid LiveKit participant response: {e}")))?;
+    Ok(participant.identity == identity && participant.sid == expected_sid)
+}
+
+pub(crate) async fn remove_livekit_participant_checked(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    reason: &str,
+) -> Result<(), AppError> {
+    let (base_url, room, token) = livekit_admin_request_parts(state, channel_id)?;
+    let identity = user_id.to_string();
 
     let url = format!("{base_url}/twirp/livekit.RoomService/RemoveParticipant");
     let response = state
@@ -221,6 +284,7 @@ async fn remove_livekit_participant(
                 channel_id,
                 reason
             );
+            Ok(())
         }
         Ok(response) if response.status() == StatusCode::NOT_FOUND => {
             tracing::debug!(
@@ -229,6 +293,7 @@ async fn remove_livekit_participant(
                 channel_id,
                 reason
             );
+            Ok(())
         }
         Ok(response) => {
             let status = response.status();
@@ -240,6 +305,9 @@ async fn remove_livekit_participant(
                 status,
                 body.len()
             );
+            Err(AppError::Internal(format!(
+                "LiveKit participant removal returned {status}"
+            )))
         }
         Err(e) => {
             tracing::warn!(
@@ -248,6 +316,9 @@ async fn remove_livekit_participant(
                 channel_id,
                 e
             );
+            Err(AppError::Internal(format!(
+                "LiveKit participant removal request failed: {e}"
+            )))
         }
     }
 }

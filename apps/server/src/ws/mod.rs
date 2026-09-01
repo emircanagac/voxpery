@@ -81,10 +81,19 @@ pub enum WsEvent {
     },
     /// A moderator requested that the current user join another voice channel.
     VoiceMemberMoveRequested {
+        request_id: Uuid,
         source_channel_id: Uuid,
         channel_id: Uuid,
         server_id: Uuid,
         actor_id: Uuid,
+    },
+    /// Final result of a moderator-requested voice move, delivered to the actor.
+    VoiceMemberMoveResult {
+        request_id: Uuid,
+        target_user_id: Uuid,
+        channel_id: Uuid,
+        success: bool,
+        message: String,
     },
     /// A voice participant started or stopped watching another participant's active screen share.
     ScreenShareViewerUpdate {
@@ -172,10 +181,11 @@ mod tests {
 
     #[test]
     fn parses_voice_member_move_request_with_reason() {
+        let request_id = Uuid::new_v4();
         let target_user_id = Uuid::new_v4();
         let channel_id = Uuid::new_v4();
         let payload = format!(
-            r#"{{"type":"MoveVoiceMember","data":{{"target_user_id":"{target_user_id}","channel_id":"{channel_id}","reason":"Requested support"}}}}"#,
+            r#"{{"type":"MoveVoiceMember","data":{{"request_id":"{request_id}","target_user_id":"{target_user_id}","channel_id":"{channel_id}","reason":"Requested support"}}}}"#,
         );
 
         let message = serde_json::from_str::<WsClientMessage>(&payload)
@@ -183,10 +193,12 @@ mod tests {
         assert!(matches!(
             message,
             WsClientMessage::MoveVoiceMember {
+                request_id: Some(parsed_request),
                 target_user_id: parsed_target,
                 channel_id: parsed_channel,
                 reason: Some(reason),
-            } if parsed_target == target_user_id
+            } if parsed_request == request_id
+                && parsed_target == target_user_id
                 && parsed_channel == channel_id
                 && reason == "Requested support"
         ));
@@ -194,11 +206,13 @@ mod tests {
 
     #[test]
     fn serializes_targeted_voice_member_move_event() {
+        let request_id = Uuid::new_v4();
         let source_channel_id = Uuid::new_v4();
         let channel_id = Uuid::new_v4();
         let server_id = Uuid::new_v4();
         let actor_id = Uuid::new_v4();
         let event = WsEvent::VoiceMemberMoveRequested {
+            request_id,
             source_channel_id,
             channel_id,
             server_id,
@@ -207,6 +221,7 @@ mod tests {
 
         let json = serde_json::to_value(event).expect("voice member move event serializes");
         assert_eq!(json["type"], "VoiceMemberMoveRequested");
+        assert_eq!(json["data"]["request_id"], request_id.to_string());
         assert_eq!(
             json["data"]["source_channel_id"],
             source_channel_id.to_string()
@@ -243,10 +258,19 @@ pub enum WsClientMessage {
     },
     /// Move another member to a voice channel in the same server.
     MoveVoiceMember {
+        #[serde(default)]
+        request_id: Option<Uuid>,
         target_user_id: Uuid,
         channel_id: Uuid,
         #[serde(default)]
         reason: Option<String>,
+    },
+    /// Report whether a requested client-side LiveKit room switch completed.
+    AcknowledgeVoiceMemberMove {
+        request_id: Uuid,
+        success: bool,
+        #[serde(default)]
+        error: Option<String>,
     },
     /// Update voice controls.
     SetVoiceControl {

@@ -1092,7 +1092,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   useEffect(() => {
     const joinFn = async (channelId: string, preflightStream?: MediaStream) => {
       if (!channelId) return
-      if (state.isJoining) return
+      if (state.isJoining) throw new Error('Another voice connection is already in progress.')
       if (state.joinedChannelId === channelId) return
       if (state.joinedChannelId && state.joinedChannelId !== channelId) {
         leaveVoice({ skipLeaveSound: true })
@@ -1117,15 +1117,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             void openDesktopMediaPermissionSettings('microphone')
           }
           pushToast({ level: 'error', title: 'Microphone access required', message })
-          return
+          const failure = new Error(message)
+          ;(failure as Error & { cause?: unknown }).cause = err
+          throw failure
         }
         throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
       }
     }
-    ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice = joinFn
+    ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice = joinFn
     return () => {
-      if ((window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice === joinFn) {
-        delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
+      if ((window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice === joinFn) {
+        delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice
       }
     }
   }, [joinVoice, leaveVoice, mapMicPreflightError, pushToast, state.isJoining, state.joinedChannelId])

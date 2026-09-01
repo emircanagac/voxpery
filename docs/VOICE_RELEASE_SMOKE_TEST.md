@@ -40,6 +40,10 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Briefly interrupt WebSocket connectivity if possible; voice state resyncs after reconnect.
 - [ ] Kick, ban, moderator disconnect, or removing `Connect to Voice` removes the affected user from the active room promptly.
 - [ ] The removed user cannot keep listening through an existing LiveKit session.
+- [ ] Give a non-owner moderator a custom Full admin role. Mute, deafen, disconnect, and move controls appear only for lower members, never equal/higher roles or the server owner.
+- [ ] With two real clients, move a lower member to another voice channel. The target leaves the source, joins the destination, the moderator receives success, and the audit entry appears only after the destination is connected.
+- [ ] Repeat while the target disconnects, changes channel independently, or cannot join the destination. The moderator receives failure and no successful move audit entry is written.
+- [ ] Reconnect the target WebSocket while a move is pending. The request is replayed and completes at most once without duplicate audit entries.
 
 ## 3. Camera
 

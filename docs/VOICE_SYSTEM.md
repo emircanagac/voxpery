@@ -42,6 +42,13 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 - This server-side removal is required because a modified client could ignore WebSocket leave events while keeping an already-established LiveKit media connection alive.
 - If LiveKit is unavailable during revocation, Voxpery still clears local voice state and logs the LiveKit removal failure for operators.
 
+### Confirmed Moderator Moves
+
+- A moderator move remains pending while the target client reconnects to the destination voice room.
+- The target acknowledges the request only after its LiveKit join promise settles. The server then verifies the destination room, identity, and participant SID before cleaning up a stale source-room participant.
+- The move audit entry is written only after that verification succeeds. Permission, hierarchy, destination access, client, LiveKit, and timeout failures return an explicit result to the moderator without a successful audit entry.
+- Voice moderation remains subject to custom-role hierarchy. The implicit Everyone role is excluded from the highest-role calculation so legacy custom roles with a larger numerical position still rank above ordinary members.
+
 ### Room Events
 
 - `TrackSubscribed`: Remote peer published audio/video -> add to `remoteStreams`
