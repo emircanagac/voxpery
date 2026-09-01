@@ -117,6 +117,10 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
     await expect(modal.getByText('Custom theme color', { exact: true })).toBeVisible()
     await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
+    const appearanceScrolls = await modal.locator('.user-settings-scroll').evaluate((element) => (
+      element.scrollHeight > element.clientHeight + 1
+    ))
+    expect(appearanceScrolls).toBe(false)
     const customAccentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
     await expect(customAccentInput).toBeVisible()
     await customAccentInput.fill('#2f9b78')

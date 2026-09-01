@@ -2419,6 +2419,8 @@ body {
 
 .theme-settings {
   min-width: 0;
+  margin-bottom: 0;
+  container-type: inline-size;
 }
 
 .theme-settings-copy {
@@ -2807,6 +2809,66 @@ body {
 .theme-accent-preview-link {
   color: var(--text-link);
   font-weight: 600;
+}
+
+@container (min-width: 620px) {
+  .theme-option-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .theme-option {
+    min-height: 94px;
+    grid-template-columns: 60px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .theme-option-preview {
+    width: 60px;
+    height: 48px;
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .theme-option-preview-content {
+    gap: 5px;
+    padding: 7px 6px;
+  }
+
+  .theme-option-preview-content::before {
+    width: 16px;
+    height: 16px;
+  }
+
+  .theme-option-description {
+    font-size: 9px;
+  }
+
+  .theme-custom-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .theme-custom-panel-copy {
+    margin-bottom: 0;
+  }
+
+  .theme-accent-panel {
+    margin-top: 10px;
+    padding: 10px;
+  }
+
+  .theme-accent-panel .theme-custom-panel-copy {
+    margin-bottom: 8px;
+  }
+
+  .theme-accent-preview {
+    min-height: 32px;
+    margin-top: 8px;
+    padding: 5px 8px;
+  }
 }
 
 @media (max-width: 700px) {
