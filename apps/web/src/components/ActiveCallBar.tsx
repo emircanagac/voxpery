@@ -1656,7 +1656,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                           <SwitchCameraIcon size={16} />
                         </button>
                       )}
-                      <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                      <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === 'camera' ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === 'camera' ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
                         const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                         if (!tile) return
                         if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
@@ -1676,16 +1676,16 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
-                      <button
+                      {!fullscreenTileKey && <button
                         type="button"
-                        className="screen-share-controls-btn"
+                        className="screen-share-controls-btn screen-share-focus-btn"
                         title={theaterStreamKey === 'local-screen' ? 'Exit focus view' : 'Focus stream'}
                         aria-label={theaterStreamKey === 'local-screen' ? 'Exit focus view' : 'Focus stream'}
                         onClick={() => setTheaterStreamKey((current) => current === 'local-screen' ? null : 'local-screen')}
                       >
                         {theaterStreamKey === 'local-screen' ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
-                      </button>
-                      <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                      </button>}
+                      <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === 'screen' ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === 'screen' ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
                         const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                         if (!tile) return
                         if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
@@ -1812,16 +1812,16 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         </button>
                         {kind === 'screen' ? (
                           <>
-                            <button
+                            {!fullscreenTileKey && <button
                               type="button"
-                              className="screen-share-controls-btn"
+                              className="screen-share-controls-btn screen-share-focus-btn"
                               title={theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
                               aria-label={theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
                               onClick={() => setTheaterStreamKey((current) => current === theaterKey ? null : theaterKey)}
                             >
                               {theaterStreamKey === theaterKey ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
-                            </button>
-                            <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                            </button>}
+                            <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
                               const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                               if (!tile) return
                               if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
@@ -1831,7 +1831,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                             </button>
                           </>
                         ) : (
-                          <button type="button" className="screen-share-controls-btn" title="Toggle fullscreen" onClick={(e) => {
+                          <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
                             const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
                             if (!tile) return
                             if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })

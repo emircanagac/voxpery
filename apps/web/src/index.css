@@ -10147,6 +10147,10 @@ a.community-open-btn:hover {
   pointer-events: auto;
 }
 
+.screen-share-preview:fullscreen .screen-share-focus-btn {
+  display: none;
+}
+
 .screen-share-controls-left {
   display: flex;
   align-items: center;

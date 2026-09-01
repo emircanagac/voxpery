@@ -381,6 +381,31 @@ describe('ActiveCallBar regressions', () => {
     expect(container.querySelector('.remote-screen-preview')).not.toHaveClass('is-theater-focused')
   })
 
+  it('hides the redundant focus action while the stream is fullscreen', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const tile = container.querySelector('.remote-screen-preview') as HTMLElement
+
+    expect(screen.getByRole('button', { name: 'Focus stream' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: tile })
+    fireEvent(document, new Event('fullscreenchange'))
+
+    expect(screen.queryByRole('button', { name: 'Focus stream' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
+
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+    fireEvent(document, new Event('fullscreenchange'))
+
+    expect(screen.getByRole('button', { name: 'Focus stream' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+  })
+
   it('keeps user volume and stream mute state independent', async () => {
     const micTrack = mediaTrack('audio', 'peer-mic')
     const screenAudioTrack = mediaTrack('audio', 'peer-screen-audio')
