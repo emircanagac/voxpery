@@ -242,6 +242,16 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
 
+    const profileActionSizes = await page.locator(
+      '.user-settings-scroll .account-action-btn, .user-settings-scroll .user-profile-save-button',
+    ).evaluateAll((elements) => elements.map((element) => {
+      const style = getComputedStyle(element)
+      return { width: style.width, height: style.height }
+    }))
+    expect(profileActionSizes.length).toBeGreaterThan(3)
+    expect(new Set(profileActionSizes.map(({ width }) => width))).toEqual(new Set(['112px']))
+    expect(new Set(profileActionSizes.map(({ height }) => height))).toEqual(new Set(['32px']))
+
     const aboutMe = page.getByLabel('About me')
     await expect(aboutMe).toBeVisible()
     const aboutMeLayout = await aboutMe.evaluate((element) => {
