@@ -381,7 +381,7 @@ describe('ActiveCallBar regressions', () => {
     expect(container.querySelector('.remote-screen-preview')).not.toHaveClass('is-theater-focused')
   })
 
-  it('hides the redundant focus action while the stream is fullscreen', () => {
+  it('switches directly from browser fullscreen to the in-app focus view', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const { container } = renderActiveCallBar({
       remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
@@ -395,14 +395,21 @@ describe('ActiveCallBar regressions', () => {
 
     Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: tile })
     fireEvent(document, new Event('fullscreenchange'))
+    const exitFullscreen = vi.fn().mockImplementation(async () => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+      fireEvent(document, new Event('fullscreenchange'))
+    })
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
 
-    expect(screen.queryByRole('button', { name: 'Focus stream' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Switch to focus view' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
 
-    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
-    fireEvent(document, new Event('fullscreenchange'))
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to focus view' }))
 
-    expect(screen.getByRole('button', { name: 'Focus stream' })).toBeVisible()
+    expect(exitFullscreen).toHaveBeenCalledOnce()
+    expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
+    expect(container.querySelector('.remote-screen-preview')).toHaveClass('is-theater-focused')
+    expect(screen.getByRole('button', { name: 'Exit focus view' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
   })
 
