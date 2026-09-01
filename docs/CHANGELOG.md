@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-09-01
+
 ### Changed
 - Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
 
