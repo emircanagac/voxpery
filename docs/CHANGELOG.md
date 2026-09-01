@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.
 - Combined the Profile preview and About me editor into one cohesive card, moved its save action beside the character count, and standardized all Profile action sizes.
 - Tightened the desktop Profile settings rhythm so the complete section fits without internal scrolling.
+- Made voice moderation depend on explicit permissions instead of target role position, matching Discord-style voice controls while retaining hierarchy protection for account moderation.
 
 ## [0.2.14] - 2026-08-31
 

@@ -20,9 +20,7 @@ use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
-use crate::services::permissions::{
-    get_user_highest_role_position, get_user_server_permissions, Permissions,
-};
+use crate::services::permissions::{get_user_server_permissions, Permissions};
 use crate::services::voice_revoke;
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::{AppState, PendingVoiceMove};
@@ -36,10 +34,7 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
         .flatten()
 }
 
-async fn voice_channel_context(
-    db: &sqlx::PgPool,
-    channel_id: Uuid,
-) -> Option<(Uuid, String)> {
+async fn voice_channel_context(db: &sqlx::PgPool, channel_id: Uuid) -> Option<(Uuid, String)> {
     sqlx::query_as::<_, (Uuid, String)>(
         "SELECT server_id, name FROM channels WHERE id = $1 AND channel_type = 'voice'",
     )
@@ -48,31 +43,6 @@ async fn voice_channel_context(
     .await
     .ok()
     .flatten()
-}
-
-async fn can_moderate_voice_target(
-    db: &sqlx::PgPool,
-    server_id: Uuid,
-    actor_id: Uuid,
-    target_id: Uuid,
-) -> bool {
-    if actor_id == target_id {
-        return false;
-    }
-
-    let actor_position = get_user_highest_role_position(db, server_id, actor_id).await;
-    let target_position = get_user_highest_role_position(db, server_id, target_id).await;
-    match (actor_position, target_position) {
-        (Ok(actor_position), Ok(target_position)) => actor_position < target_position,
-        (actor_result, target_result) => {
-            tracing::warn!(
-                "Voice moderation hierarchy lookup failed: actor={:?}, target={:?}",
-                actor_result.err(),
-                target_result.err()
-            );
-            false
-        }
-    }
 }
 
 fn normalize_voice_moderation_reason(reason: Option<String>) -> Option<Option<String>> {
@@ -1257,6 +1227,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 target_user_id,
                                 reason,
                             } => {
+                                if target_user_id == user_id {
+                                    continue;
+                                }
                                 let Some(reason) = normalize_voice_moderation_reason(reason) else {
                                     continue;
                                 };
@@ -1292,17 +1265,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     || perms.contains(Permissions::DEAFEN_MEMBERS)
                                     || perms.contains(Permissions::MANAGE_SERVER);
                                 if !can_disconnect {
-                                    continue;
-                                }
-
-                                if !can_moderate_voice_target(
-                                    &recv_state.db,
-                                    target_server_id,
-                                    user_id,
-                                    target_user_id,
-                                )
-                                .await
-                                {
                                     continue;
                                 }
 
@@ -1350,6 +1312,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 reason,
                             } => {
                                 let request_id = request_id.unwrap_or_else(Uuid::new_v4);
+                                if target_user_id == user_id {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "Join the destination voice channel directly.",
+                                    );
+                                    continue;
+                                }
                                 let Some(reason) = normalize_voice_moderation_reason(reason) else {
                                     send_voice_move_result(
                                         &client_tx,
@@ -1460,24 +1433,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         channel_id,
                                         false,
                                         "You do not have permission to move this member.",
-                                    );
-                                    continue;
-                                }
-                                if !can_moderate_voice_target(
-                                    &recv_state.db,
-                                    source_server_id,
-                                    user_id,
-                                    target_user_id,
-                                )
-                                .await
-                                {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "Your highest role must be above the target member's role.",
                                     );
                                     continue;
                                 }
@@ -1634,17 +1589,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     if deafened != current.3 && !can_deafen {
                                         continue;
                                     }
-                                    if !can_moderate_voice_target(
-                                        &recv_state.db,
-                                        target_server_id,
-                                        user_id,
-                                        target_id,
-                                    )
-                                    .await
-                                    {
-                                        continue;
-                                    }
-
                                     let mut audit_entries = Vec::with_capacity(2);
                                     if muted != current.2 {
                                         audit_entries.push(VoiceModerationAuditEntry {

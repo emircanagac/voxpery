@@ -108,7 +108,7 @@ Authorization:
 Behavior:
 
 - Without `target_user_id`, updates self voice controls.
-- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`). The target must be active in voice and lower in the server role hierarchy.
+- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`). The target must be active in voice; voice actions are permission-gated rather than role-hierarchy-gated.
 - A moderator reason is optional and limited to 500 characters. Server mute/deafen state is not changed unless the corresponding audit entry is persisted.
 
 ### `DisconnectVoiceMember`
@@ -123,7 +123,7 @@ Behavior:
 }
 ```
 
-Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must be active in voice and lower in the role hierarchy. The affected channel and optional reason are recorded before the voice session is revoked.
+Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must be active in voice. The affected channel and optional reason are recorded before the voice session is revoked.
 
 ### `MoveVoiceMember`
 
@@ -139,7 +139,7 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 }
 ```
 
-Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, the target must be able to join the destination, and role hierarchy applies. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The server verifies the destination participant before source cleanup and audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
+Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The server verifies the destination participant before source cleanup and audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
 
 ### `Signal`
 

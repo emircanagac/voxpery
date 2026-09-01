@@ -258,7 +258,7 @@ describe('ChannelSidebar voice media presence', () => {
         })
     })
 
-    it('hides voice moderation actions for an equal or higher role', () => {
+    it('shows permission-gated voice actions for an equal or higher role', () => {
         useAppStore.setState({
             servers: [server],
             activeServerId: server.id,
@@ -282,9 +282,11 @@ describe('ChannelSidebar voice media presence', () => {
         )
 
         fireEvent.contextMenu(screen.getByText(remoteMember.username))
-        expect(screen.queryByText('Server moderation')).not.toBeInTheDocument()
-        expect(screen.queryByLabelText(`Move ${remoteMember.username} to voice channel`)).not.toBeInTheDocument()
-        expect(screen.queryByText('Mute member (server)')).not.toBeInTheDocument()
+        expect(screen.getByText('Server moderation')).toBeInTheDocument()
+        expect(screen.getByLabelText(`Move ${remoteMember.username} to voice channel`)).toBeInTheDocument()
+        expect(screen.getByText('Mute member (server)')).toBeInTheDocument()
+        expect(screen.getByText('Deafen member (server)')).toBeInTheDocument()
+        expect(screen.getByText('Disconnect from voice')).toBeInTheDocument()
     })
 
     it('opens the shared profile dialog and its member actions from a voice participant context menu', () => {

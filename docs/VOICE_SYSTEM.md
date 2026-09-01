@@ -47,7 +47,7 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 - A moderator move remains pending while the target client reconnects to the destination voice room.
 - The target acknowledges the request only after its LiveKit join promise settles. The server then verifies the destination room, identity, and participant SID before cleaning up a stale source-room participant.
 - The move audit entry is written only after that verification succeeds. Permission, hierarchy, destination access, client, LiveKit, and timeout failures return an explicit result to the moderator without a successful audit entry.
-- Voice moderation remains subject to custom-role hierarchy. The implicit Everyone role is excluded from the highest-role calculation so legacy custom roles with a larger numerical position still rank above ordinary members.
+- Voice moderation follows explicit mute, deafen, move, disconnect, or full-admin permissions independently of role position. Account and role-management actions retain their separate hierarchy protections.
 
 ### Room Events
 

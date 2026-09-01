@@ -3990,6 +3990,29 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         String::from_utf8_lossy(&body)
     );
 
+    // Voice moderation follows explicit permission bits, not target role position.
+    // Give the target a higher full-admin role so this reproduces admin-to-admin actions.
+    let target_admin_role_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+           VALUES ($1, $2, 'Protected admin', '#D65F5F', 0, 16383)"#,
+    )
+    .bind(target_admin_role_id)
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
+           VALUES ($1, $2, $3)"#,
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .bind(target_admin_role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
     let voice_channel_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
     )
@@ -4307,7 +4330,7 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
             .get(&target_user_id)
             .map(|controls| controls.2),
         Some(true),
-        "a full-admin custom role must be able to server-mute a lower member"
+        "a full-admin custom role must be able to server-mute a higher-role admin"
     );
 
     let request_id = Uuid::new_v4();

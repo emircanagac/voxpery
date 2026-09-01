@@ -858,17 +858,6 @@ export default function ChannelSidebar({
             {participantMenu && (() => {
                 const isSelf = participantMenu.userId === user?.id
                 const profileMember = memberPool.find((member) => member.user_id === participantMenu.userId) ?? null
-                const actorMember = user?.id
-                    ? memberPool.find((member) => member.user_id === user.id) ?? null
-                    : null
-                const actorIsOwner = activeServer?.owner_id === user?.id
-                const actorRolePosition = actorMember?.highest_role_position
-                const targetRolePosition = profileMember?.highest_role_position
-                const canModerateTarget = actorIsOwner || (
-                    typeof actorRolePosition === 'number'
-                    && typeof targetRolePosition === 'number'
-                    && actorRolePosition < targetRolePosition
-                )
                 const currentVolume = getRemotePlaybackVolume(peerVolumeByUserId, 'voice', participantMenu.userId)
                 const targetVoice = voiceControls[participantMenu.userId] ?? {
                     muted: false,
@@ -881,7 +870,7 @@ export default function ChannelSidebar({
                 const moveDestinationChannels = channels.filter(
                     (channel) => channel.channel_type === 'voice' && channel.id !== participantMenu.channelId,
                 )
-                const canMoveTarget = canModerateTarget && canMoveMembers && moveDestinationChannels.length > 0
+                const canMoveTarget = canMoveMembers && moveDestinationChannels.length > 0
                 if (isSelf) return null
                 return (
                     <div
@@ -922,7 +911,7 @@ export default function ChannelSidebar({
                                 </button>
                             </>
                         )}
-                        {!isSelf && canModerateTarget && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
+                        {!isSelf && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
                             <>
                                 <div className="member-volume-menu-divider" />
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--moderation">
@@ -932,7 +921,7 @@ export default function ChannelSidebar({
                                 <div className="member-volume-menu-section-hint">Affects everyone in this server</div>
                             </>
                         )}
-                        {!isSelf && canModerateTarget && canMuteMembers && (
+                        {!isSelf && canMuteMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
@@ -953,7 +942,7 @@ export default function ChannelSidebar({
                                 </span>
                             </button>
                         )}
-                        {!isSelf && canModerateTarget && canDeafenMembers && (
+                        {!isSelf && canDeafenMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
@@ -1000,7 +989,7 @@ export default function ChannelSidebar({
                                 </select>
                             </label>
                         )}
-                        {!isSelf && canModerateTarget && canDisconnectMembers && (
+                        {!isSelf && canDisconnectMembers && (
                             <button
                                 type="button"
                                 className="server-context-menu-item danger"
