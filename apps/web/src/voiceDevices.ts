@@ -84,9 +84,18 @@ export function buildPreferredMicrophoneConstraints(): MediaTrackConstraints {
   const deviceId = getStoredVoiceInputDeviceId()
   const noiseSuppressionEnabled = isStoredNoiseSuppressionEnabled()
   return {
-    deviceId: deviceId ? { exact: deviceId } : undefined,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     ...buildMicProcessingConstraints(noiseSuppressionEnabled),
   }
+}
+
+async function captureMicrophone(
+  constraints: MediaTrackConstraints | true,
+): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: constraints,
+    video: false,
+  })
 }
 
 export async function getPreferredMicrophoneStream(
@@ -103,22 +112,27 @@ export async function getPreferredMicrophoneStream(
   }
 
   try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio: preferredConstraints,
-      video: false,
-    })
+    return await captureMicrophone(preferredConstraints)
   } catch (error) {
-    if (!preferredDeviceId || !isUnavailableDeviceError(error)) throw error
+    if (!isUnavailableDeviceError(error)) throw error
 
-    clearStoredDeviceId(VOICE_INPUT_DEVICE_KEY)
-    return navigator.mediaDevices.getUserMedia({
-      audio: {
-        ...buildPreferredMicrophoneConstraints(),
-        ...overrides,
-        deviceId: undefined,
-      },
-      video: false,
-    })
+    if (preferredDeviceId) {
+      clearStoredDeviceId(VOICE_INPUT_DEVICE_KEY)
+      try {
+        return await captureMicrophone({
+          ...buildPreferredMicrophoneConstraints(),
+          ...overrides,
+        })
+      } catch (fallbackError) {
+        if (!isUnavailableDeviceError(fallbackError)) throw fallbackError
+      }
+    }
+
+    // Chromium/WebView variants can report NotFoundError for optional audio
+    // processing constraints even when the system microphone is available.
+    // A final unconstrained request distinguishes that case from a genuinely
+    // missing device without masking permission or busy-device failures.
+    return captureMicrophone(true)
   }
 }
 
