@@ -26,6 +26,19 @@ pub mod routes;
 pub mod services;
 pub mod ws;
 
+#[derive(Clone, Debug)]
+pub struct PendingVoiceMove {
+    pub request_id: uuid::Uuid,
+    pub actor_id: uuid::Uuid,
+    pub target_user_id: uuid::Uuid,
+    pub source_channel_id: uuid::Uuid,
+    pub source_channel_name: String,
+    pub destination_channel_id: uuid::Uuid,
+    pub destination_channel_name: String,
+    pub server_id: uuid::Uuid,
+    pub reason: Option<String>,
+}
+
 /// Shared application state passed to all handlers.
 pub struct AppState {
     pub instance_id: uuid::Uuid,
@@ -41,6 +54,8 @@ pub struct AppState {
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// Active LiveKit participant SID per user, used to reject stale leave webhooks after rejoin.
     pub voice_participant_sids: DashMap<uuid::Uuid, String>,
+    /// Moderator-requested voice moves keyed by target user and awaiting LiveKit verification.
+    pub pending_voice_moves: DashMap<uuid::Uuid, PendingVoiceMove>,
     /// Voice channel active start times: channel_id -> epoch milliseconds while at least one participant is connected
     pub voice_channel_active_since_ms: DashMap<uuid::Uuid, u64>,
     /// Voice controls: user_id -> (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
@@ -66,6 +81,7 @@ pub struct AppState {
     pub turn_shared_secret: Option<String>,
     pub turn_credential_ttl_secs: u64,
     pub livekit_ws_url: Option<String>,
+    pub livekit_api_url: Option<String>,
     pub livekit_api_key: Option<String>,
     pub livekit_api_secret: Option<String>,
     pub google_client_id: Option<String>,
@@ -434,6 +450,7 @@ mod tests {
             turn_shared_secret: None,
             turn_credential_ttl_secs: 3600,
             livekit_ws_url: None,
+            livekit_api_url: None,
             livekit_api_key: None,
             livekit_api_secret: None,
             google_client_id: None,

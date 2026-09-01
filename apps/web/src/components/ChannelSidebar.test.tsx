@@ -41,6 +41,17 @@ const remoteMember: MemberInfo = {
     role_color: null,
     account_created_at: '2025-01-03T12:00:00.000Z',
     server_joined_at: '2025-02-04T12:00:00.000Z',
+    highest_role_position: 10,
+}
+
+const localMember: MemberInfo = {
+    user_id: 'local-1',
+    username: 'local-user',
+    avatar_url: null,
+    role: 'member',
+    status: 'online',
+    role_color: null,
+    highest_role_position: 0,
 }
 
 describe('ChannelSidebar voice media presence', () => {
@@ -77,7 +88,7 @@ describe('ChannelSidebar voice media presence', () => {
             activeServerId: server.id,
             channels: [voiceChannel],
             activeChannelId: null,
-            members: [remoteMember],
+            members: [localMember, remoteMember],
             membersByServerId: { [server.id]: [remoteMember] },
             voiceStates: { [remoteMember.user_id]: voiceChannel.id },
             voiceStateServerIds: { [remoteMember.user_id]: server.id },
@@ -222,7 +233,7 @@ describe('ChannelSidebar voice media presence', () => {
             servers: [server],
             activeServerId: server.id,
             channels: [voiceChannel, supportVoiceChannel],
-            members: [remoteMember],
+            members: [localMember, remoteMember],
             voiceStates: { [remoteMember.user_id]: voiceChannel.id },
             voiceStateServerIds: { [remoteMember.user_id]: server.id },
         })
@@ -235,15 +246,49 @@ describe('ChannelSidebar voice media presence', () => {
         )
 
         fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        const picker = screen.getByLabelText(`Move ${remoteMember.username} to voice channel`)
+        expect(picker.querySelector('option[value=""]')).toHaveAttribute('hidden')
         fireEvent.change(
-            screen.getByLabelText(`Move ${remoteMember.username} to voice channel`),
+            picker,
             { target: { value: supportVoiceChannel.id } },
         )
 
         expect(send).toHaveBeenCalledWith('MoveVoiceMember', {
+            request_id: expect.any(String),
             target_user_id: remoteMember.user_id,
             channel_id: supportVoiceChannel.id,
         })
+    })
+
+    it('shows permission-gated voice actions for an equal or higher role', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel, supportVoiceChannel],
+            members: [
+                localMember,
+                { ...remoteMember, highest_role_position: 0 },
+            ],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(
+            <ChannelSidebar
+                channelCategories={['Voice']}
+                canMuteMembers
+                canDeafenMembers
+                canMoveMembers
+                canDisconnectMembers
+            />,
+        )
+
+        fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        expect(screen.getByText('Server moderation')).toBeInTheDocument()
+        expect(screen.getByLabelText(`Move ${remoteMember.username} to voice channel`)).toBeInTheDocument()
+        expect(screen.getByText('Mute member (server)')).toBeInTheDocument()
+        expect(screen.getByText('Deafen member (server)')).toBeInTheDocument()
+        expect(screen.getByText('Disconnect from voice')).toBeInTheDocument()
     })
 
     it('opens the shared profile dialog and its member actions from a voice participant context menu', () => {

@@ -134,12 +134,18 @@ export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && THEME_IDS.has(value as ThemeId)
 }
 
+export function formatHexColorDraft(value: string): string {
+  const compact = value.trim().replace(/\s+/g, '')
+  if (!compact || /^#+$/.test(compact)) return '#'
+  return `#${compact.replace(/^#+/, '').toLowerCase()}`
+}
+
 export function normalizeHexColor(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (HEX_COLOR_PATTERN.test(trimmed)) return trimmed.toLowerCase()
-  if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
-    const [r, g, b] = trimmed.slice(1).split('')
+  const formatted = formatHexColorDraft(value)
+  if (HEX_COLOR_PATTERN.test(formatted)) return formatted
+  if (/^#[0-9a-f]{3}$/i.test(formatted)) {
+    const [r, g, b] = formatted.slice(1).split('')
     return `#${r}${r}${g}${g}${b}${b}`.toLowerCase()
   }
   return null

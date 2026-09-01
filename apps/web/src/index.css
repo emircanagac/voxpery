@@ -2419,6 +2419,8 @@ body {
 
 .theme-settings {
   min-width: 0;
+  margin-bottom: 0;
+  container-type: inline-size;
 }
 
 .theme-settings-copy {
@@ -2444,7 +2446,7 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .theme-settings-heading .theme-settings-copy {
@@ -2488,12 +2490,12 @@ body {
 
 .theme-option {
   min-width: 0;
-  min-height: 112px;
+  min-height: 72px;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
   border-radius: 8px;
   background: rgba(var(--ui-contrast-rgb), 0.035);
@@ -2523,10 +2525,10 @@ body {
 }
 
 .theme-option-preview {
-  width: 88px;
-  height: 58px;
+  width: 64px;
+  height: 44px;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-preview-text) 20%, transparent);
   border-radius: 6px;
@@ -2543,14 +2545,14 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 8px 7px;
+  gap: 4px;
+  padding: 6px;
 }
 
 .theme-option-preview-content::before {
   content: '';
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--theme-preview-accent);
 }
@@ -2572,7 +2574,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
 }
 
 .theme-option-label {
@@ -2590,17 +2592,11 @@ body {
   color: var(--accent-primary);
 }
 
-.theme-option-description {
-  color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1.35;
-}
-
 .theme-custom-panel {
   min-width: 0;
   margin-top: 10px;
   display: block;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
   border-radius: 8px;
   background: rgba(var(--ui-contrast-rgb), 0.035);
@@ -2630,17 +2626,18 @@ body {
   line-height: 1.4;
 }
 
-.theme-custom-color-controls {
-  width: min(100%, 220px);
-  grid-template-columns: 34px minmax(0, 1fr);
-}
-
-.theme-accent-custom {
+.theme-hex-control {
   min-width: 0;
   display: grid;
-  grid-template-columns: 34px 92px 34px;
+  width: min(100%, 190px);
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
+}
+
+.theme-hex-control.has-reset {
+  width: min(100%, 178px);
+  grid-template-columns: 34px 98px 34px;
 }
 
 .theme-color-picker {
@@ -2665,7 +2662,7 @@ body {
 }
 
 .theme-accent-input {
-  width: 92px;
+  width: 100%;
   height: 34px;
   min-width: 0;
   padding: 0 9px;
@@ -2689,15 +2686,16 @@ body {
 }
 
 .theme-accent-panel {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
+  margin-top: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
 }
 
 .theme-accent-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -2737,16 +2735,46 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0;
+  padding: 0;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.14);
   border-radius: 7px;
   background: rgba(var(--ui-contrast-rgb), 0.04);
   color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .theme-accent-reset:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+@container (min-width: 620px) {
+  .theme-custom-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .theme-custom-panel-copy {
+    margin-bottom: 0;
+  }
+
+  .theme-accent-panel {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .theme-accent-panel .theme-custom-panel-copy {
+    margin-bottom: 8px;
+  }
+
 }
 
 @media (max-width: 700px) {
@@ -2767,22 +2795,25 @@ body {
     padding: 9px;
   }
 
-  .theme-custom-color-controls {
+  .theme-hex-control,
+  .theme-hex-control.has-reset {
     width: 100%;
   }
 
-  .theme-custom-color-controls {
+  .theme-hex-control.has-reset {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
-  .theme-custom-color-controls .theme-accent-input {
-    width: 100%;
+  .theme-hex-control.has-reset .theme-accent-reset {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .theme-accent-controls {
     align-items: flex-start;
     flex-direction: column;
   }
+
 }
 
 .user-settings-scroll {
@@ -2803,6 +2834,23 @@ body {
 
 .user-settings-modal--voice .user-settings-footer {
   padding: 12px 24px 20px;
+}
+
+.user-settings-modal--profile .user-settings-header {
+  padding: 16px 24px 10px;
+}
+
+.modal.user-settings-modal--profile {
+  height: min(94vh, 780px);
+  max-height: 94vh;
+}
+
+.user-settings-modal--profile .user-settings-scroll {
+  padding: 14px 24px 12px;
+}
+
+.user-settings-modal--profile .user-settings-footer {
+  padding: 10px 24px 12px;
 }
 
 .user-settings-section {
@@ -2962,11 +3010,9 @@ body {
 }
 
 .user-profile-preview-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
-  padding: 14px;
+  display: block;
+  margin-bottom: 10px;
+  padding: 12px;
   width: 100%;
   border: var(--border-subtle);
   border-radius: 12px;
@@ -2977,8 +3023,8 @@ body {
 }
 
 .user-profile-preview-avatar {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: var(--accent-gradient);
   color: #fff;
@@ -3009,7 +3055,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .user-profile-preview-eyebrow {
@@ -3034,21 +3080,29 @@ body {
   min-width: 0;
 }
 
+.user-profile-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .user-profile-fields {
   display: grid;
   gap: 10px;
-  margin: 0 0 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
 }
 
 .user-profile-field {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
-.user-profile-field-header {
+.user-profile-field-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -3078,8 +3132,11 @@ body {
 }
 
 .user-profile-textarea {
-  min-height: 78px;
-  resize: vertical;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  overflow-y: auto;
+  resize: none;
 }
 
 .user-profile-textarea:focus {
@@ -3088,14 +3145,13 @@ body {
 }
 
 .user-profile-field-count {
-  justify-self: end;
-  margin-top: -2px;
+  margin-right: 2px;
 }
 
 .user-settings-modal .user-profile-save-button {
-  width: auto;
-  min-width: 124px;
-  height: 30px;
+  width: 112px;
+  min-width: 112px;
+  height: 32px;
   padding: 0 11px;
   border-color: var(--accent-border);
   background: var(--accent-soft);
@@ -3112,6 +3168,15 @@ body {
 .user-settings-modal .user-profile-save-button:disabled {
   cursor: default;
   opacity: 0.58;
+}
+
+.user-settings-section--profile > .user-settings-section-title {
+  margin-bottom: 8px;
+}
+
+.user-settings-section--profile > .user-setting-row {
+  margin-bottom: 5px;
+  padding: 8px 12px;
 }
 
 .profile-status-btn {
@@ -6748,6 +6813,12 @@ body {
   color: var(--text-primary);
   background: var(--bg-tertiary);
   font: inherit;
+  color-scheme: inherit;
+}
+
+.member-volume-menu-move select option {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
 }
 
 .member-volume-menu-move select:focus-visible {
@@ -11857,9 +11928,10 @@ a.community-open-btn:hover {
 }
 
 .user-profile-preview-actions .account-action-btn {
-  width: auto;
-  min-width: 96px;
-  padding-inline: 12px;
+  width: 112px;
+  min-width: 112px;
+  height: 32px;
+  padding-inline: 11px;
 }
 
 .server-settings-section-intro {
@@ -16245,7 +16317,7 @@ textarea {
     width: 100%;
   }
 
-  .user-profile-preview-card {
+  .user-profile-preview-header {
     align-items: flex-start;
     flex-wrap: wrap;
   }

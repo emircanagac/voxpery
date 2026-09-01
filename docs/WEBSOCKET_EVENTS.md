@@ -108,7 +108,7 @@ Authorization:
 Behavior:
 
 - Without `target_user_id`, updates self voice controls.
-- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`). The target must be active in voice and lower in the server role hierarchy.
+- With `target_user_id`, server moderation controls apply (`MUTE_MEMBERS` / `DEAFEN_MEMBERS`). The target must be active in voice; voice actions are permission-gated rather than role-hierarchy-gated.
 - A moderator reason is optional and limited to 500 characters. Server mute/deafen state is not changed unless the corresponding audit entry is persisted.
 
 ### `DisconnectVoiceMember`
@@ -123,7 +123,7 @@ Behavior:
 }
 ```
 
-Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must be active in voice and lower in the role hierarchy. The affected channel and optional reason are recorded before the voice session is revoked.
+Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must be active in voice. The affected channel and optional reason are recorded before the voice session is revoked.
 
 ### `MoveVoiceMember`
 
@@ -131,6 +131,7 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 {
   "type": "MoveVoiceMember",
   "data": {
+    "request_id": "uuid",
     "target_user_id": "uuid",
     "channel_id": "destination-voice-channel-uuid",
     "reason": "optional moderator reason"
@@ -138,7 +139,7 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 }
 ```
 
-Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, the target must be able to join the destination, and role hierarchy applies. A successful request is audited and delivered only to the target user.
+Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The target reuses its active authorized microphone capture when switching rooms, including from a background browser tab. The server retries briefly while the destination participant becomes visible, then verifies the room and authenticated identity, reconciles the authoritative LiveKit participant SID, and only then performs source cleanup and records audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
 
 ### `Signal`
 
@@ -199,8 +200,11 @@ Legacy custom signaling event.
     - `camera_on`
     - `server_id`
 - `VoiceMemberMoveRequested`
-  - Targeted event sent only to the moved member after the server validates and audits a `MoveVoiceMember` request.
-  - Includes `source_channel_id`, `channel_id`, `server_id`, and `actor_id`; only a client whose active voice session matches the source switches its LiveKit room.
+  - Targeted event sent only to the moved member after the server validates a `MoveVoiceMember` request.
+  - Includes `request_id`, `source_channel_id`, `channel_id`, `server_id`, and `actor_id`; only a client whose active voice session matches the source switches its LiveKit room.
+- `VoiceMemberMoveResult`
+  - Targeted to the moderator after destination LiveKit verification, failure, or timeout.
+  - Includes `request_id`, `target_user_id`, `channel_id`, `success`, and a user-facing `message`.
 - `ScreenShareViewerUpdate`
   - Reports an opt-in viewer's current watch state for one active screen-share publisher.
   - Includes `viewer_id`, `publisher_id`, `channel_id`, `server_id`, and `watching`.

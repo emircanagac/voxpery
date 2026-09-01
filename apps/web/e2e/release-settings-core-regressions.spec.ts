@@ -110,18 +110,28 @@ test.describe('mocked release and settings regressions', () => {
     await modal.getByRole('button', { name: /Custom/ }).click()
     await expect(modal.locator('.theme-custom-panel')).toBeVisible()
     const customThemeInput = modal.getByRole('textbox', { name: 'Custom theme hex color' })
-    await customThemeInput.fill('#7b3fc6')
+    await expect(customThemeInput).toHaveAttribute('maxlength', '7')
+    await customThemeInput.fill('7b3fc6')
     await customThemeInput.press('Enter')
+    await expect(customThemeInput).toHaveValue('#7b3fc6')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'dark')
-    await expect(modal.getByText('Choose your color', { exact: true })).toBeVisible()
+    await expect(modal.getByText('Custom theme color', { exact: true })).toBeVisible()
     await expect(modal.getByText('Background style', { exact: true })).toHaveCount(0)
+    const appearanceScrolls = await modal.locator('.user-settings-scroll').evaluate((element) => (
+      element.scrollHeight > element.clientHeight + 1
+    ))
+    expect(appearanceScrolls).toBe(false)
     const customAccentInput = modal.getByRole('textbox', { name: 'Custom accent hex color' })
     await expect(customAccentInput).toBeVisible()
+    await expect(customAccentInput).toHaveAttribute('maxlength', '7')
     await customAccentInput.fill('#2f9b78')
     await customAccentInput.press('Enter')
     await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
     await expect(page.locator('html')).toHaveCSS('--user-accent', '#2f9b78')
+    await expectNoHorizontalOverflow(modal)
+
+    await page.setViewportSize({ width: 390, height: 844 })
     await expectNoHorizontalOverflow(modal)
 
     const generatedBackground = await page.locator('html').evaluate((element) => (
@@ -233,6 +243,34 @@ test.describe('mocked release and settings regressions', () => {
     await page.goto('/social')
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+
+    const profileScrollMetrics = await page.locator('.user-settings-scroll').evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    expect(profileScrollMetrics.scrollHeight).toBeLessThanOrEqual(profileScrollMetrics.clientHeight + 1)
+
+    const profileActionSizes = await page.locator(
+      '.user-settings-scroll .account-action-btn, .user-settings-scroll .user-profile-save-button',
+    ).evaluateAll((elements) => elements.map((element) => {
+      const style = getComputedStyle(element)
+      return { width: style.width, height: style.height }
+    }))
+    expect(profileActionSizes.length).toBeGreaterThan(3)
+    expect(new Set(profileActionSizes.map(({ width }) => width))).toEqual(new Set(['112px']))
+    expect(new Set(profileActionSizes.map(({ height }) => height))).toEqual(new Set(['32px']))
+
+    const profileCard = page.locator('.user-profile-preview-card')
+    const aboutMe = profileCard.getByLabel('About me')
+    await expect(aboutMe).toBeVisible()
+    await expect(profileCard.getByRole('button', { name: 'Save about me' })).toBeVisible()
+    const aboutMeLayout = await aboutMe.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { height: style.height, minHeight: style.minHeight, maxHeight: style.maxHeight, resize: style.resize }
+    })
+    expect(aboutMeLayout).toEqual({ height: '72px', minHeight: '72px', maxHeight: '72px', resize: 'none' })
+    await aboutMe.fill('a'.repeat(190))
+    await expect(page.locator('.user-profile-field-count')).toHaveText('190/190')
 
     await page.locator('.user-setting-row', { hasText: 'Password' }).getByRole('button', { name: 'Change' }).click()
     const passwordModal = page.locator('.pw-modal', { hasText: 'Change password' })

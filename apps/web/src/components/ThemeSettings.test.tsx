@@ -26,7 +26,7 @@ describe('ThemeSettings', () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(screen.getByRole('button', { name: /Dark/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: /^DefaultThe original/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Default' })).toBeVisible()
     expect(screen.getByRole('button', { name: /Custom/ })).toBeVisible()
   })
 
@@ -55,7 +55,7 @@ describe('ThemeSettings', () => {
 
     fireEvent.change(input, { target: { value: '#zzzzzz' } })
     fireEvent.blur(input)
-    expect(screen.getByRole('alert')).toHaveTextContent('six-digit hex color')
+    expect(screen.getByRole('alert')).toHaveTextContent('numbers 0-9 and letters A-F')
     expect(localStorage.getItem(THEME_CUSTOM_COLOR_STORAGE_KEY)).toBe(initialCustomColor)
 
     fireEvent.change(input, { target: { value: '#7b3fc6' } })
@@ -65,6 +65,43 @@ describe('ThemeSettings', () => {
     expect(document.documentElement.dataset.customThemeMode).toBe('dark')
     expect(screen.queryByText('Background style')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Custom accent hex color' })).toBeVisible()
+  })
+
+  it('keeps the hex prefix and normalizes pasted colors', () => {
+    render(<ThemeSettings />)
+    fireEvent.click(screen.getByRole('button', { name: /Custom/ }))
+    const themeInput = screen.getByRole('textbox', { name: 'Custom theme hex color' })
+
+    fireEvent.change(themeInput, { target: { value: '' } })
+    expect(themeInput).toHaveValue('#')
+    fireEvent.blur(themeInput)
+    expect(screen.getByRole('alert')).toHaveTextContent('six hex digits after #')
+
+    fireEvent.paste(themeInput, {
+      clipboardData: { getData: () => '7B3FC6' },
+    })
+    expect(themeInput).toHaveValue('#7b3fc6')
+    expect(localStorage.getItem(THEME_CUSTOM_COLOR_STORAGE_KEY)).toBe('#7b3fc6')
+
+    const accentInput = screen.getByRole('textbox', { name: 'Custom accent hex color' })
+    fireEvent.paste(accentInput, {
+      clipboardData: { getData: () => '#2F9B78' },
+    })
+    expect(accentInput).toHaveValue('#2f9b78')
+    expect(localStorage.getItem(THEME_ACCENT_STORAGE_KEY)).toBe('#2f9b78')
+  })
+
+  it('explains incomplete values and prevents overlong hex input', () => {
+    render(<ThemeSettings />)
+    const accentInput = screen.getByRole('textbox', { name: 'Custom accent hex color' })
+
+    fireEvent.change(accentInput, { target: { value: '12ab' } })
+    expect(accentInput).toHaveValue('#12ab')
+    fireEvent.blur(accentInput)
+    expect(screen.getByRole('alert')).toHaveTextContent('need six digits')
+
+    fireEvent.change(accentInput, { target: { value: '#1234567' } })
+    expect(accentInput).toHaveValue('#123456')
   })
 
   it('changes and resets the accent without replacing the selected theme', () => {

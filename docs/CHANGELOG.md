@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-09-01
+
+### Changed
+- Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
+
 ### Fixed
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
+- Made moderator voice moves reuse an active microphone capture in background tabs, verify through the container-internal LiveKit API instead of a client-facing localhost URL, tolerate delayed destination visibility and SID renewal, report explicit results, and preserve audit success only for identity-verified moves.
+- Simplified Appearance into compact theme and accent controls, kept color fields anchored to `#`, capped hex input at six digits, normalized pasted values, and preserved preferences without internal scrolling in the widest layout.
+- Made the fullscreen focus action exit browser fullscreen directly into the selected stream's in-app focus view, while keeping fullscreen controls explicit about their enter/exit state.
+- Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.
+- Combined the Profile preview and About me editor into one cohesive card, moved its save action beside the character count, and standardized all Profile action sizes.
+- Tightened the desktop Profile settings rhythm so the complete section fits without internal scrolling.
+- Made voice moderation depend on explicit permissions instead of target role position, matching Discord-style voice controls while retaining hierarchy protection for account moderation.
 
 ## [0.2.14] - 2026-08-31
 

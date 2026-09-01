@@ -203,6 +203,7 @@ function renderActiveCallBar(
   const voice = {
     state: voiceState(overrides),
     joinVoice: vi.fn(),
+    moveVoice: vi.fn().mockResolvedValue(undefined),
     leaveVoice: vi.fn(),
     startScreenShare: vi.fn().mockResolvedValue({ hasAudio: true, audioPublished: true }),
     stopScreenShare: vi.fn(),
@@ -379,6 +380,53 @@ describe('ActiveCallBar regressions', () => {
 
     expect(container.querySelector('.screen-share-stage')).not.toHaveClass('screen-share-stage--theater')
     expect(container.querySelector('.remote-screen-preview')).not.toHaveClass('is-theater-focused')
+  })
+
+  it('switches directly from browser fullscreen to the in-app focus view', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const tile = container.querySelector('.remote-screen-preview') as HTMLElement
+
+    expect(screen.getByRole('button', { name: 'Focus stream' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: tile })
+    fireEvent(document, new Event('fullscreenchange'))
+    const exitFullscreen = vi.fn().mockImplementation(async () => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+      fireEvent(document, new Event('fullscreenchange'))
+    })
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+
+    expect(screen.getByRole('button', { name: 'Switch to focus view' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to focus view' }))
+
+    expect(exitFullscreen).toHaveBeenCalledOnce()
+    expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
+    expect(container.querySelector('.remote-screen-preview')).toHaveClass('is-theater-focused')
+    expect(screen.getByRole('button', { name: 'Exit focus view' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+  })
+
+  it('switches an existing voice session without starting a new microphone preflight', async () => {
+    const { voice } = renderActiveCallBar({ joinedChannelId: voiceChannel.id })
+    const exposedJoin = (window as Window & {
+      __voxperyJoinVoice?: (channelId: string) => Promise<void>
+    }).__voxperyJoinVoice
+
+    expect(exposedJoin).toBeDefined()
+    await act(async () => {
+      await exposedJoin?.('voice-destination')
+    })
+
+    expect(voice.moveVoice).toHaveBeenCalledWith('voice-destination')
+    expect(voice.joinVoice).not.toHaveBeenCalled()
   })
 
   it('keeps user volume and stream mute state independent', async () => {

@@ -87,6 +87,8 @@ pub struct MemberInfo {
     /// Explicit assigned server roles (excluding Everyone), ordered by role position.
     #[serde(default)]
     pub roles: Vec<String>,
+    /// Highest custom role position. Owners use -1 and members without custom roles use i32::MAX.
+    pub highest_role_position: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

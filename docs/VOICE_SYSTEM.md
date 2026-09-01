@@ -38,9 +38,18 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 ### Server-side Voice Revocation
 
 - LiveKit tokens are only minted after the backend verifies `VIEW_SERVER` and `CONNECT_VOICE`.
+- `LIVEKIT_WS_URL` is the client-facing connection address. Docker Compose automatically supplies the backend-only internal `livekit` service address for admin verification and revocation, without requiring another production `.env` setting.
 - If a member is kicked, banned, disconnected by a moderator, or loses active voice permissions through role/channel overrides, the backend clears the runtime voice session and asks LiveKit to remove that participant from the room.
 - This server-side removal is required because a modified client could ignore WebSocket leave events while keeping an already-established LiveKit media connection alive.
 - If LiveKit is unavailable during revocation, Voxpery still clears local voice state and logs the LiveKit removal failure for operators.
+
+### Confirmed Moderator Moves
+
+- A moderator move remains pending while the target client reconnects to the destination voice room.
+- The target reuses its already-authorized live microphone source while switching rooms, so a background browser tab does not need a new `getUserMedia` permission cycle before it can complete the move.
+- The target acknowledges the request only after its LiveKit join promise settles. The server then tolerates short participant-visibility delays while verifying the destination room and authenticated identity before cleaning up a stale source-room participant. LiveKit's returned SID is authoritative and replaces a stale client-reported SID from a fast room switch.
+- The move audit entry is written only after that verification succeeds. Permission, hierarchy, destination access, client, LiveKit, and timeout failures return an explicit result to the moderator without a successful audit entry.
+- Voice moderation follows explicit mute, deafen, move, disconnect, or full-admin permissions independently of role position. Account and role-management actions retain their separate hierarchy protections.
 
 ### Room Events
 

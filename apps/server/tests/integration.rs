@@ -9,7 +9,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use dashmap::DashMap;
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -17,13 +17,17 @@ use sqlx::postgres::PgPoolOptions;
 use std::{
     io::{Cursor, Read},
     path::Path,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::broadcast;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::WebSocketStream;
 use tower::ServiceExt;
 use uuid::Uuid;
 use voxpery_server::{
@@ -109,6 +113,25 @@ async fn setup_app_with_features(
     observability_enabled: bool,
     google_oauth_enabled: bool,
 ) -> (axum::Router, Arc<AppState>) {
+    setup_app_with_features_and_livekit(
+        email_verification_enabled,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        "wss://livekit.test.local".to_string(),
+        None,
+    )
+    .await
+}
+
+async fn setup_app_with_features_and_livekit(
+    email_verification_enabled: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -142,6 +165,7 @@ async fn setup_app_with_features(
         sessions: DashMap::new(),
         voice_sessions: DashMap::new(),
         voice_participant_sids: DashMap::new(),
+        pending_voice_moves: DashMap::new(),
         voice_channel_active_since_ms: DashMap::new(),
         voice_controls: DashMap::new(),
         screen_share_viewers: DashMap::new(),
@@ -162,7 +186,8 @@ async fn setup_app_with_features(
         turn_urls: None,
         turn_shared_secret: None,
         turn_credential_ttl_secs: 3600,
-        livekit_ws_url: Some("wss://livekit.test.local".to_string()),
+        livekit_ws_url: Some(livekit_ws_url),
+        livekit_api_url,
         livekit_api_key: Some(test_credential("livekit-api").to_string()),
         livekit_api_secret: Some(test_credential("livekit-signing").to_string()),
         google_client_id: google_oauth_enabled.then(|| "google-client.test".to_string()),
@@ -218,6 +243,31 @@ async fn oneshot(app: &mut axum::Router, req: Request<Body>) -> (StatusCode, byt
         .expect("body collect")
         .to_bytes();
     (status, body)
+}
+
+async fn receive_ws_event<S>(
+    stream: &mut WebSocketStream<S>,
+    expected_type: &str,
+) -> serde_json::Value
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    for _ in 0..30 {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
+            .await
+            .expect("timed out waiting for websocket event")
+            .expect("websocket closed before expected event")
+            .expect("websocket read failed");
+        let WsMessage::Text(text) = message else {
+            continue;
+        };
+        let event: serde_json::Value =
+            serde_json::from_str(&text).expect("websocket event must be valid JSON");
+        if event["type"] == expected_type {
+            return event;
+        }
+    }
+    panic!("did not receive websocket event {expected_type}");
 }
 
 async fn register_user(
@@ -2311,7 +2361,7 @@ async fn roles_and_channel_overrides_flow() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app().await;
+    let (mut app, state) = setup_app().await;
 
     let uid = Uuid::new_v4();
     let email = format!("admin-{}@example.com", uid);
@@ -2362,6 +2412,17 @@ async fn roles_and_channel_overrides_flow() {
     assert_eq!(status, StatusCode::OK, "create role failed");
     let role: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let role_id = role["id"].as_str().unwrap();
+    let everyone_position: i32 = sqlx::query_scalar(
+        "SELECT position FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(
+        role["position"].as_i64().unwrap() < i64::from(everyone_position),
+        "new custom roles must remain above Everyone in the hierarchy"
+    );
 
     // Create a channel
     let channel_body = json!({
@@ -3935,6 +3996,29 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         String::from_utf8_lossy(&body)
     );
 
+    // Voice moderation follows explicit permission bits, not target role position.
+    // Give the target a higher full-admin role so this reproduces admin-to-admin actions.
+    let target_admin_role_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+           VALUES ($1, $2, 'Protected admin', '#D65F5F', 0, 16383)"#,
+    )
+    .bind(target_admin_role_id)
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
+           VALUES ($1, $2, $3)"#,
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .bind(target_admin_role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
     let voice_channel_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
     )
@@ -4040,6 +4124,357 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     assert!(page["next_before"].as_str().is_some());
 
     server_handle.abort();
+}
+
+#[tokio::test]
+async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+
+    let participant_lookup_attempts = Arc::new(AtomicUsize::new(0));
+    let livekit_lookup_attempts = participant_lookup_attempts.clone();
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let livekit_lookup_attempts = livekit_lookup_attempts.clone();
+                async move {
+                    let attempt = livekit_lookup_attempts.fetch_add(1, Ordering::SeqCst);
+                    let status = if attempt < 2 {
+                        StatusCode::NOT_FOUND
+                    } else {
+                        StatusCode::OK
+                    };
+                    (
+                        status,
+                        axum::Json(json!({
+                            "sid": "PA_moved",
+                            "identity": body["identity"],
+                        })),
+                    )
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(|| async { axum::Json(json!({})) }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    let livekit_handle = tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://client-livekit.example.test".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let owner_suffix = Uuid::new_v4();
+    let (owner_token, _) = register_user(
+        &mut app,
+        &format!("voice-move-owner-{owner_suffix}@example.com"),
+        &format!("voice_move_owner_{}", owner_suffix.as_u128() % 1_000_000),
+        test_credential("owner"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Move Server")
+            .await;
+
+    let moderator_suffix = Uuid::new_v4();
+    let (moderator_token, moderator_user_id) = register_user(
+        &mut app,
+        &format!("voice-move-moderator-{moderator_suffix}@example.com"),
+        &format!(
+            "voice_move_moderator_{}",
+            moderator_suffix.as_u128() % 1_000_000
+        ),
+        test_credential("moderator"),
+    )
+    .await;
+    let moderator_auth = format!("Bearer {moderator_token}");
+    let join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &moderator_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "moderator join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Reproduce roles created by older versions below Everyone (position 9999).
+    // Everyone must not flatten a custom moderator role to the same hierarchy level
+    // as an ordinary member.
+    let moderator_role_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+           VALUES ($1, $2, 'Full admin', '#5865F2', 10000, 16383)"#,
+    )
+    .bind(moderator_role_id)
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_member_roles (server_id, user_id, role_id)
+           VALUES ($1, $2, $3)"#,
+    )
+    .bind(server_id)
+    .bind(moderator_user_id)
+    .bind(moderator_role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let target_suffix = Uuid::new_v4();
+    let (target_token, target_user_id) = register_user(
+        &mut app,
+        &format!("voice-move-target-{target_suffix}@example.com"),
+        &format!("voice_move_target_{}", target_suffix.as_u128() % 1_000_000),
+        test_credential("target"),
+    )
+    .await;
+    let target_auth = format!("Bearer {target_token}");
+    let join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &target_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "target join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let source_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let destination_channel_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
+           VALUES ($1, $2, 'Support', 'voice', 'General', 2, NOW())"#,
+    )
+    .bind(destination_channel_id)
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let ws_app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
+    let ws_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_addr = ws_listener.local_addr().unwrap();
+    let ws_handle = tokio::spawn(async move {
+        let _ = axum::serve(ws_listener, ws_app).await;
+    });
+
+    let mut moderator_request = format!("ws://{ws_addr}/ws").into_client_request().unwrap();
+    moderator_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{moderator_token}")).unwrap(),
+    );
+    moderator_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut moderator_ws, _) = connect_async(moderator_request)
+        .await
+        .expect("moderator websocket must connect");
+
+    let mut target_request = format!("ws://{ws_addr}/ws").into_client_request().unwrap();
+    target_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{target_token}")).unwrap(),
+    );
+    target_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut target_ws, _) = connect_async(target_request)
+        .await
+        .expect("target websocket must connect");
+
+    state
+        .voice_sessions
+        .insert(target_user_id, source_channel_id);
+    state
+        .voice_participant_sids
+        .insert(target_user_id, "PA_source".to_string());
+
+    moderator_ws
+        .send(WsMessage::Text(
+            json!({
+                "type": "SetVoiceControl",
+                "data": {
+                    "target_user_id": target_user_id,
+                    "muted": true,
+                    "deafened": false,
+                    "screen_sharing": false,
+                    "camera_on": false
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let muted_event = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(muted_event["data"]["server_muted"], true);
+    assert_eq!(
+        state
+            .voice_controls
+            .get(&target_user_id)
+            .map(|controls| controls.2),
+        Some(true),
+        "a full-admin custom role must be able to server-mute a higher-role admin"
+    );
+
+    let request_id = Uuid::new_v4();
+    moderator_ws
+        .send(WsMessage::Text(
+            json!({
+                "type": "MoveVoiceMember",
+                "data": {
+                    "request_id": request_id,
+                    "target_user_id": target_user_id,
+                    "channel_id": destination_channel_id,
+                    "reason": "Move to support"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let requested = receive_ws_event(&mut target_ws, "VoiceMemberMoveRequested").await;
+    assert_eq!(requested["data"]["request_id"], request_id.to_string());
+    assert_eq!(
+        requested["data"]["source_channel_id"],
+        source_channel_id.to_string()
+    );
+    assert_eq!(
+        requested["data"]["channel_id"],
+        destination_channel_id.to_string()
+    );
+    let audit_before_ack: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action = 'voice_member_move' AND resource_id = $1",
+    )
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(audit_before_ack, 0, "pending moves must not be audited");
+
+    target_ws
+        .send(WsMessage::Text(
+            json!({
+                "type": "JoinVoice",
+                "data": {
+                    "channel_id": destination_channel_id,
+                    "participant_sid": "PA_client_stale"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    target_ws
+        .send(WsMessage::Text(
+            json!({
+                "type": "AcknowledgeVoiceMemberMove",
+                "data": {
+                    "request_id": request_id,
+                    "success": true
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let result = receive_ws_event(&mut moderator_ws, "VoiceMemberMoveResult").await;
+    assert_eq!(result["data"]["request_id"], request_id.to_string());
+    assert_eq!(result["data"]["success"], true);
+    assert!(
+        participant_lookup_attempts.load(Ordering::SeqCst) >= 3,
+        "voice move verification must tolerate delayed LiveKit participant visibility"
+    );
+    assert_eq!(
+        state
+            .voice_sessions
+            .get(&target_user_id)
+            .map(|entry| *entry),
+        Some(destination_channel_id)
+    );
+    assert_eq!(
+        state
+            .voice_participant_sids
+            .get(&target_user_id)
+            .map(|entry| entry.clone()),
+        Some("PA_moved".to_string()),
+        "the authoritative LiveKit SID must replace a stale client-reported SID"
+    );
+    let audit: serde_json::Value = sqlx::query_scalar(
+        "SELECT details FROM audit_log WHERE action = 'voice_member_move' AND resource_id = $1 ORDER BY at DESC LIMIT 1",
+    )
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(audit["request_id"], request_id.to_string());
+    assert_eq!(audit["participant_sid"], "PA_moved");
+
+    let unauthorized_request_id = Uuid::new_v4();
+    target_ws
+        .send(WsMessage::Text(
+            json!({
+                "type": "MoveVoiceMember",
+                "data": {
+                    "request_id": unauthorized_request_id,
+                    "target_user_id": target_user_id,
+                    "channel_id": source_channel_id
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let denied = receive_ws_event(&mut target_ws, "VoiceMemberMoveResult").await;
+    assert_eq!(
+        denied["data"]["request_id"],
+        unauthorized_request_id.to_string()
+    );
+    assert_eq!(denied["data"]["success"], false);
+
+    ws_handle.abort();
+    livekit_handle.abort();
 }
 
 #[tokio::test]

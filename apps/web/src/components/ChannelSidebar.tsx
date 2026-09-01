@@ -975,13 +975,14 @@ export default function ChannelSidebar({
                                     onChange={(event) => {
                                         if (!event.target.value) return
                                         sendWs('MoveVoiceMember', {
+                                            request_id: crypto.randomUUID(),
                                             target_user_id: participantMenu.userId,
                                             channel_id: event.target.value,
                                         })
                                         setParticipantMenu(null)
                                     }}
                                 >
-                                    <option value="" disabled>Select channel</option>
+                                    <option value="" disabled hidden>Select channel</option>
                                     {moveDestinationChannels.map((channel) => (
                                         <option key={channel.id} value={channel.id}>{channel.name}</option>
                                     ))}

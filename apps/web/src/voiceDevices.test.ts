@@ -46,11 +46,11 @@ describe('voice device preferences', () => {
     expect(getUserMedia).toHaveBeenCalledOnce()
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: expect.objectContaining({
-        deviceId: undefined,
         channelCount: 1,
       }),
       video: false,
     })
+    expect(getUserMedia.mock.calls[0][0].audio).not.toHaveProperty('deviceId')
   })
 
   it('preserves and uses an available custom microphone', async () => {
@@ -94,14 +94,35 @@ describe('voice device preferences', () => {
       video: false,
     })
     expect(getUserMedia.mock.calls[1][0]).toEqual({
-      audio: expect.objectContaining({
-        deviceId: undefined,
-      }),
+      audio: expect.any(Object),
       video: false,
     })
+    expect(getUserMedia.mock.calls[1][0].audio).not.toHaveProperty('deviceId')
     expect(localStorage.getItem(VOICE_INPUT_DEVICE_KEY)).toBeNull()
     expect(preferenceChanged).toHaveBeenCalledOnce()
     window.removeEventListener(VOICE_DEVICE_PREFERENCES_CHANGED_EVENT, preferenceChanged)
+  })
+
+  it('retries with unconstrained audio when optional processing constraints report no device', async () => {
+    const fallbackStream = {} as MediaStream
+    const getUserMedia = vi.fn()
+      .mockRejectedValueOnce(unavailableDeviceError())
+      .mockResolvedValueOnce(fallbackStream)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    })
+
+    await expect(getPreferredMicrophoneStream()).resolves.toBe(fallbackStream)
+    expect(getUserMedia).toHaveBeenCalledTimes(2)
+    expect(getUserMedia.mock.calls[0][0]).toEqual({
+      audio: expect.any(Object),
+      video: false,
+    })
+    expect(getUserMedia.mock.calls[1][0]).toEqual({
+      audio: true,
+      video: false,
+    })
   })
 
   it('does not replace a custom microphone when access fails for another reason', async () => {

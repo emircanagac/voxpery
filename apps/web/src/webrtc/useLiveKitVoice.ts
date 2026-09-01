@@ -229,6 +229,11 @@ export function remoteMediaKindForSource(source: Track.Source): RemoteMediaKind 
   return null
 }
 
+export function cloneLiveMicrophoneStream(track: MediaStreamTrack | null): MediaStream | undefined {
+  if (!track || track.readyState !== 'live') return undefined
+  return new MediaStream([track.clone()])
+}
+
 interface VoiceReconnectResyncOptions {
   channelId: string | null
   roomState: string | null
@@ -1292,7 +1297,7 @@ export function useLiveKitVoice() {
     }
     }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
-    const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
+  const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
     const departingChannelId = joinedChannelIdRef.current
     if (departingChannelId && !options?.skipLeaveSound) playVoiceCue('leave')
@@ -1349,6 +1354,27 @@ export function useLiveKitVoice() {
     setCameraFacingMode('user')
     setCanSwitchCamera(false)
   }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
+
+  const moveVoice = useCallback(async (channelId: string) => {
+    const currentChannelId = joinedChannelIdRef.current
+    if (!currentChannelId || currentChannelId === channelId) {
+      await joinVoice(channelId)
+      return
+    }
+
+    // Reuse the already-authorized microphone source while switching rooms.
+    // Starting a fresh getUserMedia request can be suspended by browsers when
+    // a moderator moves a member whose tab is in the background.
+    const preservedMicStream = cloneLiveMicrophoneStream(rawMicTrackRef.current)
+
+    leaveVoice({ skipLeaveSound: true })
+    try {
+      await joinVoice(channelId, preservedMicStream ? { preflightStream: preservedMicStream } : undefined)
+    } catch (error) {
+      preservedMicStream?.getTracks().forEach((track) => track.stop())
+      throw error
+    }
+  }, [joinVoice, leaveVoice])
 
   useEffect(() => {
     finalMediaDisconnectHandlerRef.current = (isCurrentRoom) => {
@@ -1767,6 +1793,7 @@ export function useLiveKitVoice() {
   return {
     state,
     joinVoice,
+    moveVoice,
     leaveVoice,
     startScreenShare,
     stopScreenShare,
