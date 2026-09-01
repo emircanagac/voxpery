@@ -42,8 +42,10 @@ pub struct Config {
     pub turn_shared_secret: Option<String>,
     /// TURN credential lifetime in seconds.
     pub turn_credential_ttl_secs: u64,
-    /// LiveKit (SFU) connection and API credentials for token minting.
+    /// Public LiveKit WebSocket URL returned to clients.
     pub livekit_ws_url: Option<String>,
+    /// Optional server-to-server LiveKit HTTP API URL.
+    pub livekit_api_url: Option<String>,
     pub livekit_api_key: Option<String>,
     pub livekit_api_secret: Option<String>,
     /// Google OAuth: client ID and secret. If both set, "Sign in with Google" is enabled.
@@ -221,6 +223,9 @@ impl Config {
                 .parse()
                 .expect("TURN_CREDENTIAL_TTL_SECS must be a number"),
             livekit_ws_url: std::env::var("LIVEKIT_WS_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            livekit_api_url: std::env::var("LIVEKIT_API_URL")
                 .ok()
                 .filter(|s| !s.is_empty()),
             livekit_api_key: std::env::var("LIVEKIT_API_KEY")

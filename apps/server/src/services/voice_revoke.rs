@@ -197,9 +197,10 @@ fn livekit_admin_request_parts(
     state: &AppState,
     channel_id: Uuid,
 ) -> Result<(String, String, String), AppError> {
-    let ws_url = state
-        .livekit_ws_url
+    let api_url = state
+        .livekit_api_url
         .as_deref()
+        .or(state.livekit_ws_url.as_deref())
         .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
     let api_key = state
         .livekit_api_key
@@ -209,8 +210,9 @@ fn livekit_admin_request_parts(
         .livekit_api_secret
         .as_deref()
         .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
-    let base_url = livekit_http_base_url(ws_url)
-        .ok_or_else(|| AppError::Internal("LIVEKIT_WS_URL is invalid".into()))?;
+    let base_url = livekit_http_base_url(api_url).ok_or_else(|| {
+        AppError::Internal("LIVEKIT_API_URL or LIVEKIT_WS_URL is invalid".into())
+    })?;
 
     let room = channel_id.to_string();
     let token = sign_livekit_admin_token(api_key, api_secret, &room)?;

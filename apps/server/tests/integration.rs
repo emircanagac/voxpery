@@ -119,6 +119,7 @@ async fn setup_app_with_features(
         observability_enabled,
         google_oauth_enabled,
         "wss://livekit.test.local".to_string(),
+        None,
     )
     .await
 }
@@ -129,6 +130,7 @@ async fn setup_app_with_features_and_livekit(
     observability_enabled: bool,
     google_oauth_enabled: bool,
     livekit_ws_url: String,
+    livekit_api_url: Option<String>,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -185,6 +187,7 @@ async fn setup_app_with_features_and_livekit(
         turn_shared_secret: None,
         turn_credential_ttl_secs: 3600,
         livekit_ws_url: Some(livekit_ws_url),
+        livekit_api_url,
         livekit_api_key: Some(test_credential("livekit-api").to_string()),
         livekit_api_secret: Some(test_credential("livekit-signing").to_string()),
         google_client_id: google_oauth_enabled.then(|| "google-client.test".to_string()),
@@ -4169,7 +4172,8 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
         false,
         false,
         false,
-        format!("ws://{livekit_addr}"),
+        "wss://client-livekit.example.test".to_string(),
+        Some(format!("http://{livekit_addr}")),
     )
     .await;
     let owner_suffix = Uuid::new_v4();

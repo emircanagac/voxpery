@@ -160,6 +160,7 @@ Important:
 
 - The default `docker-compose.yml` applies conservative LiveKit limits even if you do not customize `.env`.
 - The bundled LiveKit config sends signed participant lifecycle webhooks to the internal server service. It reuses `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`; no extra public webhook URL or secret is required for Compose deployments.
+- `LIVEKIT_WS_URL` remains the public WebSocket address returned to browsers and desktop clients. Compose automatically gives the server container the internal LiveKit API address `http://livekit:7880`; production `.env` files do not need another LiveKit URL. Moderation verification and participant removal therefore use the internal service network instead of container-local `localhost`.
 - Default values are:
   - `LIVEKIT_CPUS_LIMIT=2.0`
   - `LIVEKIT_MEM_LIMIT=1500m`

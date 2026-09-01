@@ -120,6 +120,7 @@ async fn main() {
         turn_shared_secret: config.turn_shared_secret.clone(),
         turn_credential_ttl_secs: config.turn_credential_ttl_secs,
         livekit_ws_url: config.livekit_ws_url.clone(),
+        livekit_api_url: config.livekit_api_url.clone(),
         livekit_api_key: config.livekit_api_key.clone(),
         livekit_api_secret: config.livekit_api_secret.clone(),
         google_client_id: config.google_client_id.clone(),

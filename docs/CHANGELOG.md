@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
-- Made moderator voice moves reuse an active microphone capture in background tabs, tolerate delayed LiveKit destination visibility and SID renewal, report explicit results, and preserve audit success only for identity-verified moves.
+- Made moderator voice moves reuse an active microphone capture in background tabs, verify through the container-internal LiveKit API instead of a client-facing localhost URL, tolerate delayed destination visibility and SID renewal, report explicit results, and preserve audit success only for identity-verified moves.
 - Simplified Appearance into compact theme and accent controls, kept color fields anchored to `#`, capped hex input at six digits, normalized pasted values, and preserved preferences without internal scrolling in the widest layout.
 - Made the fullscreen focus action exit browser fullscreen directly into the selected stream's in-app focus view, while keeping fullscreen controls explicit about their enter/exit state.
 - Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.

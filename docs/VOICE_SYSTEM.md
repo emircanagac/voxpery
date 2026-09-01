@@ -38,6 +38,7 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 ### Server-side Voice Revocation
 
 - LiveKit tokens are only minted after the backend verifies `VIEW_SERVER` and `CONNECT_VOICE`.
+- `LIVEKIT_WS_URL` is the client-facing connection address. Docker Compose automatically supplies the backend-only internal `livekit` service address for admin verification and revocation, without requiring another production `.env` setting.
 - If a member is kicked, banned, disconnected by a moderator, or loses active voice permissions through role/channel overrides, the backend clears the runtime voice session and asks LiveKit to remove that participant from the room.
 - This server-side removal is required because a modified client could ignore WebSocket leave events while keeping an already-established LiveKit media connection alive.
 - If LiveKit is unavailable during revocation, Voxpery still clears local voice state and logs the LiveKit removal failure for operators.
