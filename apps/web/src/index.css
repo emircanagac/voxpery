@@ -2836,6 +2836,23 @@ body {
   padding: 12px 24px 20px;
 }
 
+.user-settings-modal--profile .user-settings-header {
+  padding: 16px 24px 10px;
+}
+
+.modal.user-settings-modal--profile {
+  height: min(94vh, 780px);
+  max-height: 94vh;
+}
+
+.user-settings-modal--profile .user-settings-scroll {
+  padding: 14px 24px 12px;
+}
+
+.user-settings-modal--profile .user-settings-footer {
+  padding: 10px 24px 12px;
+}
+
 .user-settings-section {
   margin-bottom: 20px;
 }
@@ -2994,8 +3011,8 @@ body {
 
 .user-profile-preview-card {
   display: block;
-  margin-bottom: 12px;
-  padding: 14px;
+  margin-bottom: 10px;
+  padding: 12px;
   width: 100%;
   border: var(--border-subtle);
   border-radius: 12px;
@@ -3006,8 +3023,8 @@ body {
 }
 
 .user-profile-preview-avatar {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: var(--accent-gradient);
   color: #fff;
@@ -3038,7 +3055,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .user-profile-preview-eyebrow {
@@ -3066,20 +3083,20 @@ body {
 .user-profile-preview-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .user-profile-fields {
   display: grid;
   gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
 }
 
 .user-profile-field {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .user-profile-field-footer {
@@ -3115,9 +3132,9 @@ body {
 }
 
 .user-profile-textarea {
-  height: 78px;
-  min-height: 78px;
-  max-height: 78px;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
   overflow-y: auto;
   resize: none;
 }
@@ -3151,6 +3168,15 @@ body {
 .user-settings-modal .user-profile-save-button:disabled {
   cursor: default;
   opacity: 0.58;
+}
+
+.user-settings-section--profile > .user-settings-section-title {
+  margin-bottom: 8px;
+}
+
+.user-settings-section--profile > .user-setting-row {
+  margin-bottom: 5px;
+  padding: 8px 12px;
 }
 
 .profile-status-btn {

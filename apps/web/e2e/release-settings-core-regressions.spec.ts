@@ -244,6 +244,12 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
 
+    const profileScrollMetrics = await page.locator('.user-settings-scroll').evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    expect(profileScrollMetrics.scrollHeight).toBeLessThanOrEqual(profileScrollMetrics.clientHeight + 1)
+
     const profileActionSizes = await page.locator(
       '.user-settings-scroll .account-action-btn, .user-settings-scroll .user-profile-save-button',
     ).evaluateAll((elements) => elements.map((element) => {
@@ -262,7 +268,7 @@ test.describe('mocked release and settings regressions', () => {
       const style = getComputedStyle(element)
       return { height: style.height, minHeight: style.minHeight, maxHeight: style.maxHeight, resize: style.resize }
     })
-    expect(aboutMeLayout).toEqual({ height: '78px', minHeight: '78px', maxHeight: '78px', resize: 'none' })
+    expect(aboutMeLayout).toEqual({ height: '72px', minHeight: '72px', maxHeight: '72px', resize: 'none' })
     await aboutMe.fill('a'.repeat(190))
     await expect(page.locator('.user-profile-field-count')).toHaveText('190/190')
 

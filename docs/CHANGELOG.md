@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the fullscreen focus action exit browser fullscreen directly into the selected stream's in-app focus view, while keeping fullscreen controls explicit about their enter/exit state.
 - Kept the 190-character About me editor at a stable height so resizing cannot disrupt the Profile settings layout.
 - Combined the Profile preview and About me editor into one cohesive card, moved its save action beside the character count, and standardized all Profile action sizes.
+- Tightened the desktop Profile settings rhythm so the complete section fits without internal scrolling.
 
 ## [0.2.14] - 2026-08-31
 
