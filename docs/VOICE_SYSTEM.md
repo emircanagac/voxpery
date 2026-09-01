@@ -46,7 +46,7 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 
 - A moderator move remains pending while the target client reconnects to the destination voice room.
 - The target reuses its already-authorized live microphone source while switching rooms, so a background browser tab does not need a new `getUserMedia` permission cycle before it can complete the move.
-- The target acknowledges the request only after its LiveKit join promise settles. The server then tolerates short participant-visibility delays while verifying the destination room, identity, and participant SID before cleaning up a stale source-room participant.
+- The target acknowledges the request only after its LiveKit join promise settles. The server then tolerates short participant-visibility delays while verifying the destination room and authenticated identity before cleaning up a stale source-room participant. LiveKit's returned SID is authoritative and replaces a stale client-reported SID from a fast room switch.
 - The move audit entry is written only after that verification succeeds. Permission, hierarchy, destination access, client, LiveKit, and timeout failures return an explicit result to the moderator without a successful audit entry.
 - Voice moderation follows explicit mute, deafen, move, disconnect, or full-admin permissions independently of role position. Account and role-management actions retain their separate hierarchy protections.
 

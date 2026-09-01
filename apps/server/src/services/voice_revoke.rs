@@ -217,12 +217,11 @@ fn livekit_admin_request_parts(
     Ok((base_url, room, token))
 }
 
-pub(crate) async fn livekit_participant_matches(
+pub(crate) async fn livekit_participant_sid(
     state: &Arc<AppState>,
     channel_id: Uuid,
     user_id: Uuid,
-    expected_sid: &str,
-) -> Result<bool, AppError> {
+) -> Result<Option<String>, AppError> {
     let (base_url, room, token) = livekit_admin_request_parts(state, channel_id)?;
     let identity = user_id.to_string();
     let url = format!("{base_url}/twirp/livekit.RoomService/GetParticipant");
@@ -239,20 +238,25 @@ pub(crate) async fn livekit_participant_matches(
         .map_err(|e| AppError::Internal(format!("LiveKit participant lookup failed: {e}")))?;
 
     if response.status() == StatusCode::NOT_FOUND {
-        return Ok(false);
+        return Ok(None);
     }
     if !response.status().is_success() {
         return Err(AppError::Internal(format!(
             "LiveKit participant lookup returned {}",
             response.status()
         )));
-        }
+    }
 
     let participant = response
         .json::<LivekitParticipantInfo>()
         .await
         .map_err(|e| AppError::Internal(format!("Invalid LiveKit participant response: {e}")))?;
-    Ok(participant.identity == identity && participant.sid == expected_sid)
+    if participant.identity != identity || participant.sid.trim().is_empty() {
+        return Err(AppError::Internal(
+            "LiveKit returned an unexpected participant identity or SID".into(),
+        ));
+    }
+    Ok(Some(participant.sid))
 }
 
 pub(crate) async fn remove_livekit_participant_checked(

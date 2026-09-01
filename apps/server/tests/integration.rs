@@ -4391,7 +4391,7 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
                 "type": "JoinVoice",
                 "data": {
                     "channel_id": destination_channel_id,
-                    "participant_sid": "PA_moved"
+                    "participant_sid": "PA_client_stale"
                 }
             })
             .to_string()
@@ -4427,6 +4427,14 @@ async fn voice_move_is_audited_only_after_livekit_destination_is_verified() {
             .get(&target_user_id)
             .map(|entry| *entry),
         Some(destination_channel_id)
+    );
+    assert_eq!(
+        state
+            .voice_participant_sids
+            .get(&target_user_id)
+            .map(|entry| entry.clone()),
+        Some("PA_moved".to_string()),
+        "the authoritative LiveKit SID must replace a stale client-reported SID"
     );
     let audit: serde_json::Value = sqlx::query_scalar(
         "SELECT details FROM audit_log WHERE action = 'voice_member_move' AND resource_id = $1 ORDER BY at DESC LIMIT 1",

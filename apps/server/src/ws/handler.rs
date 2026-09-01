@@ -204,24 +204,23 @@ async fn complete_voice_member_move(
         return;
     }
 
-    let participant_sid = participant_sid.expect("participant SID checked above");
+    let client_participant_sid = participant_sid.expect("participant SID checked above");
     let verification_deadline = tokio::time::Instant::now() + VOICE_MOVE_LIVEKIT_VERIFY_TIMEOUT;
-    let mut livekit_verified = false;
+    let mut verified_participant_sid = None;
     let mut verification_error = None;
     loop {
-        match voice_revoke::livekit_participant_matches(
+        match voice_revoke::livekit_participant_sid(
             state,
             pending.destination_channel_id,
             target_user_id,
-            &participant_sid,
         )
         .await
         {
-            Ok(true) => {
-                livekit_verified = true;
+            Ok(Some(participant_sid)) => {
+                verified_participant_sid = Some(participant_sid);
                 break;
             }
-            Ok(false) => {}
+            Ok(None) => {}
             Err(error) => {
                 verification_error = Some(error.to_string());
             }
@@ -231,7 +230,7 @@ async fn complete_voice_member_move(
         }
         tokio::time::sleep(VOICE_MOVE_LIVEKIT_VERIFY_INTERVAL).await;
     }
-    if !livekit_verified {
+    let Some(participant_sid) = verified_participant_sid else {
         if let Some(error) = verification_error {
             tracing::warn!(
                 "Voice move {} LiveKit verification timed out after an error: {}",
@@ -247,7 +246,35 @@ async fn complete_voice_member_move(
         )
         .await;
         return;
+    };
+
+    if state
+        .voice_sessions
+        .get(&target_user_id)
+        .map(|entry| *entry)
+        != Some(pending.destination_channel_id)
+    {
+        publish_voice_move_result(
+            state,
+            &pending,
+            false,
+            "The member left the destination voice channel before verification completed.",
+        )
+        .await;
+        return;
     }
+
+    if participant_sid != client_participant_sid {
+        tracing::debug!(
+            "Voice move {} reconciled participant SID {} to LiveKit SID {}",
+            request_id,
+            client_participant_sid,
+            participant_sid
+        );
+    }
+    state
+        .voice_participant_sids
+        .insert(target_user_id, participant_sid.clone());
 
     if let Err(error) = voice_revoke::remove_livekit_participant_checked(
         state,
