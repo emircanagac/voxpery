@@ -102,7 +102,7 @@ struct ClamAvConfig {
 
 #[derive(Clone)]
 pub struct AttachmentService {
-    local_dir: PathBuf,
+    local_storage_root: PathBuf,
     public_base_url: String,
     key_prefix: String,
     url_ttl_secs: u64,
@@ -129,6 +129,83 @@ pub struct PreparedAttachment {
     pub size_bytes: i64,
     pub sha256: String,
     bytes: Vec<u8>,
+}
+
+/// A local attachment key after its fixed, server-generated layout is verified.
+///
+/// Local files are intentionally addressed by a UUID rather than an arbitrary
+/// path supplied by a record or legacy message payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LocalAttachmentStorageKey {
+    year: u16,
+    month: u8,
+    object_id: Uuid,
+}
+
+impl LocalAttachmentStorageKey {
+    fn new(year: u16, month: u8, object_id: Uuid) -> Self {
+        Self {
+            year,
+            month,
+            object_id,
+        }
+    }
+
+    fn parse(storage_key: &str, expected_prefix: &str) -> Result<Self, AppError> {
+        let segments = parse_storage_key_segments(storage_key)?;
+        let prefix_segments = parse_storage_key_segments(expected_prefix)?;
+
+        if segments.len() != prefix_segments.len() + 3 || !segments.starts_with(&prefix_segments) {
+            return Err(invalid_storage_key());
+        }
+
+        let year_segment = &segments[prefix_segments.len()];
+        let month_segment = &segments[prefix_segments.len() + 1];
+        let object_id_segment = &segments[prefix_segments.len() + 2];
+
+        if year_segment.len() != 4
+            || !year_segment.bytes().all(|byte| byte.is_ascii_digit())
+            || month_segment.len() != 2
+            || !month_segment.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(invalid_storage_key());
+        }
+
+        let year = year_segment
+            .parse::<u16>()
+            .map_err(|_| invalid_storage_key())?;
+        let month = month_segment
+            .parse::<u8>()
+            .map_err(|_| invalid_storage_key())?;
+        if !(1..=12).contains(&month) {
+            return Err(invalid_storage_key());
+        }
+
+        let object_id = Uuid::parse_str(object_id_segment).map_err(|_| invalid_storage_key())?;
+        if object_id.to_string() != *object_id_segment {
+            return Err(invalid_storage_key());
+        }
+
+        Ok(Self {
+            year,
+            month,
+            object_id,
+        })
+    }
+
+    fn storage_key(self, prefix: &str) -> String {
+        format!(
+            "{prefix}/{:04}/{:02}/{}",
+            self.year, self.month, self.object_id
+        )
+    }
+
+    fn local_path(self, storage_root: &Path) -> PathBuf {
+        storage_root
+            .join(format!("{:04}", self.year))
+            .join(format!("{:02}", self.month))
+            .join(self.object_id.to_string())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -244,9 +321,24 @@ impl AttachmentService {
             ))
         })?;
         let normalized_key_prefix = sanitize_storage_key_prefix(&key_prefix);
+        let prefix_segments = parse_storage_key_segments(&normalized_key_prefix)?;
+        let local_storage_root = prefix_segments
+            .iter()
+            .fold(local_dir.clone(), |path, segment| path.join(segment));
+        fs::create_dir_all(&local_storage_root).await.map_err(|e| {
+            AppError::Internal(format!("Failed to create attachment key directory: {e}"))
+        })?;
+        let local_storage_root = fs::canonicalize(&local_storage_root).await.map_err(|e| {
+            AppError::Internal(format!("Failed to resolve attachment key directory: {e}"))
+        })?;
+        if !local_storage_root.starts_with(&local_dir) {
+            return Err(AppError::Validation(
+                "Attachment storage root resolves outside storage directory".into(),
+            ));
+        }
 
         Ok(Self {
-            local_dir,
+            local_storage_root,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             key_prefix: normalized_key_prefix,
             url_ttl_secs: url_ttl_secs.max(60),
@@ -258,7 +350,7 @@ impl AttachmentService {
     }
 
     pub fn local_storage_dir(&self) -> Option<PathBuf> {
-        Some(self.local_dir.clone())
+        Some(self.local_storage_root.clone())
     }
 
     pub fn max_files_per_request(&self) -> usize {
@@ -428,13 +520,7 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<Vec<u8>, AppError> {
-        // Keep a direct traversal guard at each filesystem sink in addition to
-        // segment validation and the canonical storage-root boundary below.
-        if storage_key.contains("..") {
-            return Err(AppError::Validation(
-                "Invalid attachment storage key".into(),
-            ));
-        }
+        let storage_key = LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
         let path = self.resolve_existing_local_path(storage_key).await?;
         fs::read(path)
             .await
@@ -445,13 +531,7 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<fs::File, AppError> {
-        // Keep this check local to the sink so static analysis and reviewers can
-        // see that untrusted traversal input cannot reach File::open.
-        if storage_key.contains("..") {
-            return Err(AppError::Validation(
-                "Invalid attachment storage key".into(),
-            ));
-        }
+        let storage_key = LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
         let path = self.resolve_existing_local_path(storage_key).await?;
         fs::File::open(path)
             .await
@@ -668,16 +748,13 @@ impl AttachmentService {
         } = prepared;
 
         let now = chrono::Utc::now();
-        let object_id = Uuid::new_v4();
-        let key = format!(
-            "{}/{:04}/{:02}/{}",
-            self.key_prefix,
-            now.year(),
-            now.month(),
-            object_id
+        let storage_key = LocalAttachmentStorageKey::new(
+            now.year() as u16,
+            now.month() as u8,
+            Uuid::new_v4(),
         );
-
-        let path = self.resolve_local_path(&key)?;
+        let key = storage_key.storage_key(&self.key_prefix);
+        let path = self.resolve_local_path(storage_key);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
                 AppError::Internal(format!("Failed to prepare local upload directory: {e}"))
@@ -698,7 +775,8 @@ impl AttachmentService {
         &self,
         storage_key: &str,
     ) -> Result<(), AppError> {
-        let path = self.resolve_local_path(storage_key)?;
+        let storage_key = LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
+        let path = self.resolve_local_path(storage_key);
         match fs::remove_file(path).await {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -708,28 +786,19 @@ impl AttachmentService {
         }
     }
 
-    fn resolve_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
-        let segments = parse_storage_key_segments(storage_key)?;
-        let joined = segments
-            .iter()
-            .fold(self.local_dir.clone(), |mut path, segment| {
-                path.push(segment);
-                path
-            });
-        if !joined.starts_with(&self.local_dir) {
-            return Err(AppError::Validation(
-                "Attachment storage key resolves outside storage root".into(),
-            ));
-        }
-        Ok(joined)
+    fn resolve_local_path(&self, storage_key: LocalAttachmentStorageKey) -> PathBuf {
+        storage_key.local_path(&self.local_storage_root)
     }
 
-    async fn resolve_existing_local_path(&self, storage_key: &str) -> Result<PathBuf, AppError> {
-        let path = self.resolve_local_path(storage_key)?;
+    async fn resolve_existing_local_path(
+        &self,
+        storage_key: LocalAttachmentStorageKey,
+    ) -> Result<PathBuf, AppError> {
+        let path = self.resolve_local_path(storage_key);
         let canonical = fs::canonicalize(&path)
             .await
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))?;
-        if !canonical.starts_with(&self.local_dir) {
+        if !canonical.starts_with(&self.local_storage_root) {
             return Err(AppError::Validation(
                 "Attachment storage key resolves outside storage root".into(),
             ));
@@ -1304,6 +1373,10 @@ fn is_safe_storage_key(storage_key: &str) -> bool {
     parse_storage_key_segments(storage_key).is_ok()
 }
 
+fn invalid_storage_key() -> AppError {
+    AppError::Validation("Invalid attachment storage key".into())
+}
+
 fn parse_storage_key_segments(storage_key: &str) -> Result<Vec<String>, AppError> {
     if storage_key.is_empty()
         || storage_key.len() > 1024
@@ -1311,9 +1384,7 @@ fn parse_storage_key_segments(storage_key: &str) -> Result<Vec<String>, AppError
         || storage_key.contains('\\')
         || storage_key.contains(':')
     {
-        return Err(AppError::Validation(
-            "Invalid attachment storage key".into(),
-        ));
+        return Err(invalid_storage_key());
     }
 
     let mut segments = Vec::new();
@@ -1325,17 +1396,13 @@ fn parse_storage_key_segments(storage_key: &str) -> Result<Vec<String>, AppError
                 .chars()
                 .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
         {
-            return Err(AppError::Validation(
-                "Invalid attachment storage key".into(),
-            ));
+            return Err(invalid_storage_key());
         }
         segments.push(segment.to_string());
     }
 
     if segments.is_empty() {
-        return Err(AppError::Validation(
-            "Invalid attachment storage key".into(),
-        ));
+        return Err(invalid_storage_key());
     }
 
     Ok(segments)
@@ -1450,6 +1517,31 @@ mod tests {
         assert!(parse_storage_key_segments("attachments/2026/05/file-01_abc.png").is_ok());
     }
 
+    #[test]
+    fn local_storage_key_requires_the_configured_uuid_layout() {
+        let object_id = Uuid::new_v4();
+        let valid = format!("attachments/2026/05/{object_id}");
+        let parsed = LocalAttachmentStorageKey::parse(&valid, "attachments")
+            .expect("generated key should parse");
+        assert_eq!(parsed.storage_key("attachments"), valid);
+
+        let nested_prefix = format!("community/media/2026/05/{object_id}");
+        assert!(LocalAttachmentStorageKey::parse(&nested_prefix, "community/media").is_ok());
+
+        for key in [
+            format!("other-prefix/2026/05/{object_id}"),
+            format!("attachments/2026/13/{object_id}"),
+            format!("attachments/26/05/{object_id}"),
+            "attachments/2026/05/not-a-uuid".to_string(),
+            format!("attachments/2026/05/{}", object_id.to_string().to_uppercase()),
+        ] {
+            assert!(
+                LocalAttachmentStorageKey::parse(&key, "attachments").is_err(),
+                "{key} should fail"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn local_read_and_open_reject_traversal_keys() {
         let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
@@ -1487,9 +1579,10 @@ mod tests {
             .expect("outside file");
 
         let storage_key = format!("attachments/2026/08/{}", Uuid::new_v4());
+        let parsed_key = LocalAttachmentStorageKey::parse(&storage_key, "attachments")
+            .expect("generated storage key");
         let linked_path = service
-            .resolve_local_path(&storage_key)
-            .expect("validated path");
+            .resolve_local_path(parsed_key);
         fs::create_dir_all(linked_path.parent().expect("storage parent"))
             .await
             .expect("storage parent");
@@ -1644,9 +1737,10 @@ mod tests {
             .next_back()
             .expect("last storage key segment");
         assert!(Uuid::parse_str(object_id).is_ok());
+        let parsed_key = LocalAttachmentStorageKey::parse(&stored.storage_key, "attachments")
+            .expect("stored key");
         let stored_path = service
-            .resolve_local_path(&stored.storage_key)
-            .expect("stored path");
+            .resolve_local_path(parsed_key);
         assert_eq!(fs::read(&stored_path).await.expect("stored bytes"), b"hello");
         let mut sibling_entries = fs::read_dir(stored_path.parent().expect("storage parent"))
             .await
