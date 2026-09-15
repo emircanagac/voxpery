@@ -2393,7 +2393,7 @@ async fn roles_and_channel_overrides_flow() {
     let (status, body) = oneshot(&mut app, req).await;
     assert_eq!(status, StatusCode::OK);
     let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let server_id = server["id"].as_str().unwrap();
+    let server_id: Uuid = server["id"].as_str().unwrap().parse().unwrap();
 
     // Create a role
     let role_body = json!({
@@ -3996,6 +3996,35 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         String::from_utf8_lossy(&body)
     );
 
+    let observer_suffix = Uuid::new_v4();
+    let (observer_token, _) = register_user(
+        &mut app,
+        &format!("voice-audit-observer-{observer_suffix}@example.com"),
+        &format!(
+            "voice_audit_observer_{}",
+            observer_suffix.as_u128() % 1_000_000
+        ),
+        test_credential("observer"),
+    )
+    .await;
+    let observer_auth = format!("Bearer {observer_token}");
+    let observer_join_request = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", &observer_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, observer_join_request).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "observer join failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
     // Voice moderation follows explicit permission bits, not target role position.
     // Give the target a higher full-admin role so this reproduces admin-to-admin actions.
     let target_admin_role_id = Uuid::new_v4();
@@ -4088,7 +4117,7 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
 
     let unauthorized_request = Request::builder()
         .uri(format!("/api/servers/{server_id}/audit-log"))
-        .header("Authorization", &target_auth)
+        .header("Authorization", &observer_auth)
         .body(Body::empty())
         .unwrap();
     let (status, _) = oneshot(&mut app, unauthorized_request).await;
