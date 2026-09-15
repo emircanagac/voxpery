@@ -63,6 +63,8 @@ Attachments note:
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
 
+`ATTACHMENTS_KEY_PREFIX` is part of the persisted local storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
+
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
