@@ -5391,6 +5391,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "voxpery-desktop"
 version = "0.2.15"
 dependencies = [
+ "gtk",
  "image",
  "serde",
  "serde_json",
@@ -5406,6 +5407,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "webkit2gtk",
 ]
 
 [[package]]

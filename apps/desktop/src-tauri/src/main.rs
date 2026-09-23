@@ -9,6 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
+#[cfg(target_os = "linux")]
+mod linux_media;
+
 struct DesktopRuntimeState {
     minimize_to_tray_on_close: AtomicBool,
     allow_close_for_update: AtomicBool,
@@ -427,6 +430,9 @@ fn main() {
                 // Close behavior is user-controlled. Default matches typical chat apps and keeps
                 // the app in the tray until the user disables it from settings.
                 if let Some(main_win) = app.get_webview_window("main") {
+                    #[cfg(target_os = "linux")]
+                    linux_media::configure(&main_win)?;
+
                     if is_autostart_launch() {
                         let _ = main_win.set_skip_taskbar(true);
                         let _ = main_win.hide();

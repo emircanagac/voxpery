@@ -48,14 +48,23 @@ export function desktopMediaPermissionRecoveryMessage(kind: MediaPermissionKind)
     return `Permission was blocked. Open macOS Privacy & Security settings, allow Voxpery to use ${label}, then restart Voxpery and retry.`
   }
   if (platform === 'linux') {
+    if (kind === 'microphone') {
+      return 'Microphone capture was denied or failed. Allow the Voxpery permission prompt and retry. If it still fails, check the WebKitGTK and PipeWire logs.'
+    }
     return `Permission was blocked. Ensure xdg-desktop-portal, a portal backend, and PipeWire are installed/running, then restart Voxpery and retry ${label} access.`
   }
 
   return `Permission was blocked. Allow ${label} access in system settings, restart Voxpery if needed, and try again.`
 }
 
-export async function openDesktopMediaPermissionSettings(kind: MediaPermissionKind): Promise<boolean> {
+export function canOpenDesktopMediaPermissionSettings(): boolean {
   if (!isTauri()) return false
+  const platform = currentDesktopPlatform()
+  return platform === 'windows' || platform === 'macos'
+}
+
+export async function openDesktopMediaPermissionSettings(kind: MediaPermissionKind): Promise<boolean> {
+  if (!canOpenDesktopMediaPermissionSettings()) return false
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('desktop_open_media_permission_settings', { kind })

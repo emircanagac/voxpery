@@ -47,6 +47,7 @@ import {
   setDesktopMinimizeToTrayOnClose,
 } from '../desktopSettings'
 import {
+  canOpenDesktopMediaPermissionSettings,
   desktopMediaPermissionRecoveryMessage,
   openDesktopMediaPermissionSettings,
 } from '../desktopMediaPermissions'
@@ -1399,7 +1400,7 @@ export default function UserBar() {
   const microphoneRecoveryMessage = microphonePermissionState === 'denied'
     ? desktopMediaPermissionRecoveryMessage('microphone')
     : 'Allow microphone access to unlock full voice controls.'
-  const showDesktopMicrophoneRecovery = isTauri() && microphonePermissionState === 'denied'
+  const showDesktopMicrophoneRecovery = canOpenDesktopMediaPermissionSettings() && microphonePermissionState === 'denied'
   const desktopRuntime = isTauri()
 
   const voiceDeviceMenu = openDeviceMenu && deviceMenuAnchor && typeof document !== 'undefined'

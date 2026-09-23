@@ -333,12 +333,12 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 1. Check browser permissions (allow microphone)
 2. Verify device in OS settings
 3. Try another browser (Firefox, Chrome, Edge)
-4. Linux desktop: ensure `xdg-desktop-portal` + one backend (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` are installed/running, then restart Voxpery.
+4. Linux desktop: Voxpery enables WebRTC in WebKitGTK and asks for microphone access through a native dialog. Allow the request, then retry voice. If capture still fails, compare `getUserMedia({ audio: true })` in a browser on the same host and collect WebKitGTK/PipeWire logs; running portal services alone does not prove microphone capture is available.
 
 ### Mic, camera, or screen-recording permission denied on desktop
 
 1. Open User Settings -> Voice & Audio.
-2. Click `Open settings` when microphone access is blocked, then allow Voxpery or desktop apps to use the microphone in OS privacy settings.
+2. On Windows or macOS, click `Open settings` when microphone access is blocked, then allow Voxpery or desktop apps to use the microphone in OS privacy settings. On Linux, retry access and respond to the native Voxpery prompt.
 3. For camera denial, open the OS camera privacy settings, allow Voxpery or desktop apps to use the camera, then retry the camera toggle.
 4. On macOS, allow Voxpery under Privacy & Security -> Screen & System Audio Recording before retrying screen share.
 5. Restart Voxpery if the OS requires a restart before WebView permissions refresh.

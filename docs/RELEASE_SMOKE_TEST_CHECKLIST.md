@@ -126,6 +126,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Failed updater check/install shows recoverable UI and does not leave settings stuck.
 - [ ] Linux desktop test host has `xdg-desktop-portal` + (`xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`) and `pipewire` running.
 - [ ] First voice join shows OS/browser microphone permission prompt when needed.
+- [ ] On a Linux `.deb` build, the first voice join shows Voxpery's native microphone prompt; allowing it connects voice, denying it leaves voice disconnected, and retry offers the prompt again. No missing-portal message is shown for a generic capture failure.
 - [ ] Voice join succeeds after permission grant.
 - [ ] An account with missing or stale Terms, Privacy Notice, or KVKK versions sees the blocking legal review before app/voice data loads; all three links open, unchecked submission is disabled, acceptance unlocks the same session, refresh stays unlocked, and logout remains available.
 - [ ] Active call bar quality indicator shows a colored Wi-Fi icon and current ping while connected, and the visible color matches the visible ping value.
