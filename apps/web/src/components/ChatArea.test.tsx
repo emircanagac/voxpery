@@ -122,6 +122,27 @@ describe('ChatArea regressions', () => {
     vi.unstubAllGlobals()
   })
 
+  it('separates loading and empty search results from an empty conversation', () => {
+    const { rerender } = renderChatArea({ messages: [], loading: true })
+    expect(screen.queryByText('Welcome to #general!')).not.toBeInTheDocument()
+    rerender(<ChatArea activeChannel={channel('general', 'general')} messages={[]} draftAttachments={[]} messageInput="" onPickAttachments={vi.fn()} onRemoveAttachment={vi.fn()} onMessageInputChange={vi.fn()} onSendMessage={vi.fn()} onRetryMessage={vi.fn()} searchQuery="missing" onSearchChange={vi.fn()} />)
+    expect(screen.getByRole('status')).toHaveTextContent('No messages found')
+    expect(screen.queryByText('Welcome to #general!')).not.toBeInTheDocument()
+  })
+
+  it('caps pasted Unicode text and shows the reply-adjusted character budget', () => {
+    const onMessageInputChange = vi.fn()
+    renderChatArea({
+      messageInput: '',
+      onMessageInputChange,
+      replyingTo: { id: 'message-1', username: 'alice', contentSnippet: 'hello' },
+    })
+    const input = screen.getByPlaceholderText('Message #general')
+    fireEvent.change(input, { target: { value: '😀'.repeat(4100), selectionStart: 4100 } })
+    expect(Array.from(onMessageInputChange.mock.lastCall?.[0] ?? '')).toHaveLength(3983)
+    expect(screen.getByLabelText('Characters remaining')).toHaveTextContent('3983')
+  })
+
   it('matches desktop CSS heights for the first avatar row and compact continuation rows', () => {
     const rows = [
       message('message-1', 'first author', 0),

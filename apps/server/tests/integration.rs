@@ -2075,6 +2075,23 @@ async fn create_channel_list_channels_send_message_list_messages() {
     let msg: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let message_id = msg["id"].as_str().unwrap();
 
+    for (content, expected_status) in [
+        ("😀".repeat(4000), StatusCode::OK),
+        ("😀".repeat(4001), StatusCode::BAD_REQUEST),
+    ] {
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/messages/{channel_id}"))
+            .header("Authorization", &auth_header)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "content": content })).unwrap(),
+            ))
+            .unwrap();
+        let (status, _) = oneshot(&mut app, req).await;
+        assert_eq!(status, expected_status);
+    }
+
     let req = Request::builder()
         .method("POST")
         .uri(format!("/api/messages/item/{message_id}/reactions"))
@@ -6199,6 +6216,22 @@ async fn message_and_dm_retries_create_one_persistent_message() {
     let first_dm: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
     let retried_dm: serde_json::Value = serde_json::from_slice(&retry_body).unwrap();
     assert_eq!(first_dm["id"], retried_dm["id"]);
+    for (content, expected_status) in [
+        ("ğ".repeat(4000), StatusCode::OK),
+        ("ğ".repeat(4001), StatusCode::BAD_REQUEST),
+    ] {
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/dm/messages/{dm_channel_id}"))
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "content": content })).unwrap(),
+            ))
+            .unwrap();
+        let (status, _) = oneshot(&mut app, req).await;
+        assert_eq!(status, expected_status);
+    }
     let dm_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM dm_messages WHERE channel_id = $1 AND user_id = $2 AND client_request_id = $3",
     )

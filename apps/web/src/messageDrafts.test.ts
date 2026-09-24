@@ -63,4 +63,9 @@ describe('message drafts', () => {
     }
     expect(Object.keys(stored.entries ?? {})).toHaveLength(MESSAGE_DRAFT_MAX_ENTRIES)
   })
+
+  it('does not split a Unicode character when bounding a saved draft', () => {
+    saveMessageDraft('user-a', 'dm', 'emoji', '😀'.repeat(MESSAGE_DRAFT_MAX_LENGTH + 1))
+    expect(readMessageDraft('user-a', 'dm', 'emoji')).toBe('😀'.repeat(MESSAGE_DRAFT_MAX_LENGTH))
+  })
 })

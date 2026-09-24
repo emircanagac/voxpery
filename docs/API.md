@@ -226,6 +226,7 @@ Notes:
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
   - Optional `client_request_id` makes network retries return the original message without a second database row or WebSocket broadcast. Reusing the ID with different content returns `409`.
 - `PATCH /api/messages/item/:message_id` (author only)
+- Server-channel and direct messages are limited to 4000 Unicode code points, including any reply quote prepended by the client. Send and edit requests exceeding this limit are rejected by the API.
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
 - Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast. Keyword, link, invite, and mention-spam checks normalize invisible Unicode format/control characters before matching.
 - Active member timeouts block server-channel sends/edits and new reactions before persistence or broadcast.

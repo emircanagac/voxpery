@@ -17,6 +17,7 @@ use crate::{
     },
     services::{
         idempotency::normalize_client_request_id,
+        message_content::exceeds_message_limit,
         rate_limit::enforce_rate_limit,
     },
     ws::WsEvent,
@@ -670,7 +671,7 @@ async fn send_dm_message(
             "Message must include content or attachments".into(),
         ));
     }
-    if content.len() > 4000 {
+    if exceeds_message_limit(&content) {
         return Err(AppError::Validation(
             "Message must be 1-4000 characters".into(),
         ));
@@ -1054,7 +1055,7 @@ async fn edit_dm_message(
     Path(message_id): Path<Uuid>,
     Json(body): Json<EditDmMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
-    if body.content.trim().is_empty() || body.content.len() > 4000 {
+    if body.content.trim().is_empty() || exceeds_message_limit(&body.content) {
         return Err(AppError::Validation(
             "Message must be 1-4000 characters".into(),
         ));

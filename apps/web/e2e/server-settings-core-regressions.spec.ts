@@ -41,6 +41,22 @@ async function openServerSettings(page: Page) {
 }
 
 test.describe('mocked server settings UI regressions', () => {
+  test('does not report an unloaded role list as zero to a regular member', async ({ page }) => {
+    const memberServer = buildCoreServer({ id: 'member-server', owner_id: 'someone-else' })
+    const state = createMockCoreState({
+      servers: [memberServer],
+      channelsByServerId: { [memberServer.id]: buildCoreChannels(memberServer.id) },
+      membersByServerId: { [memberServer.id]: buildCoreMembers() },
+      serverPermissionsByServerId: { [memberServer.id]: 0 },
+    })
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    await page.getByTitle('Open server settings').click()
+    await expect(page.getByRole('heading', { name: 'Server information' })).toBeVisible()
+    await expect(page.getByText('Server roles are managed by the owner')).toBeVisible()
+    await expect(page.getByText('0 roles configured')).toHaveCount(0)
+  })
+
   test('keeps the member profile dialog aligned with the active theme', async ({ page }) => {
     const state = createServerSettingsState()
     const friend = state.membersByServerId[server.id]?.find((member) => member.user_id === 'friend-01')

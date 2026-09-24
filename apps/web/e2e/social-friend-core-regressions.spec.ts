@@ -120,6 +120,8 @@ test.describe('mocked social friend UI regressions', () => {
 
     await menu.getByRole('menuitem', { name: 'View profile (@Friend 01)' }).click()
     await expect(page.getByRole('dialog', { name: 'Friend 01' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Friend 01' })).toBeHidden()
   })
 
   test('opens a Friends more-actions menu in the main panel instead of the DM sidebar', async ({ page }) => {
@@ -140,6 +142,32 @@ test.describe('mocked social friend UI regressions', () => {
     expect(menuBox).not.toBeNull()
     expect(menuBox!.x).toBeGreaterThanOrEqual(socialContentBox!.x)
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(socialContentBox!.x + socialContentBox!.width)
+  })
+
+  test('keeps Social and DM controls inside an 800px desktop viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 600 })
+    const state = createMockCoreState({ friends: buildFriends(1) })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/social')
+    await expect(page.locator('.home-side')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Requests' })).toBeVisible()
+    await page.getByRole('button', { name: /All/ }).click()
+    await page.getByRole('button', { name: 'More actions for Friend 01' }).click()
+    const profileItem = page.getByRole('menuitem', { name: 'View profile (@Friend 01)' })
+    await expect(profileItem).toBeVisible()
+    expect((await profileItem.boundingBox())!.height).toBeLessThanOrEqual(40)
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Message Friend 01' }).click()
+    await page.getByRole('button', { name: 'Search in conversation' }).click()
+    for (const name of ['Close search', 'Pinned messages']) {
+      const button = page.getByRole('button', { name })
+      await expect(button).toBeVisible()
+      const box = await button.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.x + box!.width).toBeLessThanOrEqual(800)
+    }
   })
 
   test('keeps direct-message context actions available from the Social sidebar', async ({ page }) => {

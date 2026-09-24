@@ -63,6 +63,10 @@ test.describe('mocked core UI smoke', () => {
 
     await expect(page.getByText(content)).toBeVisible()
     expect(state.dmMessagesByChannelId['dm-friend-01']?.some((message) => message.content === content)).toBe(true)
+
+    await messageInput.fill('😀'.repeat(4001))
+    await expect(messageInput).toHaveValue('😀'.repeat(4000))
+    await expect(page.getByLabel('Characters remaining')).toHaveText('0')
   })
 
   test('keeps the Friends surface usable on mobile viewport', async ({ page }) => {
@@ -379,10 +383,25 @@ test.describe('mocked core UI smoke', () => {
 
     await page.getByRole('button', { name: 'Pinned messages' }).click()
     await page.getByRole('button', { name: 'Search in conversation' }).click()
+    await page.evaluate(() => {
+      const prompt = document.createElement('section')
+      prompt.className = 'shell-notification-cta'
+      prompt.textContent = 'Notification prompt'
+      document.querySelector('.shell-content')?.prepend(prompt)
+    })
+    await expect(page.locator('.shell-content > .shell-notification-cta')).toBeHidden()
+    await page.getByText('Filters', { exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Filter messages by author' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Filter messages with attachments' })).toBeVisible()
+    await page.getByText('Filters', { exact: true }).click()
     await page.getByRole('textbox', { name: 'Search messages' }).fill('Remote searchable')
     await expect(page.getByText('Remote searchable topic')).toBeVisible()
     await expect(page.getByText('Edited local note')).toBeHidden()
+    await page.getByRole('textbox', { name: 'Search messages' }).fill('no-such-message-in-this-channel')
+    await expect(page.locator('.welcome-screen[role="status"]')).toContainText('No messages found')
+    await expect(page.getByText('Welcome to #general!')).toHaveCount(0)
     await page.getByRole('button', { name: 'Close search' }).click()
+    await expect(page.locator('.shell-content > .shell-notification-cta')).toBeVisible()
 
     await ownRow.hover()
     await ownRow.getByRole('button', { name: 'Delete' }).click()
@@ -451,6 +470,11 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByText('Speaker')).toBeVisible()
     await expect(page.getByText('Input tuning')).toBeVisible()
     await expect(page.getByText('Noise suppression')).toBeVisible()
+    const noiseToggle = page.getByRole('button', { name: 'Noise suppression' })
+    const initialNoiseState = await noiseToggle.getAttribute('aria-pressed')
+    expect(['true', 'false']).toContain(initialNoiseState)
+    await noiseToggle.click()
+    await expect(noiseToggle).toHaveAttribute('aria-pressed', initialNoiseState === 'true' ? 'false' : 'true')
     await expect(page.getByText('Activation mode')).toBeVisible()
     await expect(page.getByText('Toggle microphone mute')).toBeVisible()
     await expect(page.getByText(/Works while this Voxpery tab is focused/)).toBeVisible()
