@@ -73,7 +73,8 @@ pub fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
                 } else {
                     request.deny();
                 }
-                dialog.destroy();
+                // SAFETY: GTK invalidates the dialog on destroy; this handler never reads it again.
+                unsafe { dialog.destroy() };
             });
             dialog.show_all();
             true
