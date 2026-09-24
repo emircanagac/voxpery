@@ -1198,7 +1198,7 @@ async fn register(
 
 /// Default Voxpery server invite code.
 /// Users auto-join this official community server on register/login.
-const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
+pub(crate) const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
 // Keep in sync with routes/servers.rs seeding.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
@@ -1357,6 +1357,19 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .execute(db)
         .await?;
 
+        sqlx::query(
+            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
+               SELECT $1, u.id, 'member', NOW()
+               FROM users u
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM server_bans b WHERE b.server_id = $1 AND b.user_id = u.id
+               )
+               ON CONFLICT (server_id, user_id) DO NOTHING"#,
+        )
+        .bind(server_id)
+        .execute(db)
+        .await?;
+
         server_id_opt = Some(server_id);
     }
 
@@ -1399,29 +1412,18 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
 
         ensure_default_onboarding_guide(db, server_id).await?;
 
-        let already = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+        sqlx::query(
+            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
+               SELECT $1, $2, 'member', NOW()
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM server_bans WHERE server_id = $1 AND user_id = $2
+               )
+               ON CONFLICT (server_id, user_id) DO NOTHING"#,
         )
         .bind(server_id)
         .bind(user_id)
-        .fetch_one(db)
+        .execute(db)
         .await?;
-        let is_banned = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM server_bans WHERE server_id = $1 AND user_id = $2",
-        )
-        .bind(server_id)
-        .bind(user_id)
-        .fetch_one(db)
-        .await?;
-        if already == 0 && is_banned == 0 {
-            sqlx::query(
-                    "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())",
-                )
-                .bind(server_id)
-                .bind(user_id)
-                .execute(db)
-                .await?;
-        }
 
         // "@everyone" is implicit in permission resolution; no explicit member assignment needed.
     }
@@ -2226,9 +2228,6 @@ async fn google_oauth_callback(
                     return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
                 }
             };
-            if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
-                tracing::warn!("Default server join failed for OAuth user: {}", e);
-            }
             user
         }
         Err(e) => {
@@ -2236,6 +2235,11 @@ async fn google_oauth_callback(
             return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
         }
     };
+
+    if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
+        tracing::warn!("Default server join failed for OAuth user: {}", e);
+        return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+    }
 
     let token = match generate_token(
         user.id,

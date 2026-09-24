@@ -20,6 +20,7 @@ use crate::{
         ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerWithMembers,
         UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
     },
+    routes::auth::DEFAULT_SERVER_INVITE_CODE,
     services::{
         audit,
         auth::generate_invite_code,
@@ -1410,6 +1411,12 @@ async fn leave_server(
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound("Server not found".into()))?;
+
+    if server.invite_code == DEFAULT_SERVER_INVITE_CODE {
+        return Err(AppError::Forbidden(
+            "Members cannot leave the Voxpery community server".into(),
+        ));
+    }
 
     if server.owner_id == claims.sub {
         return Err(AppError::Forbidden(

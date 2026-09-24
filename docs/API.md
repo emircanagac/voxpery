@@ -108,6 +108,7 @@ Notes:
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
 - `POST /api/servers/:server_id/leave`
+  - Returns `403` for the official Voxpery community (identified by its reserved `voxpery` invite code); members can leave other servers as before. Existing unbanned accounts are backfilled by migration `049`; new and returning accounts join on registration or login, including Google OAuth.
 - `GET /api/servers/:server_id/channels`
   - Returns only channels visible to caller (`VIEW_SERVER` at effective channel scope).
   - Each item includes `my_permissions` bitmask.
