@@ -3840,6 +3840,58 @@ async fn attachment_upload_stores_file_and_returns_signed_url() {
 }
 
 #[tokio::test]
+async fn zip_attachment_download_preserves_bytes_and_filename() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let email = format!("zip-download-{uid}@example.com");
+    let username = format!("zip_download_{}", uid.as_u128() % 1_000_000);
+    let (token, _) = register_user(&mut app, &email, &username, test_credential("default")).await;
+    let auth = format!("Bearer {token}");
+    let archive = [b"PK\x05\x06".as_slice(), &[0; 18]].concat();
+    let boundary = format!("----voxperyzip{uid}");
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"notes.zip\"\r\nContent-Type: application/zip\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(&archive);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let upload = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    let (status, response_body) = oneshot(&mut app, upload).await;
+    assert_eq!(status, StatusCode::OK);
+    let uploaded: serde_json::Value = serde_json::from_slice(&response_body).unwrap();
+    let url = uploaded[0]["url"].as_str().unwrap();
+    let signed_path = url.strip_prefix("http://localhost:3001").unwrap();
+    let download = Request::builder()
+        .method("GET")
+        .uri(signed_path)
+        .header("Authorization", &auth)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(download).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-disposition").unwrap(),
+        "attachment; filename=\"notes.zip\""
+    );
+    let downloaded = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(downloaded.as_ref(), archive.as_slice());
+}
+
+#[tokio::test]
 async fn attachment_upload_rejects_mime_spoofed_executable() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

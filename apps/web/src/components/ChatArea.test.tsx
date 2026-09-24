@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as api from '../api'
 import type { Channel } from '../api'
 import ChatArea from './ChatArea'
 
@@ -117,6 +118,7 @@ describe('ChatArea regressions', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -637,6 +639,41 @@ describe('ChatArea regressions', () => {
     expect(preview).toHaveAttribute('width', '320')
     expect(preview).toHaveAttribute('height', '180')
     expect(preview).toHaveAttribute('alt', '')
+  })
+
+  it('offers non-image attachments as downloads instead of new tabs', async () => {
+    renderChatArea({
+      messages: [{
+        ...message('message-archive', 'archive', 0),
+        attachments: [{
+          url: 'https://cdn.example.test/archive.zip',
+          type: 'application/zip',
+          name: 'archive.zip',
+        }],
+      }],
+    })
+
+    const link = await screen.findByRole('link', { name: 'archive.zip' })
+    expect(link).toHaveAttribute('download', 'archive.zip')
+    expect(link).not.toHaveAttribute('target')
+  })
+
+  it('keeps the download filename when desktop resolves an attachment to a blob URL', async () => {
+    vi.spyOn(api, 'resolveAttachmentUrl').mockResolvedValue('blob:desktop-archive')
+    renderChatArea({
+      messages: [{
+        ...message('message-desktop-archive', 'desktop archive', 0),
+        attachments: [{
+          url: 'https://api.example.test/desktop.zip',
+          type: 'application/zip',
+          name: 'desktop.zip',
+        }],
+      }],
+    })
+
+    const link = await screen.findByRole('link', { name: 'desktop.zip' })
+    await waitFor(() => expect(link).toHaveAttribute('href', 'blob:desktop-archive'))
+    expect(link).toHaveAttribute('download', 'desktop.zip')
   })
 
   it('renders reactions after inline media and attachments', async () => {

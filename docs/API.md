@@ -204,6 +204,7 @@ Notes:
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
+  - ZIP responses include `Content-Disposition: attachment` with a sanitized filename so browsers download the archive instead of opening a new tab.
 
 ## Image Proxy Endpoint
 

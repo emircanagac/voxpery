@@ -648,7 +648,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     }
 
     return (
-        <a href={currentResolution.resolvedUrl} target="_blank" rel="noreferrer" className="dm-attachment-link">
+        <a href={currentResolution.resolvedUrl} download={attachment.name || 'attachment'} className="dm-attachment-link">
             {attachment.name || `Attachment ${index + 1}`}
         </a>
     )

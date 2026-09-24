@@ -49,7 +49,9 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 fn should_force_attachment_download(content_type: &str) -> bool {
     let ct = content_type.to_ascii_lowercase();
-    ct.contains("image/svg")
+    ct.contains("application/zip")
+        || ct.contains("application/x-zip")
+        || ct.contains("image/svg")
         || ct.contains("text/html")
         || ct.contains("application/xhtml")
         || ct.contains("text/xml")
@@ -446,4 +448,19 @@ async fn ensure_attachment_view_access(
     Err(AppError::Forbidden(
         "You do not have permission to view this attachment".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_force_attachment_download;
+
+    #[test]
+    fn archives_download_while_images_remain_previewable() {
+        assert!(should_force_attachment_download("application/zip"));
+        assert!(should_force_attachment_download(
+            "application/x-zip-compressed"
+        ));
+        assert!(should_force_attachment_download("image/svg+xml"));
+        assert!(!should_force_attachment_download("image/png"));
+    }
 }

@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.15] - 2026-09-01
+## [0.2.15] - 2026-09-24
 
 ### Changed
 - Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
 
 ### Fixed
+- Made ZIP attachments download from chat instead of opening an empty tab, including authenticated desktop blob URLs.
+- Kept channel categories and visible channels scoped to the selected server during rapid server switches so old server rows cannot flash into view.
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
 - Made moderator voice moves reuse an active microphone capture in background tabs, verify through the container-internal LiveKit API instead of a client-facing localhost URL, tolerate delayed destination visibility and SID renewal, report explicit results, and preserve audit success only for identity-verified moves.
 - Simplified Appearance into compact theme and accent controls, kept color fields anchored to `#`, capped hex input at six digits, normalized pasted values, and preserved preferences without internal scrolling in the widest layout.

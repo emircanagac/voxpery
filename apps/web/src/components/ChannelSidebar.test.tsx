@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Channel, MemberInfo, Server } from '../api'
 import { useAppStore } from '../stores/app'
@@ -145,6 +145,24 @@ describe('ChannelSidebar voice media presence', () => {
         expect(container.querySelector('.voice-participant-avatar.is-speaking')).toBeNull()
         expect(screen.getByText(remoteMember.username)).not.toHaveClass('is-speaking')
         expect(useAppStore.getState().voiceSpeakingUserIds).toEqual([remoteMember.user_id])
+    })
+
+    it('does not show channels from a previous server after switching', () => {
+        const nextServer = { ...server, id: 'server-2', name: 'Second Server' }
+        useAppStore.setState({
+            servers: [server, nextServer],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} />)
+        expect(screen.getByText(voiceChannel.name)).toBeVisible()
+
+        act(() => {
+            useAppStore.getState().setActiveServer(nextServer.id)
+            useAppStore.setState({ channels: [voiceChannel] })
+        })
+        expect(screen.queryByText(voiceChannel.name)).toBeNull()
     })
 
     it('stores Discord-style user volume independently up to 200 percent', () => {
