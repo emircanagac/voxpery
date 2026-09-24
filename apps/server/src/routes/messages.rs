@@ -20,6 +20,7 @@ use crate::{
     services::{
         automod,
         idempotency::normalize_client_request_id,
+        message_content::exceeds_message_limit,
         moderation,
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
@@ -718,7 +719,7 @@ async fn send_message(
             "Message must include content or attachments".into(),
         ));
     }
-    if content.len() > 4000 {
+    if exceeds_message_limit(&content) {
         return Err(AppError::Validation(
             "Message must be 1-4000 characters".into(),
         ));
@@ -946,7 +947,7 @@ async fn edit_message(
     } else {
         neutralize_mass_mentions(raw_content)
     };
-    if content.len() > 4000 {
+    if exceeds_message_limit(&content) {
         return Err(AppError::Validation(
             "Message must be 1-4000 characters".into(),
         ));

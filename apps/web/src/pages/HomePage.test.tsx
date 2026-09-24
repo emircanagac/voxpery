@@ -215,6 +215,14 @@ describe('HomePage friends list', () => {
     expect(screen.getByTestId('dm-chat')).not.toBeNull()
   })
 
+  it('does not submit an empty friend request', async () => {
+    renderHomePage()
+    fireEvent.click(screen.getByRole('button', { name: 'Requests' }))
+    const send = screen.getByRole('button', { name: 'Send Request' })
+    expect(send).toBeDisabled()
+    expect(apiMocks.sendFriendRequest).not.toHaveBeenCalled()
+  })
+
   it('restores the current user draft when a DM is opened', async () => {
     apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
     saveMessageDraft('user-1', 'dm', 'dm-cilo', 'remember this locally')

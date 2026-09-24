@@ -38,6 +38,7 @@ import {
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import { createReplyContentSnippet } from '../replyPreview'
+import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
 import { ROUTES } from '../routes'
 import {
   type FriendsFilter,
@@ -323,7 +324,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     target: Omit<SocialContextMenu, 'x' | 'y'>,
   ) => {
     event.preventDefault()
-    const menuWidth = 196
+    const menuWidth = target.kind === 'dm' ? 196 : 240
     const menuHeight = 116
     const pad = 8
     const rect = event.currentTarget.getBoundingClientRect()
@@ -532,6 +533,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmSearchResults(null)
       return
     }
+    setDmSearchResults(null)
     const id = window.setTimeout(() => {
       dmApi.searchMessages(channelId, q, token)
         .then((rows) => {
@@ -934,6 +936,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const content = replyingToDm
       ? `> @${replyingToDm.username}: ${replyingToDm.contentSnippet}\n\n${bodyText}`
       : bodyText
+    if (countMessageCharacters(content) > MESSAGE_MAX_CHARACTERS) {
+      pushToast({ level: 'error', title: 'Message too long', message: 'Messages can contain up to 4000 characters, including the reply quote.' })
+      return
+    }
     const sendFingerprint = `${channelId}\n${content}\n${JSON.stringify(attachmentsToSend)}`
     if (pendingDmMessageFingerprintsRef.current.has(sendFingerprint)) return
     pendingDmMessageFingerprintsRef.current.add(sendFingerprint)
@@ -1094,6 +1100,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const saveDmEdit = useCallback(async () => {
     if (!user || !editingDmMessageId || !editingDmContent.trim()) return
+    if (countMessageCharacters(editingDmContent.trim()) > MESSAGE_MAX_CHARACTERS) {
+      pushToast({ level: 'error', title: 'Edit too long', message: 'Messages can contain up to 4000 characters.' })
+      return
+    }
     try {
       const updated = await dmApi.editMessage(editingDmMessageId, editingDmContent.trim(), token)
       setDmMessages((prev) => {
@@ -1106,10 +1116,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
       setEditingDmMessageId(null)
       setEditingDmContent('')
-    } catch {
-      // could toast
+    } catch (err) {
+      pushToast({ level: 'error', title: 'Edit failed', message: err instanceof Error ? err.message : 'Could not edit message.' })
     }
-  }, [user, token, editingDmMessageId, editingDmContent, activeDmChannelId, dmSearch, rememberDmMessages])
+  }, [user, token, editingDmMessageId, editingDmContent, activeDmChannelId, dmSearch, rememberDmMessages, pushToast])
 
   const removeDmMessage = useCallback(
     async (messageId: string) => {
@@ -1302,7 +1312,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         value={addFriendUsername}
                         onChange={(e) => setAddFriendUsername(e.target.value)}
                       />
-                      <button type="button" className="home-send-request-btn" onClick={sendFriendRequest}>
+                      <button type="button" className="home-send-request-btn" onClick={sendFriendRequest} disabled={!addFriendUsername.trim()}>
                         Send Request
                       </button>
                     </div>
@@ -1542,11 +1552,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
-                loading={
-                  !dmSearch.trim()
-                  && (!dmConversationReady || isNotificationHistoryPending)
-                  && (displayedDmMessages.length === 0 || isNotificationHistoryPending)
-                }
+                loading={dmSearch.trim()
+                  ? dmSearchResults === null
+                  : (!dmConversationReady || isNotificationHistoryPending)
+                    && (displayedDmMessages.length === 0 || isNotificationHistoryPending)}
                 unreadDividerCount={dmUnreadDividerCount}
                 draftAttachments={dmDraftAttachments}
                 messageInput={dmInput}
@@ -1609,7 +1618,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         }
         return createPortal(
           <div
-            className="server-context-menu social-dm-context-menu"
+            className={`server-context-menu social-dm-context-menu${socialContextMenu.kind === 'friend' ? ' social-dm-context-menu--friend' : ''}`}
             role="menu"
             aria-label={`Actions for ${socialContextMenu.username}`}
             style={{ left: socialContextMenu.x, top: socialContextMenu.y }}
@@ -1626,7 +1635,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               }}
             >
               <UserRound size={14} />
-              View profile (@{socialContextMenu.username})
+              <span className="social-context-action-label">View profile (@{socialContextMenu.username})</span>
             </button>
             {socialContextMenu.kind === 'friend' && (
               <button

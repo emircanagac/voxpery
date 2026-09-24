@@ -46,6 +46,7 @@ import {
 } from '../notificationPreferences'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { createReplyContentSnippet } from '../replyPreview'
+import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
 import { createSecureId } from '../secureId'
 import { ROUTES } from '../routes'
 import { handleVoiceMemberMoveRequested } from '../webrtc/voiceMemberMove'
@@ -646,6 +647,38 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     }, [isMobileViewport, showMobileMemberSheet])
 
     useEffect(() => {
+        if (!isMobileViewport || !showMobileMemberSheet) return
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        const closeButton = document.querySelector<HTMLElement>('.mobile-member-sheet-close')
+        closeButton?.focus()
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (document.querySelector('.member-profile-dialog')) return
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                setShowMobileMemberSheet(false)
+            } else if (event.key === 'Tab') {
+                const controls = Array.from(document.querySelectorAll<HTMLElement>('.mobile-member-sheet button:not(:disabled), .mobile-member-sheet [href]'))
+                    .filter((control) => control.getClientRects().length > 0)
+                if (controls.length === 0) return
+                const first = controls[0]
+                const last = controls[controls.length - 1]
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault()
+                    last.focus()
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault()
+                    first.focus()
+                }
+            }
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('keydown', onKeyDown)
+            previousFocus?.focus()
+        }
+    }, [isMobileViewport, showMobileMemberSheet])
+
+    useEffect(() => {
         setShowMobileMemberSheet(false)
     }, [activeServerId, activeChannelId])
 
@@ -853,6 +886,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setChannelSearchResults(null)
             return
         }
+        setChannelSearchResults(null)
         const id = window.setTimeout(() => {
             messageApi.search(channelId, q, token)
                 .then((rows) => {
@@ -1367,6 +1401,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const content = replyingTo
             ? `> @${replyingTo.username}: ${replyingTo.contentSnippet}\n\n${bodyText}`
             : bodyText
+        if (countMessageCharacters(content) > MESSAGE_MAX_CHARACTERS) {
+            pushToast({ level: 'error', title: 'Message too long', message: 'Messages can contain up to 4000 characters, including the reply quote.' })
+            return
+        }
         const sendFingerprint = `${channelId}\n${content}\n${JSON.stringify(attachments)}`
         if (pendingMessageFingerprintsRef.current.has(sendFingerprint)) return
         pendingMessageFingerprintsRef.current.add(sendFingerprint)
@@ -1558,6 +1596,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const body = editingContent.trim()
         if (!body && !editingReplyQuotePart) return
         const contentToSend = editingReplyQuotePart ? `${editingReplyQuotePart}\n\n${body}` : body
+        if (countMessageCharacters(contentToSend) > MESSAGE_MAX_CHARACTERS) {
+            pushToast({ level: 'error', title: 'Edit too long', message: 'Messages can contain up to 4000 characters, including the reply quote.' })
+            return
+        }
         try {
             const updated = await messageApi.edit(editingMessageId, contentToSend, token)
             setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
@@ -3116,7 +3158,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             )}
             <ChatArea
                 activeChannel={activeChannel}
-                loading={serverRouteLoading || (!activeServerId && serversLoading)}
+                loading={serverRouteLoading || (!activeServerId && serversLoading) || (channelSearch.trim() ? channelSearchResults === null : !olderMessagesReady && messages.length === 0)}
                 messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
                 unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
                 draftAttachments={draftAttachments}
@@ -3193,6 +3235,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     />
                     <aside
                         className="mobile-member-sheet"
+                        role="dialog"
+                        aria-modal="true"
                         aria-label="Server members"
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -3479,9 +3523,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                             </div>
                                         )}
                                         <div className="server-settings-header__text">
-                                            <h2>Server Settings</h2>
+                                            <h2>{canViewReports ? 'Server Settings' : 'Server information'}</h2>
                                             <p className="server-settings-header__server-name">{settingsServer.name}</p>
-                                            <p className="server-settings-header__hint">Manage community, roles, safety, and server identity.</p>
+                                            <p className="server-settings-header__hint">{canViewReports ? 'Manage the server settings available to your role.' : 'View this server and its community settings.'}</p>
                                         </div>
                                     </div>
                                     <button
@@ -3640,7 +3684,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                                     <span className="server-overview-profile__eyebrow">Server profile</span>
                                                                     <strong className="server-overview-profile__title">{settingsServer.name}</strong>
                                                                     <span className="server-overview-profile__meta">
-                                                                        {serverRoles.length} roles configured
+                                                                        {isOwner ? 'Manage roles in the Roles tab' : 'Server roles are managed by the owner'}
                                                                     </span>
                                                                 </div>
                                                                 {isOwner && (

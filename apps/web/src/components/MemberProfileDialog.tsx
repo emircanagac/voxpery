@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { MessageCircle, UserPlus, X } from 'lucide-react'
 import { resolveAvatarUrl } from '../api'
 
@@ -34,6 +35,37 @@ function formatProfileDate(value?: string | null) {
 }
 
 export default function MemberProfileDialog({ member, isServerOwner, onClose, actions }: MemberProfileDialogProps) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.querySelector<HTMLElement>('button')?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+      if (buttons.length === 0) return
+      const first = buttons[0]
+      const last = buttons[buttons.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      previousFocus?.focus()
+    }
+  }, [])
   const baseRoleNormalized = member.role.trim().toLowerCase()
   const roleSet = new Set<string>()
   for (const roleName of member.roles ?? []) {
@@ -54,6 +86,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
   return (
     <div className="modal-overlay member-profile-dialog-overlay" onClick={onClose}>
       <section
+        ref={dialogRef}
         className="member-profile-popout member-profile-dialog"
         role="dialog"
         aria-modal="true"

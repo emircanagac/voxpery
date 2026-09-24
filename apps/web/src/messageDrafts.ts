@@ -3,7 +3,9 @@ export type MessageDraftScope = 'channel' | 'dm'
 export const MESSAGE_DRAFT_STORAGE_KEY = 'voxpery-message-drafts-v1'
 export const MESSAGE_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000
 export const MESSAGE_DRAFT_MAX_ENTRIES = 80
-export const MESSAGE_DRAFT_MAX_LENGTH = 4000
+import { MESSAGE_MAX_CHARACTERS, truncateMessage } from './messageLength'
+
+export const MESSAGE_DRAFT_MAX_LENGTH = MESSAGE_MAX_CHARACTERS
 
 type MessageDraftEntry = {
   userId: string
@@ -141,7 +143,7 @@ export function saveMessageDraft(
   if (!userId || !conversationId) return
   const store = loadStore(now)
   const key = draftKey(userId, scope, conversationId)
-  const boundedText = text.slice(0, MESSAGE_DRAFT_MAX_LENGTH)
+  const boundedText = truncateMessage(text, MESSAGE_DRAFT_MAX_LENGTH)
   if (!boundedText.trim()) {
     delete store.entries[key]
   } else {
@@ -166,7 +168,7 @@ export function clearMessageDraftIfUnchanged(
   if (!userId || !conversationId) return
   const store = loadStore()
   const key = draftKey(userId, scope, conversationId)
-  if (store.entries[key]?.text !== expectedText.slice(0, MESSAGE_DRAFT_MAX_LENGTH)) return
+  if (store.entries[key]?.text !== truncateMessage(expectedText, MESSAGE_DRAFT_MAX_LENGTH)) return
   delete store.entries[key]
   flushMessageDrafts()
 }

@@ -13,6 +13,7 @@ import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
 import { useAuthStore } from '../stores/auth'
 import { getFavoriteGifs, toggleFavoriteGif } from '../expressionPreferences'
+import { countMessageCharacters, messageBodyLimit, MESSAGE_MAX_CHARACTERS, truncateMessage } from '../messageLength'
 
 type UiMessage = MessageWithAuthor & {
     clientId?: string
@@ -771,6 +772,7 @@ export default function ChatArea({
     const messagesScrollRef = useRef<HTMLDivElement>(null)
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
     const currentChatChannelId = activeChannel?.id ?? null
+    const remainingCharacters = messageBodyLimit(replyingTo) - countMessageCharacters(messageInput)
     const currentChatChannelIdRef = useRef<string | null>(currentChatChannelId)
     const [unreadDividerSnapshot, setUnreadDividerSnapshot] = useState<UnreadDividerSnapshot>({
         channelId: null,
@@ -1675,7 +1677,7 @@ export default function ChatArea({
         const after = messageInput.slice(cursor)
         const mentionText = `@${member.username} `
         const next = `${before}${mentionText}${after}`
-        onMessageInputChange(next)
+        onMessageInputChange(truncateMessage(next, messageBodyLimit(replyingTo)))
         closeMentionMenu()
         requestAnimationFrame(() => {
             textareaRef.current?.focus()
@@ -1685,8 +1687,9 @@ export default function ChatArea({
     }
 
     const handleInputChange = (value: string, cursor: number | null) => {
-        onMessageInputChange(value)
-        syncMentionMenu(value, cursor)
+        const bounded = truncateMessage(value, messageBodyLimit(replyingTo))
+        onMessageInputChange(bounded)
+        syncMentionMenu(bounded, cursor)
     }
 
     const submitMessage = useCallback((forceContent?: string) => {
@@ -1719,7 +1722,7 @@ export default function ChatArea({
         const start = inputEl?.selectionStart ?? messageInput.length
         const end = inputEl?.selectionEnd ?? start
         const next = `${messageInput.slice(0, start)}${emoji}${messageInput.slice(end)}`
-        onMessageInputChange(next)
+        onMessageInputChange(truncateMessage(next, messageBodyLimit(replyingTo)))
         setEmojiOpen(false)
         requestAnimationFrame(() => {
             const pos = start + emoji.length
@@ -2276,6 +2279,7 @@ export default function ChatArea({
                                                 type="button"
                                                 onClick={() => applySearchFilter('from:')}
                                                 title="Add author filter"
+                                                aria-label="Filter messages by author"
                                             >
                                                 from:
                                             </button>
@@ -2283,6 +2287,7 @@ export default function ChatArea({
                                                 type="button"
                                                 onClick={() => applySearchFilter('has:attachment')}
                                                 title="Only show messages with attachments"
+                                                aria-label="Filter messages with attachments"
                                             >
                                                 has:attachment
                                             </button>
@@ -2419,6 +2424,12 @@ export default function ChatArea({
                         <div className="chat-loading-bubble" />
                         <div className="chat-loading-bubble short" />
                         <div className="chat-loading-bubble" />
+                    </div>
+                ) : messages.length === 0 && searchQuery.trim() ? (
+                    <div className="welcome-screen" role="status">
+                        <Search size={32} aria-hidden />
+                        <h2>No messages found</h2>
+                        <p>Try another search or remove a filter.</p>
                     </div>
                 ) : messages.length === 0 ? (
                     <div className="welcome-screen">
@@ -2559,7 +2570,7 @@ export default function ChatArea({
                                                     <input
                                                         className="home-search"
                                                         value={editingContent}
-                                                        onChange={(e) => onEditingContentChange?.(e.target.value)}
+                                                        onChange={(e) => onEditingContentChange?.(truncateMessage(e.target.value, MESSAGE_MAX_CHARACTERS))}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault()
@@ -2762,7 +2773,7 @@ export default function ChatArea({
                         ref={textareaRef}
                         className="message-input"
                         value={messageInput}
-                        maxLength={4000}
+                        maxLength={messageBodyLimit(replyingTo) * 2}
                         disabled={!canSendMessages}
                         onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
                         onKeyDown={handleKeyDown}
@@ -2782,6 +2793,11 @@ export default function ChatArea({
                             : (useMobileMessageLayout ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
                         rows={1}
                     />
+                    {canSendMessages && (
+                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : ''}`} aria-label="Characters remaining">
+                            {remainingCharacters < 0 ? `${-remainingCharacters} over limit` : remainingCharacters}
+                        </span>
+                    )}
                     <div className="message-input-actions" aria-label="Message actions">
                         <button
                             type="button"

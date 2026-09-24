@@ -1675,6 +1675,8 @@ export default function UserBar() {
                   <button
                     type="button"
                     className={`user-toggle ${soundEnabled ? 'active' : ''}`}
+                    aria-label="Notification sounds"
+                    aria-pressed={soundEnabled}
                     onClick={() => {
                       const next = !soundEnabled
                       setSoundEnabled(next)
@@ -1700,6 +1702,8 @@ export default function UserBar() {
                   <button
                     type="button"
                     className={`user-toggle ${pushNotificationsEnabled && pushNotificationPermission !== 'unsupported' && pushNotificationPermission !== 'denied' ? 'active' : ''}`}
+                    aria-label={desktopRuntime ? 'Desktop notifications' : 'Browser notifications'}
+                    aria-pressed={pushNotificationsEnabled && pushNotificationPermission !== 'unsupported' && pushNotificationPermission !== 'denied'}
                     disabled={pushNotificationPermission === 'unsupported'}
                     onClick={async () => {
                       if (!pushNotificationsEnabled || pushNotificationPermission !== 'granted') {
@@ -1935,6 +1939,8 @@ export default function UserBar() {
                       <button
                         type="button"
                         className={`user-toggle ${noiseSuppressionEnabled ? 'active' : ''}`}
+                        aria-label="Noise suppression"
+                        aria-pressed={noiseSuppressionEnabled}
                         onClick={() => {
                           const next = !noiseSuppressionEnabled
                           setNoiseSuppressionEnabled(next)

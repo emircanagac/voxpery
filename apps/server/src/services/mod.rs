@@ -7,6 +7,7 @@ pub mod client_ip;
 pub mod email;
 pub mod idempotency;
 pub mod jwt_blacklist;
+pub mod message_content;
 pub mod moderation;
 pub mod observability;
 pub mod permissions;
