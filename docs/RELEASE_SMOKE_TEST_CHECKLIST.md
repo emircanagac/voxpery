@@ -94,6 +94,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Web app is installable as a PWA; a normal reload (without `Ctrl+F5`) discovers the current release; the app shell and `/sw.js` require revalidation; and the service worker does not cache API, auth, WebSocket, or navigation responses.
 - [ ] Production voice call with noise suppression on does not reuse a stale cached RNNoise worklet after deploy.
 - [ ] Uploaded chat image attachments render inline after channel/server navigation and open only in the in-app preview modal on web and desktop, with no external tab/browser navigation.
+- [ ] On web and desktop, clicking a ZIP attachment in chat starts a download with the expected filename; the saved archive opens and its contents match the uploaded file.
+- [ ] Switch rapidly between two servers with distinct channels/categories, including a slow response and a return to a previously visited server: no channel or category from the other server appears, even briefly.
 - [ ] Automated core UI smoke includes invite/join, server settings, social/friend, auth/account, release/settings, permission, and desktop-runtime regressions.
 - [ ] Automated mobile web smoke completed for the release candidate or CI run, covering Social, DM, server chat, mobile composer actions, and the mobile member sheet.
 

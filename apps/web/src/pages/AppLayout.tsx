@@ -416,7 +416,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [createChannelError, setCreateChannelError] = useState<string | null>(null)
     const [createCategoryName, setCreateCategoryName] = useState('')
     const [createCategoryError, setCreateCategoryError] = useState<string | null>(null)
-    const [channelCategories, setChannelCategories] = useState<string[]>([])
+    const [channelCategoriesByServerId, setChannelCategoriesByServerId] = useState<Record<string, string[]>>({})
+    const channelCategories = useMemo(
+        () => activeServerId ? (channelCategoriesByServerId[activeServerId] ?? []) : [],
+        [activeServerId, channelCategoriesByServerId],
+    )
+    const setChannelCategoriesForServer = useCallback((serverId: string, categories: string[]) => {
+        setChannelCategoriesByServerId((current) => ({ ...current, [serverId]: categories }))
+    }, [])
     const [categoryPermissionsTarget, setCategoryPermissionsTarget] = useState<string | null>(null)
     const [deleteCategoryConfirm, setDeleteCategoryConfirm] = useState<string | null>(null)
     const [deleteCategoryError, setDeleteCategoryError] = useState<string | null>(null)
@@ -442,7 +449,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
-    const [serverBootstrapLoading, setServerBootstrapLoading] = useState(false)
+    const [serverBootstrapLoadingId, setServerBootstrapLoadingId] = useState<string | null>(null)
     const [serverListReady, setServerListReady] = useState(false)
     const currentServerMember = useMemo(
         () => (user?.id ? members.find((member) => member.user_id === user.id) ?? null : null),
@@ -552,6 +559,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     // Use user (not token) so web works: on web token is null and auth is via httpOnly cookie.
     const isLoggedIn = !!user
     const inviteBaseUrl = resolveInviteBaseUrl()
+
+    useEffect(() => {
+        if (!isLoggedIn) {
+            setChannelCategoriesByServerId({})
+            setServerBootstrapLoadingId(null)
+        }
+    }, [isLoggedIn])
 
     useEffect(() => {
         if (!isLoggedIn) {
@@ -669,7 +683,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         const requestId = ++serverBootstrapRequestRef.current
         let cancelled = false
         const hasCachedChannels = (useAppStore.getState().channelsByServerId[serverId] ?? []).length > 0
-        setServerBootstrapLoading(!hasCachedChannels)
+        setServerBootstrapLoadingId(hasCachedChannels ? null : serverId)
         Promise.all([
             serverApi.channels(serverId, token),
             channelApi.listCategories(serverId, token).catch(() => []),
@@ -684,7 +698,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 return
             }
             setChannels(chs)
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(serverId, categories.map((c) => c.name))
             const currentActive = activeChannelIdRef.current
             const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
             if (!stillValid) {
@@ -695,7 +709,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             }
         }).catch(console.error).finally(() => {
             if (!cancelled && requestId === serverBootstrapRequestRef.current && activeServerIdRef.current === serverId) {
-                setServerBootstrapLoading(false)
+                setServerBootstrapLoadingId(null)
             }
         })
 
@@ -709,7 +723,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         return () => {
             cancelled = true
         }
-    }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannels, setMembers, setChannelsForServer, setMembersForServer])
+    }, [activeServerId, isLoggedIn, token, setActiveChannel, setChannelCategoriesForServer, setChannels, setMembers, setChannelsForServer, setMembersForServer])
 
     useEffect(() => {
         if (!activeServerId || !isLoggedIn) {
@@ -757,13 +771,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setMyServerPermissions((prev) => ({ ...prev, [detail.id]: detail.my_permissions ?? 0 }))
             if (activeServerIdRef.current === serverId) {
                 setChannels(chs)
-                setChannelCategories(categories.map((c) => c.name))
+                setChannelCategoriesForServer(serverId, categories.map((c) => c.name))
                 setMembers(detail.members)
             }
         } catch (err) {
             console.error(err)
         }
-    }, [isLoggedIn, token, setChannels, setChannelsForServer, setMembers, setMembersForServer])
+    }, [isLoggedIn, token, setChannelCategoriesForServer, setChannels, setChannelsForServer, setMembers, setMembersForServer])
 
     useEffect(() => {
         if (activeServerId && activeChannelId) {
@@ -1013,7 +1027,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                         })
                         if (activeServerIdRef.current !== sid) return
                         setChannels(chs)
-                        setChannelCategories(categories.map((c) => c.name))
+                        setChannelCategoriesForServer(sid, categories.map((c) => c.name))
                         const currentActive = activeChannelIdRef.current
                         const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
                         if (!stillValid) {
@@ -1308,7 +1322,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         } catch (err) {
             console.error('AppLayout WS handler error:', err)
         }
-    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setActiveChannel, setActiveServer, setChannels, user?.id, user?.status, user?.username])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setActiveChannel, setActiveServer, setChannelCategoriesForServer, setChannels, user?.id, user?.status, user?.username])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -1709,7 +1723,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const hasResolvedActiveChannel = !!activeChannelId && channels.some((c) => c.id === activeChannelId)
     const serverRouteLoading = isLoggedIn && (
         !serverListReady
-        || serverBootstrapLoading
+        || (!!activeServerId && serverBootstrapLoadingId === activeServerId)
         || (servers.length > 0 && !activeServerId)
         || (!!activeServerId && channels.length > 0 && !hasResolvedActiveChannel)
     )
@@ -2704,7 +2718,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setChannels(chs)
             setChannelsForServer(activeServerId, chs)
             const categories = await channelApi.listCategories(activeServerId, token)
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -2748,7 +2762,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         try {
             await channelApi.createCategory(activeServerId, createCategoryName.trim(), token)
             const categories = await channelApi.listCategories(activeServerId, token)
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
             setShowCreateCategory(false)
             setCreateCategoryName('')
         } catch (err: unknown) {
@@ -2782,7 +2796,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             ])
             setChannels(chs)
             setChannelsForServer(activeServerId, chs)
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -2887,7 +2901,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setChannels(chs)
             setChannelsForServer(activeServerId, chs)
             const categories = await channelApi.listCategories(activeServerId, token)
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
             setChannelServerMap((prev) => {
                 const next = { ...prev }
                 for (const ch of chs) next[ch.id] = ch.server_id
@@ -3044,13 +3058,13 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         if (targetIndex < 0) return
         const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
         next.splice(insertIndex, 0, draggedCategory)
-        setChannelCategories(next)
+        setChannelCategoriesForServer(activeServerId, next)
         try {
             await channelApi.reorderCategories(activeServerId, next, token)
         } catch (err) {
             console.error('Failed to reorder categories:', err)
             const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
-            setChannelCategories(categories.map((c) => c.name))
+            setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
         }
     }
 
@@ -4174,14 +4188,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                 setChannels(channels.map(c => c.id === updated.id ? updated : c))
                                 if (activeServerId) {
                                     const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
-                                    setChannelCategories(categories.map((c) => c.name))
+                                    setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
                                 }
                             }}
                             onDeleted={async (id: string) => {
                                 setChannels(channels.filter(c => c.id !== id))
                                 if (activeServerId) {
                                     const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
-                                    setChannelCategories(categories.map((c) => c.name))
+                                    setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
                                 }
                             }}
                         />
@@ -4266,7 +4280,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                                 ])
                                                 setChannels(chs)
                                                 setChannelsForServer(activeServerId, chs)
-                                                setChannelCategories(categories.map((c) => c.name))
+                                                setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
                                                 setDeleteCategoryConfirm(null)
                                                 setDeleteCategoryError(null)
                                             } catch (err: unknown) {

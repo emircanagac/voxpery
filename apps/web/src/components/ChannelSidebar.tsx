@@ -155,7 +155,8 @@ export default function ChannelSidebar({
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
-    const draggedChannel = draggedChannelId ? channels.find((c) => c.id === draggedChannelId) : null
+    const visibleChannels = activeServerId ? channels.filter((channel) => channel.server_id === activeServerId) : []
+    const draggedChannel = draggedChannelId ? visibleChannels.find((c) => c.id === draggedChannelId) : null
     const memberPool = activeServerId ? (membersByServerId[activeServerId] ?? members) : members
 
     // Group channels by category
@@ -165,7 +166,7 @@ export default function ChannelSidebar({
         if (!trimmed) continue
         channelsByCategory[trimmed] = channelsByCategory[trimmed] ?? []
     }
-    channels.forEach((ch) => {
+    visibleChannels.forEach((ch) => {
         const cat = ch.category || 'Channels'
         if (!channelsByCategory[cat]) channelsByCategory[cat] = []
         channelsByCategory[cat].push(ch)
@@ -343,13 +344,13 @@ export default function ChannelSidebar({
                         <div className="channel-sidebar-skeleton-row" />
                         <div className="channel-sidebar-skeleton-row short" />
                     </div>
-                ) : channels.length === 0 && (
+                ) : visibleChannels.length === 0 && (
                     <div className="channel-empty-state">
                         No channels yet.
                         {canManageChannels && ' Create your first text or voice channel.'}
                     </div>
                 )}
-                {orderedCategories.map(([category, chs]) => (
+                {!loading && orderedCategories.map(([category, chs]) => (
                     <div
                         key={category}
                         className={`channel-category-group ${dragOverCategory?.name === category ? `drop-${dragOverCategory.position}` : ''}`}
@@ -751,7 +752,7 @@ export default function ChannelSidebar({
             )}
 
             {contextMenu && (() => {
-                const channel = channels.find((c) => c.id === contextMenu.channelId)
+                const channel = visibleChannels.find((c) => c.id === contextMenu.channelId)
                 if (!channel) return null
                 const isTextChannel = channel.channel_type === 'text'
                 if (!canManageChannels && !isTextChannel) return null
@@ -867,7 +868,7 @@ export default function ChannelSidebar({
                     screenSharing: false,
                     cameraOn: false,
                 }
-                const moveDestinationChannels = channels.filter(
+                const moveDestinationChannels = visibleChannels.filter(
                     (channel) => channel.channel_type === 'voice' && channel.id !== participantMenu.channelId,
                 )
                 const canMoveTarget = canMoveMembers && moveDestinationChannels.length > 0
