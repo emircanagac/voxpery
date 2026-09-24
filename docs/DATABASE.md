@@ -64,6 +64,7 @@ Key columns:
 
 - `server_id`, `user_id`, `role`, `joined_at`
 - Legacy `role` is bridge-level (`owner` / `member`), while effective authorization comes from role bitmasks.
+- Migration `049` backfills missing membership in the official `voxpery` community for existing unbanned accounts. It preserves existing roles and join dates and does not add banned accounts. If the official server is first created after migration, its creation path adds existing accounts instead.
 
 ### `server_roles`
 

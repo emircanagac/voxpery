@@ -13,7 +13,10 @@ use futures::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{
+    postgres::{PgConnection, PgPoolOptions},
+    Connection,
+};
 use std::{
     io::{Cursor, Read},
     path::Path,
@@ -1081,6 +1084,179 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
         has_everyone_role, 0,
         "@everyone is implicit and should not require explicit member-role row"
     );
+}
+
+#[tokio::test]
+async fn official_community_backfill_preserves_members_and_excludes_bans() {
+    let Some(database_url) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let mut db = PgConnection::connect(&database_url).await.unwrap();
+    sqlx::raw_sql(
+        r#"CREATE TEMP TABLE users (id UUID PRIMARY KEY);
+           CREATE TEMP TABLE servers (id UUID PRIMARY KEY, invite_code TEXT NOT NULL UNIQUE);
+           CREATE TEMP TABLE server_bans (server_id UUID, user_id UUID);
+           CREATE TEMP TABLE server_members (
+               server_id UUID NOT NULL, user_id UUID NOT NULL, role TEXT NOT NULL,
+               joined_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (server_id, user_id)
+           );"#,
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+
+    let official_id = Uuid::new_v4();
+    let other_id = Uuid::new_v4();
+    let owner_id = Uuid::new_v4();
+    let old_user_id = Uuid::new_v4();
+    let banned_user_id = Uuid::new_v4();
+    for user_id in [owner_id, old_user_id, banned_user_id] {
+        sqlx::query("INSERT INTO users (id) VALUES ($1)")
+            .bind(user_id)
+            .execute(&mut db)
+            .await
+            .unwrap();
+    }
+    for (server_id, invite_code) in [(official_id, "voxpery"), (other_id, "another")] {
+        sqlx::query("INSERT INTO servers (id, invite_code) VALUES ($1, $2)")
+            .bind(server_id)
+            .bind(invite_code)
+            .execute(&mut db)
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', '2024-01-01'::timestamptz)",
+    )
+    .bind(official_id)
+    .bind(owner_id)
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_bans (server_id, user_id) VALUES ($1, $2)")
+        .bind(official_id)
+        .bind(banned_user_id)
+        .execute(&mut db)
+        .await
+        .unwrap();
+
+    for _ in 0..2 {
+        sqlx::raw_sql(include_str!(
+            "../migrations/049_backfill_official_community_members.sql"
+        ))
+        .execute(&mut db)
+        .await
+        .unwrap();
+    }
+
+    let official_members: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = $1")
+            .bind(official_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(official_members, 2);
+    let owner: (String, bool) = sqlx::query_as(
+        "SELECT role, joined_at = '2024-01-01'::timestamptz FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(official_id)
+    .bind(owner_id)
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(owner, ("owner".to_string(), true));
+    let restored_role: String =
+        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+            .bind(official_id)
+            .bind(old_user_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(restored_role, "member");
+    let other_members: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = $1")
+            .bind(other_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(other_members, 0);
+}
+
+#[tokio::test]
+async fn official_community_join_is_idempotent_and_respects_bans() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let (_, user_id) = register_user(
+        &mut app,
+        &format!("restore-community-{uid}@example.com"),
+        &format!("restore_{}", uid.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let (server_id, owner_id): (Uuid, Uuid) =
+        sqlx::query_as("SELECT id, owner_id FROM servers WHERE invite_code = 'voxpery'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE users SET password_hash = 'oauth', google_id = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(format!("restore-google-{uid}"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    for _ in 0..2 {
+        voxpery_server::routes::auth::ensure_default_server_join(&state.db, user_id)
+            .await
+            .unwrap();
+    }
+    let member_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(member_count, 1);
+
+    sqlx::query("INSERT INTO server_bans (server_id, user_id, banned_by) VALUES ($1, $2, $3)")
+        .bind(server_id)
+        .bind(user_id)
+        .bind(owner_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    voxpery_server::routes::auth::ensure_default_server_join(&state.db, user_id)
+        .await
+        .unwrap();
+    let joined: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(!joined);
 }
 
 #[tokio::test]

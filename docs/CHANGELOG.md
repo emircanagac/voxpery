@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
 - Kept registered members in the official Voxpery community by removing its Leave Server action and rejecting direct leave requests; other servers can still be left.
+- Backfilled existing unbanned accounts into the official community and made Google sign-in require membership before access continues.
 
 ### Fixed
 - Made ZIP attachments download from chat instead of opening an empty tab, including authenticated desktop blob URLs.
