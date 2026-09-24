@@ -44,13 +44,14 @@ describe('AboutPage', () => {
       'href',
       'https://github.com/emircanagac/voxpery',
     )
+    expect(screen.getByRole('link', { name: 'Compare' })).toHaveAttribute('href', '/compare')
     expect(screen.getByRole('link', { name: 'Releases' })).toHaveAttribute(
       'href',
       'https://github.com/emircanagac/voxpery/releases/latest',
     )
-    expect(screen.getByRole('link', { name: 'Contributors' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Contribute' })).toHaveAttribute(
       'href',
-      'https://github.com/emircanagac/voxpery/graphs/contributors',
+      'https://github.com/emircanagac/voxpery/blob/main/docs/CONTRIBUTING.md',
     )
     expect(screen.getByRole('link', { name: 'Security' })).toHaveAttribute(
       'href',

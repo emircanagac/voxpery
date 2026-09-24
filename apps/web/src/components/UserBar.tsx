@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut, Palette } from 'lucide-react'
+import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut, Palette, Info, ExternalLink } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -528,6 +528,15 @@ export default function UserBar() {
     setActiveSettingsSection(DEFAULT_SETTINGS_SECTION)
     setShowSettingsPanel(true)
   }, [closeStatusMenu])
+
+  const openAboutPage = useCallback(async () => {
+    const url = isTauri() ? 'https://voxpery.com/about' : new URL(ROUTES.about, window.location.origin).href
+    try {
+      await openExternalUrl(url)
+    } catch {
+      pushToast({ level: 'error', title: 'Could not open About Voxpery', message: 'Please try again.' })
+    }
+  }, [pushToast])
 
   const reopenProfileSettings = useCallback(() => {
     setActiveSettingsSection('profile')
@@ -1640,6 +1649,18 @@ export default function UserBar() {
                     <span>Desktop</span>
                   </button>
                 )}
+                <div className="user-settings-nav__footer">
+                  <button
+                    type="button"
+                    className="user-settings-nav__item user-settings-nav__item--external"
+                    onClick={() => void openAboutPage()}
+                    title="Open the Voxpery website"
+                  >
+                    <Info size={16} aria-hidden="true" />
+                    <span>About Voxpery</span>
+                    <ExternalLink size={14} aria-hidden="true" />
+                  </button>
+                </div>
               </nav>
               <div className="user-settings-scroll" ref={settingsScrollRef}>
               {activeSettingsSection === 'appearance' && <ThemeSettings />}

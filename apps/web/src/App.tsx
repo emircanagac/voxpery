@@ -23,6 +23,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AboutPage = lazy(() => import('./pages/AboutPage'))
+const ComparePage = lazy(() => import('./pages/ComparePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
 const LegalConsentBoundary = lazy(() => import('./components/LegalConsentBoundary'))
 
@@ -252,6 +253,7 @@ function App() {
         <Routes>
           <Route path={ROUTES.landing} element={isDesktopApp ? <Navigate to={ROUTES.login} replace /> : <AboutPage />} />
           <Route path={ROUTES.about} element={<AboutPage />} />
+          <Route path={ROUTES.compare} element={<ComparePage />} />
           <Route path={ROUTES.login} element={<LoginPage />} />
           <Route path={ROUTES.register} element={<RegisterPage />} />
           <Route path={ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
@@ -276,9 +278,10 @@ function App() {
           <Route path={ROUTES.privacy} element={<LegalPage />} />
           <Route path={ROUTES.terms} element={<LegalPage />} />
           <Route path={ROUTES.kvkk} element={<LegalPage />} />
+          <Route path={ROUTES.about} element={<AboutPage />} />
+          <Route path={ROUTES.compare} element={<ComparePage />} />
           <Route element={<LegalConsentBoundary />}>
             <Route path={ROUTES.landing} element={<Navigate to={ROUTES.home} replace />} />
-            <Route path={ROUTES.about} element={<AboutPage />} />
             <Route element={<ConnectedAppShell />}>
               {/* UnifiedLayout wraps /social, /social/dm and /servers so it doesn't unmount on switch */}
               <Route element={<UnifiedLayout />}>

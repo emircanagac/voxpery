@@ -68,6 +68,14 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - Multiple backend instances can share REST traffic and receive cross-instance WS event fan-out through Redis.
 - For multi-instance voice/signaling, use sticky routing on `/ws` until voice session/control state is externalized.
 
+## Public Web Routes
+
+- On the web, `/` shows the landing page to signed-out visitors and redirects signed-in visitors to the application. Tauri keeps its existing login and application entry behavior, and the installed PWA keeps its `/` entry.
+- `/about` always shows the public landing page. `/compare` is a public comparison page. Neither route requires a legal acknowledgement or backend connection before rendering.
+- The in-app Settings menu opens `/about` in a new tab on web or in the system browser on desktop, without replacing the active app session.
+- Application routes such as `/social` and `/servers` remain behind session validation, legal-document acknowledgement, and the connection gate.
+- The production web server serves a distinct HTML entry for `/compare` so direct requests have the comparison page title, description, and canonical URL before JavaScript runs. Client-side navigation updates those tags as well.
+
 ---
 
 Last verified against code on 2026-05-09.

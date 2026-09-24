@@ -1,0 +1,123 @@
+.comparison-main {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+}
+
+.comparison-intro h1 {
+  margin: 10px 0 12px;
+  color: #fff;
+  font-size: clamp(32px, 4vw, 50px);
+  line-height: 1.15;
+}
+
+.comparison-intro > p:last-child {
+  margin: 0;
+  max-width: 760px;
+  color: #d4def0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.comparison-section {
+  margin-top: 38px;
+}
+
+.comparison-table-scroll {
+  overflow-x: auto;
+  border: 1px solid rgba(187, 205, 240, 0.2);
+  border-radius: 6px;
+}
+
+.comparison-table {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 19px 16px;
+  border-bottom: 1px solid rgba(187, 205, 240, 0.13);
+  vertical-align: top;
+  line-height: 1.4;
+  font-size: 14px;
+}
+
+.comparison-table tr:last-child > * {
+  border-bottom: 0;
+}
+
+.comparison-table thead {
+  background: #202b43;
+  color: #fff;
+}
+
+.comparison-table thead th:first-child,
+.comparison-table tbody th {
+  width: 19%;
+}
+
+.comparison-table tbody th {
+  color: #f3f7ff;
+}
+
+.comparison-table td {
+  width: 20.25%;
+  color: #d4def0;
+}
+
+.comparison-table tbody td:nth-child(2) {
+  background: rgba(112, 219, 190, 0.07);
+  color: #effff9;
+}
+
+.comparison-note,
+.comparison-sources p {
+  color: #a9b9d1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.comparison-note {
+  margin: 12px 0 0;
+}
+
+.comparison-sources {
+  margin-top: 30px;
+  color: #d4def0;
+  font-size: 13px;
+}
+
+.comparison-sources summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.comparison-sources ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comparison-sources a {
+  color: #96e6cf;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.comparison-page :is(a, summary, .comparison-table-scroll):focus-visible {
+  outline: 2px solid #a4e9d3;
+  outline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .comparison-main {
+    width: calc(100% - 28px);
+    padding: 28px 0 48px;
+  }
+}
