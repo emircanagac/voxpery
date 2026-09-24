@@ -25,7 +25,6 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] `Checks / Secret Scan`
 - [ ] `Checks / Backend`
 - [ ] `Checks / Frontend` (lint, unit tests, core UI smoke, build)
-- [ ] `Checks / Desktop Linux` passed on Ubuntu 22.04 for desktop source changes before tagging (release binary; packaging and signing still run on the tag).
 
 ## 2) Security and Release Gates (mandatory)
 
