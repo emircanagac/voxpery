@@ -5,12 +5,9 @@ import { releaseApi, type LatestReleaseResponse } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 import productPreviewUrl from '../assets/voxpery.png?url'
+import { DEPLOY_URL, PublicSiteFooter, PublicSiteHeader, RELEASE_URL } from './PublicSiteChrome'
+import { usePublicPageMetadata } from './publicPageMetadata'
 import '../styles/about.css'
-const REPO_URL = 'https://github.com/emircanagac/voxpery'
-const SECURITY_URL = `${REPO_URL}/blob/main/SECURITY.md`
-const RELEASE_URL = `${REPO_URL}/releases/latest`
-const CONTRIBUTORS_URL = `${REPO_URL}/graphs/contributors`
-const DEPLOY_URL = `${REPO_URL}/blob/main/docs/DEPLOYMENT.md`
 
 type DownloadPlatform = 'windows' | 'macos' | 'linux'
 type KnownPlatform = DownloadPlatform | 'unknown'
@@ -43,6 +40,11 @@ function formatReleaseDate(value: string | undefined): string | null {
 }
 
 export default function AboutPage() {
+  usePublicPageMetadata(
+    '/',
+    'Voxpery | Free Open-Source Discord Alternative',
+    'Voxpery is a free, open-source Discord alternative with community chat, voice, desktop apps, hosted access, and full self-hosting.',
+  )
   const isAuthenticated = useAuthStore((state) => Boolean(state.user))
   const platform = useMemo(() => detectPlatform(), [])
   const [releaseTag, setReleaseTag] = useState<string | null>(null)
@@ -79,43 +81,13 @@ export default function AboutPage() {
   const detectedDownload = platform !== 'unknown' ? downloads[platform] : null
   const primaryDownloadUrl = detectedDownload ?? releaseUrl
   const primaryDownloadLabel = platform === 'unknown' ? 'Download desktop app' : `Download for ${PLATFORM_LABELS[platform]}`
-  const loginRoute = isAuthenticated ? ROUTES.home : ROUTES.login
   const appEntryRoute = isAuthenticated ? ROUTES.home : ROUTES.register
   const appEntryLabel = isAuthenticated ? 'Open Voxpery' : 'Use Voxpery in browser'
   const releaseMeta = [releaseTag, releaseDate].filter(Boolean).join(' - ')
 
   return (
     <div className="about-page">
-      <header className="about-topbar">
-        <Link to={ROUTES.about} className="about-brand">
-          <img src="/1024.png" alt="Voxpery" width={28} height={28} />
-          <span>Voxpery</span>
-        </Link>
-
-        <nav className="about-topbar-nav" aria-label="Primary">
-          <a href={REPO_URL} target="_blank" rel="noreferrer" className="about-topbar-link">
-            Source
-          </a>
-          <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-topbar-link">
-            Self-host
-          </a>
-          <a href={releaseUrl} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
-            Releases
-          </a>
-          <a href={CONTRIBUTORS_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
-            Contributors
-          </a>
-          <a href={SECURITY_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">
-            Security
-          </a>
-        </nav>
-
-        <div className="about-topbar-actions">
-          <Link to={loginRoute} className="about-btn about-btn--login">
-            {isAuthenticated ? 'Go to app' : 'Login'}
-          </Link>
-        </div>
-      </header>
+      <PublicSiteHeader releaseUrl={releaseUrl} page="about" />
 
       <main className="about-main">
         <section className="about-hero">
@@ -185,15 +157,7 @@ export default function AboutPage() {
         </section>
       </main>
 
-      <footer className="about-footer">
-        <div className="about-footer-inner">
-          <nav className="about-footer-links" aria-label="Legal information">
-            <Link to={ROUTES.privacy}>Privacy Notice</Link>
-            <Link to={ROUTES.kvkk}>KVKK Notice</Link>
-            <Link to={ROUTES.terms}>Terms of Service</Link>
-          </nav>
-        </div>
-      </footer>
+      <PublicSiteFooter />
     </div>
   )
 }

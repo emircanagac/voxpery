@@ -3,6 +3,7 @@ export const APP_BASE_PATH = '/'
 export const ROUTES = {
   landing: APP_BASE_PATH,
   about: '/about' as const,
+  compare: '/compare' as const,
   home: '/social' as const,
   servers: '/servers' as const,
   dm: '/social/dm' as const,

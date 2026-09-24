@@ -10,8 +10,14 @@ import {
 
 async function installMockTauriRuntime(page: Page) {
   await page.addInitScript(() => {
+    const openedUrls: string[] = []
+    Object.assign(window, { __testOpenedUrls: openedUrls })
     const tauriInternals = {
-      invoke: async (cmd: string, args?: { payload?: { prefixedKey?: string } }) => {
+      invoke: async (cmd: string, args?: { payload?: { prefixedKey?: string }; url?: string }) => {
+        if (cmd === 'plugin:opener|open_url' && args?.url) {
+          openedUrls.push(args.url)
+          return null
+        }
         if (cmd === 'plugin:app|version') return '0.2.0-desktop-test'
         if (cmd === 'plugin:updater|check') return null
         if (cmd === 'plugin:autostart|is_enabled') return true
@@ -40,6 +46,43 @@ async function installMockTauriRuntime(page: Page) {
 }
 
 test.describe('mocked invite and desktop runtime regressions', () => {
+  test('keeps the desktop root on login when signed out', async ({ page }) => {
+    await installMockTauriRuntime(page)
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
+    await page.goto('/')
+
+    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.getByRole('heading', { name: 'Voxpery' })).toBeVisible()
+  })
+
+  test('keeps the desktop root in the app and public pages available separately', async ({ page }) => {
+    await installMockTauriRuntime(page)
+    await installMockCoreApi(page, createMockCoreState())
+    await page.goto('/')
+
+    await expect(page).toHaveURL(/\/social$/)
+    await page.goto('/about')
+    await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
+    await page.goto('/compare')
+    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
+  })
+
+  test('opens About Voxpery from Settings without leaving the web app', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    const [aboutTab] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.getByRole('button', { name: 'About Voxpery' }).click(),
+    ])
+    await expect(aboutTab).toHaveURL(/\/about$/)
+    await expect(aboutTab.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/social$/)
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+    await aboutTab.close()
+  })
+
   test('redirects unauthenticated invite visitors to login with the invite return path', async ({ page }) => {
     const state = createMockCoreState({ authenticated: false })
     await installMockCoreApi(page, state)
@@ -108,5 +151,11 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await expect(settingsModal).toContainText('Installed version: 0.2.0-desktop-test.')
     await expect(settingsModal).toContainText('Launch on startup')
     await expect(settingsModal).toContainText('Keep running in tray on close')
+
+    await settingsModal.getByRole('button', { name: 'About Voxpery' }).click()
+    await expect.poll(() => page.evaluate(() => (
+      window as Window & { __testOpenedUrls: string[] }
+    ).__testOpenedUrls)).toContain('https://voxpery.com/about')
+    await expect(page).toHaveURL(/\/social$/)
   })
 })
