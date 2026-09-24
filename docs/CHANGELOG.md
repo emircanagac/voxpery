@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.15] - 2026-09-24
 
 ### Changed
+- Limited pull-request CodeQL scans to changed language areas while retaining complete weekly and manual scans.
 - Clarified the Appearance settings hierarchy with separate base-theme and accent controls, compact impact labels, a live accent preview, and explicit global and accent reset actions.
 - Kept registered members in the official Voxpery community by removing its Leave Server action and rejecting direct leave requests; other servers can still be left.
 - Backfilled existing unbanned accounts into the official community and made Google sign-in require membership before access continues.

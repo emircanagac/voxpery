@@ -8,6 +8,8 @@ on:
       - 'apps/desktop/src-tauri/**'
       - 'apps/web/**'
       - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/scripts/**'
   schedule:
     - cron: '30 3 * * 1'
   workflow_dispatch:
@@ -25,8 +27,52 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  changed-languages:
+    name: Detect changed languages
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.select.outputs.rust }}
+      javascript: ${{ steps.select.outputs.javascript }}
+      actions: ${{ steps.select.outputs.actions }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select CodeQL languages
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            printf 'rust=true\njavascript=true\nactions=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          git diff --name-only -z "$merge_base" "$HEAD_SHA" > "$RUNNER_TEMP/codeql-changed-files"
+
+          rust=false
+          javascript=false
+          actions=false
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              apps/server/*|apps/desktop/src-tauri/*) rust=true ;;
+              apps/web/*|.github/scripts/*) javascript=true ;;
+              .github/workflows/*|.github/actions/*) actions=true ;;
+            esac
+          done < "$RUNNER_TEMP/codeql-changed-files"
+
+          printf 'rust=%s\njavascript=%s\nactions=%s\n' \
+            "$rust" "$javascript" "$actions" >> "$GITHUB_OUTPUT"
+
   analyze-rust:
     name: Analyze (rust)
+    needs: changed-languages
+    if: needs.changed-languages.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -48,6 +94,8 @@ jobs:
 
   analyze-js:
     name: Analyze (javascript-typescript)
+    needs: changed-languages
+    if: needs.changed-languages.outputs.javascript == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -66,6 +114,8 @@ jobs:
 
   analyze-actions:
     name: Analyze (actions)
+    needs: changed-languages
+    if: needs.changed-languages.outputs.actions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
