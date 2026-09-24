@@ -1,0 +1,53 @@
+name: Checks / Desktop Linux
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/src-tauri/**'
+      - '.github/workflows/desktop-linux-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-compile:
+    name: Checks / Desktop Linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Build web UI
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Compile Linux desktop release binary
+        working-directory: apps/desktop/src-tauri
+        run: cargo build --release --locked
