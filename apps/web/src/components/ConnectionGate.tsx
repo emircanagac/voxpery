@@ -59,7 +59,7 @@ export default function ConnectionGate({ children }: Props) {
             <div className="connection-gate-card">
                 {/* Fox logo */}
                 <div className="connection-gate-logo">
-                    <img src="/1024.png" alt="Voxpery" width={72} height={72} />
+                    <img src="/fox-animated.svg" alt="Voxpery" width={72} height={72} />
                 </div>
 
                 {/* Spinner */}

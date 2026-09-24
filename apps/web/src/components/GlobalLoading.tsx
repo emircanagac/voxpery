@@ -9,7 +9,7 @@ export default function GlobalLoading({ label = 'Loading…', description }: Glo
     <div className="connection-gate">
       <div className="connection-gate-card">
         <div className="connection-gate-logo">
-          <img src="/1024.png" alt="Voxpery" width={72} height={72} />
+          <img src="/fox-animated.svg" alt="Voxpery" width={72} height={72} />
         </div>
         <div className="connection-gate-spinner" />
         <h2 className="connection-gate-title">{label}</h2>

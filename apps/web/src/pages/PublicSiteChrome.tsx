@@ -10,11 +10,12 @@ export const DEPLOY_URL = `${REPO_URL}/blob/main/docs/DEPLOYMENT.md`
 
 export function PublicSiteHeader({ releaseUrl = RELEASE_URL, page }: { releaseUrl?: string; page: 'about' | 'compare' }) {
   const isAuthenticated = useAuthStore((state) => Boolean(state.user))
+  const isLanding = page === 'about'
 
   return (
     <header className="about-topbar">
       <Link to={ROUTES.about} className="about-brand">
-        <img src="/1024.png" alt="" width={28} height={28} />
+        <img src={isLanding ? '/fox-animated.svg' : '/1024.png'} alt="" width={isLanding ? 44 : 28} height={isLanding ? 44 : 28} />
         <span>Voxpery</span>
       </Link>
 

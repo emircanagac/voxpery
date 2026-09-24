@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="1200" viewBox="125 100 950 950" fill="none" role="img" aria-labelledby="vp-title vp-description">
+  <title id="vp-title">Voxpery — a little hello</title>
+  <desc id="vp-description">Voxpery's smiling orange fox gently nods, winks and sends out warm sound waves. A seamless eight-second animation on a transparent background. Reduced-motion preferences show a still logo.</desc>
+  <metadata>
+    Original fox artwork: Voxpery, https://github.com/emircanagac/voxpery
+    Reference: apps/web/public/1024.png, commit 6681e7d43e41a8cb69daefd9f0f798fda85d1ab5.
+    Hand-reconstructed vector adaptation and animation, 2026-09-23.
+    This is a gift adaptation, not an official brand release. Original artwork remains with its respective owner.
+  </metadata>
+  <defs>
+    <linearGradient id="vp-orange" x1="290" y1="174" x2="702" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff942b"/>
+      <stop offset=".51" stop-color="#fa7d1f"/>
+      <stop offset="1" stop-color="#f36a16"/>
+    </linearGradient>
+    <linearGradient id="vp-white" x1="512" y1="518" x2="512" y2="791" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f5f6f8"/>
+    </linearGradient>
+    <linearGradient id="vp-signal" x1="600" y1="402" x2="600" y2="669" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffbc70" stop-opacity=".15"/>
+      <stop offset=".5" stop-color="#ff953e"/>
+      <stop offset="1" stop-color="#ffbc70" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="vp-gleam" x1="0" y1="0" x2="240" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="skewX(18.435)">
+      <stop stop-color="#fff5df" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#fff5df" stop-opacity=".65"/>
+      <stop offset="1" stop-color="#fff5df" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vp-ground">
+      <stop stop-color="#f57d28" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#f57d28" stop-opacity="0"/>
+    </radialGradient>
+    <path id="vp-outline" d="M192 78C269 113 340 178 397 224Q512 184 626 224C691 163 765 108 833 78C868 199 858 326 817 424L893 584L828 615L870 659L667 768C629 839 565 905 512 940C459 905 395 839 357 768L154 659L196 615L131 584L207 424C165 308 159 181 192 78Z"/>
+    <path id="vp-coat" d="M214 127C280 168 337 215 393 263Q512 215 631 263C689 211 751 162 810 127C832 225 815 340 781 423L849 567L775 605L815 650L512 755L209 650L249 605L175 567L243 423C201 304 198 216 214 127Z"/>
+    <path id="vp-cheeks" d="M175 567C285 500 382 502 453 590C471 618 491 641 512 652C533 641 553 618 571 590C642 502 739 500 849 567L775 605L815 650C690 715 579 787 512 787C445 787 334 715 209 650L249 605Z"/>
+    <path id="vp-chin" d="M414 794Q512 848 613 793C581 838 545 875 512 898C478 875 443 838 414 794Z"/>
+    <clipPath id="vp-paint-clip">
+      <use xlink:href="#vp-coat"/>
+      <use xlink:href="#vp-cheeks"/>
+      <use xlink:href="#vp-chin"/>
+    </clipPath>
+  </defs>
+  <style>
+    /* One shared 8s cycle. The SVG needs no script, font or external image. */
+    .vp-fox{transform-origin:600px 640px;animation:vp-hello 8s ease-in-out infinite}
+    .vp-eye-left{transform-origin:381.5px 468px;animation:vp-blink 8s ease-in-out infinite}
+    .vp-eye-right{transform-origin:641.5px 468px;animation:vp-wink 8s ease-in-out infinite}
+    .vp-wave{opacity:0;transform-origin:600px 536px;animation:vp-voice 8s ease-in-out infinite}
+    .vp-wave-2{animation-delay:.18s}
+    .vp-wave-3{animation-delay:.36s}
+    .vp-shine{opacity:0;animation:vp-light 8s linear infinite}
+    .vp-spark{opacity:0;transform-origin:968px 236px;animation:vp-sparkle 8s ease-in-out infinite}
+    .vp-shadow{transform-origin:600px 1010px;animation:vp-grounding 8s ease-in-out infinite}
+    @keyframes vp-hello{
+      0%,8%,49%,100%{transform:translateY(0) rotate(0deg) scale(1)}
+      13%{transform:translateY(7px) rotate(0deg) scale(1.015,.985)}
+      22%{transform:translateY(-20px) rotate(-4deg) scale(.99,1.01)}
+      32%{transform:translateY(-10px) rotate(3deg) scale(1)}
+      41%{transform:translateY(0) rotate(-.8deg) scale(1)}
+      67%{transform:translateY(-6px) rotate(0deg) scale(1)}
+      84%{transform:translateY(0) rotate(0deg) scale(1)}
+    }
+    @keyframes vp-blink{
+      0%,68%,73%,100%{transform:scaleY(1)}
+      70%,71%{transform:scaleY(.12)}
+    }
+    @keyframes vp-wink{
+      0%,25%,34%,68%,73%,100%{transform:scaleY(1)}
+      28%,30%{transform:scaleY(.12)}
+      70%,71%{transform:scaleY(.12)}
+    }
+    @keyframes vp-voice{
+      0%,12%,50%,100%{opacity:0;transform:scaleX(.94)}
+      24%{opacity:.85;transform:scaleX(1)}
+      40%{opacity:0;transform:scaleX(1.05)}
+      58%{opacity:0;transform:scaleX(.96)}
+      68%{opacity:.4;transform:scaleX(1)}
+      83%{opacity:0;transform:scaleX(1.04)}
+    }
+    @keyframes vp-light{
+      0%,43%{opacity:0;transform:translateX(-600px)}
+      47%{opacity:.46;transform:translateX(-310px)}
+      63%{opacity:.46;transform:translateX(1030px)}
+      65%,100%{opacity:0;transform:translateX(1200px)}
+    }
+    @keyframes vp-sparkle{
+      0%,23%,44%,100%{opacity:0;transform:rotate(-30deg) scale(.35)}
+      29%{opacity:.9;transform:rotate(0deg) scale(1)}
+      35%{opacity:.4;transform:rotate(18deg) scale(.75)}
+    }
+    @keyframes vp-grounding{
+      0%,8%,49%,84%,100%{opacity:.8;transform:scaleX(1)}
+      13%{opacity:1;transform:scaleX(1.04)}
+      22%{opacity:.45;transform:scaleX(.88)}
+      32%{opacity:.6;transform:scaleX(.94)}
+      67%{opacity:.65;transform:scaleX(.97)}
+    }
+    @media(prefers-reduced-motion:reduce){
+      .vp-fox,.vp-eye-left,.vp-eye-right,.vp-wave,.vp-shine,.vp-spark,.vp-shadow{animation:none!important}
+      .vp-wave,.vp-shine,.vp-spark{opacity:0}
+    }
+  </style>
+  <g aria-hidden="true">
+    <ellipse class="vp-shadow" cx="600" cy="1010" rx="245" ry="28" fill="url(#vp-ground)"/>
+    <g transform="translate(120 0) scale(.8 1)" stroke="url(#vp-signal)" stroke-linecap="round">
+      <path class="vp-wave vp-wave-1" d="M205 474Q177 536 205 598M995 474Q1023 536 995 598" stroke-width="10"/>
+      <path class="vp-wave vp-wave-2" d="M158 438Q112 536 158 634M1042 438Q1088 536 1042 634" stroke-width="8"/>
+      <path class="vp-wave vp-wave-3" d="M109 407Q47 536 109 665M1091 407Q1153 536 1091 665" stroke-width="6"/>
+    </g>
+    <path class="vp-spark" d="M968 210Q973 231 994 236Q973 241 968 262Q963 241 942 236Q963 231 968 210Z" fill="#ffb35d"/>
+  </g>
+  <g class="vp-fox">
+    <g transform="translate(113.6 95.2) scale(.95)">
+      <use xlink:href="#vp-outline" fill="#08090a" stroke="#fff1df" stroke-opacity=".16" stroke-width="2" stroke-linejoin="round"/>
+      <use xlink:href="#vp-coat" fill="url(#vp-orange)"/>
+      <use xlink:href="#vp-chin" fill="url(#vp-orange)"/>
+      <use xlink:href="#vp-cheeks" fill="url(#vp-white)"/>
+      <g clip-path="url(#vp-paint-clip)">
+        <path class="vp-shine" d="M0 -60H240L600 1020H360Z" fill="url(#vp-gleam)"/>
+      </g>
+      <g fill="#08090a">
+        <path d="M241 197C280 224 319 258 349 292C316 314 288 344 267 374C242 324 234 259 241 197Z"/>
+        <path d="M783 197C744 224 705 258 675 292C708 314 736 344 757 374C782 324 790 259 783 197Z"/>
+      </g>
+      <g stroke="#08090a" stroke-width="34" stroke-linecap="round">
+        <path class="vp-eye-left" d="M345 472C345 424 418 424 418 472"/>
+        <path class="vp-eye-right" d="M605 472C605 424 678 424 678 472"/>
+      </g>
+      <path fill="#08090a" d="M452 598C448 574 481 572 512 572C543 572 576 574 572 598C568 616 545 641 525 651L525 694C568 691 602 679 615 650C621 635 630 631 640 638C653 646 650 658 643 670C621 708 571 728 512 728C453 728 403 708 381 670C374 658 371 646 384 638C394 631 403 635 409 650C422 679 456 691 499 694L499 651C479 641 456 616 452 598Z"/>
+    </g>
+  </g>
+</svg>

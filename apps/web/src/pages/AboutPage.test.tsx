@@ -37,6 +37,7 @@ describe('AboutPage', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Voxpery' }).querySelector('img')).toHaveAttribute('src', '/fox-animated.svg')
     expect(screen.getByText(/a discord alternative for communities/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
     expect(screen.getByRole('link', { name: /use voxpery in browser/i })).toHaveAttribute('href', '/register')

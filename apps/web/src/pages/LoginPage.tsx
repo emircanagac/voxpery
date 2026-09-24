@@ -105,7 +105,7 @@ export default function LoginPage() {
                     aria-label="Back to Voxpery"
                     title="Back to Voxpery"
                 >
-                    <img src="/1024.png" alt="" className="auth-logo" width={80} height={80} />
+                    <img src="/fox-animated.svg" alt="" className="auth-logo" width={80} height={80} />
                 </Link>
                 <h1>Voxpery</h1>
                 <p>Sign in and continue to your community</p>
