@@ -565,21 +565,23 @@ export default function ServerSidebar({
                             <Volume2 size={14} />
                             {mutedServerIds.includes(contextMenu.id) ? 'Unmute Server' : 'Mute Server'}
                         </button>
-                        <button
-                            type="button"
-                            className="server-context-menu-item danger"
-                            onClick={() => {
-                                setContextMenu(null)
-                                if (isOwner) {
-                                    setOwnerLeaveGuardServerId(contextMenu.id)
-                                    return
-                                }
-                                setLeaveServerConfirmId(contextMenu.id)
-                            }}
-                        >
-                            <LogOut size={14} />
-                            Leave Server
-                        </button>
+                        {server.invite_code !== 'voxpery' && (
+                            <button
+                                type="button"
+                                className="server-context-menu-item danger"
+                                onClick={() => {
+                                    setContextMenu(null)
+                                    if (isOwner) {
+                                        setOwnerLeaveGuardServerId(contextMenu.id)
+                                        return
+                                    }
+                                    setLeaveServerConfirmId(contextMenu.id)
+                                }}
+                            >
+                                <LogOut size={14} />
+                                Leave Server
+                            </button>
+                        )}
                     </div>
                 )
             })()}

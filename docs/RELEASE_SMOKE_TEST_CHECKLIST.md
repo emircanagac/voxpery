@@ -62,6 +62,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Connecting Google to an existing email/password account does not invalidate the existing local password.
 - [ ] Google OAuth login works.
 - [ ] Server/channel/category permission scenarios work.
+- [ ] The official Voxpery community has no Leave Server action and rejects a direct leave request; members can still leave another server. Existing unbanned accounts that previously left rejoin the official community on login.
 - [ ] Invite links show the target server, enforce community rules acknowledgement when rules exist, and join into the expected server.
 - [ ] Voice join/leave works.
 - [ ] `docs/VOICE_RELEASE_SMOKE_TEST.md` completed and recorded as `GO` for voice behavior when the release touches voice, LiveKit/WebRTC, camera, screen share, audio settings, service worker caching, desktop runtime, or build output.

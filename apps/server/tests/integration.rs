@@ -1084,6 +1084,91 @@ async fn default_voxpery_server_has_moderator_role_after_register() {
 }
 
 #[tokio::test]
+async fn official_community_cannot_be_left_but_other_servers_can() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let owner_id = Uuid::new_v4();
+    let (owner_token, _) = register_user(
+        &mut app,
+        &format!("community-owner-{owner_id}@example.com"),
+        &format!("community_owner_{}", owner_id.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let member_id = Uuid::new_v4();
+    let (member_token, member_user_id) = register_user(
+        &mut app,
+        &format!("community-member-{member_id}@example.com"),
+        &format!("community_member_{}", member_id.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+
+    let official_server_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM servers WHERE invite_code = 'voxpery'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/servers/{official_server_id}/leave"))
+        .header("Authorization", format!("Bearer {member_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let still_member: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)",
+    )
+    .bind(official_server_id)
+    .bind(member_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(still_member);
+
+    let (other_server_id, _, invite_code) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &format!("Bearer {owner_token}"),
+        &format!("Community leave test {owner_id}"),
+    )
+    .await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/servers/join")
+        .header("Authorization", format!("Bearer {member_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "invite_code": invite_code })).unwrap(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/servers/{other_server_id}/leave"))
+        .header("Authorization", format!("Bearer {member_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let still_member: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)",
+    )
+    .bind(other_server_id)
+    .bind(member_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(!still_member);
+}
+
+#[tokio::test]
 async fn create_server_list_servers_get_server() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

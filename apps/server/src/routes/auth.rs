@@ -1198,7 +1198,7 @@ async fn register(
 
 /// Default Voxpery server invite code.
 /// Users auto-join this official community server on register/login.
-const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
+pub(crate) const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
 // Keep in sync with routes/servers.rs seeding.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
