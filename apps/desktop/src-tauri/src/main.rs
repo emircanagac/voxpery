@@ -4,6 +4,7 @@ use image::{
     imageops::{crop_imm, overlay, resize, FilterType},
     ImageReader, RgbaImage,
 };
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
