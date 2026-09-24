@@ -19,7 +19,7 @@ pub fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|platform_webview| {
         let webview = platform_webview.inner();
 
-        if let Some(settings) = webview.settings() {
+        if let Some(settings) = WebViewExt::settings(&webview) {
             settings.set_enable_webrtc(true);
             settings.set_enable_media_stream(true);
         }

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backfilled existing unbanned accounts into the official community and made Google sign-in require membership before access continues.
 
 ### Fixed
+- Fixed the Linux desktop build by disambiguating WebKit settings access; platform-specific permission-settings helpers no longer warn on Linux.
 - Made ZIP attachments download from chat instead of opening an empty tab, including authenticated desktop blob URLs.
 - Kept channel categories and visible channels scoped to the selected server during rapid server switches so old server rows cannot flash into view.
 - Re-applied local deafen on LiveKit remote microphone mute-state events so a sender unmuting cannot re-enable playback for a deafened listener.
