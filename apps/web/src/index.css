@@ -7085,10 +7085,12 @@ body {
    ============================================ */
 
 .auth-page {
-  min-height: 100vh;
+  height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  overflow-y: auto;
+  padding: 24px 16px;
   background: var(--bg-primary);
   background-image:
     radial-gradient(ellipse at 20% 50%, rgba(79, 127, 216, 0.09) 0%, transparent 50%),
@@ -7096,6 +7098,8 @@ body {
 }
 
 .auth-card {
+  flex: 0 0 auto;
+  margin: auto 0;
   background: var(--bg-surface);
   border-radius: var(--border-radius-lg);
   padding: 32px;
