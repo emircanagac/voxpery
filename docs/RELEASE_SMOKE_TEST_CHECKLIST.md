@@ -46,7 +46,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## 3) Focused Interaction Regression Pass (when affected)
 
-- [ ] Signed-out `/` and signed-in `/about` show the landing page; signed-in `/` still opens the app. `/compare` opens directly and after refresh with its own title/canonical URL. `Open Voxpery` returns to the app and still enforces current legal acceptance. The desktop landing navigation fits without overflow, and the Contribute link opens the contribution guide.
+- [ ] Signed-out `/` and signed-in `/about` show the landing page; signed-in `/` still opens the app. `/compare` opens directly and after refresh with its own title/canonical URL. All three public routes keep the same logo size and header alignment. `Open Voxpery` returns to the app and still enforces current legal acceptance. The desktop landing navigation fits without overflow, and the Contribute link opens the contribution guide.
+- [ ] At 1366x768 and 800x600, login and registration keep the submit button, Google sign-in, and account-switch link reachable through vertical scrolling when necessary; the same controls remain reachable on mobile and in a resized desktop window.
 - [ ] From Settings, About Voxpery opens `/about` in a new web tab or `https://voxpery.com/about` in the desktop system browser without leaving the active app session.
 - [ ] While watching a remote screen share, open channel chat and Social/DM: the mini player remains in the upper-right without covering navigation, returns to the correct voice channel when opened, stops only the viewer subscription when closed, and disappears when the publisher stops or the viewer leaves voice. Repeat once at a narrow mobile viewport.
 - [ ] With at least 12 voice participants plus an active camera and screen share, desktop and mobile grids remain inside the viewport, preserve the shared-screen priority, and do not overlap the call bar or each other.

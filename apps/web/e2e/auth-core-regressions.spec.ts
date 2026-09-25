@@ -11,6 +11,77 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('keeps auth actions reachable in short desktop and mobile viewports', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({
+      authenticated: false,
+      features: { ...AUTH_FEATURES, google_oauth_enabled: true },
+    }))
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 800, height: 600 },
+      { width: 390, height: 667 },
+    ]) {
+      await page.setViewportSize(viewport)
+      for (const path of ['/login', '/register']) {
+        await page.goto(path)
+        const scroller = page.locator('.auth-page')
+        const card = page.locator('.auth-card')
+        const submit = card.getByRole('button', { name: path === '/login' ? 'Sign In' : 'Sign Up' })
+        const footer = card.locator('.auth-footer')
+
+        await expect(card).toBeVisible()
+        await expect.poll(async () => scroller.evaluate((element) => {
+          const cardTop = element.querySelector('.auth-card')?.getBoundingClientRect().top ?? -1
+          return cardTop >= -1 && element.scrollWidth <= element.clientWidth + 1
+        })).toBe(true)
+
+        await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight })
+        await expect(footer).toBeInViewport()
+        await expect(submit).toBeInViewport()
+        await expect(card.getByRole('link', { name: 'Continue with Google' })).toBeInViewport()
+      }
+    }
+  })
+
+  test('keeps the public header identical across landing and comparison routes', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 800, height: 600 },
+      { width: 390, height: 667 },
+    ]) {
+      await page.setViewportSize(viewport)
+      let baseline: unknown
+
+      for (const path of ['/', '/about', '/compare']) {
+        await page.goto(path)
+        const header = page.locator('.about-topbar')
+        await expect(header.getByRole('link', { name: 'Voxpery' })).toBeVisible()
+        await expect(header.getByRole('link', { name: 'Login' })).toBeVisible()
+        const geometry = await header.evaluate((element) => {
+          const rect = (selector: string) => {
+            const bounds = element.querySelector(selector)?.getBoundingClientRect()
+            return bounds && [bounds.x, bounds.y, bounds.width, bounds.height].map(Math.round)
+          }
+          const logo = element.querySelector<HTMLImageElement>('.about-brand img')
+          return {
+            header: [element.getBoundingClientRect().height],
+            brand: rect('.about-brand'),
+            logo: rect('.about-brand img'),
+            logoSource: logo?.getAttribute('src'),
+            navigation: rect('.about-topbar-nav'),
+            action: rect('.about-topbar-actions'),
+          }
+        })
+        if (baseline === undefined) baseline = geometry
+        else expect(geometry).toEqual(baseline)
+      }
+    }
+  })
+
   test('requires separate current legal acknowledgements before registration', async ({ page }) => {
     const state = createMockCoreState({
       authenticated: false,
