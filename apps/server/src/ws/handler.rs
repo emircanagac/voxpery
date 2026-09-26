@@ -1614,7 +1614,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                             } => {
                                 let target_id = target_user_id.unwrap_or(user_id);
 
-                                if target_id != user_id {
+                                // An omitted target updates personal controls; an explicit target updates server moderation.
+                                if target_user_id.is_some() {
                                     let Some(reason) = normalize_voice_moderation_reason(reason)
                                     else {
                                         continue;

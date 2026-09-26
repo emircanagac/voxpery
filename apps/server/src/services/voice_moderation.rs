@@ -61,6 +61,9 @@ pub async fn set_for_member(
     let Some((muted, deafened)) = current else {
         return Ok(None);
     };
+    if actor_id == target_user_id && ((next.muted && !muted) || (next.deafened && !deafened)) {
+        return Ok(None);
+    }
     if (muted != next.muted && !can_mute) || (deafened != next.deafened && !can_deafen) {
         return Ok(None);
     }

@@ -4813,6 +4813,61 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     assert_eq!(reconnected["data"]["server_muted"], true);
     assert_eq!(reconnected["data"]["server_deafened"], true);
 
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "target_user_id": target_user_id, "muted": false, "deafened": true,
+                "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let self_unmuted = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(self_unmuted["data"]["server_muted"], false);
+    assert_eq!(self_unmuted["data"]["server_deafened"], true);
+
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "target_user_id": target_user_id, "muted": true, "deafened": true,
+                "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2 AND role_id = $3")
+        .bind(server_id)
+        .bind(target_user_id)
+        .bind(target_admin_role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "target_user_id": target_user_id, "muted": false, "deafened": false,
+                "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+    let self_denied_flags: (bool, bool) = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(self_denied_flags, (false, true));
+
     let mut observer_request = format!("ws://{addr}/ws").into_client_request().unwrap();
     observer_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
@@ -4842,7 +4897,7 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     .fetch_one(&state.db)
     .await
     .unwrap();
-    assert_eq!(unauthorized_flags, (true, true));
+    assert_eq!(unauthorized_flags, (false, true));
 
     ws_stream
         .send(WsMessage::Text(
@@ -4873,15 +4928,15 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     .unwrap();
     assert_eq!(final_audit_count, 4);
     for _ in 0..40 {
-        if permission_updates.lock().await.len() >= 3 {
+        if permission_updates.lock().await.len() >= 4 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     let updates = permission_updates.lock().await;
-    assert_eq!(updates.len(), 3);
-    assert_eq!(updates[2]["permission"]["canPublish"], true);
-    assert_eq!(updates[2]["permission"]["canSubscribe"], true);
+    assert_eq!(updates.len(), 4);
+    assert_eq!(updates[3]["permission"]["canPublish"], true);
+    assert_eq!(updates[3]["permission"]["canSubscribe"], true);
     drop(updates);
 
     server_handle.abort();

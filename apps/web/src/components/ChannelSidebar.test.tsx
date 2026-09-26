@@ -309,6 +309,114 @@ describe('ChannelSidebar voice media presence', () => {
         expect(screen.getByText('Disconnect from voice')).toBeInTheDocument()
     })
 
+    it('opens a safe self participant menu without moderation permissions', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel, supportVoiceChannel],
+            members: [localMember],
+            voiceStates: { [localMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [localMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} onOpenDirectMessage={vi.fn()} canMoveMembers canDisconnectMembers />)
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'local-user in voice' }))
+
+        expect(screen.getByRole('group', { name: 'Voice actions for local-user' })).toBeVisible()
+        expect(screen.getByRole('button', { name: 'View profile (@local-user)' })).toBeVisible()
+        expect(screen.queryByText('Server moderation')).not.toBeInTheDocument()
+        expect(screen.queryByText('Your playback')).not.toBeInTheDocument()
+        expect(screen.queryByText('Send direct message')).not.toBeInTheDocument()
+        expect(screen.queryByText('Disconnect from voice')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Move local-user to voice channel')).not.toBeInTheDocument()
+    })
+
+    it('offers only permitted release actions for the current participant', () => {
+        const send = vi.fn()
+        useSocketStore.setState({ send })
+        const voiceControls = {
+            [localMember.user_id]: {
+                muted: true, deafened: true, serverMuted: true, serverDeafened: true,
+                screenSharing: false, cameraOn: false,
+            },
+        }
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel, supportVoiceChannel],
+            members: [localMember],
+            voiceStates: { [localMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [localMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} voiceControls={voiceControls} canMuteMembers canDeafenMembers canMoveMembers canDisconnectMembers />)
+        const participant = screen.getByRole('button', { name: 'local-user in voice' })
+        fireEvent.contextMenu(participant)
+        expect(screen.getByRole('button', { name: 'Unmute member (server)' })).toBeVisible()
+        expect(screen.getByRole('button', { name: 'Undeafen member (server)' })).toBeVisible()
+        expect(screen.queryByText('Mute member (server)')).not.toBeInTheDocument()
+        expect(screen.queryByText('Deafen member (server)')).not.toBeInTheDocument()
+        expect(screen.queryByText('Disconnect from voice')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Move local-user to voice channel')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Unmute member (server)' }))
+        expect(send).toHaveBeenCalledWith('SetVoiceControl', {
+            target_user_id: localMember.user_id,
+            muted: false, deafened: true, screen_sharing: false, camera_on: false,
+        })
+        fireEvent.contextMenu(participant)
+        fireEvent.click(screen.getByRole('button', { name: 'Undeafen member (server)' }))
+        expect(send).toHaveBeenCalledWith('SetVoiceControl', {
+            target_user_id: localMember.user_id,
+            muted: true, deafened: false, screen_sharing: false, camera_on: false,
+        })
+    })
+
+    it('opens and closes the self participant menu from the keyboard', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [localMember],
+            voiceStates: { [localMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [localMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} />)
+        const participant = screen.getByRole('button', { name: 'local-user in voice' })
+        participant.focus()
+        fireEvent.keyDown(participant, { key: 'F10', shiftKey: true })
+        expect(screen.getByRole('group', { name: 'Voice actions for local-user' })).toBeVisible()
+        expect(screen.getByRole('button', { name: 'View profile (@local-user)' })).toHaveFocus()
+        fireEvent.keyDown(window, { key: 'Escape' })
+        expect(screen.queryByRole('group', { name: 'Voice actions for local-user' })).not.toBeInTheDocument()
+        expect(participant).toHaveFocus()
+        fireEvent.keyDown(participant, { key: 'ContextMenu' })
+        expect(screen.getByRole('group', { name: 'Voice actions for local-user' })).toBeVisible()
+    })
+
+    it('does not offer self-undeafen without deafen permission', () => {
+        const voiceControls = {
+            [localMember.user_id]: {
+                muted: true, deafened: true, serverMuted: true, serverDeafened: true,
+                screenSharing: false, cameraOn: false,
+            },
+        }
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [localMember],
+            voiceStates: { [localMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [localMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} voiceControls={voiceControls} canMuteMembers />)
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'local-user in voice' }))
+        expect(screen.getByRole('button', { name: 'Unmute member (server)' })).toBeVisible()
+        expect(screen.queryByRole('button', { name: 'Undeafen member (server)' })).not.toBeInTheDocument()
+    })
+
     it('opens the shared profile dialog and its member actions from a voice participant context menu', () => {
         const onOpenDirectMessage = vi.fn()
         useAppStore.setState({

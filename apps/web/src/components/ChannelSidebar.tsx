@@ -113,6 +113,8 @@ export default function ChannelSidebar({
     )
     const menuRef = useRef<HTMLDivElement>(null)
     const participantMenuRef = useRef<HTMLDivElement>(null)
+    const participantMenuTriggerRef = useRef<HTMLDivElement | null>(null)
+    const participantMenuKeyboardRef = useRef(false)
     const sidebarRef = useRef<HTMLDivElement>(null)
     const sendWs = useSocketStore((s) => s.send)
     const dragPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -201,6 +203,29 @@ export default function ChannelSidebar({
         setParticipantMenu(null)
     }
 
+    const openParticipantMenu = (userId: string, username: string, channelId: string, y: number, trigger: HTMLDivElement, fromKeyboard: boolean) => {
+        const isSelf = userId === user?.id
+        const control = voiceControls[userId]
+        const moderationActions = isSelf
+            ? Number(!!canMuteMembers && !!control?.serverMuted) + Number(!!canDeafenMembers && !!control?.serverDeafened)
+            : Number(!!canMuteMembers) + Number(!!canDeafenMembers) + Number(!!canDisconnectMembers)
+        const estimatedWidth = 208
+        const estimatedHeight = (isSelf ? 48 : 234) + (moderationActions > 0 ? 54 + moderationActions * 32 : 0)
+        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
+        const preferredX = sidebarRect ? sidebarRect.left + (sidebarRect.width - estimatedWidth) / 2 : trigger.getBoundingClientRect().left
+        const pos = clampSidebarMenuPosition(preferredX, y, estimatedWidth, estimatedHeight)
+        participantMenuTriggerRef.current = trigger
+        participantMenuKeyboardRef.current = fromKeyboard
+        closeAllContextMenus()
+        setParticipantMenu({ userId, username, channelId, x: pos.x, y: pos.y })
+    }
+
+    useEffect(() => {
+        if (participantMenu && participantMenuKeyboardRef.current) {
+            participantMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+        }
+    }, [participantMenu])
+
     useEffect(() => {
         if (!contextMenu && !participantMenu && !categoryMenu && !createMenu && !profileCard) return
         const close = () => {
@@ -211,7 +236,13 @@ export default function ChannelSidebar({
         }
         window.addEventListener('click', close)
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setProfileCard(null)
+            if (event.key === 'Escape') {
+                if (participantMenu) {
+                    setParticipantMenu(null)
+                    participantMenuTriggerRef.current?.focus()
+                }
+                setProfileCard(null)
+            }
         }
         window.addEventListener('keydown', onKeyDown)
         window.addEventListener('scroll', close, true)
@@ -621,29 +652,19 @@ export default function ChannelSidebar({
                                                     <div
                                                         key={vm.user_id}
                                                         className="voice-participant"
+                                                        role="button"
                                                         tabIndex={0}
                                                         aria-label={`${vm.username} in voice`}
+                                                        aria-description="Press Enter for voice actions"
                                                         onContextMenu={(e) => {
                                                             e.preventDefault()
-                                                            if (user?.id === vm.user_id) {
-                                                                setParticipantMenu(null)
-                                                                return
-                                                            }
-                                                            const estimatedWidth = 208
-                                                            const moderationActions =
-                                                                (canMuteMembers ? 1 : 0)
-                                                                + (canDeafenMembers ? 1 : 0)
-                                                                + (canDisconnectMembers ? 1 : 0)
-                                                            const estimatedHeight = 234 + (moderationActions > 0
-                                                                ? 54 + moderationActions * 32
-                                                                : 0)
-                                                            const sidebarRect = sidebarRef.current?.getBoundingClientRect()
-                                                            const preferredX = sidebarRect
-                                                                ? sidebarRect.left + (sidebarRect.width - estimatedWidth) / 2
-                                                                : e.clientX
-                                                            const pos = clampSidebarMenuPosition(preferredX, e.clientY, estimatedWidth, estimatedHeight)
-                                                            closeAllContextMenus()
-                                                            setParticipantMenu({ userId: vm.user_id, username: vm.username, channelId: ch.id, x: pos.x, y: pos.y })
+                                                            openParticipantMenu(vm.user_id, vm.username, ch.id, e.clientY, e.currentTarget, false)
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey) && e.key !== 'Enter' && e.key !== ' ') return
+                                                            e.preventDefault()
+                                                            e.stopPropagation()
+                                                            openParticipantMenu(vm.user_id, vm.username, ch.id, e.currentTarget.getBoundingClientRect().bottom, e.currentTarget, true)
                                                         }}
                                                     >
                                                         <div className={`voice-participant-avatar ${isSpeaking ? 'is-speaking' : ''}`}>
@@ -871,12 +892,15 @@ export default function ChannelSidebar({
                 const moveDestinationChannels = visibleChannels.filter(
                     (channel) => channel.channel_type === 'voice' && channel.id !== participantMenu.channelId,
                 )
-                const canMoveTarget = canMoveMembers && moveDestinationChannels.length > 0
-                if (isSelf) return null
+                const canMoveTarget = !isSelf && canMoveMembers && moveDestinationChannels.length > 0
+                const canReleaseOwnMute = isSelf && canMuteMembers && !!targetVoice.serverMuted
+                const canReleaseOwnDeafen = isSelf && canDeafenMembers && !!targetVoice.serverDeafened
                 return (
                     <div
                         ref={participantMenuRef}
                         className="server-context-menu member-context-menu member-volume-menu"
+                        role="group"
+                        aria-label={`Voice actions for ${participantMenu.username}`}
                         style={{ left: participantMenu.x, top: participantMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -893,7 +917,7 @@ export default function ChannelSidebar({
                                 View profile (@{participantMenu.username})
                             </button>
                         )}
-                        {onOpenDirectMessage && (
+                        {!isSelf && onOpenDirectMessage && (
                             <>
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--personal">
                                     <MessageCircle size={12} />
@@ -912,7 +936,7 @@ export default function ChannelSidebar({
                                 </button>
                             </>
                         )}
-                        {!isSelf && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers) && (
+                        {(canReleaseOwnMute || canReleaseOwnDeafen || (!isSelf && (canMuteMembers || canDeafenMembers || canMoveTarget || canDisconnectMembers))) && (
                             <>
                                 <div className="member-volume-menu-divider" />
                                 <div className="member-volume-menu-section-label member-volume-menu-section-label--moderation">
@@ -922,14 +946,14 @@ export default function ChannelSidebar({
                                 <div className="member-volume-menu-section-hint">Affects everyone in this server</div>
                             </>
                         )}
-                        {!isSelf && canMuteMembers && (
+                        {canMuteMembers && (!isSelf || canReleaseOwnMute) && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
                                 onClick={() => {
                                     sendWs('SetVoiceControl', {
                                         target_user_id: participantMenu.userId,
-                                        muted: !(targetVoice.serverMuted ?? false),
+                                        muted: isSelf ? false : !(targetVoice.serverMuted ?? false),
                                         deafened: targetVoice.serverDeafened ?? false,
                                         screen_sharing: !!targetVoice.screenSharing,
                                         camera_on: !!targetVoice.cameraOn,
@@ -943,7 +967,7 @@ export default function ChannelSidebar({
                                 </span>
                             </button>
                         )}
-                        {!isSelf && canDeafenMembers && (
+                        {canDeafenMembers && (!isSelf || canReleaseOwnDeafen) && (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
@@ -951,7 +975,7 @@ export default function ChannelSidebar({
                                     sendWs('SetVoiceControl', {
                                         target_user_id: participantMenu.userId,
                                         muted: targetVoice.serverMuted ?? false,
-                                        deafened: !(targetVoice.serverDeafened ?? false),
+                                        deafened: isSelf ? false : !(targetVoice.serverDeafened ?? false),
                                         screen_sharing: !!targetVoice.screenSharing,
                                         camera_on: !!targetVoice.cameraOn,
                                     })
@@ -1008,8 +1032,8 @@ export default function ChannelSidebar({
                             </button>
                         )}
 
-                        <div className="member-volume-menu-divider" />
-                        <div className="server-context-menu-item member-volume-menu-control">
+                        {!isSelf && <div className="member-volume-menu-divider" />}
+                        {!isSelf && <div className="server-context-menu-item member-volume-menu-control">
                             <div className="member-volume-menu-section-label member-volume-menu-section-label--personal">
                                 <Volume2 size={12} />
                                 Your playback
@@ -1027,7 +1051,7 @@ export default function ChannelSidebar({
                                 onChange={(e) => savePeerVolume(participantMenu.userId, Number(e.target.value))}
                                 className="member-volume-menu-slider"
                             />
-                        </div>
+                        </div>}
                     </div>
                 )
             })()}
