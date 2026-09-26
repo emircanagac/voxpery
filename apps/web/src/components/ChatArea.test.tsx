@@ -225,6 +225,7 @@ describe('ChatArea regressions', () => {
     scrollToIndex.mockClear()
     const scroller = container.querySelector('.chat-messages') as HTMLDivElement
     scroller.scrollTop = 72
+    fireEvent.wheel(scroller, { deltaY: -100 })
     fireEvent.scroll(scroller)
 
     expect(onLoadOlder).toHaveBeenCalledOnce()
@@ -680,7 +681,11 @@ describe('ChatArea regressions', () => {
   })
 
   it('keeps the download filename when desktop resolves an attachment to a blob URL', async () => {
-    vi.spyOn(api, 'resolveAttachmentUrl').mockResolvedValue('blob:desktop-archive')
+    const resolve = vi.spyOn(api, 'resolveAttachmentUrl').mockResolvedValue('blob:desktop-archive')
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.href).toBe('blob:desktop-archive')
+      expect(this.download).toBe('desktop.zip')
+    })
     renderChatArea({
       messages: [{
         ...message('message-desktop-archive', 'desktop archive', 0),
@@ -693,8 +698,30 @@ describe('ChatArea regressions', () => {
     })
 
     const link = await screen.findByRole('link', { name: 'desktop.zip' })
-    await waitFor(() => expect(link).toHaveAttribute('href', 'blob:desktop-archive'))
+    expect(resolve).not.toHaveBeenCalled()
+    fireEvent.click(link)
+    fireEvent.click(link)
+    await screen.findByText('Download started')
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(download).toHaveBeenCalledTimes(1)
     expect(link).toHaveAttribute('download', 'desktop.zip')
+  })
+
+  it('shows failed downloads and allows retrying', async () => {
+    const resolve = vi.spyOn(api, 'resolveAttachmentUrl')
+      .mockRejectedValueOnce(new Error('Network failure'))
+      .mockResolvedValueOnce('blob:retry-archive')
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    renderChatArea({ messages: [{
+      ...message('archive-retry', 'archive', 0),
+      attachments: [{ url: 'https://api.example.test/retry.zip', type: 'application/zip', name: 'retry.zip' }],
+    }] })
+    const link = await screen.findByRole('link', { name: 'retry.zip' })
+    fireEvent.click(link)
+    await screen.findByText('Download failed. Click to retry.')
+    fireEvent.click(link)
+    await screen.findByText('Download started')
+    expect(resolve).toHaveBeenCalledTimes(2)
   })
 
   it('renders reactions after inline media and attachments', async () => {

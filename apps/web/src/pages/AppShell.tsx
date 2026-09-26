@@ -97,6 +97,8 @@ export default function AppShell() {
   )
   const navigate = useNavigate()
   const location = useLocation()
+  const currentPathnameRef = useRef(location.pathname)
+  currentPathnameRef.current = location.pathname
   const pushToast = useToastStore((s) => s.pushToast)
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
@@ -456,7 +458,6 @@ export default function AppShell() {
           const channelType = payload?.channel_type
           const incomingMessage = payload?.message
           const authorId = incomingMessage?.author?.user_id
-          const isSocialWithVisibleDm = isSocialDmViewVisible(location.pathname)
           if (!channelId || channelType !== 'dm') return
           if (authorId && authorId === userId) return
 
@@ -511,8 +512,8 @@ export default function AppShell() {
             setDmChannelIds(nextChannels.map((c) => c.id))
 
             const canAutoReadActiveDm =
-              isSocialWithVisibleDm
-              && activeDmChannelId === channel.id
+              isSocialDmViewVisible(currentPathnameRef.current)
+              && useAppStore.getState().activeDmChannelId === channel.id
               && !isAppBackgrounded()
 
             if (canAutoReadActiveDm) {

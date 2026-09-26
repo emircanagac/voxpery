@@ -45,6 +45,7 @@ test.describe('attachment and server-switch release regressions', () => {
     const download = await downloadPromise
     expect(download.suggestedFilename()).toBe('notes.zip')
     expect(Buffer.compare(await readFile(await download.path()), archive)).toBe(0)
+    await expect(page.getByRole('status').filter({ hasText: 'Download started' })).toBeVisible()
   })
 
   test('never paints the previous server categories after a switch', async ({ page }) => {

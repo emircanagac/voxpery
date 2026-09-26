@@ -340,6 +340,108 @@ async fn register_user(
     (token, user_id)
 }
 
+#[tokio::test]
+async fn dm_history_paginates_timestamp_ties_without_changing_read_state() {
+    if test_db_url().is_none() {
+        eprintln!("SKIP: database is not configured");
+        return;
+    }
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("history-{suffix}@example.com"),
+        &format!("history{}", &suffix[..8]),
+        test_credential("dm-history"),
+    )
+    .await;
+    let channel_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO dm_channels (id) VALUES ($1)")
+        .bind(channel_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO dm_channel_members (channel_id, user_id) VALUES ($1, $2)")
+        .bind(channel_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let mut ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    ids.sort();
+    for id in ids {
+        sqlx::query("INSERT INTO dm_messages (id, channel_id, user_id, content, created_at) VALUES ($1, $2, $3, 'history fixture', '2026-01-01T00:00:00Z')")
+            .bind(id).bind(channel_id).bind(user_id).execute(&state.db).await.unwrap();
+    }
+    for (cursor, expected) in [(None, vec![ids[1], ids[2]]), (Some(ids[1]), vec![ids[0]])] {
+        let uri = format!(
+            "/api/dm/messages/{channel_id}?limit=2{}",
+            cursor.map(|id| format!("&before={id}")).unwrap_or_default()
+        );
+        let (status, body) = oneshot(
+            &mut app,
+            Request::builder()
+                .uri(uri)
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let rows: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        let actual: Vec<Uuid> = rows
+            .iter()
+            .map(|row| Uuid::parse_str(row["id"].as_str().unwrap()).unwrap())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+    let read_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM dm_channel_reads WHERE channel_id = $1 AND user_id = $2",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(read_count, 0, "Fetching history must not mark a DM read");
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/dm/channels/{channel_id}/read"))
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder()
+            .uri(format!(
+                "/api/dm/messages/{channel_id}?before={}&limit=2",
+                ids[1]
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let last_read: Uuid = sqlx::query_scalar(
+        "SELECT last_read_message_id FROM dm_channel_reads WHERE channel_id = $1 AND user_id = $2",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        last_read, ids[2],
+        "Older history must not move the read marker backward"
+    );
+}
+
 async fn create_server_with_default_text_channel(
     app: &mut axum::Router,
     state: &AppState,

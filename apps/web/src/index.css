@@ -2856,13 +2856,8 @@ body {
   padding: 16px 24px 10px;
 }
 
-.modal.user-settings-modal--profile {
-  height: min(94vh, 780px);
-  max-height: 94vh;
-}
-
 .user-settings-modal--profile .user-settings-scroll {
-  padding: 14px 24px 12px;
+  padding: 10px 24px 8px;
 }
 
 .user-settings-modal--profile .user-settings-footer {
@@ -3105,8 +3100,8 @@ body {
 .user-profile-fields {
   display: grid;
   gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
 }
 
@@ -3190,9 +3185,13 @@ body {
   margin-bottom: 8px;
 }
 
+.user-settings-section--profile {
+  margin-bottom: 0;
+}
+
 .user-settings-section--profile > .user-setting-row {
   margin-bottom: 5px;
-  padding: 8px 12px;
+  padding: 6px 12px;
 }
 
 .profile-status-btn {
@@ -9664,6 +9663,23 @@ a.community-open-btn:hover {
   border: var(--border-subtle);
   border-radius: var(--border-radius-sm);
   padding: 4px 6px;
+}
+
+.chat-file-download {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.chat-file-download-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.chat-file-download-status:empty {
+  display: none;
 }
 
 .chat-image-link {

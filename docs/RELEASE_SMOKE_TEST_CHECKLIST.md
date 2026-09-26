@@ -6,6 +6,16 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
+### Chat state regression checks (#361)
+
+- [ ] Download a ZIP in channel chat and DM: inline progress/start feedback appears; rapid repeated clicks do not create duplicate downloads. Simulate a failed request and retry. Confirm the actual file in the browser/desktop downloads folder (start feedback is not completion confirmation).
+- [ ] Switch all Settings tabs at desktop and small-window sizes: the outer dialog height remains stable and content can scroll when necessary.
+- [ ] Open a DM with more than 50 messages and scroll upward through multiple pages without jumping to the bottom or skipping messages.
+- [ ] Return to a previously read DM/channel, including after switching servers: normal entry shows the latest messages. Explicit notification/history jumps still show their target.
+- [ ] Receive a DM while it is open, and while the app is backgrounded: unread clears when viewing/returning to the conversation, not when merely prefetching or loading older messages.
+
+### Candidate details
+
 - Version:
 - Commit SHA:
 - Git ref / tag:

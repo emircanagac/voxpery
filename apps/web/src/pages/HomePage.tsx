@@ -274,6 +274,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [storeServers],
   )
   const [dmMessages, setDmMessages] = useState<UiDmMessage[]>([])
+  const [dmHasMoreOlder, setDmHasMoreOlder] = useState(false)
+  const [dmLoadingOlder, setDmLoadingOlder] = useState(false)
+  const dmOlderRequestRef = useRef<object | null>(null)
+  const activeDmUnread = useAppStore((state) => activeDmChannelId ? state.dmUnread[activeDmChannelId] ?? 0 : 0)
+  const latestDmMessageId = dmMessages.at(-1)?.id
   const [dmUnreadDividerCount, setDmUnreadDividerCount] = useState(0)
   const [dmConversationReady, setDmConversationReady] = useState(false)
   const [dmConversationRefreshedChannelId, setDmConversationRefreshedChannelId] = useState<string | null>(null)
@@ -289,7 +294,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const dmMessagesByChannelRef = useRef<Record<string, UiDmMessage[]>>({})
   const activeDmChannelIdRef = useRef(activeDmChannelId)
   const pendingDmMessageFingerprintsRef = useRef(new Set<string>())
-  const isDmConversationVisibleRef = useRef(isDmConversationVisible)
   const dmMessagesRequestRef = useRef(0)
   const socialContextMenuTriggerRef = useRef<HTMLElement | null>(null)
   const socialSidebarRef = useRef<HTMLElement | null>(null)
@@ -305,7 +309,6 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     saveMessageDraft(userId, 'dm', activeDmChannelId, value)
   }, [activeDmChannelId, userId])
   useEffect(() => { activeDmChannelIdRef.current = activeDmChannelId }, [activeDmChannelId])
-  useEffect(() => { isDmConversationVisibleRef.current = isDmConversationVisible }, [isDmConversationVisible])
   useEffect(() => {
     const anchor = pendingDmNotificationAnchorRef.current
     if (!anchor || !activeDmChannelId || anchor.channelId === activeDmChannelId) return
@@ -474,6 +477,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
     if (!user || !userId) return
     const requestId = ++dmMessagesRequestRef.current
+    dmOlderRequestRef.current = null
+    setDmLoadingOlder(false)
+    setDmHasMoreOlder(false)
     const cached = cachedDmMessages(channelId)
     const waitsForNotificationAnchor = pendingDmNotificationAnchorRef.current?.channelId === channelId
     setDmConversationRefreshedChannelId((current) => current === channelId ? null : current)
@@ -485,6 +491,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       rememberDmMessages(channelId, merged)
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmMessages(merged)
+        setDmHasMoreOlder(ui.length === 50)
         setDmConversationReady(true)
         setDmConversationRefreshedChannelId(channelId)
       }
@@ -504,6 +511,54 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       }
     }
   }, [cachedDmMessages, rememberDmMessages, token, user, userId, setActiveDmChannelId, setView])
+
+  const loadOlderDmMessages = useCallback(async () => {
+    const channelId = activeDmChannelId
+    const before = dmMessages.find((message) => !message.clientStatus)?.id
+    if (!channelId || !before || !dmHasMoreOlder || dmOlderRequestRef.current) return
+    const request = {}
+    const generation = dmMessagesRequestRef.current
+    dmOlderRequestRef.current = request
+    setDmLoadingOlder(true)
+    try {
+      const rows = await dmApi.listMessages(channelId, token, before)
+      if (generation !== dmMessagesRequestRef.current || activeDmChannelIdRef.current !== channelId) return
+      setDmMessages((current) => {
+        const ids = new Set(current.map((message) => message.id))
+        const next = [...rows.filter((message) => !ids.has(message.id)), ...current]
+        rememberDmMessages(channelId, next)
+        return next
+      })
+      setDmHasMoreOlder(rows.length === 50)
+    } catch (error) {
+      if (generation === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
+        pushToast({ level: 'error', title: 'History could not load', message: error instanceof Error ? error.message : 'Try loading older messages again.' })
+      }
+    } finally {
+      if (dmOlderRequestRef.current === request) {
+        dmOlderRequestRef.current = null
+        setDmLoadingOlder(false)
+      }
+    }
+  }, [activeDmChannelId, dmMessages, dmHasMoreOlder, token, rememberDmMessages, pushToast])
+
+  useEffect(() => {
+    if (!user || !activeDmChannelId || !isDmConversationVisible || !dmConversationReady
+      || dmConversationRefreshedChannelId !== activeDmChannelId) return
+    const channelId = activeDmChannelId
+    const syncRead = () => {
+      if (isAppBackgrounded() || pendingDmNotificationAnchorRef.current?.channelId === channelId) return
+      clearDmUnread(channelId)
+      void dmApi.markRead(channelId, token).catch(() => {})
+    }
+    syncRead()
+    window.addEventListener('focus', syncRead)
+    document.addEventListener('visibilitychange', syncRead)
+    return () => {
+      window.removeEventListener('focus', syncRead)
+      document.removeEventListener('visibilitychange', syncRead)
+    }
+  }, [activeDmChannelId, activeDmUnread, clearDmUnread, dmConversationReady, dmConversationRefreshedChannelId, isDmConversationVisible, latestDmMessageId, token, user])
 
   useEffect(() => {
     if (!user || !activeDmChannelId) {
@@ -683,17 +738,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         rememberDmMessages(channelId, next)
         return next
       })
-      const notificationAnchor = pendingDmNotificationAnchorRef.current
-      const isWaitingForNotificationAnchor = notificationAnchor?.channelId === channelId
-      if (isDmConversationVisibleRef.current && !isAppBackgrounded() && !isWaitingForNotificationAnchor) {
-        clearDmUnread(channelId)
-        void dmApi.markRead(channelId, token).catch(() => {
-          // Best-effort read sync; the next conversation refresh will reconcile.
-        })
-      }
     })
     return () => unsub()
-  }, [clearDmUnread, rememberDmMessages, subscribe, token, user?.id])
+  }, [rememberDmMessages, subscribe, user?.id])
 
   // Keep friends list and DM channel peer status in sync with PresenceUpdate (online/offline)
   useEffect(() => {
@@ -1552,6 +1599,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
+                hasMoreOlder={!dmSearch.trim() && dmHasMoreOlder}
+                loadingOlder={dmLoadingOlder}
+                onLoadOlder={loadOlderDmMessages}
                 loading={dmSearch.trim()
                   ? dmSearchResults === null
                   : (!dmConversationReady || isNotificationHistoryPending)
