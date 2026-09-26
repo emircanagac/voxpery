@@ -803,6 +803,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         }
                         Err(_) => break,
                     };
+                    let is_own_voice_event = matches!(
+                        &event,
+                        WsEvent::VoiceStateUpdate { user_id: affected_user_id, .. }
+                            | WsEvent::VoiceControlUpdate { user_id: affected_user_id, .. }
+                            if *affected_user_id == user_id
+                    );
                     let should_send = match &event {
                         WsEvent::NewMessage {
                             channel_id,
@@ -863,7 +869,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         .copied()
                                         .unwrap_or(0)
                                         > 0;
-                                    if subscribed_to_server {
+                                    if is_own_voice_event || subscribed_to_server {
                                         true
                                     } else {
                                         // Voice participants should continue receiving voice state/control

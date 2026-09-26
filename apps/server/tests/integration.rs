@@ -4625,6 +4625,8 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         ))
         .await
         .unwrap();
+    let left_state = receive_ws_event(&mut target_ws, "VoiceStateUpdate").await;
+    assert!(left_state["data"]["channel_id"].is_null());
     let left = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
     assert_eq!(left["data"]["server_muted"], false);
     let (response, grant) = voice_token_grant(&mut app, &target_auth, voice_channel_id).await;
