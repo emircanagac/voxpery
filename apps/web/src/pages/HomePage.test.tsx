@@ -81,12 +81,18 @@ vi.mock('../components/ChatArea', () => ({
     messageInput,
     jumpToMessageId,
     onJumpToMessageHandled,
+    hasMoreOlder,
+    loadingOlder,
+    onLoadOlder,
   }: {
     loading?: boolean
     messages: unknown[]
     messageInput: string
     jumpToMessageId?: string | null
     onJumpToMessageHandled?: () => void
+    hasMoreOlder?: boolean
+    loadingOlder?: boolean
+    onLoadOlder?: () => void
   }) => (
     <div
       data-testid="dm-chat"
@@ -96,6 +102,7 @@ vi.mock('../components/ChatArea', () => ({
       data-jump-message-id={jumpToMessageId ?? ''}
     >
       DM chat
+      {hasMoreOlder && <button disabled={loadingOlder} onClick={onLoadOlder}>Load older</button>}
       {jumpToMessageId ? (
         <button type="button" onClick={onJumpToMessageHandled}>Complete notification jump</button>
       ) : null}
@@ -552,6 +559,38 @@ describe('HomePage friends list', () => {
 
     expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
     expect(apiMocks.markDmRead).not.toHaveBeenCalled()
+  })
+
+  it('loads older DM pages using the oldest message and stops at the end', async () => {
+    const channel = dmChannel('dm-history')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    useAppStore.setState({ activeDmChannelId: channel.id, dmChannels: [channel], dmChannelIds: [channel.id], socialDataReady: true })
+    const latest = Array.from({ length: 50 }, (_, index) => dmMessage(`message-${index}`, channel.id))
+    apiMocks.listDmMessages.mockResolvedValueOnce(latest).mockResolvedValueOnce([dmMessage('older', channel.id), latest[0]])
+    renderHomePage(ROUTES.dm)
+    const load = await screen.findByRole('button', { name: 'Load older' })
+    fireEvent.click(load)
+    await waitFor(() => expect(screen.getByTestId('dm-chat')).toHaveAttribute('data-message-count', '51'))
+    expect(apiMocks.listDmMessages).toHaveBeenLastCalledWith(channel.id, null, latest[0].id)
+    expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument()
+  })
+
+  it('clears unread messages when returning focus to an already open DM', async () => {
+    const channel = dmChannel('dm-focus')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    useAppStore.setState({ activeDmChannelId: channel.id, dmChannels: [channel], dmChannelIds: [channel.id], socialDataReady: true })
+    apiMocks.listDmMessages.mockResolvedValue([dmMessage('latest', channel.id)])
+    backgroundMocks.isAppBackgrounded.mockReturnValue(true)
+    renderHomePage(ROUTES.dm)
+    await waitFor(() => expect(screen.getByTestId('dm-chat')).toHaveAttribute('data-loading', 'false'))
+    act(() => useAppStore.setState({ dmUnread: { [channel.id]: 1 } }))
+    expect(apiMocks.markDmRead).not.toHaveBeenCalled()
+    backgroundMocks.isAppBackgrounded.mockReturnValue(false)
+    fireEvent.focus(window)
+    await waitFor(() => expect(apiMocks.markDmRead).toHaveBeenCalledWith(channel.id, null))
+    expect(useAppStore.getState().dmUnread[channel.id]).toBe(0)
   })
 
   it('prefetches DM history on hover and reuses the in-flight request on open', async () => {

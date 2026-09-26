@@ -9,6 +9,23 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked release and settings regressions', () => {
+  test('keeps the settings frame stable across tabs', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const modal = page.locator('.user-settings-modal')
+    await modal.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished))
+    })
+    const initial = await modal.boundingBox()
+    for (const tab of ['Appearance', 'Communication', 'Voice & Audio', 'Privacy & Data', 'Profile']) {
+      await modal.getByRole('button', { name: tab, exact: true }).click()
+      const box = await modal.boundingBox()
+      expect(box?.height).toBeCloseTo(initial!.height, 0)
+      expect(box?.y).toBeCloseTo(initial!.y, 0)
+    }
+  })
   test('shows the beta channel and build version in a single brand badge', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)

@@ -605,8 +605,8 @@ async fn get_dm_messages(
                FROM dm_messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
-                 AND m.created_at < (SELECT created_at FROM dm_messages WHERE id = $2)
-               ORDER BY m.created_at DESC
+                 AND (m.created_at, m.id) < (SELECT created_at, id FROM dm_messages WHERE id = $2 AND channel_id = $1)
+               ORDER BY m.created_at DESC, m.id DESC
                LIMIT $3"#,
         )
         .bind(channel_id)
@@ -621,7 +621,7 @@ async fn get_dm_messages(
                FROM dm_messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
-               ORDER BY m.created_at DESC
+               ORDER BY m.created_at DESC, m.id DESC
                LIMIT $2"#,
         )
         .bind(channel_id)
@@ -633,10 +633,6 @@ async fn get_dm_messages(
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;
     hydrate_dm_attachments(&state, &mut result).await?;
-    if let Some(last) = result.last() {
-        mark_dm_read(&state, channel_id, claims.sub, Some(last.id)).await?;
-        publish_dm_read(&state, channel_id, claims.sub, Some(last.id)).await;
-    }
     Ok(Json(result))
 }
 
@@ -838,7 +834,7 @@ async fn mark_dm_channel_read(
         r#"SELECT id
            FROM dm_messages
            WHERE channel_id = $1
-           ORDER BY created_at DESC
+           ORDER BY created_at DESC, id DESC
            LIMIT 1"#,
     )
     .bind(channel_id)

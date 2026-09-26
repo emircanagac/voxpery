@@ -448,6 +448,9 @@ function captureVisibleMessageAnchor(element: HTMLDivElement): { messageId: stri
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
     const token = useAuthStore((s) => s.token)
     const [previewOpen, setPreviewOpen] = useState(false)
+    const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'started' | 'error'>('idle')
+    const downloadBusyRef = useRef(false)
+    const downloadCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fallbackInFlightRef = useRef(false)
     const isImage = isImageAttachment(attachment)
     const cacheKey = getAttachmentResolutionCacheKey(attachment, token ?? null)
@@ -462,6 +465,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     ))
 
     useEffect(() => {
+        if (!isImage) return
         let cancelled = false
         const cached = attachmentResolutionCache.get(cacheKey)
         if (cached) {
@@ -505,6 +509,36 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             cancelled = true
         }
     }, [attachment.type, attachment.url, cacheKey, isImage, token])
+
+    useEffect(() => () => {
+        if (downloadCooldownRef.current) clearTimeout(downloadCooldownRef.current)
+    }, [])
+
+    const startDownload = async () => {
+        if (downloadBusyRef.current) return
+        downloadBusyRef.current = true
+        setDownloadState('loading')
+        try {
+            const url = await resolveAttachmentUrl(attachment.url, token ?? null, {
+                forceAuthenticatedFetch: true,
+                fallbackMimeType: attachment.type,
+            })
+            const link = document.createElement('a')
+            link.href = url
+            link.download = attachment.name || 'attachment'
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+            if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 60_000)
+            setDownloadState('started')
+            downloadCooldownRef.current = setTimeout(() => {
+                downloadBusyRef.current = false
+            }, 2000)
+        } catch {
+            downloadBusyRef.current = false
+            setDownloadState('error')
+        }
+    }
 
     useEffect(() => {
         fallbackInFlightRef.current = false
@@ -649,9 +683,25 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     }
 
     return (
-        <a href={currentResolution.resolvedUrl} download={attachment.name || 'attachment'} className="dm-attachment-link">
-            {attachment.name || `Attachment ${index + 1}`}
-        </a>
+        <span className="chat-file-download">
+            <a
+                href={attachment.url}
+                download={attachment.name || 'attachment'}
+                className="dm-attachment-link"
+                aria-disabled={downloadState === 'loading'}
+                onClick={(event) => {
+                    event.preventDefault()
+                    void startDownload()
+                }}
+            >
+                {attachment.name || `Attachment ${index + 1}`}
+            </a>
+            <span className="chat-file-download-status" role="status">
+                {downloadState === 'loading' && 'Preparing download...'}
+                {downloadState === 'started' && 'Download started'}
+                {downloadState === 'error' && 'Download failed. Click to retry.'}
+            </span>
+        </span>
     )
 }
 interface ChatAreaProps {
@@ -1278,7 +1328,9 @@ export default function ChatArea({
                 programmaticScrollRef.current === 0 ||
                 hasRecentUserScrollIntent ||
                 (likelyScrollbarDragUp && (!pendingLatestForActiveChannel || currentScrollTop < previousScrollTop - 4))
-            if (currentScrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX) {
+            if (currentScrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX
+                && isUserInitiatedScroll
+                && (!pendingLatestForActiveChannel || hasRecentUserScrollIntent)) {
                 startOlderMessagesLoad()
             }
             if (pendingLatestForActiveChannel && !isUserInitiatedScroll) {
@@ -1497,6 +1549,10 @@ export default function ChatArea({
         const becameVisible = isViewActive === true && prevViewActiveRef.current === false
         prevViewActiveRef.current = isViewActive ?? true
         if (!becameVisible || messages.length === 0) return
+        userReadingHistoryRef.current = false
+        preservingOlderMessagesRef.current = false
+        olderMessagesAnchorRef.current = null
+        userScrollIntentUntilRef.current = 0
         shouldAutoScrollRef.current = true
         snapToBottom()
         requestAnimationFrame(() => {

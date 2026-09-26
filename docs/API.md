@@ -270,6 +270,8 @@ Notes:
 - `PATCH /api/dm/channels/:channel_id/preferences`
   - Accepts `{ "pinned": true|false }`, persists the preference for the current user, and restores a hidden DM when pinning it.
 - `GET /api/dm/messages/:channel_id?before=<uuid>&limit=<n>`
+  - Returns chronological pages (default 50), with a stable timestamp/ID cursor so messages sharing a timestamp are not skipped.
+  - Fetching or prefetching history does not mark a conversation read. Visible clients explicitly call the read endpoint after loading the active conversation and when returning to it.
 - `GET /api/dm/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
   - `from` filters by message author username.
   - `has_attachment=true` returns only messages with one or more attachments.
