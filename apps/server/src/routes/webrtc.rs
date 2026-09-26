@@ -21,7 +21,11 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
     services::rate_limit::enforce_rate_limit,
-    services::voice_revoke::clear_local_voice_session,
+    services::voice_moderation,
+    services::voice_revoke::{
+        clear_local_voice_session, remove_livekit_participant_checked,
+        update_livekit_voice_permissions,
+    },
     ws::access::can_join_voice_channel,
     AppState,
 };
@@ -31,6 +35,7 @@ const LIVEKIT_TOKEN_USER_RATE_LIMIT_MAX: usize = 30;
 const LIVEKIT_TOKEN_RATE_LIMIT_MAX: usize = 20;
 const MEDIA_TOKEN_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 const LIVEKIT_WEBHOOK_BODY_LIMIT: usize = 256 * 1024;
+const LIVEKIT_JOIN_TOKEN_TTL_SECS: usize = 5 * 60;
 
 #[derive(Debug, Serialize)]
 pub struct TurnCredentialsResponse {
@@ -141,6 +146,8 @@ struct LivekitTokenResponse {
     token: String,
     room: String,
     identity: String,
+    server_muted: bool,
+    server_deafened: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,22 +255,52 @@ async fn livekit_webhook(
         .ok_or(AppError::Unauthorized)?;
     let event = verify_livekit_webhook(&body, authorization, api_key, api_secret)?;
 
-    if event.event != "participant_left" {
+    if event.event != "participant_left" && event.event != "participant_joined" {
         return Ok(StatusCode::NO_CONTENT);
     }
 
     let (Some(room), Some(participant)) = (event.room, event.participant) else {
-        tracing::warn!("Ignoring incomplete LiveKit participant_left webhook");
+        tracing::warn!("Ignoring incomplete LiveKit participant webhook");
         return Ok(StatusCode::NO_CONTENT);
     };
     let Ok(channel_id) = uuid::Uuid::parse_str(&room.name) else {
-        tracing::warn!("Ignoring LiveKit participant_left webhook with a non-Voxpery room");
+        tracing::warn!("Ignoring LiveKit participant webhook with a non-Voxpery room");
         return Ok(StatusCode::NO_CONTENT);
     };
     let Ok(user_id) = uuid::Uuid::parse_str(&participant.identity) else {
-        tracing::warn!("Ignoring LiveKit participant_left webhook with an invalid identity");
+        tracing::warn!("Ignoring LiveKit participant webhook with an invalid identity");
         return Ok(StatusCode::NO_CONTENT);
     };
+    if event.event == "participant_joined" {
+        if let Some(moderation) =
+            voice_moderation::for_channel(&state.db, user_id, channel_id).await?
+        {
+            if let Err(error) =
+                update_livekit_voice_permissions(&state, channel_id, user_id, moderation).await
+            {
+                tracing::warn!(
+                    "LiveKit joined participant permission sync failed: {}",
+                    error
+                );
+                if moderation.muted || moderation.deafened {
+                    if let Err(revoke_error) = remove_livekit_participant_checked(
+                        &state,
+                        channel_id,
+                        user_id,
+                        "voice moderation permission sync failed",
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            "LiveKit joined participant revoke fallback failed: {}",
+                            revoke_error
+                        );
+                    }
+                }
+            }
+        }
+        return Ok(StatusCode::NO_CONTENT);
+    }
     let active_participant_sid = state
         .voice_participant_sids
         .get(&user_id)
@@ -330,7 +367,7 @@ async fn livekit_token(
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
         .as_secs() as usize;
-    let exp = now + 60 * 60;
+    let exp = now + LIVEKIT_JOIN_TOKEN_TTL_SECS;
     let nbf = now;
 
     let room = query.channel_id;
@@ -341,13 +378,10 @@ async fn livekit_token(
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".into()))?;
-    // Enforce server moderation over media publish in voice.
-    // Tuple shape: (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on)
-    let can_publish = !state
-        .voice_controls
-        .get(&claims.sub)
-        .map(|control| control.2 || control.3)
-        .unwrap_or(false);
+    let moderation = voice_moderation::for_channel(&state.db, claims.sub, channel_id)
+        .await?
+        .ok_or_else(|| AppError::Forbidden("Voice access denied".into()))?;
+    let can_publish = moderation.can_publish();
 
     let token = encode(
         &Header::default(),
@@ -361,7 +395,7 @@ async fn livekit_token(
                 room: room.clone(),
                 room_join: true,
                 can_publish,
-                can_subscribe: true,
+                can_subscribe: moderation.can_subscribe(),
             },
         },
         &EncodingKey::from_secret(api_secret.as_bytes()),
@@ -373,6 +407,8 @@ async fn livekit_token(
         token,
         room,
         identity,
+        server_muted: moderation.muted,
+        server_deafened: moderation.deafened,
     }))
 }
 

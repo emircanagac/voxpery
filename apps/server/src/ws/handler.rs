@@ -21,6 +21,7 @@ use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
 use crate::services::permissions::{get_user_server_permissions, Permissions};
+use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
 use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
 use crate::{AppState, PendingVoiceMove};
@@ -1125,6 +1126,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         tracing::warn!("JoinVoice access check failed: {}", e);
                                     }
                                     Ok(true) => {
+                                        let moderation = match voice_moderation::for_channel(
+                                            &recv_state.db,
+                                            user_id,
+                                            channel_id,
+                                        )
+                                        .await
+                                        {
+                                            Ok(Some(moderation)) => moderation,
+                                            Ok(None) => continue,
+                                            Err(error) => {
+                                                tracing::warn!(
+                                                    "JoinVoice moderation lookup failed: {}",
+                                                    error
+                                                );
+                                                continue;
+                                            }
+                                        };
                                         // 1. Update voice session
                                         clear_screen_share_viewer_entries_for_user(
                                             &recv_state,
@@ -1158,7 +1176,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         }
                                         let _ = recv_state.voice_controls.insert(
                                             user_id,
-                                            (false, false, false, false, false, false),
+                                            (
+                                                false,
+                                                false,
+                                                moderation.muted,
+                                                moderation.deafened,
+                                                false,
+                                                false,
+                                            ),
                                         );
                                         let channel_active_since_ms =
                                             ensure_voice_channel_active_since_ms(
@@ -1186,7 +1211,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             voice_control_event_from_state(
                                                 user_id,
                                                 server_id,
-                                                (false, false, false, false, false, false),
+                                                (
+                                                    false,
+                                                    false,
+                                                    moderation.muted,
+                                                    moderation.deafened,
+                                                    false,
+                                                    false,
+                                                ),
                                             ),
                                         )
                                         .await;
@@ -1610,69 +1642,41 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         }
                                     };
 
-                                    let current = recv_state
-                                        .voice_controls
-                                        .get(&target_id)
-                                        .map(|s| *s)
-                                        .unwrap_or((false, false, false, false, false, false));
                                     let can_mute = perms.contains(Permissions::MUTE_MEMBERS)
                                         || perms.contains(Permissions::MANAGE_SERVER);
                                     let can_deafen = perms.contains(Permissions::DEAFEN_MEMBERS)
                                         || perms.contains(Permissions::MANAGE_SERVER);
-                                    if muted != current.2 && !can_mute {
-                                        continue;
-                                    }
-                                    if deafened != current.3 && !can_deafen {
-                                        continue;
-                                    }
-                                    let mut audit_entries = Vec::with_capacity(2);
-                                    if muted != current.2 {
-                                        audit_entries.push(VoiceModerationAuditEntry {
-                                            action: if muted {
-                                                audit::VOICE_MEMBER_MUTE
-                                            } else {
-                                                audit::VOICE_MEMBER_UNMUTE
-                                            },
-                                            details: serde_json::json!({
-                                                "channel_name": target_channel_name,
-                                                "previous_server_muted": current.2,
-                                                "server_muted": muted,
-                                            }),
-                                        });
-                                    }
-                                    if deafened != current.3 {
-                                        audit_entries.push(VoiceModerationAuditEntry {
-                                            action: if deafened {
-                                                audit::VOICE_MEMBER_DEAFEN
-                                            } else {
-                                                audit::VOICE_MEMBER_UNDEAFEN
-                                            },
-                                            details: serde_json::json!({
-                                                "channel_name": target_channel_name,
-                                                "previous_server_deafened": current.3,
-                                                "server_deafened": deafened,
-                                            }),
-                                        });
-                                    }
-                                    if audit_entries.is_empty() {
-                                        continue;
-                                    }
-                                    if let Err(e) = audit::log_voice_moderation(
+                                    let changed = voice_moderation::set_for_member(
                                         &recv_state.db,
                                         user_id,
                                         target_server_id,
                                         target_id,
                                         target_channel_id,
+                                        &target_channel_name,
                                         reason.as_deref(),
-                                        &audit_entries,
+                                        ServerVoiceModeration { muted, deafened },
+                                        can_mute,
+                                        can_deafen,
                                     )
-                                    .await
-                                    {
-                                        tracing::error!("SetVoiceControl audit log failed: {}", e);
-                                        continue;
+                                    .await;
+                                    match changed {
+                                        Ok(Some(_)) => {}
+                                        Ok(None) => continue,
+                                        Err(error) => {
+                                            tracing::error!(
+                                                "SetVoiceControl persistence failed: {}",
+                                                error
+                                            );
+                                            continue;
+                                        }
                                     }
 
                                     // Moderators can only change server-enforced mute/deafen.
+                                    let current = recv_state
+                                        .voice_controls
+                                        .get(&target_id)
+                                        .map(|s| *s)
+                                        .unwrap_or((false, false, false, false, false, false));
                                     let next_state = (
                                         current.0, current.1, muted, deafened, current.4, current.5,
                                     );
@@ -1686,6 +1690,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         ),
                                     )
                                     .await;
+                                    if let Err(error) =
+                                        voice_revoke::update_livekit_voice_permissions(
+                                            &recv_state,
+                                            target_channel_id,
+                                            target_id,
+                                            ServerVoiceModeration { muted, deafened },
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "SetVoiceControl LiveKit permission update failed: {}",
+                                            error
+                                        );
+                                        if muted || deafened {
+                                            if let Err(revoke_error) =
+                                                voice_revoke::remove_livekit_participant_checked(
+                                                    &recv_state,
+                                                    target_channel_id,
+                                                    target_id,
+                                                    "voice moderation permission update failed",
+                                                )
+                                                .await
+                                            {
+                                                tracing::error!("SetVoiceControl LiveKit revoke fallback failed: {}", revoke_error);
+                                            }
+                                        }
+                                    }
                                     continue;
                                 }
 
@@ -1696,6 +1727,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 };
                                 let actor_server_id =
                                     server_id_for_channel(&recv_state.db, actor_channel_id).await;
+                                let moderation = match voice_moderation::for_channel(
+                                    &recv_state.db,
+                                    user_id,
+                                    actor_channel_id,
+                                )
+                                .await
+                                {
+                                    Ok(Some(moderation)) => moderation,
+                                    Ok(None) => continue,
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            "SetVoiceControl moderation lookup failed: {}",
+                                            error
+                                        );
+                                        continue;
+                                    }
+                                };
 
                                 let current = recv_state
                                     .voice_controls
@@ -1705,8 +1753,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 let next_state = (
                                     muted,
                                     deafened,
-                                    current.2,
-                                    current.3,
+                                    moderation.muted,
+                                    moderation.deafened,
                                     screen_sharing,
                                     camera_on,
                                 );

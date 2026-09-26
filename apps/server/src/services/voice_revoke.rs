@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
+    services::voice_moderation::ServerVoiceModeration,
     ws::{self, access::can_join_voice_channel, WsEvent},
     AppState,
 };
@@ -32,6 +33,21 @@ struct LivekitAdminClaims {
 struct RemoveParticipantRequest<'a> {
     room: &'a str,
     identity: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateParticipantRequest<'a> {
+    room: &'a str,
+    identity: &'a str,
+    permission: LivekitParticipantPermission,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LivekitParticipantPermission {
+    can_publish: bool,
+    can_subscribe: bool,
+    can_publish_data: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -210,13 +226,53 @@ fn livekit_admin_request_parts(
         .livekit_api_secret
         .as_deref()
         .ok_or_else(|| AppError::FeatureDisabled("Voice service is not configured.".into()))?;
-    let base_url = livekit_http_base_url(api_url).ok_or_else(|| {
-        AppError::Internal("LIVEKIT_API_URL or LIVEKIT_WS_URL is invalid".into())
-    })?;
+    let base_url = livekit_http_base_url(api_url)
+        .ok_or_else(|| AppError::Internal("LIVEKIT_API_URL or LIVEKIT_WS_URL is invalid".into()))?;
 
     let room = channel_id.to_string();
     let token = sign_livekit_admin_token(api_key, api_secret, &room)?;
     Ok((base_url, room, token))
+}
+
+pub(crate) async fn update_livekit_voice_permissions(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    moderation: ServerVoiceModeration,
+) -> Result<(), AppError> {
+    let (base_url, room, token) = livekit_admin_request_parts(state, channel_id)?;
+    let identity = user_id.to_string();
+    let url = format!("{base_url}/twirp/livekit.RoomService/UpdateParticipant");
+    let response = state
+        .release_http_client
+        .post(url)
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(3))
+        .json(&UpdateParticipantRequest {
+            room: &room,
+            identity: &identity,
+            permission: LivekitParticipantPermission {
+                can_publish: moderation.can_publish(),
+                can_subscribe: moderation.can_subscribe(),
+                can_publish_data: true,
+            },
+        })
+        .send()
+        .await
+        .map_err(|error| {
+            AppError::Internal(format!("LiveKit permission update failed: {error}"))
+        })?;
+
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "LiveKit permission update returned {}",
+            response.status()
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) async fn livekit_participant_sid(

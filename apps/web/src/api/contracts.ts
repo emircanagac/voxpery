@@ -308,4 +308,6 @@ export interface LivekitTokenResponse {
     token: string
     room: string
     identity: string
+    server_muted: boolean
+    server_deafened: boolean
 }

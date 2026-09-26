@@ -63,6 +63,19 @@ type VoiceControlState = {
   cameraOn?: boolean
 } | null | undefined
 
+export function voiceJoinModeration(
+  selfMuted: boolean,
+  selfDeafened: boolean,
+  serverMuted: boolean,
+  serverDeafened: boolean,
+) {
+  return {
+    canPublishMicrophone: !serverMuted && !serverDeafened,
+    muted: selfMuted || selfDeafened || serverMuted || serverDeafened,
+    deafened: selfDeafened || serverDeafened,
+  }
+}
+
 type RemoteTrackMuteChangeHandlerOptions = {
   isLocalParticipant: (participant: Participant) => boolean
   isMicrophonePlaybackMuted: () => boolean
@@ -382,6 +395,8 @@ export function useLiveKitVoice() {
 
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
+  const unpublishedMicTrackRef = useRef<MediaStreamTrack | null>(null)
+  const micPublishInFlightRef = useRef(false)
   const localCameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const localScreenTracksRef = useRef<MediaStreamTrack[]>([])
 
@@ -403,6 +418,8 @@ export function useLiveKitVoice() {
   const finalMediaDisconnectReconciledRef = useRef(false)
   const finalMediaDisconnectHandlerRef = useRef<(isCurrentRoom: boolean) => void>(() => undefined)
   const desiredMicMutedRef = useRef(false)
+  const selfMutedRef = useRef(false)
+  const selfDeafenedRef = useRef(false)
   const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
   const microphoneRecoveryInFlightRef = useRef(false)
   const microphoneEndedHandlerRef = useRef<(track: MediaStreamTrack) => void>(() => undefined)
@@ -579,12 +596,14 @@ export function useLiveKitVoice() {
   }, [])
 
   const setLocalMicMuted = useCallback(async (muted: boolean) => {
-    desiredMicMutedRef.current = muted
+    const control = userId ? useAppStore.getState().voiceControls[userId] : null
+    const effectiveMuted = muted || !!control?.serverMuted || !!control?.serverDeafened
+    desiredMicMutedRef.current = effectiveMuted
     const track = localAudioTrackRef.current
     const publishedMediaTrack = track?.mediaStreamTrack
     const rawTrack = rawMicTrackRef.current
 
-    if (muted) {
+    if (effectiveMuted) {
       try {
         if (track) await track.mute()
       } catch {
@@ -602,7 +621,7 @@ export function useLiveKitVoice() {
     } catch {
       // ignore; media track has already been re-enabled
     }
-  }, [])
+  }, [userId])
 
   const { voiceMode, startLocalSpeakingMonitor, stopLocalSpeakingMonitor } = useVoiceActivity({
     userId,
@@ -656,6 +675,66 @@ export function useLiveKitVoice() {
       setScreenStream(null)
     }
   }, [])
+
+  const publishModeratedMicrophone = useCallback(async () => {
+    const room = roomRef.current
+    if (!room || !joinedChannelIdRef.current || !userId || micPublishInFlightRef.current) return
+    const control = useAppStore.getState().voiceControls[userId]
+    if (control?.serverMuted || control?.serverDeafened || !room.localParticipant.permissions?.canPublish) return
+    if (room.localParticipant.getTrackPublication(Track.Source.Microphone)) return
+
+    micPublishInFlightRef.current = true
+    try {
+      let track = unpublishedMicTrackRef.current
+      if (!track || track.readyState !== 'live') {
+        const raw = rawMicTrackRef.current
+        const source = raw?.readyState === 'live'
+          ? new MediaStream([raw])
+          : await getMicrophoneStream(true)
+        gateCancelRef.current?.()
+        const built = await buildMicSendTrack(
+          source,
+          getInputVolumeFactor(),
+          desiredMicMutedRef.current,
+          rawMicTrackRef,
+          inputGainNodeRef,
+          localStorage.getItem('voxpery-settings-noise-suppression') !== '0',
+        )
+        gateCancelRef.current = built.cancelGate
+        vadStreamRef.current = built.vadStream
+        track = built.track
+        unpublishedMicTrackRef.current = track
+      }
+      if (roomRef.current !== room || !joinedChannelIdRef.current) return
+      track.enabled = !desiredMicMutedRef.current
+      if (rawMicTrackRef.current) rawMicTrackRef.current.enabled = !desiredMicMutedRef.current
+      const publication = await room.localParticipant.publishTrack(track, getMicrophonePublishOptions(mobileOptimizedVoice))
+      localAudioTrackRef.current = publication.track as LocalAudioTrack
+      refreshLocalStreams()
+      startLocalSpeakingMonitor(vadStreamRef.current)
+      await setLocalMicMuted(desiredMicMutedRef.current)
+    } catch (error) {
+      console.warn('[useLiveKitVoice] Could not restore microphone after server unmute', error)
+    } finally {
+      micPublishInFlightRef.current = false
+    }
+  }, [buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, mobileOptimizedVoice, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor, userId])
+
+  useEffect(() => useAppStore.subscribe((state, previous) => {
+    if (!userId) return
+    const current = state.voiceControls[userId]
+    const before = previous.voiceControls[userId]
+    if ((current?.serverMuted || current?.serverDeafened)
+      && (current.serverMuted !== before?.serverMuted || current.serverDeafened !== before?.serverDeafened)) {
+      void setLocalMicMuted(true)
+      if (unpublishedMicTrackRef.current) unpublishedMicTrackRef.current.enabled = false
+      return
+    }
+    if (before && (before.serverMuted || before.serverDeafened) && !current?.serverMuted && !current?.serverDeafened) {
+      void setLocalMicMuted(selfMutedRef.current || selfDeafenedRef.current)
+      void publishModeratedMicrophone()
+    }
+  }), [publishModeratedMicrophone, setLocalMicMuted, userId])
 
   const refreshCameraSwitchAvailability = useCallback(async () => {
     try {
@@ -942,6 +1021,7 @@ export function useLiveKitVoice() {
     }
 
     setLastError(null)
+    desiredMicMutedRef.current = selfMutedRef.current || selfDeafenedRef.current
     finalMediaDisconnectReconciledRef.current = false
     isJoiningRef.current = true
     setIsJoining(true)
@@ -994,7 +1074,11 @@ export function useLiveKitVoice() {
       // Keep vadStream ref so we can pass it to the speaking monitor after room connect
       vadStreamRef.current = vadStream
 
-      const { ws_url, token: lkToken } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+      const { ws_url, token: lkToken, server_muted, server_deafened } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+      const joinControl = voiceJoinModeration(selfMutedRef.current, selfDeafenedRef.current, !!server_muted, !!server_deafened)
+      const publishAllowed = joinControl.canPublishMicrophone
+      if (!publishAllowed) await setLocalMicMuted(true)
+      useAppStore.getState().setVoiceControl(userId, joinControl.muted, joinControl.deafened, false, !!server_muted, !!server_deafened)
 
       const room = new Room({
         adaptiveStream: {
@@ -1067,6 +1151,18 @@ export function useLiveKitVoice() {
       })
 
       room
+        .on(RoomEvent.ParticipantPermissionsChanged, () => {
+          void publishModeratedMicrophone()
+        })
+        .on(RoomEvent.LocalTrackUnpublished, (publication) => {
+          if (roomRef.current !== room || publication.source !== Track.Source.Microphone) return
+          const track = publication.track?.mediaStreamTrack
+          if (track?.readyState === 'live') unpublishedMicTrackRef.current = track
+          localAudioTrackRef.current = null
+          if (rawMicTrackRef.current) rawMicTrackRef.current.enabled = false
+          stopLocalSpeakingMonitor()
+          refreshLocalStreams()
+        })
         .on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
           const peerId = participant.identity
 
@@ -1237,7 +1333,16 @@ export function useLiveKitVoice() {
       remoteMediaStartCueReadyRef.current = true
 
       // Publish the track directly to LiveKit.
-      const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions(mobileOptimizedVoice))
+      unpublishedMicTrackRef.current = publishTrack
+      if (publishAllowed) {
+        const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions(mobileOptimizedVoice))
+        micPublished = true
+        localAudioTrackRef.current = pub.track as LocalAudioTrack
+        await setLocalMicMuted(desiredMicMutedRef.current)
+      } else {
+        publishTrack.enabled = false
+        if (rawMicTrackRef.current) rawMicTrackRef.current.enabled = false
+      }
       updateVoiceDiagnostics({
         livekit: {
           roomState: String(room.state),
@@ -1245,7 +1350,7 @@ export function useLiveKitVoice() {
           remoteStreams: remoteStreamsRef.current.size,
           adaptiveStream: true,
           dynacast: true,
-          microphonePublished: true,
+          microphonePublished: micPublished,
           microphoneSource,
           microphoneAudioPreset: mobileOptimizedVoice ? 'music' : 'musicHighQuality',
           microphoneDtx: true,
@@ -1258,15 +1363,11 @@ export function useLiveKitVoice() {
         throw new Error('LiveKit disconnected before voice presence was registered')
       }
 
-      micPublished = true
-      localAudioTrackRef.current = pub.track as LocalAudioTrack
-      await setLocalMicMuted(desiredMicMutedRef.current)
-
       refreshLocalStreams()
       // Monitor the exact source selected for publication.
-      startLocalSpeakingMonitor(vadStreamRef.current)
+      if (micPublished) startLocalSpeakingMonitor(vadStreamRef.current)
 
-      if (voiceMode === 'push_to_talk') {
+      if (micPublished && voiceMode === 'push_to_talk') {
         await setLocalMicMuted(true)
       }
 
@@ -1278,7 +1379,8 @@ export function useLiveKitVoice() {
       })
       setJoinedChannelId(channelId)
       useAppStore.getState().setJoinedVoiceChannelId(channelId)
-      send('SetVoiceControl', { muted: desiredMicMutedRef.current, deafened: false, screen_sharing: false, camera_on: false })
+      if (!micPublished) void publishModeratedMicrophone()
+      send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: false, camera_on: false })
       playVoiceCue('join')
       reportObservabilityEvent('voice_join_succeeded')
     } catch (e: unknown) {
@@ -1295,7 +1397,7 @@ export function useLiveKitVoice() {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
@@ -1330,6 +1432,8 @@ export function useLiveKitVoice() {
     roomRef.current = null
     localAudioTrackRef.current?.stop()
     localAudioTrackRef.current = null
+    unpublishedMicTrackRef.current?.stop()
+    unpublishedMicTrackRef.current = null
     destroyRnnoise()
     if (rawMicTrackRef.current) rawMicTrackRef.current.onended = null
     rawMicTrackRef.current?.stop()
@@ -1401,7 +1505,7 @@ export function useLiveKitVoice() {
     localScreenTracksRef.current = []
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
-    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: false, camera_on: !!control?.cameraOn })
+    send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: false, camera_on: !!control?.cameraOn })
   }, [refreshLocalStreams, send, userId])
 
   const startScreenShare = useCallback(async (): Promise<ScreenShareStartResult> => {
@@ -1499,8 +1603,8 @@ export function useLiveKitVoice() {
         refreshLocalStreams()
         const localControl = useAppStore.getState().voiceControls[userId ?? '']
         send('SetVoiceControl', {
-          muted: !!localControl?.muted,
-          deafened: !!localControl?.deafened,
+          muted: selfMutedRef.current,
+          deafened: selfDeafenedRef.current,
           screen_sharing: false,
           camera_on: !!localControl?.cameraOn,
         })
@@ -1508,7 +1612,7 @@ export function useLiveKitVoice() {
     }
     refreshLocalStreams()
     const control = useAppStore.getState().voiceControls[userId ?? '']
-    send('SetVoiceControl', { muted: !!control?.muted, deafened: !!control?.deafened, screen_sharing: true, camera_on: !!control?.cameraOn })
+    send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: true, camera_on: !!control?.cameraOn })
     return {
       hasAudio: diagnostics.audioCaptured === true,
       audioPublished,
@@ -1544,7 +1648,7 @@ export function useLiveKitVoice() {
     if (userId) {
       useAppStore.getState().setVoiceCamera(userId, true)
       const c = useAppStore.getState().voiceControls[userId]
-      send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: true })
+      send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: !!c?.screenSharing, camera_on: true })
     }
   }, [cameraStream, getCameraStream, refreshCameraSwitchAvailability, refreshLocalStreams, send, userId])
 
@@ -1613,15 +1717,18 @@ export function useLiveKitVoice() {
     if (userId) {
       useAppStore.getState().setVoiceCamera(userId, false)
       const c = useAppStore.getState().voiceControls[userId]
-      send('SetVoiceControl', { muted: !!c?.muted, deafened: !!c?.deafened, screen_sharing: !!c?.screenSharing, camera_on: false })
+      send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: !!c?.screenSharing, camera_on: false })
     }
   }, [refreshLocalStreams, send, userId])
 
   const setVoiceControls = useCallback(async (muted: boolean, deafened: boolean, screenSharing: boolean, cameraOn?: boolean) => {
     const store = useAppStore.getState()
     const camera = cameraOn ?? store.voiceControls[userId ?? '']?.cameraOn ?? false
+    selfMutedRef.current = muted
+    selfDeafenedRef.current = deafened
     send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing, camera_on: camera })
-    await setLocalMicMuted(muted || deafened)
+    const control = store.voiceControls[userId ?? '']
+    await setLocalMicMuted(muted || deafened || !!control?.serverMuted || !!control?.serverDeafened)
   }, [send, setLocalMicMuted, userId])
 
   const setMemberVoiceControls = useCallback(
@@ -1747,7 +1854,12 @@ export function useLiveKitVoice() {
         channelId,
         roomState: room ? String(room.state) : null,
         participantSid: room?.localParticipant.sid ?? null,
-        control,
+        control: {
+          muted: selfMutedRef.current,
+          deafened: selfDeafenedRef.current,
+          screenSharing: !!control?.screenSharing,
+          cameraOn: !!control?.cameraOn,
+        },
         send,
       })
       watchedRemoteScreenPeerIdsRef.current.forEach((publisherUserId) => {

@@ -63,6 +63,7 @@ Key columns:
 ### `server_members`
 
 - `server_id`, `user_id`, `role`, `joined_at`
+- `voice_server_muted`, `voice_server_deafened` store moderator-enforced voice restrictions for the lifetime of the server membership. Voice leave, channel switches, and WebSocket reconnects do not clear them; a moderator update and its audit entries commit together.
 - Legacy `role` is bridge-level (`owner` / `member`), while effective authorization comes from role bitmasks.
 - Migration `049` backfills missing membership in the official `voxpery` community for existing unbanned accounts. It preserves existing roles and join dates and does not add banned accounts. If the official server is first created after migration, its creation path adds existing accounts instead.
 
@@ -282,6 +283,8 @@ All migrations currently present:
 - `046_user_profile_fields.sql`
 - `047_versioned_legal_consent.sql`
 - `048_voice_moderation_audit.sql`
+- `049_backfill_official_community_members.sql`
+- `050_persist_server_voice_moderation.sql`
 
 ### Privacy audit log
 

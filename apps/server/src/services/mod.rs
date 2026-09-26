@@ -13,4 +13,5 @@ pub mod observability;
 pub mod permissions;
 pub mod privacy;
 pub mod rate_limit;
+pub mod voice_moderation;
 pub mod voice_revoke;
