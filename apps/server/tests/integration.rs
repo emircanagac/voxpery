@@ -273,6 +273,47 @@ where
     panic!("did not receive websocket event {expected_type}");
 }
 
+async fn voice_token_grant(
+    app: &mut axum::Router,
+    auth: &str,
+    channel_id: Uuid,
+) -> (serde_json::Value, serde_json::Value) {
+    let request = Request::builder()
+        .uri(format!("/api/webrtc/livekit-token?channel_id={channel_id}"))
+        .header("Authorization", auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(app, request).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let token = response["token"].as_str().unwrap();
+    let encoded_claims = token.split('.').nth(1).unwrap();
+    let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded_claims)
+        .unwrap();
+    (response, serde_json::from_slice(&claims).unwrap())
+}
+
+fn signed_livekit_webhook(state: &Arc<AppState>, body: &[u8]) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as usize;
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &json!({
+            "iss": state.livekit_api_key.as_deref().unwrap(),
+            "sha256": BASE64.encode(Sha256::digest(body)),
+            "nbf": now.saturating_sub(1),
+            "exp": now + 60,
+        }),
+        &jsonwebtoken::EncodingKey::from_secret(
+            state.livekit_api_secret.as_deref().unwrap().as_bytes(),
+        ),
+    )
+    .unwrap()
+}
+
 async fn register_user(
     app: &mut axum::Router,
     email: &str,
@@ -3809,7 +3850,10 @@ async fn data_export_returns_user_profile_and_messages() {
     assert!(payload["account"].get("password_hash").is_none());
     assert!(payload["account"].get("token_version").is_none());
     assert_eq!(payload["profile"]["has_avatar"], false);
-    assert_eq!(payload["profile"]["about_me"], "Building a thoughtful community.");
+    assert_eq!(
+        payload["profile"]["about_me"],
+        "Building a thoughtful community."
+    );
     assert!(payload["servers"].is_array());
     assert!(payload["relationships"]["friends"].is_array());
     assert!(payload["relationships"]["friend_requests"].is_array());
@@ -4281,7 +4325,32 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let permission_updates = Arc::new(tokio::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+    let captured_updates = permission_updates.clone();
+    let livekit_app = axum::Router::new().route(
+        "/twirp/livekit.RoomService/UpdateParticipant",
+        axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+            let captured_updates = captured_updates.clone();
+            async move {
+                captured_updates.lock().await.push(body.clone());
+                axum::Json(json!({ "sid": "PA_moderated", "identity": body["identity"] }))
+            }
+        }),
+    );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    let livekit_handle = tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
 
     let owner_suffix = Uuid::new_v4();
     let (owner_token, _) = register_user(
@@ -4385,10 +4454,6 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     .fetch_one(&state.db)
     .await
     .unwrap();
-    state
-        .voice_sessions
-        .insert(target_user_id, voice_channel_id);
-
     let ws_app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -4396,9 +4461,7 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         let _ = axum::serve(listener, ws_app).await;
     });
 
-    let mut ws_request = format!("ws://{addr}/ws")
-        .into_client_request()
-        .unwrap();
+    let mut ws_request = format!("ws://{addr}/ws").into_client_request().unwrap();
     ws_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
         HeaderValue::from_str(&format!("voxpery.auth,{owner_token}")).unwrap(),
@@ -4409,6 +4472,27 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     let (mut ws_stream, _) = connect_async(ws_request)
         .await
         .expect("owner websocket must connect");
+    let mut target_request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    target_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{target_token}")).unwrap(),
+    );
+    target_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut target_ws, _) = connect_async(target_request)
+        .await
+        .expect("target websocket must connect");
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let initial_control = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(initial_control["data"]["server_muted"], false);
     ws_stream
         .send(WsMessage::Text(
             json!({
@@ -4465,8 +4549,14 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(page["entries"].as_array().unwrap().len(), 1);
     assert_eq!(page["entries"][0]["action"], "voice_member_mute");
-    assert_eq!(page["entries"][0]["resource_id"], target_user_id.to_string());
-    assert_eq!(page["entries"][0]["channel_id"], voice_channel_id.to_string());
+    assert_eq!(
+        page["entries"][0]["resource_id"],
+        target_user_id.to_string()
+    );
+    assert_eq!(
+        page["entries"][0]["channel_id"],
+        voice_channel_id.to_string()
+    );
     assert_eq!(page["entries"][0]["reason"], "Repeated voice disruption");
 
     let paged_request = Request::builder()
@@ -4482,7 +4572,218 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     assert_eq!(page["entries"].as_array().unwrap().len(), 1);
     assert!(page["next_before"].as_str().is_some());
 
+    let enforced = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(enforced["data"]["server_muted"], true);
+    assert_eq!(enforced["data"]["server_deafened"], true);
+    let flags: (bool, bool) = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(flags, (true, true));
+    for _ in 0..40 {
+        if permission_updates.lock().await.len() >= 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let updates = permission_updates.lock().await;
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["permission"]["canPublish"], false);
+    assert_eq!(updates[0]["permission"]["canSubscribe"], false);
+    drop(updates);
+
+    let joined_webhook = json!({
+        "event": "participant_joined",
+        "room": { "name": voice_channel_id.to_string() },
+        "participant": { "identity": target_user_id.to_string(), "sid": "PA_rejoined" },
+    })
+    .to_string();
+    let webhook_token = signed_livekit_webhook(&state, joined_webhook.as_bytes());
+    let webhook_request = Request::builder()
+        .method("POST")
+        .uri("/api/webrtc/livekit-webhook")
+        .header("Authorization", format!("Bearer {webhook_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(joined_webhook))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, webhook_request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let updates = permission_updates.lock().await;
+    assert_eq!(updates.len(), 2);
+    assert_eq!(updates[1]["permission"]["canPublish"], false);
+    drop(updates);
+
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "LeaveVoice", "data": null })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let left_state = receive_ws_event(&mut target_ws, "VoiceStateUpdate").await;
+    assert!(left_state["data"]["channel_id"].is_null());
+    let left = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(left["data"]["server_muted"], false);
+    let (response, grant) = voice_token_grant(&mut app, &target_auth, voice_channel_id).await;
+    assert_eq!(response["server_muted"], true);
+    assert_eq!(response["server_deafened"], true);
+    assert_eq!(grant["video"]["canPublish"], false);
+    assert_eq!(grant["video"]["canSubscribe"], false);
+
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let rejoined = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(rejoined["data"]["server_muted"], true);
+    assert_eq!(rejoined["data"]["server_deafened"], true);
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "muted": false, "deafened": false, "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let self_updated = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(self_updated["data"]["server_muted"], true);
+    assert_eq!(self_updated["data"]["server_deafened"], true);
+
+    let next_channel_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
+         VALUES ($1, $2, 'Second Voice', 'voice', 'General', 2, NOW())",
+    )
+    .bind(next_channel_id)
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "JoinVoice", "data": { "channel_id": next_channel_id } })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let moved = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(moved["data"]["server_muted"], true);
+    assert_eq!(moved["data"]["server_deafened"], true);
+
+    target_ws.close(None).await.unwrap();
+    for _ in 0..40 {
+        if !state.voice_sessions.contains_key(&target_user_id) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(!state.voice_sessions.contains_key(&target_user_id));
+    let mut reconnect_request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    reconnect_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{target_token}")).unwrap(),
+    );
+    reconnect_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut target_ws, _) = connect_async(reconnect_request).await.unwrap();
+    target_ws
+        .send(WsMessage::Text(
+            json!({ "type": "JoinVoice", "data": { "channel_id": next_channel_id } })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let reconnected = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(reconnected["data"]["server_muted"], true);
+    assert_eq!(reconnected["data"]["server_deafened"], true);
+
+    let mut observer_request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    observer_request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{observer_token}")).unwrap(),
+    );
+    observer_request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (mut observer_ws, _) = connect_async(observer_request).await.unwrap();
+    observer_ws
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "target_user_id": target_user_id, "muted": false, "deafened": false,
+                "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+    let unauthorized_flags: (bool, bool) = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened FROM server_members WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(unauthorized_flags, (true, true));
+
+    ws_stream
+        .send(WsMessage::Text(
+            json!({ "type": "SetVoiceControl", "data": {
+                "target_user_id": target_user_id, "muted": false, "deafened": false,
+                "screen_sharing": false, "camera_on": false
+            }})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let released = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(released["data"]["server_muted"], false);
+    assert_eq!(released["data"]["server_deafened"], false);
+    let (response, grant) = voice_token_grant(&mut app, &target_auth, next_channel_id).await;
+    assert_eq!(response["server_muted"], false);
+    assert_eq!(response["server_deafened"], false);
+    assert_eq!(grant["video"]["canPublish"], true);
+    assert_eq!(grant["video"]["canSubscribe"], true);
+    let final_audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE server_id = $1 AND resource_id = $2 AND action LIKE 'voice_member_%'",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(final_audit_count, 4);
+    for _ in 0..40 {
+        if permission_updates.lock().await.len() >= 3 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let updates = permission_updates.lock().await;
+    assert_eq!(updates.len(), 3);
+    assert_eq!(updates[2]["permission"]["canPublish"], true);
+    assert_eq!(updates[2]["permission"]["canSubscribe"], true);
+    drop(updates);
+
     server_handle.abort();
+    livekit_handle.abort();
 }
 
 #[tokio::test]

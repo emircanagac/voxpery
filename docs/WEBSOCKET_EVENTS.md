@@ -190,6 +190,7 @@ Legacy custom signaling event.
 - `VoiceStateUpdate`
   - `channel_id: null` means user left voice.
   - `channel_active_since_ms` is the backend epoch millisecond timestamp for when the channel became non-empty. It is `null` on leave events.
+  - A member receives their own voice state and control updates after leaving voice even without an active channel subscription; server membership is still checked before delivery.
 - `VoiceControlUpdate`
   - Includes combined and server-enforced flags:
     - `muted`
@@ -199,6 +200,8 @@ Legacy custom signaling event.
     - `screen_sharing`
     - `camera_on`
     - `server_id`
+  - `server_muted` and `server_deafened` come from the server membership and remain active across voice leave/rejoin, channel switches, and WebSocket reconnects. Self mute/deafen and camera/share state remain session controls.
+  - A moderator's mute/deafen action updates the membership flags and audit log in one transaction. LiveKit participant permissions are then updated for an active participant; the next LiveKit token reads the same membership flags.
 - `VoiceMemberMoveRequested`
   - Targeted event sent only to the moved member after the server validates a `MoveVoiceMember` request.
   - Includes `request_id`, `source_channel_id`, `channel_id`, `server_id`, and `actor_id`; only a client whose active voice session matches the source switches its LiveKit room.
@@ -218,9 +221,9 @@ Legacy custom signaling event.
 ## Voice + LiveKit Flow
 
 1. Client requests `GET /api/webrtc/livekit-token`; the backend validates effective voice permissions.
-2. Client connects to the LiveKit room and publishes its microphone.
+2. Client connects to the LiveKit room and publishes its microphone only when server moderation permits it.
 3. Client sends `JoinVoice` over WS only after the media connection succeeds.
-4. Backend updates process-local `voice_sessions` and broadcasts voice state/control events. Explicit screen-share watch decisions also create short-lived viewer-presence entries so the stage can show who is watching without subscribing anyone else to media.
+4. Backend updates process-local `voice_sessions`, loads server voice restrictions from the membership row, and broadcasts voice state/control events. Explicit screen-share watch decisions also create short-lived viewer-presence entries so the stage can show who is watching without subscribing anyone else to media.
 5. LiveKit owns the reconnect grace window, so temporary `Reconnecting` state keeps sidebar presence intact.
 6. A final room `Disconnected` event sends `LeaveVoice` over the application WebSocket and clears local media state.
 7. The signed LiveKit `participant_left` webhook idempotently clears the same backend voice session for suspended or unreachable clients. The participant SID prevents a delayed leave event from removing a newer rejoin. Backend WebSocket cleanup remains the fallback when both connections are lost.

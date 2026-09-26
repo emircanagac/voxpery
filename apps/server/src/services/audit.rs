@@ -76,6 +76,29 @@ pub async fn log_voice_moderation(
     entries: &[VoiceModerationAuditEntry],
 ) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
+    log_voice_moderation_in_transaction(
+        &mut tx,
+        actor_id,
+        server_id,
+        target_user_id,
+        channel_id,
+        reason,
+        entries,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn log_voice_moderation_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_id: Uuid,
+    server_id: Uuid,
+    target_user_id: Uuid,
+    channel_id: Uuid,
+    reason: Option<&str>,
+    entries: &[VoiceModerationAuditEntry],
+) -> Result<(), sqlx::Error> {
     for entry in entries {
         sqlx::query(
             r#"INSERT INTO audit_log
@@ -89,9 +112,8 @@ pub async fn log_voice_moderation(
         .bind(channel_id)
         .bind(reason)
         .bind(&entry.details)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }

@@ -21,6 +21,7 @@ import {
   shouldPlayRemoteMediaStartCue,
   shouldPlayRemoteMediaStopCue,
   shouldRecoverMicrophoneTrack,
+  voiceJoinModeration,
 } from './useLiveKitVoice'
 import { AudioPresets, Track, type Participant, type RemoteParticipant, type TrackPublication } from 'livekit-client'
 import { isScreenShareAudioTrack } from './remoteMediaControls'
@@ -44,6 +45,26 @@ describe('microphone publish options', () => {
       dtx: true,
       red: true,
       forceStereo: false,
+    })
+  })
+})
+
+describe('server voice moderation on join', () => {
+  it('blocks microphone publication after reconnect while keeping self mute separate', () => {
+    expect(voiceJoinModeration(false, false, true, false)).toEqual({
+      canPublishMicrophone: false,
+      muted: true,
+      deafened: false,
+    })
+    expect(voiceJoinModeration(false, false, false, true)).toEqual({
+      canPublishMicrophone: false,
+      muted: true,
+      deafened: true,
+    })
+    expect(voiceJoinModeration(true, false, false, false)).toEqual({
+      canPublishMicrophone: true,
+      muted: true,
+      deafened: false,
     })
   })
 })
