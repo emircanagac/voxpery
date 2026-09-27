@@ -30,6 +30,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Deafen stops remote microphone playback and restores it when disabled; watched screen-share audio continues at its independent stream volume.
 - [ ] While deafened, reconnect a participant and subscribe to a newly arriving microphone track; no voice leaks before or after the track appears, while watched screen-share audio continues.
 - [ ] On web and desktop, voice ping starts in the measuring state, uses a real backend WebSocket RTT while RTC settles, and switches to the selected ICE path only after stable samples; joining another channel or reconnecting never flashes a stale or implausible `1 ms` value.
+- [ ] With opt-in voice diagnostics enabled, record repeated cold and warm join timings on real web and desktop clients. Compare microphone, processing, token, TURN, connection, and publication stages; do not claim a speedup from diagnostic-only changes.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 - [ ] With 3-5 members in one channel, every member can hear every other microphone; reconnecting one member restores all expected subscriptions without duplicate or missing audio.
@@ -46,6 +47,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Repeat the move with the target browser tab unfocused and in the background. The target changes rooms without clicking the tab or receiving a new microphone prompt, the moderator receives one success result, and exactly one audit entry is written after destination verification.
 - [ ] Repeat while the target disconnects, changes channel independently, or cannot join the destination. The moderator receives failure and no successful move audit entry is written.
 - [ ] Reconnect the target WebSocket while a move is pending. The request is replayed and completes at most once without duplicate audit entries.
+- [ ] Server-mute and server-deafen a member, then have them leave/rejoin, switch voice channels in the same server, and reconnect. Restrictions remain until an authorized moderator clears them; personal mute/deafen remains independent.
 
 ## 3. Camera
 

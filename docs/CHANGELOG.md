@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.16] - 2026-09-27
+
+### Added
+- Added profile, messaging, appearance, and layout refinements: a direct profile entry point, a clearer message editor, independent light-theme color controls, and resizable side panels.
+- Added opt-in voice-join timing diagnostics to help identify capture, connection, and publication delays without changing the voice path.
+
+### Changed
+- Kept server-applied voice mute and deafen active across voice rejoin, channel changes, and reconnects until an authorized moderator clears them.
+- Made desktop single-key microphone mute shortcuts work while Voxpery is unfocused; web shortcuts remain focus-bound, and mouse buttons cannot be assigned.
+- Improved keyboard and focus behavior in chat, server, and dialog navigation, including the external-link warning.
+
+### Fixed
+- Restored older DM history pagination, consistent latest-message positioning, and unread clearing while a DM is open.
+- Added visible ZIP download start feedback and prevented duplicate downloads from repeated clicks.
+- Kept message actions from covering text and showed complete inline photos without cropping them.
+- Restored permission-gated self-release from a server voice mute or deafen through the voice participant menu.
+- Made public login and registration usable in shorter windows and aligned the landing header across public pages.
+- Corrected empty and loading chat states, narrow Social and DM layouts, and several accessible control labels and dialog focus behaviors.
+
 ## [0.2.15] - 2026-09-24
 
 ### Changed
