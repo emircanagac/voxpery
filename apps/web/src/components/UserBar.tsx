@@ -83,6 +83,8 @@ import {
   applyGlobalMuteShortcut,
   formatGlobalMuteShortcut,
   getStoredGlobalMuteShortcut,
+  isMouseMuteShortcut,
+  mouseShortcutFromEvent,
   registerDesktopGlobalMuteShortcut,
   setGlobalMuteShortcutCaptureActive,
   shortcutFromKeyboardEvent,
@@ -231,8 +233,10 @@ export default function UserBar() {
   const [voiceDevicesNeedAccess, setVoiceDevicesNeedAccess] = useState(false)
   const [microphonePermissionState, setMicrophonePermissionState] = useState<MicrophonePermissionState>('unsupported')
   const [canSelectOutputDevice, setCanSelectOutputDevice] = useState(() => supportsAudioOutputSelection())
-  const [voiceMode, setVoiceMode] = useState<'voice_activity' | 'push_to_talk'>('voice_activity')
-  const [pttKey, setPttKey] = useState('V')
+  const [voiceMode, setVoiceMode] = useState<'voice_activity' | 'push_to_talk'>(() => getStoredVoiceMode())
+  const [pttKey, setPttKey] = useState(() =>
+    pushToTalkShortcutFromKey(typeof localStorage === 'undefined' ? null : localStorage.getItem(PTT_KEY_KEY)) ?? 'V'
+  )
   const [capturingPtt, setCapturingPtt] = useState(false)
   const [pttShortcutError, setPttShortcutError] = useState<string | null>(null)
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true)
@@ -747,6 +751,10 @@ export default function UserBar() {
         setPttShortcutError('Choose a letter, number, function key, Space, or navigation key.')
         return
       }
+      if (shortcut === globalMuteShortcut) {
+        setPttShortcutError('This key already toggles microphone mute. Choose another key.')
+        return
+      }
       setPttKey(shortcut)
       setPttShortcutError(null)
       localStorage.setItem(PTT_KEY_KEY, shortcut)
@@ -759,7 +767,7 @@ export default function UserBar() {
       window.removeEventListener('keydown', onKeyDown)
       setGlobalPushToTalkCaptureActive(false)
     }
-  }, [capturingPtt, markVoiceProfileCustom])
+  }, [capturingPtt, globalMuteShortcut, markVoiceProfileCustom])
 
   useEffect(() => {
     setDmPrivacy(user?.dm_privacy === 'everyone' || user?.dm_privacy === 'friends' ? user.dm_privacy : 'everyone')
@@ -918,10 +926,15 @@ export default function UserBar() {
 
   useEffect(() => {
     if (!isTauri() || !globalMuteShortcut) return
+    if (voiceMode === 'push_to_talk' && globalMuteShortcut === pttKey) {
+      void registerDesktopGlobalMuteShortcut(null)
+      setGlobalMuteShortcutError('This key is also assigned to push-to-talk. Choose another shortcut.')
+      return
+    }
     void registerDesktopGlobalMuteShortcut(globalMuteShortcut).catch(() => {
       setGlobalMuteShortcutError('This shortcut could not be registered. It may be used by another application.')
     })
-  }, [globalMuteShortcut])
+  }, [globalMuteShortcut, pttKey, voiceMode])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -936,6 +949,10 @@ export default function UserBar() {
   }, [])
 
   const saveGlobalMuteShortcut = useCallback(async (shortcut: string | null) => {
+    if (voiceMode === 'push_to_talk' && shortcut === pttKey) {
+      setGlobalMuteShortcutError('This key is also assigned to push-to-talk. Choose another shortcut.')
+      return
+    }
     setGlobalMuteShortcutSaving(true)
     setGlobalMuteShortcutError(null)
     try {
@@ -954,7 +971,7 @@ export default function UserBar() {
     } finally {
       setGlobalMuteShortcutSaving(false)
     }
-  }, [pushToast])
+  }, [pttKey, pushToast, voiceMode])
 
   useEffect(() => {
     if (!capturingGlobalMuteShortcut) return
@@ -969,15 +986,24 @@ export default function UserBar() {
       }
       const shortcut = shortcutFromKeyboardEvent(event)
       if (!shortcut) {
-        setGlobalMuteShortcutError('Use Ctrl/Cmd, Alt, or Shift together with another key.')
+        setGlobalMuteShortcutError('Choose a letter, number, function key, or a shortcut with modifiers.')
         return
       }
       void saveGlobalMuteShortcut(shortcut)
     }
+    const onMouseDown = (event: MouseEvent) => {
+      const shortcut = mouseShortcutFromEvent(event)
+      if (!shortcut) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void saveGlobalMuteShortcut(shortcut)
+    }
     window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('mousedown', onMouseDown, true)
     return () => {
       setGlobalMuteShortcutCaptureActive(false)
       window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('mousedown', onMouseDown, true)
     }
   }, [capturingGlobalMuteShortcut, saveGlobalMuteShortcut])
 
@@ -2002,11 +2028,13 @@ export default function UserBar() {
                         <div className="user-setting-title">Toggle microphone mute</div>
                         <div className="user-setting-desc">
                           {capturingGlobalMuteShortcut
-                            ? 'Press a shortcut with Ctrl/Cmd, Alt, or Shift. Press Escape to cancel.'
+                            ? 'Press a key or Mouse 4/5. Press Escape to cancel.'
                             : `${formatGlobalMuteShortcut(globalMuteShortcut)}. ${
-                              isTauri()
-                                ? 'Works system-wide while Voxpery is running.'
-                                : 'Works while this Voxpery tab is focused.'
+                              isMouseMuteShortcut(globalMuteShortcut)
+                                ? 'Mouse side buttons work while Voxpery is focused.'
+                                : isTauri()
+                                  ? 'Keyboard shortcuts work system-wide while Voxpery is running.'
+                                  : 'Works while this Voxpery tab is focused.'
                             }`}
                         </div>
                         {globalMuteShortcutError && (

@@ -635,7 +635,7 @@ describe('ChatArea regressions', () => {
     expect(container.querySelector(`a[href="${gifUrl}"]`)).toBeNull()
   })
 
-  it('renders image attachments with stable eager preview sizing', async () => {
+  it('renders image attachments eagerly without forcing a preview aspect ratio', async () => {
     mockDecodedImages()
 
     renderChatArea({
@@ -658,8 +658,8 @@ describe('ChatArea regressions', () => {
     const preview = previewButton.querySelector('img') as HTMLImageElement
     expect(preview).toHaveAttribute('loading', 'eager')
     expect(preview).toHaveAttribute('decoding', 'async')
-    expect(preview).toHaveAttribute('width', '320')
-    expect(preview).toHaveAttribute('height', '180')
+    expect(preview).not.toHaveAttribute('width')
+    expect(preview).not.toHaveAttribute('height')
     expect(preview).toHaveAttribute('alt', '')
   })
 

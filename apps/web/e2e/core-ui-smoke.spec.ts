@@ -453,6 +453,94 @@ test.describe('mocked core UI smoke', () => {
     ).toEqual(['chat-inline-gif-link', 'dm-attachments', 'message-reactions'])
   })
 
+  test('keeps grouped message actions clear of text without moving the row on hover', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [
+        buildServerMessage(general.id, 'First message', { id: 'group-first' }),
+        buildServerMessage(general.id, 'Grouped message text extending beneath the message actions in a narrow chat area.', { id: 'group-second' }),
+      ] },
+    })
+    await installMockCoreApi(page, state)
+
+    for (const width of [1366, 800, 390]) {
+      await page.setViewportSize({ width, height: 768 })
+      await page.goto('/servers')
+      const row = page.locator('[data-message-id="group-second"]')
+      await expect(row.locator('.message-compact')).toBeVisible()
+      const heightBefore = await row.evaluate((element) => element.getBoundingClientRect().height)
+      await row.hover()
+      const geometry = await row.evaluate((element) => {
+        const actions = element.querySelector('.message-inline-actions')!.getBoundingClientRect()
+        const text = element.querySelector('.message-text span')!.firstChild!
+        const range = document.createRange()
+        range.selectNodeContents(text)
+        const overlaps = Array.from(range.getClientRects()).some((rect) =>
+          rect.left < actions.right - 1 && rect.right > actions.left + 1
+          && rect.top < actions.bottom - 1 && rect.bottom > actions.top + 1)
+        return { overlaps, height: element.getBoundingClientRect().height }
+      })
+      expect(geometry.overlaps).toBe(false)
+      expect(geometry.height).toBe(heightBefore)
+    }
+  })
+
+  test('preserves portrait and wide photo frames in inline previews', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')
+    if (!general) throw new Error('Core channel fixture is incomplete.')
+    const images = [
+      { id: 'portrait', width: 120, height: 360 },
+      { id: 'wide', width: 480, height: 120 },
+    ]
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: images.map(({ id }) => buildServerMessage(general.id, `Photo ${id}`, {
+        id: `photo-${id}`,
+        attachments: [{ url: `/issue-355-${id}.svg`, type: 'image/svg+xml', name: `${id}.svg` }],
+      })) },
+    })
+    await installMockCoreApi(page, state)
+    await page.route('**/issue-355-*.svg', async (route) => {
+      const image = images.find(({ id }) => route.request().url().endsWith(`issue-355-${id}.svg`))!
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${image.width}" height="${image.height}"><rect width="100%" height="100%" fill="#69b3c7"/></svg>`,
+      })
+    })
+
+    for (const viewportWidth of [1366, 800, 390]) {
+      await page.setViewportSize({ width: viewportWidth, height: 768 })
+      await page.goto('/servers')
+      for (const image of images) {
+        const row = page.locator(`[data-message-id="photo-${image.id}"]`)
+        const preview = row.locator('.chat-image-attachment')
+        await expect(preview).toBeVisible()
+        const size = await preview.evaluate((element: HTMLImageElement) => ({
+          naturalRatio: element.naturalWidth / element.naturalHeight,
+          renderedRatio: element.getBoundingClientRect().width / element.getBoundingClientRect().height,
+          width: element.getBoundingClientRect().width,
+          height: element.getBoundingClientRect().height,
+        }))
+        expect(size.renderedRatio).toBeCloseTo(size.naturalRatio, 2)
+        expect(size.width).toBeLessThanOrEqual(320)
+        expect(size.height).toBeLessThanOrEqual(220)
+        await row.getByRole('button', { name: `Preview ${image.id}.svg` }).click()
+        await expect(page.locator('.chat-image-preview-modal')).toBeVisible()
+        await page.getByRole('button', { name: 'Close image preview' }).click()
+      }
+    }
+  })
+
   test('opens Voice & Audio settings without overflowing the settings modal', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)

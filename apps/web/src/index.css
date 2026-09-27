@@ -5407,10 +5407,9 @@ body {
 }
 
 .message.message-compact .message-inline-actions {
-  position: absolute;
-  top: 2px;
-  right: 0;
-  transform: none;
+  position: relative;
+  float: right;
+  margin-left: 8px;
   z-index: 1;
 }
 
@@ -9791,12 +9790,11 @@ a.community-open-btn:hover {
 
 .chat-image-attachment {
   display: block;
-  width: min(320px, 52vw);
-  aspect-ratio: 16 / 9;
+  width: auto;
+  height: auto;
   max-width: min(320px, 52vw);
   max-height: 220px;
-  height: auto;
-  object-fit: cover;
+  object-fit: contain;
   background: transparent;
 }
 
@@ -16603,11 +16601,11 @@ textarea {
   }
 
   .message.message-compact .message-inline-actions {
-    position: absolute;
-    top: 2px;
-    right: 0;
-    transform: none;
-    margin-bottom: 0;
+    position: relative;
+    float: right;
+    top: auto;
+    right: auto;
+    margin-left: 8px;
   }
 
   .message-inline-action-btn {

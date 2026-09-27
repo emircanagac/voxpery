@@ -1,4 +1,6 @@
 import { isTauri } from './secureStorage'
+import { pushToTalkShortcutFromKey } from './globalPushToTalk'
+import { getStoredVoiceMode } from './webrtc/voiceInputProfile'
 
 export const GLOBAL_MUTE_SHORTCUT_STORAGE_KEY = 'voxpery-settings-global-mute-shortcut'
 export const GLOBAL_MUTE_SHORTCUT_EVENT = 'voxpery-global-mute-shortcut'
@@ -25,6 +27,23 @@ const KEY_ALIASES: Record<string, string> = {
   Space: 'Space',
 }
 
+const MOUSE_SHORTCUTS = new Set(['Mouse4', 'Mouse5'])
+
+export function isMouseMuteShortcut(shortcut: string | null): boolean {
+  return !!shortcut && MOUSE_SHORTCUTS.has(shortcut)
+}
+
+export function mouseShortcutFromEvent(event: MouseEvent): string | null {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null
+  if (event.button === 3) return 'Mouse4'
+  if (event.button === 4) return 'Mouse5'
+  return null
+}
+
+export function mouseEventMatchesShortcut(event: MouseEvent, shortcut: string | null): boolean {
+  return isMouseMuteShortcut(shortcut) && mouseShortcutFromEvent(event) === shortcut
+}
+
 function shortcutKeyFromEvent(event: KeyboardEvent): string | null {
   if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3)
   if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5)
@@ -40,13 +59,14 @@ export function shortcutFromKeyboardEvent(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey) modifiers.push('CommandOrControl')
   if (event.altKey) modifiers.push('Alt')
   if (event.shiftKey) modifiers.push('Shift')
-  if (modifiers.length === 0) return null
+  if (modifiers.length === 0 && !/^[A-Z0-9]$|^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return null
 
   return [...modifiers, key].join('+')
 }
 
 export function formatGlobalMuteShortcut(shortcut: string | null): string {
   if (!shortcut) return 'Not assigned'
+  if (isMouseMuteShortcut(shortcut)) return shortcut.replace('Mouse', 'Mouse ')
   return shortcut
     .replace('CommandOrControl', 'Ctrl/Cmd')
     .replace('ArrowUp', 'Up')
@@ -56,8 +76,18 @@ export function formatGlobalMuteShortcut(shortcut: string | null): string {
 }
 
 export function keyboardEventMatchesShortcut(event: KeyboardEvent, shortcut: string | null): boolean {
-  if (!shortcut || event.repeat) return false
+  if (!shortcut || event.repeat || isMouseMuteShortcut(shortcut)) return false
   return shortcutFromKeyboardEvent(event) === shortcut
+}
+
+export function muteShortcutConflictsWithPushToTalk(shortcut: string | null): boolean {
+  if (!shortcut || shortcut.includes('+') || isMouseMuteShortcut(shortcut)) return false
+  try {
+    return getStoredVoiceMode() === 'push_to_talk'
+      && shortcut === pushToTalkShortcutFromKey(localStorage.getItem('voxpery-settings-ptt-key') ?? 'V')
+  } catch {
+    return false
+  }
 }
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
@@ -97,6 +127,10 @@ export function setGlobalMuteShortcutCaptureActive(active: boolean): void {
   shortcutCaptureActive = active
 }
 
+export function isGlobalMuteShortcutCaptureActive(): boolean {
+  return shortcutCaptureActive
+}
+
 export async function registerDesktopGlobalMuteShortcut(shortcut: string | null): Promise<void> {
   if (!isTauri()) return
 
@@ -111,7 +145,7 @@ export async function registerDesktopGlobalMuteShortcut(shortcut: string | null)
     registeredDesktopShortcut = null
   }
 
-  if (!shortcut) return
+  if (!shortcut || isMouseMuteShortcut(shortcut)) return
 
   try {
     if (await isRegistered(shortcut)) await unregister(shortcut)
