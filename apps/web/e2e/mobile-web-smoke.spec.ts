@@ -232,7 +232,19 @@ test.describe('mocked mobile web smoke', () => {
     await messageInput.fill(continuation)
     await messageInput.press('Enter')
     await expect(page.getByText(continuation)).toBeVisible()
-    await expectVirtualMessageHeight(page.locator('.virtual-list-item', { hasText: continuation }), 23)
+    const firstSentRow = page.locator('.virtual-list-item', { hasText: content })
+    const continuationRow = page.locator('.virtual-list-item', { hasText: continuation })
+    await expect.poll(async () => continuationRow.evaluate((element) => {
+      const text = element.querySelector('.message-text')?.getBoundingClientRect()
+      const row = element.getBoundingClientRect()
+      return !!text && text.top >= row.top - 1 && text.bottom <= row.bottom + 1
+    })).toBe(true)
+    await expect.poll(async () => {
+      const firstSentBounds = await firstSentRow.boundingBox()
+      const continuationBounds = await continuationRow.boundingBox()
+      if (!firstSentBounds || !continuationBounds) return false
+      return firstSentBounds.y + firstSentBounds.height <= continuationBounds.y + 1
+    }).toBe(true)
     expect(state.messagesByChannelId[general.id]?.some((message) => message.content === continuation)).toBe(true)
 
     await page.getByRole('button', { name: 'View members' }).click()
