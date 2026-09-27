@@ -83,8 +83,6 @@ import {
   applyGlobalMuteShortcut,
   formatGlobalMuteShortcut,
   getStoredGlobalMuteShortcut,
-  isMouseMuteShortcut,
-  mouseShortcutFromEvent,
   registerDesktopGlobalMuteShortcut,
   setGlobalMuteShortcutCaptureActive,
   shortcutFromKeyboardEvent,
@@ -991,19 +989,10 @@ export default function UserBar() {
       }
       void saveGlobalMuteShortcut(shortcut)
     }
-    const onMouseDown = (event: MouseEvent) => {
-      const shortcut = mouseShortcutFromEvent(event)
-      if (!shortcut) return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      void saveGlobalMuteShortcut(shortcut)
-    }
     window.addEventListener('keydown', onKeyDown, true)
-    window.addEventListener('mousedown', onMouseDown, true)
     return () => {
       setGlobalMuteShortcutCaptureActive(false)
       window.removeEventListener('keydown', onKeyDown, true)
-      window.removeEventListener('mousedown', onMouseDown, true)
     }
   }, [capturingGlobalMuteShortcut, saveGlobalMuteShortcut])
 
@@ -2028,13 +2017,11 @@ export default function UserBar() {
                         <div className="user-setting-title">Toggle microphone mute</div>
                         <div className="user-setting-desc">
                           {capturingGlobalMuteShortcut
-                            ? 'Press a key or Mouse 4/5. Press Escape to cancel.'
+                            ? 'Press a key. Press Escape to cancel.'
                             : `${formatGlobalMuteShortcut(globalMuteShortcut)}. ${
-                              isMouseMuteShortcut(globalMuteShortcut)
-                                ? 'Mouse side buttons work while Voxpery is focused.'
-                                : isTauri()
-                                  ? 'Keyboard shortcuts work system-wide while Voxpery is running.'
-                                  : 'Works while this Voxpery tab is focused.'
+                              isTauri()
+                                ? 'Keyboard shortcuts work system-wide while Voxpery is running.'
+                                : 'Works while this Voxpery tab is focused.'
                             }`}
                         </div>
                         {globalMuteShortcutError && (

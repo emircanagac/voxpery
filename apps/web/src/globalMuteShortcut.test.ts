@@ -4,8 +4,6 @@ import {
   formatGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
   keyboardEventMatchesShortcut,
-  mouseEventMatchesShortcut,
-  mouseShortcutFromEvent,
   muteShortcutConflictsWithPushToTalk,
   resetGlobalMuteShortcutRegistrationForTests,
   shortcutFromKeyboardEvent,
@@ -52,22 +50,12 @@ describe('global mute shortcut', () => {
     expect(keyboardEventMatchesShortcut(keyEvent('KeyF', { ctrlKey: true }), 'F')).toBe(false)
   })
 
-  it('accepts side mouse buttons only without modifiers', () => {
-    expect(mouseShortcutFromEvent(new MouseEvent('mousedown', { button: 3 }))).toBe('Mouse4')
-    expect(mouseShortcutFromEvent(new MouseEvent('mousedown', { button: 4 }))).toBe('Mouse5')
-    expect(mouseShortcutFromEvent(new MouseEvent('mousedown', { button: 2 }))).toBeNull()
-    expect(mouseEventMatchesShortcut(new MouseEvent('mousedown', { button: 3 }), 'Mouse4')).toBe(true)
-    expect(mouseEventMatchesShortcut(new MouseEvent('mousedown', { button: 3, shiftKey: true }), 'Mouse4')).toBe(false)
-    expect(formatGlobalMuteShortcut('Mouse4')).toBe('Mouse 4')
-  })
-
   it('detects single-key push-to-talk conflicts', () => {
     localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
     localStorage.setItem('voxpery-settings-ptt-key', 'V')
     expect(muteShortcutConflictsWithPushToTalk('V')).toBe(true)
     expect(muteShortcutConflictsWithPushToTalk('F')).toBe(false)
     expect(muteShortcutConflictsWithPushToTalk('Control+V')).toBe(false)
-    expect(muteShortcutConflictsWithPushToTalk('Mouse4')).toBe(false)
   })
 
   it('registers desktop shortcuts and dispatches only pressed events', async () => {
@@ -86,17 +74,6 @@ describe('global mute shortcut', () => {
     expect(shortcutMocks.register).toHaveBeenCalledWith('CommandOrControl+Shift+M', expect.any(Function))
     expect(listener).toHaveBeenCalledOnce()
     window.removeEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, listener)
-  })
-
-  it('keeps side mouse buttons local instead of registering them globally', async () => {
-    ;(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
-    shortcutMocks.register.mockResolvedValue(undefined)
-    await applyGlobalMuteShortcut('F')
-    await applyGlobalMuteShortcut('Mouse4')
-    expect(shortcutMocks.register).toHaveBeenCalledTimes(1)
-    expect(shortcutMocks.register).toHaveBeenCalledWith('F', expect.any(Function))
-    expect(shortcutMocks.unregister).toHaveBeenCalledWith('F')
-    expect(localStorage.getItem('voxpery-settings-global-mute-shortcut')).toBe('Mouse4')
   })
 
   it('restores the previous registration when rebinding fails', async () => {

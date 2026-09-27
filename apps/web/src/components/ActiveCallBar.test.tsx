@@ -1006,21 +1006,6 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.setVoiceControls).toHaveBeenCalledTimes(1)
   })
 
-  it('toggles mute with a focused side mouse button but ignores other buttons and capture', () => {
-    localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'Mouse4')
-    const localMic = mediaTrack('audio', 'local-mic')
-    const { voice } = renderActiveCallBar({ localStream: new MediaStream([localMic]) })
-
-    fireEvent.mouseDown(window, { button: 2 })
-    expect(localMic.enabled).toBe(true)
-    fireEvent.mouseDown(window, { button: 3 })
-    expect(localMic.enabled).toBe(false)
-    setGlobalMuteShortcutCaptureActive(true)
-    fireEvent.mouseDown(window, { button: 3 })
-    expect(localMic.enabled).toBe(false)
-    expect(voice.setVoiceControls).toHaveBeenCalledTimes(1)
-  })
-
   it('routes desktop global shortcut events through the existing mute control', () => {
     const localMic = mediaTrack('audio', 'local-mic')
     const { voice } = renderActiveCallBar({

@@ -39,10 +39,8 @@ import { isTauri } from '../secureStorage'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
-  isGlobalMuteShortcutCaptureActive,
   isEditableShortcutTarget,
   keyboardEventMatchesShortcut,
-  mouseEventMatchesShortcut,
   muteShortcutConflictsWithPushToTalk,
 } from '../globalMuteShortcut'
 import {
@@ -1209,27 +1207,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleMute])
-
-  useEffect(() => {
-    const isBoundSideButton = (event: MouseEvent) =>
-      mouseEventMatchesShortcut(event, getStoredGlobalMuteShortcut())
-    const onMouseDown = (event: MouseEvent) => {
-      if (event.defaultPrevented || isGlobalMuteShortcutCaptureActive() || !isBoundSideButton(event)) return
-      event.preventDefault()
-      toggleMute()
-    }
-    const preventNavigation = (event: MouseEvent) => {
-      if (isBoundSideButton(event)) event.preventDefault()
-    }
-    window.addEventListener('mousedown', onMouseDown, true)
-    window.addEventListener('mouseup', preventNavigation, true)
-    window.addEventListener('auxclick', preventNavigation, true)
-    return () => {
-      window.removeEventListener('mousedown', onMouseDown, true)
-      window.removeEventListener('mouseup', preventNavigation, true)
-      window.removeEventListener('auxclick', preventNavigation, true)
-    }
   }, [toggleMute])
 
   const joinWithPreflight = async (channelId: string) => {
