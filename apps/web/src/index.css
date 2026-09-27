@@ -2335,7 +2335,7 @@ body {
 
 .user-settings-header {
   flex-shrink: 0;
-  padding: 20px 24px 14px;
+  padding: 16px 24px 10px;
   border-bottom: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
 }
 
@@ -2869,32 +2869,8 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  padding: 18px 24px 20px;
-  min-height: 0;
-}
-
-.user-settings-modal--voice .user-settings-header {
-  padding: 20px 24px 14px;
-}
-
-.user-settings-modal--voice .user-settings-scroll {
-  padding: 18px 24px 20px;
-}
-
-.user-settings-modal--voice .user-settings-footer {
-  padding: 12px 24px 20px;
-}
-
-.user-settings-modal--profile .user-settings-header {
-  padding: 16px 24px 10px;
-}
-
-.user-settings-modal--profile .user-settings-scroll {
   padding: 10px 24px 8px;
-}
-
-.user-settings-modal--profile .user-settings-footer {
-  padding: 10px 24px 12px;
+  min-height: 0;
 }
 
 .user-settings-section {
@@ -3288,7 +3264,7 @@ body {
 
 .user-settings-footer {
   flex-shrink: 0;
-  padding: 12px 24px 20px;
+  padding: 10px 24px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
