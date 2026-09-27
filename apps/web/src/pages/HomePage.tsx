@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Coffee, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -1870,21 +1870,21 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
         <div className="community-card community-card-support">
           <div className="community-card-badge">
-            <Coffee size={14} />
+            <Github size={14} />
             Support
           </div>
           <h2>Support the project</h2>
           <p>
-            Server is volunteer-run. Support with a one-time donation if you find it useful.
+            Support Voxpery through GitHub Sponsors.
           </p>
           <a
-            href="https://www.buymeacoffee.com/emircanagac"
+            href="https://github.com/sponsors/emircanagac"
             target="_blank"
             rel="noopener noreferrer"
             className="community-open-btn"
           >
-            <Coffee size={16} />
-            Support Voxpery
+            <Github size={16} />
+            Sponsor on GitHub
           </a>
         </div>
       </aside>
