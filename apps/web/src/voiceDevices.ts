@@ -1,3 +1,5 @@
+import { rememberMicrophoneCaptureTiming } from './webrtc/voiceJoinTiming'
+
 export const VOICE_SETTINGS_CHANGED_EVENT = 'voxpery-voice-settings-changed'
 export const VOICE_DEVICE_PREFERENCES_CHANGED_EVENT = 'voxpery-voice-device-preferences-changed'
 export const VOICE_INPUT_DEVICE_KEY = 'voxpery-settings-input-device-id'
@@ -98,7 +100,7 @@ async function captureMicrophone(
   })
 }
 
-export async function getPreferredMicrophoneStream(
+async function capturePreferredMicrophoneStream(
   overrides: MediaTrackConstraints = {},
 ): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -240,6 +242,13 @@ export async function requestVoiceDeviceAccess(): Promise<boolean> {
 type SinkSelectableAudioElement = HTMLAudioElement & {
   sinkId?: string
   setSinkId?: (sinkId: string) => Promise<void>
+}
+
+export async function getPreferredMicrophoneStream(overrides: MediaTrackConstraints = {}): Promise<MediaStream> {
+  const startedAt = performance.now()
+  const stream = await capturePreferredMicrophoneStream(overrides)
+  rememberMicrophoneCaptureTiming(stream, startedAt)
+  return stream
 }
 
 type OutputDeviceAssignment = {

@@ -110,6 +110,7 @@ export interface ScreenShareAudioOutboundDiagnostics {
 }
 
 export interface VoiceRuntimeDiagnostics {
+  joinTiming?: { totalMs: number; outcome: 'connected' | 'failed'; [stage: string]: number | string }
   benchmarkSchemaVersion?: number
   rnnoiseStatus?: RnnoiseRuntimeStatus
   rnnoiseError?: string

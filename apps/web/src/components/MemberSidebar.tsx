@@ -23,6 +23,7 @@ interface MemberItemProps {
     canManageRoles: boolean
     myRole: string
     interactive: boolean
+    onProfile: (member: MemberProfileMember, isServerOwner: boolean) => void
     onContextMenu: (position: { x: number; y: number }, trigger: HTMLElement, fromKeyboard: boolean, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
 }
 
@@ -38,6 +39,7 @@ const MemberItem = memo(function MemberItem({
     canManageRoles,
     myRole,
     interactive,
+    onProfile,
     onContextMenu,
 }: MemberItemProps) {
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
@@ -85,7 +87,8 @@ const MemberItem = memo(function MemberItem({
             className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
             role={showContextMenu ? 'button' : undefined}
             tabIndex={showContextMenu ? 0 : undefined}
-            aria-label={showContextMenu ? `Actions for ${member.username}` : undefined}
+            aria-label={showContextMenu ? `View profile for ${member.username}` : undefined}
+            onClick={() => { if (interactive) onProfile(member, isServerOwner) }}
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
@@ -94,6 +97,10 @@ const MemberItem = memo(function MemberItem({
             onKeyDown={(e) => {
                 if (!showContextMenu || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey))) return
                 e.preventDefault()
+                if (e.key === 'Enter' || e.key === ' ') {
+                    onProfile(member, isServerOwner)
+                    return
+                }
                 const rect = e.currentTarget.getBoundingClientRect()
                 onContextMenu({ x: rect.left, y: rect.bottom }, e.currentTarget, true, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
             }}
@@ -613,6 +620,7 @@ export default function MemberSidebar({
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             interactive={interactive}
+                            onProfile={openProfile}
                             onContextMenu={handleContextMenu}
                         />
                     ))}
@@ -638,6 +646,7 @@ export default function MemberSidebar({
                             canManageRoles={canManageRoles}
                             myRole={myRole}
                             interactive={interactive}
+                            onProfile={openProfile}
                             onContextMenu={handleContextMenu}
                         />
                     ))}

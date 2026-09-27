@@ -391,6 +391,12 @@ When debugging a production voice report, capture:
 
 ## Release Validation
 
+### Measuring Voice Join Latency
+
+Enable `localStorage.setItem('voxperyVoiceDiagnostics', '1')` before joining, then inspect `window.__VOXPERY_VOICE_DIAGNOSTICS__.joinTiming`. It reports microphone acquisition (including the permission prompt), processing setup, token request, TURN preparation, LiveKit connection, publication, total milliseconds, and the final outcome. Preflight timing follows the captured stream into the join attempt without storing device identifiers, room IDs, or tokens. Diagnostics remain opt-in and local.
+
+Collect repeated cold and warm joins on the actual web and desktop clients before optimizing a stage. Automated timing tests validate accounting, not production latency; no voice-join speedup is claimed without real-device measurements.
+
 Run `docs/VOICE_RELEASE_SMOKE_TEST.md` for every release candidate that changes voice, LiveKit/WebRTC, camera, screen sharing, audio settings, service worker caching, desktop runtime, or build output.
 
 Run `docs/VOICE_SUPPRESSION_SMOKE_TEST.md` in addition when a release changes suppression, CSP, service workers, build output, or production deployment config. The suppression smoke test is intentionally stricter because RNNoise readiness and production CSP parity are release-critical for voice quality.

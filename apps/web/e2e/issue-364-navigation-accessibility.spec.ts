@@ -65,7 +65,7 @@ test('keeps server rows and create/join dialogs usable from the keyboard', async
   await channelMenu.press('Escape')
   await expect(channel).toBeFocused()
 
-  const member = page.getByRole('button', { name: 'Actions for Friend 01' })
+  const member = page.getByRole('button', { name: 'View profile for Friend 01' })
   await member.focus()
   await member.press('ContextMenu')
   const memberMenu = page.getByRole('menu', { name: 'Actions for Friend 01' })

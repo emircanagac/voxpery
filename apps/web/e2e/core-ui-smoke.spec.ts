@@ -365,7 +365,7 @@ test.describe('mocked core UI smoke', () => {
 
     await ownRow.hover()
     await ownRow.getByRole('button', { name: 'Edit' }).click()
-    await ownRow.locator('input.home-search').fill('Edited local note')
+    await ownRow.getByRole('textbox', { name: 'Edit message' }).fill('Edited local note')
     await ownRow.getByTitle('Save').click()
     await expect(page.getByText('Edited local note')).toBeVisible()
     expect(state.messagesByChannelId[general.id].some((message) => message.content === 'Edited local note')).toBe(true)

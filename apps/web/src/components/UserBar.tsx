@@ -20,6 +20,7 @@ import {
 } from '../webrtc/sensitivityThreshold'
 import SensitivityBar from './SensitivityBar'
 import ThemeSettings from './ThemeSettings'
+import MemberProfileDialog from './MemberProfileDialog'
 import { ROUTES } from '../routes'
 import {
   DEFAULT_VOICE_INPUT_PROFILE,
@@ -201,6 +202,7 @@ export default function UserBar() {
   const pushToast = useToastStore((s) => s.pushToast)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [pendingStatusMenuOpen, setPendingStatusMenuOpen] = useState(false)
+  const [showOwnProfile, setShowOwnProfile] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
   )
@@ -1530,15 +1532,9 @@ export default function UserBar() {
         <button
           type="button"
           className={`user-avatar user-avatar-btn avatar-status-${(user?.status ?? 'online') as StatusValue}`}
-          onClick={() => {
-            if (isMobileViewport) {
-              openSettingsPanel()
-              return
-            }
-            toggleStatusMenu()
-          }}
-          title={isMobileViewport ? 'User settings' : 'Set status'}
-          aria-label={isMobileViewport ? 'User settings' : 'Set status'}
+          onClick={() => setShowOwnProfile(true)}
+          title="View my profile"
+          aria-label="View my profile"
         >
           {user?.avatar_url ? (
             <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt={user.username} className="user-avatar-image" />
@@ -1546,17 +1542,11 @@ export default function UserBar() {
             user ? getInitial(user.username) : '?'
           )}
         </button>
-        <button
-          type="button"
-          className="user-info user-info-btn"
-          onClick={() => {
-            toggleStatusMenu()
-          }}
-          title="Set status"
-          aria-label="Set status"
-        >
-          <div className="user-name">{user?.username || 'User'}</div>
-          <div className="user-status-row">
+        <div className="user-info">
+          <button type="button" className="user-name user-profile-name" onClick={() => setShowOwnProfile(true)} title="View my profile">
+            {user?.username || 'User'}
+          </button>
+          <button type="button" className="user-status-row user-status-button" onClick={toggleStatusMenu} title="Set status" aria-label="Set status" aria-expanded={showStatusMenu}>
             <div className="user-status" title={statusLabel(user?.status)}>
               {footerStatusLabel(user?.status)}
             </div>
@@ -1564,8 +1554,8 @@ export default function UserBar() {
               <span className="user-status-cue-label">Status</span>
               <ChevronsUpDown size={11} strokeWidth={2} />
             </span>
-          </div>
-        </button>
+          </button>
+        </div>
         </div>
       </div>
       {!isMobileViewport && (
@@ -1594,6 +1584,15 @@ export default function UserBar() {
         document.body,
       )}
       {voiceDeviceMenu}
+      {showOwnProfile && user && createPortal(
+        <MemberProfileDialog
+          member={{ user_id: user.id, username: user.username, avatar_url: user.avatar_url, about_me: user.about_me, status: user.status, role: '' }}
+          isServerOwner={false}
+          onClose={() => setShowOwnProfile(false)}
+          onEditProfile={() => { setShowOwnProfile(false); openSettingsPanel() }}
+        />,
+        document.body,
+      )}
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onMouseDown={closeSettingsPanel}>
           <div
