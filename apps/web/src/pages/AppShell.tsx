@@ -9,6 +9,7 @@ import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
+import SidebarResizers from '../components/SidebarResizers'
 import NotificationPermissionPrompt from '../components/NotificationPermissionPrompt'
 import FeedbackCard from '../components/FeedbackCard'
 import { useToastStore } from '../stores/toast'
@@ -713,6 +714,7 @@ export default function AppShell() {
       <main className="shell-content">
         <NotificationPermissionPrompt ready={socialDataReady} />
         <Outlet />
+        <SidebarResizers />
       </main>
       {/* Voice call bar — fixed to bottom of chat area, visible in both server and DM views */}
       <div className="callbar-overlay">

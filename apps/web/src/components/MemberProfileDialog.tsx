@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { MessageCircle, UserPlus, X } from 'lucide-react'
+import { MessageCircle, Settings, UserPlus, X } from 'lucide-react'
 import { resolveAvatarUrl } from '../api'
 
 export interface MemberProfileMember {
@@ -19,6 +19,7 @@ interface MemberProfileDialogProps {
   member: MemberProfileMember
   isServerOwner: boolean
   onClose: () => void
+  onEditProfile?: () => void
   actions?: {
     canSendDm: boolean
     canAddFriend: boolean
@@ -34,7 +35,7 @@ function formatProfileDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
-export default function MemberProfileDialog({ member, isServerOwner, onClose, actions }: MemberProfileDialogProps) {
+export default function MemberProfileDialog({ member, isServerOwner, onClose, actions, onEditProfile }: MemberProfileDialogProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
@@ -126,6 +127,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
             </span>
           )}
         </div>
+        {onEditProfile && <button type="button" className="member-profile-action" onClick={onEditProfile}><Settings size={14} />Edit profile</button>}
         {actions && (actions.canSendDm || actions.canAddFriend) && (
           <div className="member-profile-actions" role="group" aria-label={`Actions for ${member.username}`}>
             {actions.canSendDm && actions.onSendDm && (

@@ -35,6 +35,7 @@ import {
   shouldRebuildSuppressionPipeline,
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
+import { createVoiceJoinTiming } from './voiceJoinTiming'
 import {
   getRemoteMicrophoneAudioTracks,
   isScreenShareAudioTrack,
@@ -1027,6 +1028,7 @@ export function useLiveKitVoice() {
     setIsJoining(true)
     reportObservabilityEvent('voice_join_started')
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
+    const joinTiming = createVoiceJoinTiming(preflightStream)
     let micPublished = false
 
     try {
@@ -1034,6 +1036,7 @@ export function useLiveKitVoice() {
         preflightStream = await getMicrophoneStream()
       }
       activeInputDeviceIdRef.current = getStoredVoiceInputDeviceId()
+      joinTiming.mark('microphoneMs')
 
       const rawMicTrack = preflightStream.getAudioTracks()[0]
       if (!rawMicTrack) throw new Error('No microphone track available')
@@ -1074,7 +1077,9 @@ export function useLiveKitVoice() {
       // Keep vadStream ref so we can pass it to the speaking monitor after room connect
       vadStreamRef.current = vadStream
 
+      joinTiming.mark('processingMs')
       const { ws_url, token: lkToken, server_muted, server_deafened } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+      joinTiming.mark('tokenMs')
       const joinControl = voiceJoinModeration(selfMutedRef.current, selfDeafenedRef.current, !!server_muted, !!server_deafened)
       const publishAllowed = joinControl.canPublishMicrophone
       if (!publishAllowed) await setLocalMicMuted(true)
@@ -1132,6 +1137,7 @@ export function useLiveKitVoice() {
       } catch {
         // Ignore TURN errors in dev
       }
+      joinTiming.mark('turnMs')
 
       const handleRemoteTrackMuteChanged = createRemoteTrackMuteChangeHandler({
         isLocalParticipant: (participant) => participant === room.localParticipant,
@@ -1320,6 +1326,7 @@ export function useLiveKitVoice() {
       )
 
       await Promise.race([connectPromise, timeoutPromise])
+      joinTiming.mark('connectionMs')
 
       room.remoteParticipants.forEach((participant) => {
         reconcileLiveKitVoicePresence(participant.identity, channelId, true)
@@ -1383,7 +1390,10 @@ export function useLiveKitVoice() {
       send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: false, camera_on: false })
       playVoiceCue('join')
       reportObservabilityEvent('voice_join_succeeded')
+      joinTiming.mark('publicationMs')
+      joinTiming.finish('connected')
     } catch (e: unknown) {
+      joinTiming.finish('failed')
       reportObservabilityEvent('voice_join_failed')
       const msg = (e as Error)?.message ?? 'Failed to join voice'
       setLastError(msg)

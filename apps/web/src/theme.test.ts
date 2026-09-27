@@ -109,12 +109,22 @@ describe('theme preferences', () => {
 
     expect(saved.customThemeColor).toBe('#7b3fc6')
     expect(localStorage.getItem(THEME_CUSTOM_COLOR_STORAGE_KEY)).toBe('#7b3fc6')
-    expect(localStorage.getItem(THEME_CUSTOM_MODE_STORAGE_KEY)).toBe('dark')
+    expect(localStorage.getItem(THEME_CUSTOM_MODE_STORAGE_KEY)).toBe('light')
     expect(document.documentElement.dataset.customTheme).toBe('true')
-    expect(document.documentElement.dataset.customThemeMode).toBe('dark')
+    expect(document.documentElement.dataset.customThemeMode).toBe('light')
     expect(document.documentElement.style.getPropertyValue('--user-theme-bg-primary')).toMatch(/^#[0-9a-f]{6}$/)
     expect(document.documentElement.style.getPropertyValue('--user-theme-accent')).toMatch(/^#[0-9a-f]{6}$/)
-    expect(document.documentElement.style.colorScheme).toBe('dark')
+    expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(initializeTheme().customThemeMode).toBe('light')
+  })
+
+  it('keeps custom accent links readable on light surfaces while preserving the chosen button color', () => {
+    setThemePreference({ theme: 'light', customAccent: '#ffffee', customThemeColor: null, customThemeMode: 'light' })
+    expect(document.documentElement.style.getPropertyValue('--user-accent')).toBe('#ffffee')
+    const link = document.documentElement.style.getPropertyValue('--user-accent-text')
+    for (const surface of ['#ffffff', '#e8ebf0', '#dbe3f1', '#f8f9fb']) {
+      expect(getContrastRatio(link, surface)).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it('maps the legacy rose preference into the visible custom theme flow', () => {

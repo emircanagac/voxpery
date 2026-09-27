@@ -2,6 +2,15 @@
 
 Local setup, scripts, and CI behavior for current codebase.
 
+## Interaction Regression Coverage
+
+- Message editing uses a multiline field. Enter saves, Shift+Enter inserts a line break, Escape cancels, and IME composition does not submit. Save and Cancel remain available as explicit actions.
+- Member rows and message authors open profiles on normal activation. Friends avatars open profiles while the adjacent name/row action still opens a DM. Context menus remain available through right click and the context-menu key.
+- The bottom-left avatar/name opens the current profile. Status has a separate control; Edit profile opens settings, including on mobile.
+- Above 1020px, channel and member panels can be resized from their dividers. Arrow keys adjust the focused divider; Home or double click resets its width. Widths persist locally, stay between 200 and 360px, and shrink as needed to reserve the center area. Mobile and narrow-desktop layouts retain their existing breakpoints.
+- Custom themes preserve their Light/Dark mode. Custom accent backgrounds retain the chosen color while link text uses a contrast-adjusted variant.
+- Run unit tests and both desktop/mobile Playwright smoke scripts after changing these shared surfaces. The settings regression suite covers profile navigation, persistent resizing, and custom Light appearance.
+
 ## Prerequisites
 
 - Rust (stable)

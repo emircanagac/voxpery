@@ -1487,10 +1487,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                           >
                             <button
                               type="button"
-                              className="home-member-main"
-                              aria-label={`Message ${friend.username}`}
-                              disabled={openingDmPeerId === friend.id}
-                              onClick={() => void openMessageForFriend(friend.id)}
+                              className="home-member-profile-button"
+                              aria-label={`View profile for ${friend.username}`}
+                              onClick={() => setProfileCard({ user_id: friend.id, username: friend.username, avatar_url: friend.avatar_url, status: friend.status, role: '' })}
                             >
                               <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
                                 {friend.avatar_url ? (
@@ -1499,6 +1498,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                                   friend.username.charAt(0).toUpperCase()
                                 )}
                               </div>
+                            </button>
+                            <button
+                              type="button"
+                              className="home-member-main"
+                              aria-label={`Message ${friend.username}`}
+                              disabled={openingDmPeerId === friend.id}
+                              onClick={() => void openMessageForFriend(friend.id)}
+                            >
                               <div className="home-member-meta">
                                 <div>{friend.username}</div>
                                 <span>

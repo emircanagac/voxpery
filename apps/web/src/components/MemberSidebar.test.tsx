@@ -62,7 +62,7 @@ describe('MemberSidebar profile interaction', () => {
     })
   })
 
-  it('keeps left click inert and opens a centered profile from the context menu', () => {
+  it('opens profiles with left click and preserves the context menu', () => {
     const { container } = render(
       <MemoryRouter>
         <MemberSidebar
@@ -91,6 +91,8 @@ describe('MemberSidebar profile interaction', () => {
     })
 
     fireEvent.click(memberRow!)
+    expect(screen.getByRole('dialog', { name: 'admin' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     fireEvent.contextMenu(memberRow!, { clientX: 120, clientY: 80 })
@@ -120,9 +122,9 @@ describe('MemberSidebar profile interaction', () => {
         />
       </MemoryRouter>,
     )
-    const member = screen.getByRole('button', { name: 'Actions for admin' })
+    const member = screen.getByRole('button', { name: 'View profile for admin' })
     member.focus()
-    fireEvent.keyDown(member, { key: 'Enter' })
+    fireEvent.keyDown(member, { key: 'ContextMenu' })
     const menu = screen.getByRole('menu', { name: 'Actions for admin' })
     expect(menu.querySelector('button')).toHaveFocus()
     fireEvent.keyDown(window, { key: 'Escape' })

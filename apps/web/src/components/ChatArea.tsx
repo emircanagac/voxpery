@@ -11,6 +11,7 @@ import { cleanReplyQuotePreview } from '../replyPreview'
 import EmojiPicker from './EmojiPicker'
 import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
+import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
 import { useAuthStore } from '../stores/auth'
 import { getFavoriteGifs, toggleFavoriteGif } from '../expressionPreferences'
 import { countMessageCharacters, messageBodyLimit, MESSAGE_MAX_CHARACTERS, truncateMessage } from '../messageLength'
@@ -897,6 +898,7 @@ export default function ChatArea({
     const [mentionQuery, setMentionQuery] = useState('')
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
     const [clickedLink, setClickedLink] = useState<string | null>(null)
+    const [profileCard, setProfileCard] = useState<MemberProfileMember | null>(null)
     const clickedLinkDialogRef = useRef<HTMLDivElement | null>(null)
     const clickedLinkTriggerRef = useRef<HTMLAnchorElement | null>(null)
     const [emojiOpen, setEmojiOpen] = useState(false)
@@ -2641,6 +2643,16 @@ export default function ChatArea({
                                         <div
                                             className="message-avatar"
                                             aria-hidden={isGrouped ? 'true' : undefined}
+                                            role={isGrouped ? undefined : 'button'}
+                                            tabIndex={isGrouped ? undefined : 0}
+                                            aria-label={isGrouped ? undefined : `View profile for ${msg.author.username}`}
+                                            onClick={() => { if (!isGrouped) setProfileCard({ ...msg.author, role: '' }) }}
+                                            onKeyDown={(event) => {
+                                                if (!isGrouped && (event.key === 'Enter' || event.key === ' ')) {
+                                                    event.preventDefault()
+                                                    setProfileCard({ ...msg.author, role: '' })
+                                                }
+                                            }}
                                         >
                                             {!isGrouped && (
                                                 getAuthorAvatarUrl(msg.author || {}) ? (
@@ -2654,12 +2666,14 @@ export default function ChatArea({
                                             {isGrouped && messageInlineActions}
                                             {!isGrouped && (
                                                 <div className="message-header">
-                                                    <span
+                                                    <button
+                                                        type="button"
                                                         className="message-author"
+                                                        onClick={() => setProfileCard({ ...msg.author, role: '' })}
                                                         style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
                                                     >
                                                         {msg.author.username}
-                                                    </span>
+                                                    </button>
                                                     <span className="message-timestamp" title={formatDate(msg.created_at)}>
                                                         {formatMessageTimestamp(msg.created_at)}
                                                     </span>
@@ -2670,14 +2684,18 @@ export default function ChatArea({
                                                 )}
                                             {editingMessageId === msg.id ? (
                                                 <div className="dm-edit-row">
-                                                    <input
+                                                    <textarea
                                                         className="home-search"
+                                                        aria-label="Edit message"
+                                                        rows={3}
+                                                        autoFocus
                                                         value={editingContent}
                                                         onChange={(e) => onEditingContentChange?.(truncateMessage(e.target.value, MESSAGE_MAX_CHARACTERS))}
                                                         onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') {
+                                                            if (e.nativeEvent.isComposing) return
+                                                            if (e.key === 'Enter' && !e.shiftKey) {
                                                                 e.preventDefault()
-                                                                onSaveEdit?.()
+                                                                if (editingContent.trim()) onSaveEdit?.()
                                                             }
                                                             if (e.key === 'Escape') {
                                                                 e.preventDefault()
@@ -2685,12 +2703,14 @@ export default function ChatArea({
                                                             }
                                                         }}
                                                     />
-                                                    <button type="button" className="message-menu-btn dm-msg-btn" onClick={onSaveEdit} title="Save">
-                                                        <Save size={12} />
-                                                    </button>
-                                                    <button type="button" className="message-menu-btn dm-msg-btn" onClick={onCancelEdit} title="Cancel">
-                                                        <X size={12} />
-                                                    </button>
+                                                    <div className="message-edit-actions">
+                                                        <button type="button" className="message-menu-btn dm-msg-btn" onClick={onSaveEdit} title="Save" disabled={!editingContent.trim()}>
+                                                            <Save size={14} /> Save
+                                                        </button>
+                                                        <button type="button" className="message-menu-btn dm-msg-btn" onClick={onCancelEdit} title="Cancel">
+                                                            <X size={14} /> Cancel
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ) : (
                                                 renderMessageContent(msg.content)
@@ -2986,6 +3006,10 @@ export default function ChatArea({
                     />
                 </div>,
                 document.body
+            )}
+            {profileCard && createPortal(
+                <MemberProfileDialog member={profileCard} isServerOwner={false} onClose={() => setProfileCard(null)} />,
+                document.body,
             )}
             {clickedLink && createPortal(
                 <div className="modal-overlay" onClick={() => setClickedLink(null)}>

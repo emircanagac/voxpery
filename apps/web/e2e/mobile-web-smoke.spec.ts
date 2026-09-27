@@ -38,7 +38,8 @@ test.describe('mocked mobile web smoke', () => {
 
     await page.goto('/social')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'View my profile', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
     await page.getByRole('button', { name: 'Appearance' }).click()
 
     const modal = page.locator('.user-settings-modal')

@@ -826,6 +826,33 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('alice, bob')
   })
 
+  it('edits multiple lines without saving on Shift+Enter or IME composition', () => {
+    const save = vi.fn()
+    const cancel = vi.fn()
+    const change = vi.fn()
+    renderChatArea({ editingMessageId: 'message-1', editingContent: 'hello\nworld', onSaveEdit: save, onCancelEdit: cancel, onEditingContentChange: change })
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor.tagName).toBe('TEXTAREA')
+    expect(editor).toHaveValue('hello\nworld')
+    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
+    fireEvent.keyDown(editor, { key: 'Enter', isComposing: true })
+    expect(save).not.toHaveBeenCalled()
+    fireEvent.change(editor, { target: { value: 'edited\ntext' } })
+    expect(change).toHaveBeenCalledWith('edited\ntext')
+    fireEvent.keyDown(editor, { key: 'Enter' })
+    expect(save).toHaveBeenCalledOnce()
+    fireEvent.keyDown(editor, { key: 'Escape' })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('opens an author profile and closes it with Escape', () => {
+    renderChatArea()
+    fireEvent.click(screen.getByRole('button', { name: 'View profile for admin' }))
+    expect(screen.getByRole('dialog', { name: 'admin' })).toBeVisible()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('lets a shared GIF be saved to the same favorites store as the picker', () => {
     renderChatArea({
       messages: [message('shared-gif', '![gif](https://cdn.example.test/shared.gif)', 0)],

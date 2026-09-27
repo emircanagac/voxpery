@@ -119,7 +119,7 @@ export default function ThemeSettings() {
   const [themeColorError, setThemeColorError] = useState<string | null>(null)
   const customThemePalette = createCustomThemePalette(
     normalizeHexColor(themeColorDraft) ?? activeTheme.defaultAccent,
-    'dark',
+    preference.customThemeMode,
   )
   const automaticAccent = preference.customThemeColor
     ? customThemePalette.accentColor
@@ -159,10 +159,11 @@ export default function ThemeSettings() {
     }
     setThemeColorError(null)
     setThemeColorDraft(normalized)
+    if (!preference.customAccent) setAccentDraft(createCustomThemePalette(normalized, preference.customThemeMode).accentColor)
     savePreference({
       ...preference,
       customThemeColor: normalized,
-      customThemeMode: 'dark',
+      customThemeMode: preference.customThemeMode,
     })
   }
 
@@ -290,6 +291,17 @@ export default function ThemeSettings() {
       {preference.customThemeColor && <div className="theme-custom-panel is-active" aria-label="Custom theme controls">
         <div className="theme-custom-panel-copy">
           <strong>Custom theme color</strong>
+          <div className="theme-mode-control" role="group" aria-label="Custom theme mode">
+            {(['light', 'dark'] as const).map((mode) => (
+              <button key={mode} type="button" aria-pressed={preference.customThemeMode === mode}
+                onClick={() => {
+                  savePreference({ ...preference, customThemeMode: mode })
+                  if (!preference.customAccent) setAccentDraft(createCustomThemePalette(preference.customThemeColor!, mode).accentColor)
+                }}>
+                {mode === 'light' ? 'Light' : 'Dark'}
+              </button>
+            ))}
+          </div>
         </div>
         <HexColorControl
           draft={themeColorDraft}

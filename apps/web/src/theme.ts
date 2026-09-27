@@ -340,7 +340,9 @@ export function getStoredThemePreference(storage: Pick<Storage, 'getItem'> = loc
       theme,
       customAccent: storedAccent,
       customThemeColor,
-      customThemeMode: customThemeColor ? 'dark' : getThemeOption(theme).colorScheme,
+      customThemeMode: customThemeColor
+        ? (storage.getItem(THEME_CUSTOM_MODE_STORAGE_KEY) === 'light' ? 'light' : 'dark')
+        : getThemeOption(theme).colorScheme,
     }
   } catch {
     return {
@@ -360,7 +362,7 @@ export function applyThemePreference(
   const customAccent = normalizeHexColor(preference.customAccent)
   const customThemeColor = normalizeHexColor(preference.customThemeColor)
   const option = getThemeOption(theme)
-  const customThemeMode = customThemeColor ? 'dark' : option.colorScheme
+  const customThemeMode = customThemeColor ? preference.customThemeMode : option.colorScheme
   const customThemePalette = customThemeColor
     ? createCustomThemePalette(customThemeColor, customThemeMode)
     : null
@@ -400,12 +402,20 @@ export function applyThemePreference(
   }
 
   if (customAccent) {
+    const surfaces = customThemePalette
+      ? [customThemePalette.backgroundColor, customThemePalette.secondaryBackgroundColor, customThemePalette.tertiaryBackgroundColor, customThemePalette.surfaceColor, customThemePalette.chatColor, customThemePalette.popoverColor]
+      : option.colorScheme === 'light'
+        ? ['#f4f6f8', '#e8ebf0', '#dbe3f1', '#ffffff', '#f8f9fb']
+        : [option.backgroundColor, option.surfaceColor, option.chromeColor]
+    const readableAccent = ensureContrastColor(customAccent, surfaces, customThemeMode === 'light' ? '#111827' : '#ffffff')
     root.dataset.customAccent = 'true'
     root.style.setProperty('--user-accent', customAccent)
+    root.style.setProperty('--user-accent-text', readableAccent)
     root.style.setProperty('--user-accent-contrast', getAccessibleAccentText(customAccent))
   } else {
     delete root.dataset.customAccent
     root.style.removeProperty('--user-accent')
+    root.style.removeProperty('--user-accent-text')
     root.style.removeProperty('--user-accent-contrast')
   }
 
