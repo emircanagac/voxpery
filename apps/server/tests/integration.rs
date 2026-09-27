@@ -2295,6 +2295,117 @@ async fn create_channel_list_channels_send_message_list_messages() {
 }
 
 #[tokio::test]
+async fn server_message_jump_loads_old_target_and_rejects_unavailable_or_private_targets() {
+    if test_db_url().is_none() {
+        eprintln!("SKIP: database is not configured");
+        return;
+    }
+    let (mut app, state) = setup_app().await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let (owner_token, owner_id) = register_user(
+        &mut app,
+        &format!("jump-owner-{suffix}@example.com"),
+        &format!("jumpowner{}", &suffix[..8]),
+        test_credential("message-jump"),
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (_, channel_id, _) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &owner_auth,
+        "Pinned Jump Server",
+    )
+    .await;
+    let (_, other_channel_id, _) = create_server_with_default_text_channel(
+        &mut app,
+        &state,
+        &owner_auth,
+        "Other Jump Server",
+    )
+    .await;
+    let mut tied_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    tied_ids.sort();
+    let target_id = tied_ids[0];
+    for (index, id) in tied_ids.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO messages (id, channel_id, user_id, content, created_at) VALUES ($1, $2, $3, $4, '2026-01-01T00:00:00Z')",
+        )
+        .bind(id)
+        .bind(channel_id)
+        .bind(owner_id)
+        .bind(if index == 0 { "old pinned target" } else { "same time message" })
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO messages (id, channel_id, user_id, content, created_at) SELECT uuid_generate_v4(), $1, $2, 'newer message', NOW() - INTERVAL '1 day' + n * INTERVAL '1 second' FROM generate_series(1, 60) AS n",
+    )
+    .bind(channel_id)
+    .bind(owner_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let request = Request::builder()
+        .uri(format!("/api/messages/{channel_id}?limit=10"))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let latest: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert!(!latest.iter().any(|message| message["id"] == target_id.to_string()));
+
+    let request = Request::builder()
+        .uri(format!("/api/messages/{channel_id}?around={target_id}&limit=5"))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let page: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page.len(), 5);
+    assert_eq!(page[0]["id"], target_id.to_string());
+
+    let request = Request::builder()
+        .uri(format!("/api/messages/{channel_id}?before={}&limit=5", tied_ids[2]))
+        .header("Authorization", &owner_auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let older: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(older.len(), 2);
+    assert_eq!(older[0]["id"], tied_ids[0].to_string());
+    assert_eq!(older[1]["id"], tied_ids[1].to_string());
+
+    let (outsider_token, _) = register_user(
+        &mut app,
+        &format!("jump-outsider-{suffix}@example.com"),
+        &format!("jumpguest{}", &suffix[..8]),
+        test_credential("message-jump"),
+    )
+    .await;
+    let request = Request::builder()
+        .uri(format!("/api/messages/{channel_id}?around={target_id}"))
+        .header("Authorization", format!("Bearer {outsider_token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(oneshot(&mut app, request).await.0, StatusCode::FORBIDDEN);
+
+    for (channel, target) in [(other_channel_id, target_id), (channel_id, Uuid::new_v4())] {
+        let request = Request::builder()
+            .uri(format!("/api/messages/{channel}?around={target}"))
+            .header("Authorization", &owner_auth)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(oneshot(&mut app, request).await.0, StatusCode::NOT_FOUND);
+    }
+}
+
+#[tokio::test]
 async fn me_unauthorized_without_token() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

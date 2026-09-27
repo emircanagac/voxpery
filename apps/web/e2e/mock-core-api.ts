@@ -1222,7 +1222,25 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
 
   const serverMessagesMatch = pathname.match(/^\/api\/messages\/([^/]+)$/)
   if (serverMessagesMatch && method === 'GET') {
-    await json(route, state.messagesByChannelId[serverMessagesMatch[1]] ?? [])
+    const messages = state.messagesByChannelId[serverMessagesMatch[1]] ?? []
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') ?? 50)))
+    const around = url.searchParams.get('around')
+    const before = url.searchParams.get('before')
+    if (around && before) {
+      await json(route, { error: 'Choose either before or around, not both' }, 400)
+      return
+    }
+    if (around) {
+      const targetIndex = messages.findIndex((message) => message.id === around)
+      if (targetIndex < 0) {
+        await json(route, { error: 'Message not found in this channel' }, 404)
+        return
+      }
+      await json(route, messages.slice(targetIndex, targetIndex + limit))
+      return
+    }
+    const beforeIndex = before ? messages.findIndex((message) => message.id === before) : messages.length
+    await json(route, messages.slice(0, Math.max(0, beforeIndex)).slice(-limit))
     return
   }
 

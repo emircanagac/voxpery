@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent } from 'react'
+import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useAuthStore } from '../stores/auth'
@@ -65,6 +65,7 @@ export interface AppLayoutProps {
     skipServerSidebar?: boolean
     /** When true, the server chat view is visible (e.g. user switched from DM to Servers); used to scroll to bottom on re-enter. */
     isViewActive?: boolean
+    serverDialogTriggerRef?: RefObject<HTMLElement | null>
 }
 
 const SERVER_SETTINGS_SECTION_META = {
@@ -298,7 +299,7 @@ function messageMentionsUser(content: string | undefined, username: string | und
     return pattern.test(content)
 }
 
-export default function AppLayout({ skipServerSidebar = false, isViewActive }: AppLayoutProps) {
+export default function AppLayout({ skipServerSidebar = false, isViewActive, serverDialogTriggerRef: externalServerDialogTriggerRef }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
     const navigate = useNavigate()
@@ -449,6 +450,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const [channelSearch, setChannelSearch] = useState('')
     const [channelSearchResults, setChannelSearchResults] = useState<MessageWithAuthor[] | null>(null)
     const [channelPins, setChannelPins] = useState<MessageWithAuthor[]>([])
+    const [pinnedJumpTargetId, setPinnedJumpTargetId] = useState<string | null>(null)
+    const [pinnedJumpLoadingId, setPinnedJumpLoadingId] = useState<string | null>(null)
+    const [historicalChannelId, setHistoricalChannelId] = useState<string | null>(null)
+    const [returningToLatest, setReturningToLatest] = useState(false)
     const [showMobileMemberSheet, setShowMobileMemberSheet] = useState(false)
     const [serverBootstrapLoadingId, setServerBootstrapLoadingId] = useState<string | null>(null)
     const [serverListReady, setServerListReady] = useState(false)
@@ -538,8 +543,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const selectedRoleIdRef = useRef<string | null>(selectedRoleId)
     const createServerInFlightRef = useRef(false)
     const createServerRequestIdRef = useRef<string | null>(null)
+    const serverDialogRef = useRef<HTMLFormElement | null>(null)
+    const serverDialogTriggerRef = useRef<HTMLElement | null>(null)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
+    const historicalChannelIdRef = useRef<string | null>(null)
     const serverBootstrapRequestRef = useRef(0)
     const channelMessagesRequestRef = useRef(0)
 
@@ -828,20 +836,24 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         let cancelled = false
         setChannelSearch('')
         setChannelSearchResults(null)
+        setPinnedJumpTargetId(null)
+        setPinnedJumpLoadingId(null)
+        setHistoricalChannelId(null)
         setHasMoreOlder(true)
         setOlderMessagesReady(false)
-        const cached = messagesByChannelRef.current[channelId]
+        const cached = historicalChannelIdRef.current === channelId ? undefined : messagesByChannelRef.current[channelId]
         setMessages(cached ?? [])
         messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
-            messagesByChannelRef.current[channelId] = merged
             if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
                 return
             }
+            messagesByChannelRef.current[channelId] = merged
             setMessages(merged)
             setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
             setOlderMessagesReady(true)
+            if (historicalChannelIdRef.current === channelId) historicalChannelIdRef.current = null
         }).catch((err) => {
             console.error(err)
             if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
@@ -857,14 +869,18 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
 
     const refreshActiveChannelMessages = useCallback(async (channelId: string) => {
         if (!isLoggedIn) return
+        const requestId = ++channelMessagesRequestRef.current
         try {
             const cached = messagesByChannelRef.current[channelId] ?? []
             const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            if (requestId !== channelMessagesRequestRef.current) return
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = mergeRemoteWithRetryableLocals(ui, cached)
             messagesByChannelRef.current[channelId] = merged
             if (activeChannelIdRef.current === channelId) {
                 setMessages(merged)
+                setHistoricalChannelId(null)
+                if (historicalChannelIdRef.current === channelId) historicalChannelIdRef.current = null
                 setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
                 setOlderMessagesReady(true)
             }
@@ -984,12 +1000,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
     const loadOlderMessages = useCallback(async () => {
         if (!activeChannelId || !isLoggedIn || loadingOlder || !hasMoreOlder) return
         const channelId = activeChannelId
+        const requestId = channelMessagesRequestRef.current
         const current = messagesByChannelRef.current[channelId] ?? []
         const oldestId = current[0]?.id
         if (!oldestId) return
         setLoadingOlder(true)
         try {
             const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
+            if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
             const merged = [...ui, ...current]
             messagesByChannelRef.current[channelId] = merged
@@ -1002,6 +1020,71 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
             setLoadingOlder(false)
         }
     }, [activeChannelId, isLoggedIn, token, loadingOlder, hasMoreOlder])
+
+    const handleJumpToPinnedMessage = useCallback(async (messageId: string) => {
+        if (!activeChannelId || !isLoggedIn || pinnedJumpLoadingId) return
+        const channelId = activeChannelId
+        if (messages.some((message) => message.id === messageId)) {
+            setPinnedJumpTargetId(messageId)
+            return
+        }
+        const requestId = ++channelMessagesRequestRef.current
+        setPinnedJumpLoadingId(messageId)
+        try {
+            const rows = await messageApi.around(channelId, messageId, token, MESSAGE_PAGE_SIZE)
+            if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
+            if (!rows.some((message) => message.id === messageId)) {
+                throw new Error('Message not found in this channel')
+            }
+            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            messagesByChannelRef.current[channelId] = ui
+            setMessages(ui)
+            setHasMoreOlder(true)
+            setOlderMessagesReady(true)
+            setHistoricalChannelId(channelId)
+            historicalChannelIdRef.current = channelId
+            setPinnedJumpTargetId(messageId)
+        } catch (error) {
+            if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
+            pushToast({
+                level: 'error',
+                title: 'Message unavailable',
+                message: error instanceof Error && error.message.includes('Message not found')
+                    ? 'This pinned message is no longer available.'
+                    : 'Could not load this pinned message. Try again.',
+            })
+            refreshChannelPins()
+        } finally {
+            if (requestId === channelMessagesRequestRef.current) setPinnedJumpLoadingId(null)
+        }
+    }, [activeChannelId, isLoggedIn, messages, pinnedJumpLoadingId, pushToast, refreshChannelPins, token])
+
+    const handleReturnToLatest = useCallback(async () => {
+        if (!activeChannelId || !isLoggedIn || returningToLatest) return
+        const channelId = activeChannelId
+        const requestId = ++channelMessagesRequestRef.current
+        setReturningToLatest(true)
+        try {
+            const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
+            if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
+            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const merged = mergeRemoteWithRetryableLocals(ui, messagesByChannelRef.current[channelId] ?? [])
+            messagesByChannelRef.current[channelId] = merged
+            setMessages(merged)
+            setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+            setHistoricalChannelId(null)
+            historicalChannelIdRef.current = null
+            setPinnedJumpTargetId(merged.at(-1)?.id ?? null)
+        } catch {
+            if (requestId === channelMessagesRequestRef.current && activeChannelIdRef.current === channelId) {
+                pushToast({ level: 'error', title: 'Could not load latest messages', message: 'Try again.' })
+            }
+        } finally {
+            setReturningToLatest(false)
+        }
+    }, [activeChannelId, isLoggedIn, pushToast, returningToLatest, token])
+
+    const handlePinnedJumpVisible = useCallback(() => setPinnedJumpTargetId(null), [])
 
     useEffect(() => {
         if (!activeChannelId || !isViewActive) {
@@ -1729,17 +1812,73 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
         }
     }
 
-    const openCreateModal = () => {
+    const openCreateModal = (trigger?: HTMLElement) => {
+        serverDialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
         createServerInFlightRef.current = false
         createServerRequestIdRef.current = null
         setIsCreatingServer(false)
         setCreateServerError(null)
         setShowCreateServer(true)
     }
-    const openJoinModal = () => {
+    const openJoinModal = (trigger?: HTMLElement) => {
+        serverDialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
         setJoinServerError(null)
         setShowJoinServer(true)
     }
+
+    useEffect(() => {
+        if (!showCreateServer && !showJoinServer) return
+        const dialog = serverDialogRef.current
+        const trigger = serverDialogTriggerRef.current
+            ?? externalServerDialogTriggerRef?.current
+        dialog?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus()
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                if (showCreateServer && createServerInFlightRef.current) return
+                if (showCreateServer) {
+                    setShowCreateServer(false)
+                    setCreateServerError(null)
+                    createServerRequestIdRef.current = null
+                } else {
+                    setShowJoinServer(false)
+                    setJoinServerError(null)
+                }
+                return
+            }
+            if (event.key !== 'Tab' || !dialog) return
+            const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
+                'input:not(:disabled), button:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+            )).filter((control) => control.getClientRects().length > 0)
+            if (controls.length === 0) {
+                event.preventDefault()
+                dialog.focus()
+                return
+            }
+            const first = controls[0]
+            const last = controls[controls.length - 1]
+            if (!dialog.contains(document.activeElement)) {
+                event.preventDefault()
+                ;(event.shiftKey ? last : first).focus()
+            } else if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault()
+                last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault()
+                first.focus()
+            }
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => {
+            document.removeEventListener('keydown', onKeyDown, true)
+            serverDialogTriggerRef.current = null
+            if (externalServerDialogTriggerRef) externalServerDialogTriggerRef.current = null
+            queueMicrotask(() => {
+                if (trigger?.isConnected) trigger.focus()
+            })
+        }
+    }, [externalServerDialogTriggerRef, setShowCreateServer, setShowJoinServer, showCreateServer, showJoinServer])
     const openServerSettingsModal = (
         serverId?: string | null,
         initialTab: ServerSettingsOpenTab = 'overview',
@@ -3200,6 +3339,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                 searchQuery={channelSearch}
                 onSearchChange={setChannelSearch}
                 pinnedMessages={channelPins}
+                onGoToPinnedMessage={handleJumpToPinnedMessage}
+                pinnedJumpLoadingId={pinnedJumpLoadingId}
+                onReturnToLatest={historicalChannelId === activeChannelId ? handleReturnToLatest : undefined}
+                returningToLatest={returningToLatest}
+                jumpToMessageId={pinnedJumpTargetId}
+                onJumpToMessageHandled={handlePinnedJumpVisible}
                 onPinMessage={canManagePins ? handlePinChannelMessage : undefined}
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
@@ -3280,8 +3425,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                                 createServerRequestIdRef.current = null
                             }}
                         >
-                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
-                                <h2>Create a Server</h2>
+                            <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="create-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
+                                <h2 id="create-server-dialog-title">Create a Server</h2>
                                 {createServerError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{createServerError}</div>
                                 )}
@@ -3338,8 +3483,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive }: A
                     {/* Join Server Modal */}
                     {showJoinServer && (
                         <div className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`} onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>
-                            <form className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
-                                <h2>Join a Server</h2>
+                            <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="join-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
+                                <h2 id="join-server-dialog-title">Join a Server</h2>
                                 {joinServerError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
                                 )}

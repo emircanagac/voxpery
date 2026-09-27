@@ -7,8 +7,8 @@ import { resolveServerIconUrl, serverApi } from '../api'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 
 interface ServerSidebarProps {
-  onCreateServer: () => void
-  onJoinServer: () => void
+  onCreateServer: (trigger: HTMLElement) => void
+  onJoinServer: (trigger: HTMLElement) => void
   onOpenServerSettings?: (
     serverId: string,
     initialTab?: 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'safety' | 'danger',
@@ -508,7 +508,7 @@ export default function ServerSidebar({
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        onCreateServer()
+                        onCreateServer(e.currentTarget)
                     }}
                     title="Create Server"
                     aria-label="Create Server"
@@ -523,7 +523,7 @@ export default function ServerSidebar({
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        onJoinServer()
+                        onJoinServer(e.currentTarget)
                     }}
                     title="Join Server"
                     aria-label="Join Server"

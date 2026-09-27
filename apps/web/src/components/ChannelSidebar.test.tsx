@@ -219,6 +219,27 @@ describe('ChannelSidebar voice media presence', () => {
         expect(menu.style.left).toBe('16px')
     })
 
+    it('opens voice actions with keyboard and restores focus with Escape', () => {
+        useAppStore.setState({
+            servers: [server],
+            activeServerId: server.id,
+            channels: [voiceChannel],
+            members: [remoteMember],
+            voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id },
+        })
+
+        render(<ChannelSidebar channelCategories={['Voice']} />)
+        const participant = screen.getByRole('button', { name: `${remoteMember.username} in voice` })
+        participant.focus()
+        fireEvent.keyDown(participant, { key: 'F10', shiftKey: true })
+        const menu = screen.getByRole('group', { name: `Voice actions for ${remoteMember.username}` })
+        expect(menu.querySelector('button')).toHaveFocus()
+        fireEvent.keyDown(window, { key: 'Escape' })
+        expect(menu).not.toBeInTheDocument()
+        expect(participant).toHaveFocus()
+    })
+
     it('opens a direct message from a voice participant context menu', () => {
         const onOpenDirectMessage = vi.fn()
         useAppStore.setState({
@@ -476,7 +497,7 @@ describe('ChannelSidebar voice media presence', () => {
         expect(onOpenCreateChannel).toHaveBeenCalledWith('Voice')
 
         fireEvent.contextMenu(screen.getByRole('button', { name: 'Voice' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Create Channel' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Create Channel' }))
         expect(onOpenCreateChannel).toHaveBeenLastCalledWith('Voice')
     })
 

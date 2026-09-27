@@ -108,4 +108,25 @@ describe('MemberSidebar profile interaction', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
+
+  it('opens member actions from the keyboard and restores row focus', () => {
+    render(
+      <MemoryRouter>
+        <MemberSidebar
+          canKickMembers={false}
+          canBanMembers={false}
+          canTimeoutMembers={false}
+          canManageRolesFromPerms={false}
+        />
+      </MemoryRouter>,
+    )
+    const member = screen.getByRole('button', { name: 'Actions for admin' })
+    member.focus()
+    fireEvent.keyDown(member, { key: 'Enter' })
+    const menu = screen.getByRole('menu', { name: 'Actions for admin' })
+    expect(menu.querySelector('button')).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(menu).not.toBeInTheDocument()
+    expect(member).toHaveFocus()
+  })
 })

@@ -61,6 +61,7 @@ pub struct SendMessageRequest {
 #[derive(Debug, Deserialize)]
 pub struct MessageQuery {
     pub before: Option<Uuid>,
+    pub around: Option<Uuid>,
     pub limit: Option<i64>,
 }
 
