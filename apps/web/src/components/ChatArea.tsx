@@ -743,6 +743,10 @@ interface ChatAreaProps {
     onSearchChange?: (value: string) => void
     /** Pinned messages for this channel; shown in header dropdown */
     pinnedMessages?: MessageWithAuthor[]
+    onGoToPinnedMessage?: (messageId: string) => void
+    pinnedJumpLoadingId?: string | null
+    onReturnToLatest?: () => void
+    returningToLatest?: boolean
     onPinMessage?: (messageId: string) => void
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
@@ -795,6 +799,10 @@ export default function ChatArea({
     searchQuery = '',
     onSearchChange,
     pinnedMessages = [],
+    onGoToPinnedMessage,
+    pinnedJumpLoadingId = null,
+    onReturnToLatest,
+    returningToLatest = false,
     onPinMessage,
     onUnpinMessage,
     onToggleReaction,
@@ -891,6 +899,8 @@ export default function ChatArea({
     const [mentionQuery, setMentionQuery] = useState('')
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
     const [clickedLink, setClickedLink] = useState<string | null>(null)
+    const clickedLinkDialogRef = useRef<HTMLDivElement | null>(null)
+    const clickedLinkTriggerRef = useRef<HTMLAnchorElement | null>(null)
     const [emojiOpen, setEmojiOpen] = useState(false)
     const [messagePickerMode, setMessagePickerMode] = useState<MessagePickerMode>('emoji')
     const emojiPickerRef = useRef<HTMLDivElement | null>(null)
@@ -907,6 +917,38 @@ export default function ChatArea({
     const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [reactionPickerPosition, setReactionPickerPosition] = useState<{ top: number; left: number } | null>(null)
     const [favoriteGifUrls, setFavoriteGifUrls] = useState(() => new Set(getFavoriteGifs().map((gif) => gif.url)))
+
+    useEffect(() => {
+        if (!clickedLink) return
+        const dialog = clickedLinkDialogRef.current
+        const buttons = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+        buttons[0]?.focus()
+        const onKeyDown = (event: globalThis.KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setClickedLink(null)
+            } else if (event.key === 'Tab' && buttons.length > 0) {
+                const first = buttons[0]
+                const last = buttons[buttons.length - 1]
+                if (!dialog?.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
+                    event.preventDefault()
+                    ;(event.shiftKey ? last : first).focus()
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault()
+                    first.focus()
+                }
+            }
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        const trigger = clickedLinkTriggerRef.current
+        return () => {
+            document.removeEventListener('keydown', onKeyDown, true)
+            queueMicrotask(() => {
+                if (trigger?.isConnected) trigger.focus()
+            })
+        }
+    }, [clickedLink])
 
     const pinnedMessageIds = useMemo(() => new Set(pinnedMessages.map((m) => m.id)), [pinnedMessages])
     const mentionCandidates = useMemo(() => {
@@ -2119,6 +2161,7 @@ export default function ChatArea({
                         className="chat-link"
                         onClick={(e) => {
                             e.preventDefault()
+                            clickedLinkTriggerRef.current = e.currentTarget
                             setClickedLink(part)
                         }}
                     >
@@ -2422,7 +2465,13 @@ export default function ChatArea({
                                                         className="chat-header-pinned-goto"
                                                         title="Go to message"
                                                         aria-label="Go to message"
-                                                        onClick={() => scrollToMessageId(m.id)}
+                                                        disabled={pinnedJumpLoadingId !== null}
+                                                        aria-busy={pinnedJumpLoadingId === m.id}
+                                                        onClick={() => {
+                                                            setPinnedOpen(false)
+                                                            if (onGoToPinnedMessage) onGoToPinnedMessage(m.id)
+                                                            else scrollToMessageId(m.id)
+                                                        }}
                                                     >
                                                         <ChevronRight size={18} aria-hidden />
                                                     </button>
@@ -2699,11 +2748,16 @@ export default function ChatArea({
             </div>
 
             <div className="message-input-container">
-                {showJumpToLatest && (
+                {(showJumpToLatest || onReturnToLatest) && (
                     <button
                         type="button"
                         className="chat-jump-to-latest"
+                        disabled={returningToLatest}
                         onClick={() => {
+                            if (onReturnToLatest) {
+                                onReturnToLatest()
+                                return
+                            }
                             userReadingHistoryRef.current = false
                             preservingOlderMessagesRef.current = false
                             olderMessagesAnchorRef.current = null
@@ -2715,7 +2769,7 @@ export default function ChatArea({
                         aria-label="Jump to latest messages"
                     >
                         <ArrowDown size={14} />
-                        Newest
+                        {returningToLatest ? 'Loading...' : 'Newest'}
                     </button>
                 )}
                 {replyingTo && onCancelReply && (
@@ -2937,13 +2991,11 @@ export default function ChatArea({
             )}
             {clickedLink && createPortal(
                 <div className="modal-overlay" onClick={() => setClickedLink(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                        <h2>External Link Warning</h2>
-                        <p style={{ marginTop: '0.5rem', marginBottom: '1.5rem', wordBreak: 'break-all' }}>
-                            You are about to leave Voxpery. Are you sure you want to visit:<br /><br />
-                            <strong>{clickedLink}</strong>
-                        </p>
-                        <div className="modal-actions" style={{ marginTop: 'auto' }}>
+                    <div ref={clickedLinkDialogRef} className="modal confirm-modal external-link-warning" role="dialog" aria-modal="true" aria-labelledby="external-link-warning-title" onClick={(e) => e.stopPropagation()}>
+                        <h2 id="external-link-warning-title">External Link Warning</h2>
+                        <p>You are about to leave Voxpery. Continue to this address?</p>
+                        <div className="external-link-warning-url" title={clickedLink}>{clickedLink}</div>
+                        <div className="modal-actions">
                             <button type="button" className="btn btn-secondary" onClick={() => setClickedLink(null)}>Cancel</button>
                             <button
                                 type="button"

@@ -112,6 +112,8 @@ export default function ChannelSidebar({
         () => readRemotePlaybackVolumes(),
     )
     const menuRef = useRef<HTMLDivElement>(null)
+    const menuTriggerRef = useRef<HTMLElement | null>(null)
+    const menuKeyboardRef = useRef(false)
     const participantMenuRef = useRef<HTMLDivElement>(null)
     const participantMenuTriggerRef = useRef<HTMLDivElement | null>(null)
     const participantMenuKeyboardRef = useRef(false)
@@ -227,6 +229,18 @@ export default function ChannelSidebar({
     }, [participantMenu])
 
     useEffect(() => {
+        if (!contextMenu && !categoryMenu && !createMenu) return
+        if (menuKeyboardRef.current) menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+        const trigger = menuTriggerRef.current
+        const restoreFocus = menuKeyboardRef.current
+        return () => {
+            if (restoreFocus) queueMicrotask(() => {
+                if (document.activeElement === document.body && trigger?.isConnected) trigger.focus()
+            })
+        }
+    }, [contextMenu, categoryMenu, createMenu])
+
+    useEffect(() => {
         if (!contextMenu && !participantMenu && !categoryMenu && !createMenu && !profileCard) return
         const close = () => {
             setContextMenu(null)
@@ -237,6 +251,12 @@ export default function ChannelSidebar({
         window.addEventListener('click', close)
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
+                if (contextMenu || categoryMenu || createMenu) {
+                    setContextMenu(null)
+                    setCategoryMenu(null)
+                    setCreateMenu(null)
+                    menuTriggerRef.current?.focus()
+                }
                 if (participantMenu) {
                     setParticipantMenu(null)
                     participantMenuTriggerRef.current?.focus()
@@ -455,6 +475,17 @@ export default function ChannelSidebar({
                                 if (!canManageChannels) return
                                 e.preventDefault()
                                 const pos = clampSidebarMenuPosition(e.clientX, e.clientY, 210, 176)
+                                menuKeyboardRef.current = false
+                                closeAllContextMenus()
+                                setCategoryMenu({ category, x: pos.x, y: pos.y })
+                            }}
+                            onKeyDown={(e) => {
+                                if (!canManageChannels || (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey))) return
+                                e.preventDefault()
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const pos = clampSidebarMenuPosition(rect.left, rect.bottom, 210, 176)
+                                menuTriggerRef.current = e.currentTarget
+                                menuKeyboardRef.current = true
                                 closeAllContextMenus()
                                 setCategoryMenu({ category, x: pos.x, y: pos.y })
                             }}
@@ -536,6 +567,10 @@ export default function ChannelSidebar({
                                 <div key={ch.id}>
                                     <div
                                         className={`channel-item ${isActive ? 'active' : ''} ${canManageChannels ? 'is-draggable' : ''} ${isVoiceLocked ? 'channel-item--disabled' : ''} ${isChannelMuted ? 'is-muted' : ''} ${dragOverChannel?.id === ch.id ? `drop-${dragOverChannel.position}` : ''}`}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label={`${ch.channel_type === 'voice' ? 'Voice' : 'Text'} channel ${ch.name}`}
+                                        aria-disabled={isVoiceLocked}
                                         onMouseEnter={() => { if (ch.channel_type === 'voice' && !isVoiceLocked) preloadRnnoiseWorklet() }}
                                         title={isVoiceLocked ? "You don't have permission to connect to this voice channel." : undefined}
                                         onClick={() => {
@@ -561,6 +596,24 @@ export default function ChannelSidebar({
                                                 ? (ch.channel_type === 'text' ? 116 : 80)
                                                 : 44
                                             const pos = clampSidebarMenuPosition(e.clientX, e.clientY, 210, menuHeight)
+                                            menuKeyboardRef.current = false
+                                            closeAllContextMenus()
+                                            setContextMenu({ channelId: ch.id, x: pos.x, y: pos.y })
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault()
+                                                e.currentTarget.click()
+                                                return
+                                            }
+                                            if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return
+                                            if (!canManageChannels && ch.channel_type !== 'text') return
+                                            e.preventDefault()
+                                            const menuHeight = canManageChannels ? (ch.channel_type === 'text' ? 116 : 80) : 44
+                                            const rect = e.currentTarget.getBoundingClientRect()
+                                            const pos = clampSidebarMenuPosition(rect.left, rect.bottom, 210, menuHeight)
+                                            menuTriggerRef.current = e.currentTarget
+                                            menuKeyboardRef.current = true
                                             closeAllContextMenus()
                                             setContextMenu({ channelId: ch.id, x: pos.x, y: pos.y })
                                         }}
@@ -782,6 +835,8 @@ export default function ChannelSidebar({
                     <div
                         ref={menuRef}
                         className="server-context-menu channel-context-menu"
+                        role="menu"
+                        aria-label={`Actions for ${channel.name}`}
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -789,6 +844,7 @@ export default function ChannelSidebar({
                             <button
                                 type="button"
                                 className="server-context-menu-item"
+                                role="menuitem"
                                 onClick={() => {
                                     toggleMutedChannel(channel.id)
                                     setContextMenu(null)
@@ -802,6 +858,7 @@ export default function ChannelSidebar({
                                 <button
                                     type="button"
                                     className="server-context-menu-item"
+                                    role="menuitem"
                                     onClick={() => {
                                         setContextMenu(null)
                                         onRenameChannel?.(channel)
@@ -812,6 +869,7 @@ export default function ChannelSidebar({
                                 <button
                                     type="button"
                                     className="server-context-menu-item danger"
+                                    role="menuitem"
                                     onClick={() => {
                                         setContextMenu(null)
                                         onDeleteChannel?.(channel)
@@ -829,6 +887,8 @@ export default function ChannelSidebar({
                 <div
                     ref={menuRef}
                     className="server-context-menu channel-context-menu"
+                    role="menu"
+                    aria-label={`Actions for ${categoryMenu.category}`}
                     style={{ left: categoryMenu.x, top: categoryMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -836,6 +896,7 @@ export default function ChannelSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => {
                                 onOpenCreateChannel(categoryMenu.category)
                                 setCategoryMenu(null)
@@ -847,6 +908,7 @@ export default function ChannelSidebar({
                     <button
                         type="button"
                         className="server-context-menu-item"
+                        role="menuitem"
                         onClick={() => {
                             onRenameCategory?.(categoryMenu.category)
                             setCategoryMenu(null)
@@ -857,6 +919,7 @@ export default function ChannelSidebar({
                     <button
                         type="button"
                         className="server-context-menu-item"
+                        role="menuitem"
                         onClick={() => {
                             onOpenCategoryPermissions?.(categoryMenu.category)
                             setCategoryMenu(null)
@@ -867,6 +930,7 @@ export default function ChannelSidebar({
                     <button
                         type="button"
                         className="server-context-menu-item danger"
+                        role="menuitem"
                         onClick={() => {
                             onDeleteCategory?.(categoryMenu.category)
                             setCategoryMenu(null)
@@ -1060,7 +1124,10 @@ export default function ChannelSidebar({
                 <MemberProfileDialog
                     member={profileCard.member}
                     isServerOwner={profileCard.isServerOwner}
-                    onClose={() => setProfileCard(null)}
+                    onClose={() => {
+                        setProfileCard(null)
+                        if (participantMenuKeyboardRef.current) queueMicrotask(() => participantMenuTriggerRef.current?.focus())
+                    }}
                     actions={profileCard.member.user_id === user?.id ? undefined : {
                         canSendDm: !!onOpenDirectMessage,
                         canAddFriend: !friends.some((friend) => friend.id === profileCard.member.user_id),

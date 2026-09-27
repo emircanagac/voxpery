@@ -65,7 +65,8 @@ test.describe('mocked channel permission regressions', () => {
     const voiceRow = page.locator('.channel-item', { hasText: voice.name })
     await expect(voiceRow).toHaveClass(/channel-item--disabled/)
     await expect(voiceRow).toHaveAttribute('title', "You don't have permission to connect to this voice channel.")
-    await voiceRow.click()
+    await expect(voiceRow).toBeDisabled()
+    await voiceRow.dispatchEvent('click')
     await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
   })
 

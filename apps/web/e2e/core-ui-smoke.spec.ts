@@ -316,14 +316,14 @@ test.describe('mocked core UI smoke', () => {
     await page.goto('/servers')
     await page.getByTitle('Search servers, channels, and direct messages').click()
     await page.getByPlaceholder('Search servers, channels, and direct messages').fill('announcements')
-    await page.getByRole('button', { name: /# announcements/ }).click()
+    await page.getByRole('dialog', { name: 'Quick switcher' }).getByRole('button', { name: /# announcements/ }).click()
 
     await expect(page).toHaveURL(/\/servers/)
     await expect(page.locator('.chat-header .channel-title')).toHaveText('announcements')
 
     await page.getByTitle('Search servers, channels, and direct messages').click()
     await page.getByPlaceholder('Search servers, channels, and direct messages').fill('Friend 01')
-    await page.getByRole('button', { name: /Friend 01/ }).click()
+    await page.getByRole('dialog', { name: 'Quick switcher' }).getByRole('button', { name: /Friend 01/ }).click()
 
     await expect(page).toHaveURL(/\/social\/dm/)
     await expect(page.getByPlaceholder('Message @Friend 01')).toBeVisible()

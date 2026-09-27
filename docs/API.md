@@ -220,6 +220,7 @@ Notes:
 ## Message Endpoints (Server Channels)
 
 - `GET /api/messages/:channel_id?before=<uuid>&limit=<n>`
+- `GET /api/messages/:channel_id?around=<uuid>&limit=<n>` returns a bounded page starting at the target message and moving toward newer messages. The target must exist in the requested channel; missing targets return `404`. `before` and `around` cannot be combined. Both forms require channel view access.
 - `GET /api/messages/:channel_id/search?q=<term>&from=<username>&has_attachment=<bool>&limit=<n>`
   - `from` filters by message author username.
   - `has_attachment=true` returns only messages with one or more attachments.

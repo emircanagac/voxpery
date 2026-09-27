@@ -10,8 +10,8 @@ import { ROUTES } from '../routes'
 import { getPersistedSocialView } from '../socialView'
 
 interface UnifiedSidebarProps {
-  onCreateServer: () => void
-  onJoinServer: () => void
+  onCreateServer: (trigger: HTMLElement) => void
+  onJoinServer: (trigger: HTMLElement) => void
   onOpenServerSettings?: (serverId: string, initialTab?: ServerSettingsTab) => void
   totalDmUnread?: number
   incomingRequestCount?: number

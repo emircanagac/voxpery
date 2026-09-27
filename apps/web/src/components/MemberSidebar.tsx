@@ -23,7 +23,7 @@ interface MemberItemProps {
     canManageRoles: boolean
     myRole: string
     interactive: boolean
-    onContextMenu: (e: React.MouseEvent, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
+    onContextMenu: (position: { x: number; y: number }, trigger: HTMLElement, fromKeyboard: boolean, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
 }
 
 const MemberItem = memo(function MemberItem({
@@ -83,10 +83,19 @@ const MemberItem = memo(function MemberItem({
     return (
         <div
             className={`member-item ${showContextMenu ? 'is-contextable' : ''}`}
+            role={showContextMenu ? 'button' : undefined}
+            tabIndex={showContextMenu ? 0 : undefined}
+            aria-label={showContextMenu ? `Actions for ${member.username}` : undefined}
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu(e, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
+                onContextMenu({ x: e.clientX, y: e.clientY }, e.currentTarget, false, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
+            }}
+            onKeyDown={(e) => {
+                if (!showContextMenu || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey))) return
+                e.preventDefault()
+                const rect = e.currentTarget.getBoundingClientRect()
+                onContextMenu({ x: rect.left, y: rect.bottom }, e.currentTarget, true, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -201,6 +210,8 @@ export default function MemberSidebar({
     } | null>(null)
     const sidebarRef = useRef<HTMLDivElement>(null)
     const menuRef = useRef<HTMLDivElement>(null)
+    const menuTriggerRef = useRef<HTMLElement | null>(null)
+    const menuKeyboardRef = useRef(false)
 
     const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
         const pad = 8
@@ -266,6 +277,7 @@ export default function MemberSidebar({
             if (event.key !== 'Escape') return
             setContextMenu(null)
             setProfileCard(null)
+            if (contextMenu) menuTriggerRef.current?.focus()
         }
         if (contextMenu) window.addEventListener('click', close)
         window.addEventListener('keydown', onKeyDown)
@@ -276,6 +288,18 @@ export default function MemberSidebar({
             window.removeEventListener('scroll', close, true)
         }
     }, [contextMenu, profileCard])
+
+    useEffect(() => {
+        if (!contextMenu) return
+        if (menuKeyboardRef.current) menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+        const trigger = menuTriggerRef.current
+        const restoreFocus = menuKeyboardRef.current
+        return () => {
+            if (restoreFocus) queueMicrotask(() => {
+                if (document.activeElement === document.body && trigger?.isConnected) trigger.focus()
+            })
+        }
+    }, [contextMenu])
 
     const canManageRoles = isOwner || canManageRolesFromPerms
 
@@ -512,7 +536,9 @@ export default function MemberSidebar({
     )
 
     const handleContextMenu = useCallback((
-        e: React.MouseEvent,
+        position: { x: number; y: number },
+        trigger: HTMLElement,
+        fromKeyboard: boolean,
         member: MemberItemProps['member'],
         canMakeAdmin: boolean,
         canAddFriend: boolean,
@@ -527,8 +553,10 @@ export default function MemberSidebar({
         const sidebarRect = sidebarRef.current?.getBoundingClientRect()
         const preferredX = sidebarRect
             ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
-            : e.clientX
-        const pos = clampMenuPosition(preferredX, e.clientY, menuWidth, 8 + optionCount * 38)
+            : position.x
+        const pos = clampMenuPosition(preferredX, position.y, menuWidth, 8 + optionCount * 38)
+        menuTriggerRef.current = trigger
+        menuKeyboardRef.current = fromKeyboard
         setProfileCard(null)
         setContextMenu({
             member,
@@ -640,6 +668,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => {
                                 void handleAddFriend(contextMenu.username)
                                 setContextMenu(null)
@@ -652,6 +681,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => {
                                 void handleSendDm(contextMenu.userId, contextMenu.username)
                             }}
@@ -663,6 +693,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => {
                                 void openRoleEditor(contextMenu.userId, contextMenu.username)
                                 setContextMenu(null)
@@ -675,6 +706,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => {
                                 onReportMember({ user_id: contextMenu.userId, username: contextMenu.username })
                                 setContextMenu(null)
@@ -687,6 +719,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item danger"
+                            role="menuitem"
                             onClick={() => {
                                 setTimeoutConfirm({
                                     userId: contextMenu.userId,
@@ -704,6 +737,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item danger"
+                            role="menuitem"
                             onClick={() => {
                                 setKickConfirm({ userId: contextMenu.userId, username: contextMenu.username })
                                 setContextMenu(null)
@@ -716,6 +750,7 @@ export default function MemberSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item danger"
+                            role="menuitem"
                             onClick={() => {
                                 setBanConfirm({ userId: contextMenu.userId, username: contextMenu.username })
                                 setContextMenu(null)
@@ -731,7 +766,10 @@ export default function MemberSidebar({
                 <MemberProfileDialog
                     member={profileCard.member}
                     isServerOwner={profileCard.isServerOwner}
-                    onClose={() => setProfileCard(null)}
+                    onClose={() => {
+                        setProfileCard(null)
+                        if (menuKeyboardRef.current) queueMicrotask(() => menuTriggerRef.current?.focus())
+                    }}
                     actions={profileCard.member.user_id === user?.id ? undefined : {
                         canSendDm: true,
                         canAddFriend: !friendUsernames.has(profileCard.member.username.toLowerCase()),

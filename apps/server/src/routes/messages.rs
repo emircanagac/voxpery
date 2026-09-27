@@ -323,7 +323,7 @@ async fn hydrate_message_attachments(
     Ok(())
 }
 
-/// GET /api/messages/:channel_id?before=uuid&limit=50 — get paginated messages.
+/// GET /api/messages/:channel_id?before=uuid|around=uuid&limit=50 — get paginated messages.
 /// Uses a single JOIN query instead of N+1 author lookups.
 async fn get_messages(
     State(state): State<Arc<AppState>>,
@@ -333,9 +333,54 @@ async fn get_messages(
 ) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
     check_channel_access(&state, channel_id, claims.sub).await?;
 
-    let limit = query.limit.unwrap_or(50).min(100);
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    if query.before.is_some() && query.around.is_some() {
+        return Err(AppError::Validation(
+            "Choose either before or around, not both".into(),
+        ));
+    }
 
-    let rows: Vec<MessageRow> = if let Some(before) = query.before {
+    let rows: Vec<MessageRow> = if let Some(around) = query.around {
+        let cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)> = sqlx::query_as(
+            "SELECT created_at, id FROM messages WHERE channel_id = $1 AND id = $2",
+        )
+        .bind(channel_id)
+        .bind(around)
+        .fetch_optional(&state.db)
+        .await?;
+        let (created_at, target_id) = cursor
+            .ok_or_else(|| AppError::NotFound("Message not found in this channel".into()))?;
+        let around_rows = sqlx::query_as::<_, MessageRow>(
+            r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
+                      u.id as user_id, u.username, u.avatar_url,
+                      (
+                          SELECT sr.color
+                          FROM server_roles sr
+                          INNER JOIN server_member_roles smr ON sr.id = smr.role_id
+                          INNER JOIN channels c ON c.server_id = sr.server_id
+                          WHERE smr.user_id = m.user_id
+                            AND c.id = m.channel_id
+                            AND sr.color IS NOT NULL
+                          ORDER BY sr.position ASC
+                          LIMIT 1
+                      ) as role_color
+               FROM messages m
+               INNER JOIN users u ON m.user_id = u.id
+               WHERE m.channel_id = $1 AND (m.created_at, m.id) >= ($2, $3)
+               ORDER BY m.created_at ASC, m.id ASC
+               LIMIT $4"#,
+        )
+        .bind(channel_id)
+        .bind(created_at)
+        .bind(target_id)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await?;
+        if !around_rows.iter().any(|row| row.id == around) {
+            return Err(AppError::NotFound("Message not found in this channel".into()));
+        }
+        around_rows
+    } else if let Some(before) = query.before {
         sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
                       u.id as user_id, u.username, u.avatar_url,
@@ -352,9 +397,10 @@ async fn get_messages(
                       ) as role_color
                FROM messages m
                INNER JOIN users u ON m.user_id = u.id
+               INNER JOIN messages cursor ON cursor.id = $2 AND cursor.channel_id = $1
                WHERE m.channel_id = $1
-                 AND m.created_at < (SELECT created_at FROM messages WHERE id = $2)
-               ORDER BY m.created_at DESC
+                 AND (m.created_at, m.id) < (cursor.created_at, cursor.id)
+               ORDER BY m.created_at DESC, m.id DESC
                LIMIT $3"#,
         )
         .bind(channel_id)
@@ -380,7 +426,7 @@ async fn get_messages(
                FROM messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
-               ORDER BY m.created_at DESC
+               ORDER BY m.created_at DESC, m.id DESC
                LIMIT $2"#,
         )
         .bind(channel_id)
@@ -390,7 +436,12 @@ async fn get_messages(
     };
 
     // Reverse to chronological order and convert to MessageWithAuthor
-    let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
+    let ordered_rows: Vec<MessageRow> = if query.around.is_some() {
+        rows
+    } else {
+        rows.into_iter().rev().collect()
+    };
+    let mut result: Vec<MessageWithAuthor> = ordered_rows.into_iter().map(Into::into).collect();
     attach_message_reactions(&state.db, &mut result, claims.sub).await?;
     hydrate_message_attachments(&state, &mut result).await?;
 

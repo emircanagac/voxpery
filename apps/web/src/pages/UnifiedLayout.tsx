@@ -84,6 +84,7 @@ export default function UnifiedLayout() {
     [dmUnread]
   )
   const previousIncomingCountRef = useRef(incomingRequestCount)
+  const serverDialogTriggerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!userId) {
@@ -163,8 +164,14 @@ export default function UnifiedLayout() {
   return (
     <div className="unified-layout">
       <UnifiedSidebar
-        onCreateServer={() => setShowCreateServer(true)}
-        onJoinServer={() => setShowJoinServer(true)}
+        onCreateServer={(trigger) => {
+          serverDialogTriggerRef.current = trigger
+          setShowCreateServer(true)
+        }}
+        onJoinServer={(trigger) => {
+          serverDialogTriggerRef.current = trigger
+          setShowJoinServer(true)
+        }}
         onOpenServerSettings={handleOpenServerSettings}
         totalDmUnread={totalDmUnread}
         incomingRequestCount={incomingRequestCount}
@@ -181,7 +188,7 @@ export default function UnifiedLayout() {
         style={{ display: isServerView ? undefined : 'none' }}
         aria-hidden={!isServerView}
       >
-        <AppLayout skipServerSidebar isViewActive={isServerView} />
+        <AppLayout skipServerSidebar isViewActive={isServerView} serverDialogTriggerRef={serverDialogTriggerRef} />
       </div>
     </div>
   )

@@ -14488,6 +14488,33 @@ a.community-open-btn:hover {
   margin-top: 10px;
 }
 
+.modal.external-link-warning {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  padding: 24px;
+}
+
+.external-link-warning p {
+  margin: 4px 0 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.external-link-warning-url {
+  padding: 12px 14px;
+  border: var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-input);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.external-link-warning .modal-actions {
+  margin-top: 20px;
+}
+
 .server-delete-confirm-modal .btn {
   border-radius: 10px;
   font-weight: 600;

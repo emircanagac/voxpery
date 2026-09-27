@@ -15,6 +15,12 @@ export const messageApi = {
             { token },
         ),
 
+    around: (channelId: string, messageId: string, token: AuthToken, limit = 50) =>
+        apiFetch<MessageWithAuthor[]>(
+            `/api/messages/${channelId}?around=${encodeURIComponent(messageId)}&limit=${limit}`,
+            { token },
+        ),
+
     send: (
         channelId: string,
         content: string,
