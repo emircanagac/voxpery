@@ -75,19 +75,40 @@ test.describe('mocked release and settings regressions', () => {
 
   test('keeps the settings frame stable across tabs', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState())
-    await page.setViewportSize({ width: 1366, height: 768 })
-    await page.goto('/social')
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    const modal = page.locator('.user-settings-modal')
-    await modal.evaluate(async (element) => {
-      await Promise.all(element.getAnimations().map((animation) => animation.finished))
-    })
-    const initial = await modal.boundingBox()
-    for (const tab of ['Appearance', 'Communication', 'Voice & Audio', 'Privacy & Data', 'Profile']) {
-      await modal.getByRole('button', { name: tab, exact: true }).click()
-      const box = await modal.boundingBox()
-      expect(box?.height).toBeCloseTo(initial!.height, 0)
-      expect(box?.y).toBeCloseTo(initial!.y, 0)
+    for (const viewport of [{ width: 1366, height: 768 }, { width: 800, height: 600 }]) {
+      await page.setViewportSize(viewport)
+      await page.goto('/social')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const modal = page.locator('.user-settings-modal')
+      await modal.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished))
+      })
+      const readFrame = () => modal.evaluate((element) => {
+        const box = (selector: string) => {
+          const target = element.querySelector(selector)
+          if (!target) throw new Error(`Missing settings frame element: ${selector}`)
+          const rect = target.getBoundingClientRect()
+          return { y: rect.y, height: rect.height }
+        }
+        return {
+          modal: { y: element.getBoundingClientRect().y, height: element.getBoundingClientRect().height },
+          header: box('.user-settings-header'),
+          nav: box('.user-settings-nav'),
+          scroll: box('.user-settings-scroll'),
+          footer: box('.user-settings-footer'),
+        }
+      })
+      const initial = await readFrame()
+      for (const tab of ['Appearance', 'Communication', 'Voice & Audio', 'Privacy & Data', 'Profile']) {
+        await modal.getByRole('button', { name: tab, exact: true }).click()
+        const frame = await readFrame()
+        for (const region of ['modal', 'header', 'nav', 'scroll', 'footer'] as const) {
+          expect(frame[region].y, `${viewport.width}px ${tab} ${region} top`).toBeCloseTo(initial[region].y, 0)
+          expect(frame[region].height, `${viewport.width}px ${tab} ${region} height`).toBeCloseTo(initial[region].height, 0)
+        }
+        await expect(modal.getByRole('button', { name: 'Done', exact: true })).toBeVisible()
+      }
+      await modal.getByRole('button', { name: 'Done', exact: true }).click()
     }
   })
   test('shows the beta channel and build version in a single brand badge', async ({ page }) => {

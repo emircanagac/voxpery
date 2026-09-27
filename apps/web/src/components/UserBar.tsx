@@ -1596,7 +1596,7 @@ export default function UserBar() {
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onMouseDown={closeSettingsPanel}>
           <div
-            className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''} ${activeSettingsSection === 'profile' ? 'user-settings-modal--profile' : ''}`}
+            className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''}`}
             ref={settingsModalRef}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
