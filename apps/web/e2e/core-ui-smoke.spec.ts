@@ -11,6 +11,17 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  test('links project support to GitHub Sponsors', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.goto('/social')
+
+    const sponsorLink = page.getByRole('link', { name: 'Sponsor on GitHub' })
+    await expect(sponsorLink).toHaveAttribute('href', 'https://github.com/sponsors/emircanagac')
+    await expect(sponsorLink).toHaveAttribute('target', '_blank')
+    await expect(page.getByText('Support Voxpery through GitHub Sponsors.')).toBeVisible()
+    await expect(page.getByRole('link', { name: /Support Voxpery/ })).toHaveCount(0)
+  })
+
   test('keeps Friends tabs scrollable and friend actions reachable', async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(30),
