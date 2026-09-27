@@ -50,6 +50,7 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 - The target acknowledges the request only after its LiveKit join promise settles. The server then tolerates short participant-visibility delays while verifying the destination room and authenticated identity before cleaning up a stale source-room participant. LiveKit's returned SID is authoritative and replaces a stale client-reported SID from a fast room switch.
 - The move audit entry is written only after that verification succeeds. Permission, hierarchy, destination access, client, LiveKit, and timeout failures return an explicit result to the moderator without a successful audit entry.
 - Voice moderation follows explicit mute, deafen, move, disconnect, or full-admin permissions independently of role position. Account and role-management actions retain their separate hierarchy protections.
+- A participant with the corresponding permission can clear their own server mute or deafen from the voice participant menu. An explicitly self-targeted moderation request cannot add a server restriction; ordinary self-mute and self-deafen remain separate controls. The server checks both the permission and the stored restriction before changing it and records the action in the moderation audit log.
 
 ### Room Events
 
