@@ -1,4 +1,6 @@
 import { isTauri } from './secureStorage'
+import { pushToTalkShortcutFromKey } from './globalPushToTalk'
+import { getStoredVoiceMode } from './webrtc/voiceInputProfile'
 
 export const GLOBAL_MUTE_SHORTCUT_STORAGE_KEY = 'voxpery-settings-global-mute-shortcut'
 export const GLOBAL_MUTE_SHORTCUT_EVENT = 'voxpery-global-mute-shortcut'
@@ -40,7 +42,7 @@ export function shortcutFromKeyboardEvent(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey) modifiers.push('CommandOrControl')
   if (event.altKey) modifiers.push('Alt')
   if (event.shiftKey) modifiers.push('Shift')
-  if (modifiers.length === 0) return null
+  if (modifiers.length === 0 && !/^[A-Z0-9]$|^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return null
 
   return [...modifiers, key].join('+')
 }
@@ -58,6 +60,16 @@ export function formatGlobalMuteShortcut(shortcut: string | null): string {
 export function keyboardEventMatchesShortcut(event: KeyboardEvent, shortcut: string | null): boolean {
   if (!shortcut || event.repeat) return false
   return shortcutFromKeyboardEvent(event) === shortcut
+}
+
+export function muteShortcutConflictsWithPushToTalk(shortcut: string | null): boolean {
+  if (!shortcut || shortcut.includes('+')) return false
+  try {
+    return getStoredVoiceMode() === 'push_to_talk'
+      && shortcut === pushToTalkShortcutFromKey(localStorage.getItem('voxpery-settings-ptt-key') ?? 'V')
+  } catch {
+    return false
+  }
 }
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {

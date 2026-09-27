@@ -656,8 +656,6 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                             className="chat-image-attachment"
                             loading="eager"
                             decoding="async"
-                            width={320}
-                            height={180}
                             onLoad={() => {
                                 decodedAttachmentImageCache.add(currentResolution.resolvedUrl)
                             }}

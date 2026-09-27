@@ -166,11 +166,11 @@ Two modes:
 
 ### Microphone Mute Shortcut
 
-- Users can assign a modifier-based shortcut from `Settings -> Voice & Audio`.
+- Users can assign a single letter, digit, function key, or modifier combination from `Settings -> Voice & Audio`.
 - On web, the shortcut works only while the Voxpery tab is focused, as required by browser security restrictions.
-- In the desktop app, the same preference is registered through Tauri's global-shortcut plugin and works while Voxpery is minimized or in the tray.
+- In the desktop app, keyboard shortcuts are registered through Tauri's global-shortcut plugin and work while Voxpery is minimized or in the tray.
 - The shortcut dispatches through the same mute control used by the call bar, so microphone tracks, LiveKit state, realtime voice control state, and local cues stay synchronized.
-- A shortcut must include `Ctrl/Cmd`, `Alt`, or `Shift`; unmodified keys are rejected to avoid interfering with typing and games.
+- Unmodified keyboard shortcuts are ignored while typing in editable controls. The same single key cannot be assigned to both mute and push-to-talk.
 - If a desktop registration conflicts with another application, Voxpery preserves the previous working shortcut and asks the user to choose another combination.
 
 ### Sensitivity Threshold

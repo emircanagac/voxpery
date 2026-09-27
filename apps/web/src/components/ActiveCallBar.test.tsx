@@ -10,6 +10,7 @@ import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import {
   GLOBAL_MUTE_SHORTCUT_EVENT,
   GLOBAL_MUTE_SHORTCUT_STORAGE_KEY,
+  setGlobalMuteShortcutCaptureActive,
 } from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
@@ -241,6 +242,7 @@ describe('ActiveCallBar regressions', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    setGlobalMuteShortcutCaptureActive(false)
     vi.clearAllMocks()
     mockMobileViewport(false)
     useToastStore.setState({ toasts: [] })
@@ -982,6 +984,26 @@ describe('ActiveCallBar regressions', () => {
 
     expect(localMic.enabled).toBe(false)
     expect(voice.setVoiceControls).toHaveBeenCalledWith(true, false, false)
+  })
+
+  it('uses a single key without triggering while typing or conflicting with push-to-talk', () => {
+    localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'F')
+    const localMic = mediaTrack('audio', 'local-mic')
+    const { voice } = renderActiveCallBar({ localStream: new MediaStream([localMic]) })
+
+    const input = document.createElement('input')
+    document.body.append(input)
+    fireEvent.keyDown(input, { code: 'KeyF' })
+    input.remove()
+    expect(localMic.enabled).toBe(true)
+    fireEvent.keyDown(window, { code: 'KeyF' })
+    expect(localMic.enabled).toBe(false)
+
+    localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
+    localStorage.setItem('voxpery-settings-ptt-key', 'F')
+    fireEvent.keyDown(window, { code: 'KeyF' })
+    expect(localMic.enabled).toBe(false)
+    expect(voice.setVoiceControls).toHaveBeenCalledTimes(1)
   })
 
   it('routes desktop global shortcut events through the existing mute control', () => {

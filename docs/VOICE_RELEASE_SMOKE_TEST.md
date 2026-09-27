@@ -19,6 +19,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] At the default per-user voice level, Firefox-to-Chromium and Chromium-to-Firefox audio use stable native playback. Raising one user's voice above 100% enables amplification without changing screen-share volume or interrupting any other participant.
 - [ ] Mute/unmute changes local mic state and does not disconnect the room.
 - [ ] The configured mute shortcut toggles the microphone while the web tab is focused.
+- [ ] A single mute key such as `F` works outside text inputs without firing while typing; mouse buttons cannot be assigned. Rebinding push-to-talk to the same key is rejected.
 - [ ] A new/default user joins with the operating system's current default microphone and speaker.
 - [ ] A valid custom microphone and speaker remain selected after reload and voice rejoin.
 - [ ] After a selected custom microphone or speaker is disconnected, the next capture/playback attempt silently uses the system default and Voice Settings shows `Windows Default`.

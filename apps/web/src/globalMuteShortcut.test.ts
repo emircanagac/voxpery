@@ -4,6 +4,7 @@ import {
   formatGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
   keyboardEventMatchesShortcut,
+  muteShortcutConflictsWithPushToTalk,
   resetGlobalMuteShortcutRegistrationForTests,
   shortcutFromKeyboardEvent,
 } from './globalMuteShortcut'
@@ -29,8 +30,11 @@ describe('global mute shortcut', () => {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
 
-  it('requires a modifier and normalizes cross-platform control keys', () => {
-    expect(shortcutFromKeyboardEvent(keyEvent('KeyM'))).toBeNull()
+  it('accepts single keys and normalizes cross-platform control keys', () => {
+    expect(shortcutFromKeyboardEvent(keyEvent('KeyM'))).toBe('M')
+    expect(shortcutFromKeyboardEvent(keyEvent('KeyF'))).toBe('F')
+    expect(shortcutFromKeyboardEvent(keyEvent('F5'))).toBe('F5')
+    expect(shortcutFromKeyboardEvent(keyEvent('ArrowLeft'))).toBeNull()
     expect(shortcutFromKeyboardEvent(keyEvent('KeyM', { ctrlKey: true, shiftKey: true })))
       .toBe('CommandOrControl+Shift+M')
     expect(shortcutFromKeyboardEvent(keyEvent('KeyM', { metaKey: true, shiftKey: true })))
@@ -42,6 +46,16 @@ describe('global mute shortcut', () => {
     expect(formatGlobalMuteShortcut(shortcut)).toBe('Ctrl/Cmd+Shift+M')
     expect(keyboardEventMatchesShortcut(keyEvent('KeyM', { ctrlKey: true, shiftKey: true }), shortcut)).toBe(true)
     expect(keyboardEventMatchesShortcut(keyEvent('KeyM', { ctrlKey: true, shiftKey: true, repeat: true }), shortcut)).toBe(false)
+    expect(keyboardEventMatchesShortcut(keyEvent('KeyF'), 'F')).toBe(true)
+    expect(keyboardEventMatchesShortcut(keyEvent('KeyF', { ctrlKey: true }), 'F')).toBe(false)
+  })
+
+  it('detects single-key push-to-talk conflicts', () => {
+    localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
+    localStorage.setItem('voxpery-settings-ptt-key', 'V')
+    expect(muteShortcutConflictsWithPushToTalk('V')).toBe(true)
+    expect(muteShortcutConflictsWithPushToTalk('F')).toBe(false)
+    expect(muteShortcutConflictsWithPushToTalk('Control+V')).toBe(false)
   })
 
   it('registers desktop shortcuts and dispatches only pressed events', async () => {

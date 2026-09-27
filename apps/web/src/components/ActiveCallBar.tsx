@@ -41,6 +41,7 @@ import {
   GLOBAL_MUTE_SHORTCUT_EVENT,
   isEditableShortcutTarget,
   keyboardEventMatchesShortcut,
+  muteShortcutConflictsWithPushToTalk,
 } from '../globalMuteShortcut'
 import {
   DEFAULT_REMOTE_PLAYBACK_VOLUME,
@@ -1188,7 +1189,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   ])
 
   useEffect(() => {
-    const onGlobalMuteShortcut = () => toggleMute()
+    const onGlobalMuteShortcut = () => {
+      if (!muteShortcutConflictsWithPushToTalk(getStoredGlobalMuteShortcut())) toggleMute()
+    }
     window.addEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, onGlobalMuteShortcut)
     return () => window.removeEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, onGlobalMuteShortcut)
   }, [toggleMute])
@@ -1197,7 +1200,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (isTauri()) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return
-      if (!keyboardEventMatchesShortcut(event, getStoredGlobalMuteShortcut())) return
+      const shortcut = getStoredGlobalMuteShortcut()
+      if (muteShortcutConflictsWithPushToTalk(shortcut) || !keyboardEventMatchesShortcut(event, shortcut)) return
       event.preventDefault()
       toggleMute()
     }

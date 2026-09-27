@@ -62,6 +62,25 @@ test.describe('mocked release and settings regressions', () => {
     await expect(modal.getByText('Benchmark diagnostics', { exact: true })).toHaveCount(0)
   })
 
+  test('captures an unmodified mute key without assigning mouse buttons', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Voice & Audio' }).click()
+    const modal = page.locator('.user-settings-modal')
+
+    await modal.getByRole('button', { name: 'Set shortcut' }).click()
+    await page.keyboard.press('F')
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('F')
+    await modal.getByRole('button', { name: 'Rebind' }).last().click()
+    await page.evaluate(() => window.dispatchEvent(new MouseEvent('mousedown', {
+      button: 3, bubbles: true, cancelable: true,
+    })))
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('F')
+    await page.keyboard.press('G')
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('G')
+  })
+
   test('switches built-in themes and resets appearance defaults without layout overflow', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(2) })
     await installMockCoreApi(page, state)
