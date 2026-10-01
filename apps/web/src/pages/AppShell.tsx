@@ -137,6 +137,17 @@ export default function AppShell() {
   useEffect(() => {
     if (!userId) return
     connect(token ?? null)
+    const onResume = () => {
+      if (document.visibilityState === 'visible') useSocketStore.getState().resumeConnection()
+    }
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('pageshow', onResume)
+    window.addEventListener('online', onResume)
+    return () => {
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('pageshow', onResume)
+      window.removeEventListener('online', onResume)
+    }
   }, [connect, token, userId])
 
   useEffect(() => {

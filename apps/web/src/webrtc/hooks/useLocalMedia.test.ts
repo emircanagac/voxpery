@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { getPreferredMicrophoneStream } from '../../voiceDevices'
 import {
   normalizeScreenShareQuality,
   resolveScreenShareProfileForMode,
@@ -7,7 +9,50 @@ import {
   toScreenShareDisplayMediaOptions,
   toScreenShareCaptureDiagnostics,
   toScreenShareConstraintsForProfile,
+  useLocalMedia,
 } from './useLocalMedia'
+
+vi.mock('../../voiceDevices', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../voiceDevices')>(),
+  getPreferredMicrophoneStream: vi.fn(),
+}))
+
+describe('microphone capture lifecycle', () => {
+  it('stops a delayed capture after leaving rather than caching it for the next session', async () => {
+    let resolve!: (stream: MediaStream) => void
+    vi.mocked(getPreferredMicrophoneStream).mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const { result } = renderHook(() => useLocalMedia())
+    const pending = result.current.getMicrophoneStream()
+    const rejected = expect(pending).rejects.toThrow('no longer active')
+    act(() => result.current.cleanupLocalMedia())
+    const track = { stop: vi.fn(), readyState: 'live' }
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream
+    resolve(stream)
+    await rejected
+    expect(track.stop).toHaveBeenCalledOnce()
+  })
+
+  it('does not let an older capture overwrite the current room capture', async () => {
+    let resolve!: (stream: MediaStream) => void
+    const obsoleteTrack = { stop: vi.fn(), readyState: 'live' }
+    const currentTrack = { stop: vi.fn(), readyState: 'live' }
+    const obsolete = { getTracks: () => [obsoleteTrack], getAudioTracks: () => [obsoleteTrack] } as unknown as MediaStream
+    const current = { getTracks: () => [currentTrack], getAudioTracks: () => [currentTrack] } as unknown as MediaStream
+    vi.mocked(getPreferredMicrophoneStream)
+      .mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+      .mockResolvedValueOnce(current)
+    const { result } = renderHook(() => useLocalMedia())
+    const pending = result.current.getMicrophoneStream(true)
+    const rejected = expect(pending).rejects.toThrow('no longer active')
+    expect(await result.current.getMicrophoneStream(true)).toBe(current)
+    resolve(obsolete)
+    await rejected
+    expect(await result.current.getMicrophoneStream()).toBe(current)
+    expect(obsoleteTrack.stop).toHaveBeenCalledOnce()
+    expect(currentTrack.stop).not.toHaveBeenCalled()
+    act(() => result.current.cleanupLocalMedia())
+  })
+})
 
 describe('screen share quality profiles', () => {
   it('normalizes unknown and legacy values to auto', () => {

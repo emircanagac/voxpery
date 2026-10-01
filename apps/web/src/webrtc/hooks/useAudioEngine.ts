@@ -386,6 +386,14 @@ function applySuppressionConfig(
     transientCompressor.release.setTargetAtTime(filterConfig.compressorReleaseSec, now, 0.03)
 }
 
+export async function resumeVoiceAudioContext(ctx: AudioContext | null): Promise<void> {
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return
+    await ctx.resume()
+    if ((ctx.state as AudioContextState) !== 'running') {
+        throw new Error('Voice audio is interrupted. Return to Voxpery and tap a voice control to retry.')
+    }
+}
+
 export function useAudioEngine() {
     const audioCtxRef = useRef<AudioContext | null>(null)
     const liveSuppressionConfigRef = useRef<LiveSuppressionConfig | null>(null)
@@ -426,6 +434,7 @@ export function useAudioEngine() {
         rawMicTrackRef: React.MutableRefObject<MediaStreamTrack | null>,
         inputGainNodeRef: React.MutableRefObject<GainNode | null>,
         noiseSuppressionEnabled: boolean,
+        isCurrent: () => boolean = () => true,
     ): Promise<{
         track: MediaStreamTrack
         vadStream: MediaStream
@@ -447,9 +456,8 @@ export function useAudioEngine() {
                 source: 'browser-native',
             }
         }
-        if (ctx.state === 'suspended') {
-            await ctx.resume()
-        }
+        await resumeVoiceAudioContext(ctx)
+        if (!isCurrent()) throw new Error('Microphone pipeline request is no longer active')
 
         updateVoiceDiagnostics({
             benchmarkSchemaVersion: 1,
@@ -524,9 +532,18 @@ export function useAudioEngine() {
         // RNNoise ML denoiser (bypasses transparently when disabled)
         rnnoiseRef.current?.destroy()
         const rnnoise = await createRnnoiseNode(ctx, noiseSuppressionEnabled)
+        if (!isCurrent()) {
+            rnnoise.destroy()
+            throw new Error('Microphone pipeline request is no longer active')
+        }
         rnnoiseRef.current = rnnoise
         if (noiseSuppressionEnabled) {
             await rnnoise.waitUntilReady()
+        }
+        if (!isCurrent()) {
+            rnnoise.destroy()
+            if (rnnoiseRef.current === rnnoise) rnnoiseRef.current = null
+            throw new Error('Microphone pipeline request is no longer active')
         }
 
         // Tame sharp keyboard peaks before the final send gain.
@@ -601,9 +618,11 @@ export function useAudioEngine() {
             }
             currentFloorGain = 1
             currentIsolationGain = 1
-            liveSuppressionNodesRef.current = null
-            liveSuppressionConfigRef.current = null
-            liveSuppressionSignatureRef.current = null
+            if (liveSuppressionNodesRef.current === liveSuppressionNodes) {
+                liveSuppressionNodesRef.current = null
+                liveSuppressionConfigRef.current = null
+                liveSuppressionSignatureRef.current = null
+            }
             try {
                 noiseFloorGainNode.gain.cancelScheduledValues(ctx.currentTime)
                 noiseFloorGainNode.gain.setValueAtTime(1, ctx.currentTime)

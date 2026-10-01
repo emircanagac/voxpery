@@ -16,6 +16,7 @@ This release is in preparation. Remaining improvements and release-candidate val
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Resumed interrupted voice audio and ended microphone capture on foreground return, with room-scoped recovery and preserved mute/deafen controls; retried exhausted application WebSocket connections without reviving expired or logged-out sessions. Mobile browser background capture remains subject to OS restrictions.
 - Kept the Settings frame stable when switching between Profile and other tabs.
 - Preserved latest-message positioning through channel/DM changes, delayed media, composer resizing, and same-count content refreshes without overriding deliberate history reading or message targets.
 - Centered Newest above the composer in a reserved area that does not cover messages.

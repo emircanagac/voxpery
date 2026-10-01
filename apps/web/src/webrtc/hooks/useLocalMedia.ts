@@ -163,6 +163,7 @@ export function toScreenShareCaptureDiagnostics(
 export function useLocalMedia() {
     const cachedMicStreamRef = useRef<MediaStream | null>(null)
     const cachedMicDeviceIdRef = useRef<string>('')
+    const microphoneCaptureGenerationRef = useRef(0)
     const cachedScreenStreamRef = useRef<MediaStream | null>(null)
 
     const resolveQualityMode = useCallback((): ScreenShareQuality => {
@@ -222,13 +223,19 @@ export function useLocalMedia() {
         }
         cachedMicStreamRef.current?.getTracks().forEach((track) => track.stop())
         cachedMicStreamRef.current = null
+        const generation = ++microphoneCaptureGenerationRef.current
         try {
             const stream = await getPreferredMicrophoneStream()
+            if (generation !== microphoneCaptureGenerationRef.current) {
+                stream.getTracks().forEach((track) => track.stop())
+                throw new Error('Microphone request is no longer active')
+            }
             cachedMicStreamRef.current = stream
             cachedMicDeviceIdRef.current = getStoredVoiceInputDeviceId()
             reportObservabilityEvent('media_microphone_started')
             return stream
         } catch (err: unknown) {
+            if (generation !== microphoneCaptureGenerationRef.current) throw err
             reportObservabilityEvent('media_microphone_failed')
             const name = (err as { name?: string })?.name ?? ''
             if (name === 'NotAllowedError') throw new Error('Microphone permission denied', { cause: err })
@@ -378,6 +385,7 @@ export function useLocalMedia() {
     }, [])
 
     const cleanupLocalMedia = useCallback(() => {
+        microphoneCaptureGenerationRef.current++
         cachedMicStreamRef.current?.getTracks().forEach(t => t.stop())
         cachedMicStreamRef.current = null
         cachedMicDeviceIdRef.current = ''

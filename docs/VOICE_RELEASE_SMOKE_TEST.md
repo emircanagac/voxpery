@@ -38,6 +38,11 @@ The goal is to verify the real user path, not every implementation detail. Run t
 
 ## 2. Reconnect and Revocation
 
+- [ ] On the reported physical Android device/browser, keep a second real participant listening, switch to another app for 10 seconds and 2 minutes, then return. Record OS/browser/device and distinguish LiveKit disconnect, microphone interruption, and application WebSocket loss. Repeat with screen lock and installed PWA if used; do not claim uninterrupted background capture from an emulated viewport.
+- [ ] After return, a still-connected call resumes two-way audio without leaving/rejoining. If autoplay requires a gesture, the voice error is visible and tapping a voice control retries. If LiveKit disconnected finally, the UI shows no active call and explicit rejoin works.
+- [ ] Repeat background/return with self-mute, self-deafen, server-mute, and server-deafen separately. Capture recovery never clears any restriction. Leaving, changing rooms, logging out, or moderator removal while recovery is pending does not revive a stale microphone or room.
+- [ ] Keep LiveKit active while application WebSocket retries are exhausted by a controlled interruption, then restore network/foreground. The socket and voice presence recover without duplicate participants; expired sessions and logout never reconnect automatically.
+
 - [ ] Refresh the web app while joined to voice; the app either restores/resyncs cleanly or leaves with an understandable state.
 - [ ] Briefly interrupt WebSocket connectivity if possible; voice state resyncs after reconnect.
 - [ ] Kick, ban, moderator disconnect, or removing `Connect to Voice` removes the affected user from the active room promptly.

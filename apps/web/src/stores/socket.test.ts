@@ -69,6 +69,7 @@ describe('WebSocket Store', () => {
       isConnected: false,
       token: null,
       shouldReconnect: false,
+      foregroundReconnectAllowed: false,
       listeners: new Set(),
       reconnectListeners: new Set(),
       reconnectAttempt: 0,
@@ -337,6 +338,44 @@ describe('WebSocket Store', () => {
     })
 
     expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('retries an exhausted cookie-auth connection on foreground without duplicate sockets', async () => {
+    useSocketStore.getState().connect(null)
+    await vi.runAllTimersAsync()
+    const onReconnect = vi.fn()
+    useSocketStore.getState().onReconnect(onReconnect)
+    useSocketStore.setState({ reconnectAttempt: 8 })
+    useSocketStore.getState().socket?.close()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(useSocketStore.getState().shouldReconnect).toBe(false)
+    useSocketStore.getState().resumeConnection()
+    useSocketStore.getState().resumeConnection()
+    await vi.runAllTimersAsync()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(useSocketStore.getState().isConnected).toBe(true)
+    expect(onReconnect).toHaveBeenCalledOnce()
+  })
+
+  it.each(['expired', 'logout'])('does not reconnect on foreground after %s', async (reason) => {
+    useSocketStore.getState().connect(null)
+    await vi.runAllTimersAsync()
+    if (reason === 'expired') useSocketStore.getState().socket?.close(4001)
+    else useSocketStore.getState().disconnect()
+    useSocketStore.getState().resumeConnection()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(useSocketStore.getState().isConnected).toBe(false)
+  })
+
+  it('accelerates a pending retry on foreground without leaving its timer active', async () => {
+    useSocketStore.getState().connect(null)
+    await vi.runAllTimersAsync()
+    useSocketStore.getState().socket?.close()
+    useSocketStore.getState().resumeConnection()
+    await vi.runAllTimersAsync()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(useSocketStore.getState().reconnectTimer).toBe(null)
   })
 
   it('should clear pending reconnect timers on disconnect', async () => {
