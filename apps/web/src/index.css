@@ -6762,13 +6762,18 @@ body {
 
 .member-context-menu {
   z-index: 10010;
+  width: min(264px, calc(100vw - 16px));
+  min-width: 0;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .member-volume-menu {
-  width: min(208px, calc(100vw - 16px));
+  width: min(264px, calc(100vw - 16px));
   min-width: 0;
   max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
   padding: 3px 0;
   overflow: auto;
   box-sizing: border-box;
@@ -6816,6 +6821,11 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.member-context-menu svg {
+  flex-shrink: 0;
 }
 
 .member-volume-menu-move {
@@ -12774,10 +12784,118 @@ button.message-author {
 
 .member-profile-dialog {
   position: relative;
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(560px, calc(100dvh - 32px));
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(640px, calc(100dvh - 32px));
   overflow: auto;
-  padding: 18px;
+  overscroll-behavior: contain;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.member-profile-dialog .member-profile-header {
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-right: 24px;
+}
+
+.member-profile-dialog .member-profile-avatar {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  font-size: 26px;
+}
+
+.member-profile-dialog .member-profile-username {
+  font-size: 22px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.member-profile-dialog .member-profile-status {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+
+.member-profile-dialog .member-profile-badges {
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.member-profile-dialog .member-profile-badges:empty {
+  display: none;
+}
+
+.member-profile-dialog .member-profile-badge {
+  max-width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.member-profile-dialog .member-profile-actions {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.member-profile-dialog .member-profile-action {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.member-profile-dialog .member-profile-section {
+  margin-top: 16px;
+  padding: 16px 0 0;
+  border: 0;
+  border-top: var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+
+.member-profile-dialog .member-profile-section-title {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.member-profile-dialog .member-profile-about {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.member-profile-dialog .member-profile-dates {
+  margin-top: 16px;
+  padding-top: 16px;
+  gap: 16px;
+  border-top: var(--border-subtle);
+}
+
+.member-profile-dialog .member-profile-date {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.member-profile-dialog .member-profile-date span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.member-profile-dialog .member-profile-date strong {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .member-profile-dialog {
+    padding: 18px;
+  }
 }
 
 .member-profile-dialog-close {
@@ -15232,43 +15350,6 @@ textarea {
 
 .left-bottom-panel {
   padding-bottom: env(safe-area-inset-bottom, 0);
-}
-
-/* Mobile shell: collapse side panels below the mobile breakpoint. */
-.sidebar-resizer {
-  display: none;
-}
-
-@media (min-width: 1021px) {
-  :root {
-    --channel-sidebar-width: var(--desktop-channel-width, 240px);
-    --member-sidebar-width: var(--desktop-member-width, 240px);
-  }
-
-  .sidebar-resizer {
-    display: block;
-    position: fixed;
-    top: var(--header-height);
-    bottom: 80px;
-    width: 6px;
-    z-index: 91;
-    cursor: col-resize;
-    touch-action: none;
-  }
-
-  .sidebar-resizer--left {
-    left: calc(var(--server-bar-width) + var(--channel-sidebar-width) - 3px);
-  }
-
-  .sidebar-resizer--right {
-    right: calc(var(--member-sidebar-width) - 3px);
-  }
-
-  .sidebar-resizer:hover,
-  .sidebar-resizer:focus-visible {
-    background: var(--text-link);
-    outline: none;
-  }
 }
 
 :root[data-custom-accent='true'] .user-panel .user-avatar,

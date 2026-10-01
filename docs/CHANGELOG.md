@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release is in preparation. Remaining improvements and release-candidate validation must be completed before publishing; the final release date will be recorded at that time.
 
 ### Changed
+- Restored default responsive sidebar widths and removed draggable panel resizing; previously saved custom widths no longer affect layout.
+- Made member profile dialogs easier to read with larger avatars, clearer text, and grouped actions without enlarging compact profile rows.
 - Moved project support links and repository funding to GitHub Sponsors across the app, public website, and documentation.
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Kept member and voice moderation menus inside the viewport with internal scrolling, accessible volume controls, and preserved keyboard focus; profile dialogs stay visible when their originating sidebar is hidden on a narrow screen.
 - Moved the delayed notification permission prompt into a reserved banner below the app bar so it no longer covers chat search, message content, or the composer on desktop and mobile.
 - Resumed interrupted voice audio and ended microphone capture on foreground return, with room-scoped recovery and preserved mute/deafen controls; retried exhausted application WebSocket connections without reviving expired or logged-out sessions. Mobile browser background capture remains subject to OS restrictions.
 - Kept the Settings frame stable when switching between Profile and other tabs.

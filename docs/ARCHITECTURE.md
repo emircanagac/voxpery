@@ -58,6 +58,13 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - TanStack Virtual's end anchoring preserves visible history during row measurements. Prepending older messages retains the existing message anchor. Resize observers keep latest mode pinned after content or viewport size changes, without fixed-delay retry timers.
 - The centered Newest action occupies a reserved strip above the composer, outside the message viewport. Selecting it explicitly returns to latest mode.
 
+## Sidebar and Member Overlay Layout
+
+- CSS owns the default 240 px desktop sidebars and their existing responsive visibility. Panel resizing and JavaScript width overrides have been removed; legacy `voxpery-panel-widths` storage is ignored.
+- Member and voice participant menus render through body portals rather than inside sidebar clipping/transform contexts. `useViewportMenu` measures their actual dimensions and repositions them on content or viewport changes, with bounded scrollable height and visual-viewport support.
+- Scrolling inside an action menu keeps it open; scrolling its surrounding page or sidebar dismisses it. Escape restores the triggering row, and native select/volume keyboard controls retain their normal behavior. Permission filtering and moderation commands are unchanged.
+- Member profile dialogs also render outside their originating sidebars so hiding or transforming a responsive panel cannot hide an open profile. Dialog-specific styles enlarge the profile without changing compact avatar rows; existing Escape, focus trapping, and focus restoration remain in place. A mobile member sheet defers keyboard dismissal to a nested profile or action menu first.
+
 ## Security Model (Implemented)
 
 - JWT: HS256, expiration-based.

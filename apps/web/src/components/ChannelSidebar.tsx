@@ -1,5 +1,7 @@
 import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
+import useViewportMenu from '../useViewportMenu'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -114,7 +116,7 @@ export default function ChannelSidebar({
     const menuRef = useRef<HTMLDivElement>(null)
     const menuTriggerRef = useRef<HTMLElement | null>(null)
     const menuKeyboardRef = useRef(false)
-    const participantMenuRef = useRef<HTMLDivElement>(null)
+    const { ref: participantMenuRef, style: participantMenuStyle } = useViewportMenu(participantMenu)
     const participantMenuTriggerRef = useRef<HTMLDivElement | null>(null)
     const participantMenuKeyboardRef = useRef(false)
     const sidebarRef = useRef<HTMLDivElement>(null)
@@ -206,27 +208,24 @@ export default function ChannelSidebar({
     }
 
     const openParticipantMenu = (userId: string, username: string, channelId: string, y: number, trigger: HTMLDivElement, fromKeyboard: boolean) => {
-        const isSelf = userId === user?.id
-        const control = voiceControls[userId]
-        const moderationActions = isSelf
-            ? Number(!!canMuteMembers && !!control?.serverMuted) + Number(!!canDeafenMembers && !!control?.serverDeafened)
-            : Number(!!canMuteMembers) + Number(!!canDeafenMembers) + Number(!!canDisconnectMembers)
-        const estimatedWidth = 208
-        const estimatedHeight = (isSelf ? 48 : 234) + (moderationActions > 0 ? 54 + moderationActions * 32 : 0)
-        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
-        const preferredX = sidebarRect ? sidebarRect.left + (sidebarRect.width - estimatedWidth) / 2 : trigger.getBoundingClientRect().left
-        const pos = clampSidebarMenuPosition(preferredX, y, estimatedWidth, estimatedHeight)
         participantMenuTriggerRef.current = trigger
         participantMenuKeyboardRef.current = fromKeyboard
         closeAllContextMenus()
-        setParticipantMenu({ userId, username, channelId, x: pos.x, y: pos.y })
+        setParticipantMenu({ userId, username, channelId, x: trigger.getBoundingClientRect().left, y })
     }
 
     useEffect(() => {
         if (participantMenu && participantMenuKeyboardRef.current) {
             participantMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
         }
-    }, [participantMenu])
+        const trigger = participantMenuTriggerRef.current
+        const restoreFocus = participantMenuKeyboardRef.current
+        return () => {
+            if (restoreFocus) queueMicrotask(() => {
+                if (document.activeElement === document.body && trigger?.isConnected) trigger.focus()
+            })
+        }
+    }, [participantMenu, participantMenuRef])
 
     useEffect(() => {
         if (!contextMenu && !categoryMenu && !createMenu) return
@@ -242,7 +241,8 @@ export default function ChannelSidebar({
 
     useEffect(() => {
         if (!contextMenu && !participantMenu && !categoryMenu && !createMenu && !profileCard) return
-        const close = () => {
+        const close = (event: Event) => {
+            if (event.target instanceof Node && (participantMenuRef.current?.contains(event.target) || menuRef.current?.contains(event.target))) return
             setContextMenu(null)
             setParticipantMenu(null)
             setCategoryMenu(null)
@@ -271,7 +271,7 @@ export default function ChannelSidebar({
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu, participantMenu, categoryMenu, createMenu, profileCard])
+    }, [contextMenu, participantMenu, categoryMenu, createMenu, profileCard, participantMenuRef])
 
     useEffect(() => {
         if (Object.keys(voiceChannelActiveSince).length === 0) return
@@ -959,13 +959,13 @@ export default function ChannelSidebar({
                 const canMoveTarget = !isSelf && canMoveMembers && moveDestinationChannels.length > 0
                 const canReleaseOwnMute = isSelf && canMuteMembers && !!targetVoice.serverMuted
                 const canReleaseOwnDeafen = isSelf && canDeafenMembers && !!targetVoice.serverDeafened
-                return (
+                return createPortal(
                     <div
                         ref={participantMenuRef}
                         className="server-context-menu member-context-menu member-volume-menu"
                         role="group"
                         aria-label={`Voice actions for ${participantMenu.username}`}
-                        style={{ left: participantMenu.x, top: participantMenu.y }}
+                        style={participantMenuStyle}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {profileMember && (
@@ -1114,13 +1114,14 @@ export default function ChannelSidebar({
                                 value={currentVolume}
                                 onChange={(e) => savePeerVolume(participantMenu.userId, Number(e.target.value))}
                                 className="member-volume-menu-slider"
+                                aria-label={`Voice volume for ${participantMenu.username}`}
                             />
                         </div>}
-                    </div>
+                    </div>, document.body,
                 )
             })()}
 
-            {profileCard && (
+            {profileCard && createPortal(
                 <MemberProfileDialog
                     member={profileCard.member}
                     isServerOwner={profileCard.isServerOwner}
@@ -1140,7 +1141,7 @@ export default function ChannelSidebar({
                             setProfileCard(null)
                         },
                     }}
-                />
+                />, document.body,
             )}
 
         </div>

@@ -660,7 +660,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         const closeButton = document.querySelector<HTMLElement>('.mobile-member-sheet-close')
         closeButton?.focus()
         const onKeyDown = (event: KeyboardEvent) => {
-            if (document.querySelector('.member-profile-dialog')) return
+            if (document.querySelector('.member-profile-dialog, .member-context-menu')) return
             if (event.key === 'Escape') {
                 event.preventDefault()
                 setShowMobileMemberSheet(false)

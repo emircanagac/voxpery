@@ -77,7 +77,8 @@ test.describe('mocked server settings UI regressions', () => {
     const light = await readMemberProfileThemeSnapshot(profileDialog)
 
     expect(dark.popoutBackground).not.toBe(light.popoutBackground)
-    expect(dark.sectionBackground).not.toBe(light.sectionBackground)
+    expect(dark.sectionColor).not.toBe(light.sectionColor)
+    expect(dark.sectionBorder).not.toBe(light.sectionBorder)
     expect(dark.badgeBackground).not.toBe(light.badgeBackground)
     expect(dark.popoutBorder).not.toBe(light.popoutBorder)
   })
@@ -234,7 +235,8 @@ async function readMemberProfileThemeSnapshot(popout: import('@playwright/test')
     return {
       popoutBackground: popoutStyle.background,
       popoutBorder: popoutStyle.borderColor,
-      sectionBackground: getComputedStyle(section).background,
+      sectionColor: getComputedStyle(section).color,
+      sectionBorder: getComputedStyle(section).borderTopColor,
       badgeBackground: getComputedStyle(badge).background,
     }
   })
