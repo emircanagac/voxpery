@@ -722,8 +722,8 @@ export default function AppShell() {
           </button>
         </div>
       </header>
+      <NotificationPermissionPrompt ready={socialDataReady} />
       <main className="shell-content">
-        <NotificationPermissionPrompt ready={socialDataReady} />
         <Outlet />
         <SidebarResizers />
       </main>

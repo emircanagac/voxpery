@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { expectNotificationPromptLayout, installMockNotificationPermission } from './notification-prompt-fixture'
 import {
   buildCoreChannels,
   buildCoreMembers,
@@ -11,6 +12,35 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
+  test('keeps notification consent separate from mobile chat and requests permission only on Enable', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels.find((channel) => channel.name === 'general')!
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [buildServerMessage(general.id, 'Mobile notification test message')] },
+    }))
+    await installMockNotificationPermission(page)
+    await page.goto('/servers')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(composer).toBeVisible()
+    await page.clock.fastForward(120_001)
+    await expectNotificationPromptLayout(page)
+    await page.getByRole('button', { name: 'Search in conversation' }).click()
+    await expectNotificationPromptLayout(page)
+    await page.getByRole('button', { name: 'Close search' }).click()
+    await composer.fill('Mobile composer remains usable')
+    await expect(composer).toBeInViewport()
+    await page.screenshot({ path: 'test-results/notification-prompt-mobile.png' })
+    expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
+    await page.getByRole('button', { name: 'Enable', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(1)
+    expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-push-enabled'))).toBe('1')
+    expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-push-explicit'))).toBe('1')
+  })
+
   test('keeps hosted legal pages touch-scrollable on a phone viewport', async ({ page }) => {
     for (const path of ['/privacy', '/terms', '/kvkk']) {
       await page.goto(path)
