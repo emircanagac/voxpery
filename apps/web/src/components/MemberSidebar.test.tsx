@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -78,17 +78,6 @@ describe('MemberSidebar profile interaction', () => {
     expect(memberRow).not.toBeNull()
     const memberSidebar = container.querySelector('.member-sidebar')
     expect(memberSidebar).not.toBeNull()
-    vi.spyOn(memberSidebar!, 'getBoundingClientRect').mockReturnValue({
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 800,
-      top: 0,
-      right: 240,
-      bottom: 800,
-      left: 0,
-      toJSON: () => ({}),
-    })
 
     fireEvent.click(memberRow!)
     expect(screen.getByRole('dialog', { name: 'admin' })).toBeVisible()
@@ -96,7 +85,11 @@ describe('MemberSidebar profile interaction', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     fireEvent.contextMenu(memberRow!, { clientX: 120, clientY: 80 })
-    expect(container.querySelector('.member-context-menu')).toHaveStyle({ left: '32px' })
+    const menu = screen.getByRole('menu', { name: 'Actions for admin' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(memberSidebar).not.toContainElement(menu)
+    fireEvent.scroll(menu)
+    expect(menu).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'View profile (@admin)' }))
 
     expect(screen.getByRole('dialog', { name: 'admin' })).toBeVisible()

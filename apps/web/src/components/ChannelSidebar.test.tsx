@@ -189,7 +189,7 @@ describe('ChannelSidebar voice media presence', () => {
         expect(getRemotePlaybackVolume(volumes, 'screen', remoteMember.user_id)).toBe(0)
     })
 
-    it('uses a compact voice participant menu centered within the channel sidebar', () => {
+    it('portals voice actions outside the sidebar and keeps internal scroll usable', () => {
         useAppStore.setState({
             servers: [server],
             activeServerId: server.id,
@@ -201,22 +201,15 @@ describe('ChannelSidebar voice media presence', () => {
 
         const { container } = render(<ChannelSidebar channelCategories={['Voice']} />)
         const sidebar = container.querySelector('.channel-sidebar') as HTMLDivElement
-        vi.spyOn(sidebar, 'getBoundingClientRect').mockReturnValue({
-            bottom: 800,
-            height: 800,
-            left: 0,
-            right: 240,
-            top: 0,
-            width: 240,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        })
-
         fireEvent.contextMenu(screen.getByText(remoteMember.username), { clientX: 220, clientY: 80 })
 
-        const menu = container.querySelector('.member-volume-menu') as HTMLDivElement
-        expect(menu.style.left).toBe('16px')
+        const menu = screen.getByRole('group', { name: `Voice actions for ${remoteMember.username}` })
+        expect(menu.parentElement).toBe(document.body)
+        expect(sidebar).not.toContainElement(menu)
+        fireEvent.scroll(menu)
+        expect(menu).toBeInTheDocument()
+        fireEvent.scroll(sidebar)
+        expect(menu).not.toBeInTheDocument()
     })
 
     it('opens voice actions with keyboard and restores focus with Escape', () => {

@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
+import { createPortal } from 'react-dom'
+import useViewportMenu from '../useViewportMenu'
 
 interface MemberItemProps {
     member: MemberProfileMember
@@ -215,20 +217,9 @@ export default function MemberSidebar({
         member: MemberItemProps['member']
         isServerOwner: boolean
     } | null>(null)
-    const sidebarRef = useRef<HTMLDivElement>(null)
-    const menuRef = useRef<HTMLDivElement>(null)
+    const { ref: menuRef, style: menuStyle } = useViewportMenu(contextMenu)
     const menuTriggerRef = useRef<HTMLElement | null>(null)
     const menuKeyboardRef = useRef(false)
-
-    const clampMenuPosition = (x: number, y: number, width: number, height: number) => {
-        const pad = 8
-        const maxX = Math.max(pad, window.innerWidth - width - pad)
-        const maxY = Math.max(pad, window.innerHeight - height - pad)
-        return {
-            x: Math.min(Math.max(x, pad), maxX),
-            y: Math.min(Math.max(y, pad), maxY),
-        }
-    }
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
     const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
@@ -279,7 +270,10 @@ export default function MemberSidebar({
 
     useEffect(() => {
         if (!contextMenu && !profileCard) return
-        const close = () => setContextMenu(null)
+        const close = (event: Event) => {
+            if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
+            setContextMenu(null)
+        }
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') return
             setContextMenu(null)
@@ -294,7 +288,7 @@ export default function MemberSidebar({
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('scroll', close, true)
         }
-    }, [contextMenu, profileCard])
+    }, [contextMenu, profileCard, menuRef])
 
     useEffect(() => {
         if (!contextMenu) return
@@ -306,7 +300,7 @@ export default function MemberSidebar({
                 if (document.activeElement === document.body && trigger?.isConnected) trigger.focus()
             })
         }
-    }, [contextMenu])
+    }, [contextMenu, menuRef])
 
     const canManageRoles = isOwner || canManageRolesFromPerms
 
@@ -555,13 +549,6 @@ export default function MemberSidebar({
         canBan: boolean,
         canReport: boolean
     ) => {
-        const optionCount = (canMakeAdmin ? 1 : 0) + (canAddFriend ? 1 : 0) + (canSendDm ? 1 : 0) + (canTimeout ? 1 : 0) + (canKick ? 1 : 0) + (canBan ? 1 : 0) + (canReport ? 1 : 0)
-        const menuWidth = 176
-        const sidebarRect = sidebarRef.current?.getBoundingClientRect()
-        const preferredX = sidebarRect
-            ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
-            : position.x
-        const pos = clampMenuPosition(preferredX, position.y, menuWidth, 8 + optionCount * 38)
         menuTriggerRef.current = trigger
         menuKeyboardRef.current = fromKeyboard
         setProfileCard(null)
@@ -571,8 +558,8 @@ export default function MemberSidebar({
             userId: member.user_id,
             username: member.username,
             role: member.role,
-            x: pos.x,
-            y: pos.y,
+            x: position.x,
+            y: position.y,
             canMakeAdmin,
             canAddFriend,
             canSendDm,
@@ -600,7 +587,7 @@ export default function MemberSidebar({
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (
-        <div ref={sidebarRef} className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`}>
+        <div className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`}>
             {onlineMembers.length > 0 && (
                 <>
                     <div className="member-category member-category-online">
@@ -653,13 +640,13 @@ export default function MemberSidebar({
                 </>
             )}
 
-            {contextMenu && (
+            {contextMenu && createPortal(
                 <div
                     ref={menuRef}
                     className="server-context-menu member-context-menu"
                     role="menu"
                     aria-label={`Actions for ${contextMenu.username}`}
-                    style={{ left: contextMenu.x, top: contextMenu.y }}
+                    style={menuStyle}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button
@@ -768,10 +755,10 @@ export default function MemberSidebar({
                             Ban user
                         </button>
                     )}
-                </div>
+                </div>, document.body,
             )}
 
-            {profileCard && (
+            {profileCard && createPortal(
                 <MemberProfileDialog
                     member={profileCard.member}
                     isServerOwner={profileCard.isServerOwner}
@@ -791,7 +778,7 @@ export default function MemberSidebar({
                             setProfileCard(null)
                         },
                     }}
-                />
+                />, document.body,
             )}
 
             {roleEditor && (
