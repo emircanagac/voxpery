@@ -21,6 +21,7 @@ vi.mock('@tanstack/react-virtual', () => ({
   }) => {
     estimateVirtualRow = estimateSize
     return {
+      options: { count },
       getTotalSize: () => count * 120,
       getVirtualItems: () =>
         Array.from({ length: count }, (_, index) => ({
@@ -464,13 +465,46 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
   })
 
-  it('does not re-lock to latest when scrollbar movement scrolls upward during latest anchoring', () => {
+  it('keeps latest locked after passive scroll events and same-count content replacement', () => {
+    vi.useFakeTimers()
+    const { container, rerender, unmount } = renderChatArea()
+    act(() => { vi.advanceTimersByTime(1500) })
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1481 })
+    fireEvent.scroll(scroller)
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
+    scrollToIndex.mockClear()
+    rerender(<ChatArea activeChannel={channel('general', 'general')}
+      messages={[message('message-1', 'replaced with a taller message', 0), message('message-2', 'latest refreshed', 1)]}
+      draftAttachments={[]} messageInput="" onPickAttachments={vi.fn()} onRemoveAttachment={vi.fn()}
+      onMessageInputChange={vi.fn()} onSendMessage={vi.fn()} onRetryMessage={vi.fn()} />)
+    expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
+    expect(scroller.scrollTop).toBe(1121)
+    unmount()
+  })
+
+  it('does not let queued latest scrolling override a notification target', () => {
+    vi.useFakeTimers()
+    const { rerender, unmount } = renderChatArea()
+    rerender(<ChatArea activeChannel={channel('general', 'general')}
+      messages={[message('message-1', 'older target', 0), message('message-2', 'latest', 1)]}
+      draftAttachments={[]} messageInput="" onPickAttachments={vi.fn()} onRemoveAttachment={vi.fn()}
+      onMessageInputChange={vi.fn()} onSendMessage={vi.fn()} onRetryMessage={vi.fn()}
+      onScrollRefReady={setScrollableMetrics} jumpToMessageId="message-1" />)
+    scrollToIndex.mockClear()
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(scrollToIndex).not.toHaveBeenCalledWith(1, { align: 'end' })
+    unmount()
+  })
+
+  it('does not re-lock to latest when keyboard input scrolls upward', () => {
     const { container, rerender } = renderChatArea()
 
     expect(scrollToIndex).toHaveBeenCalledWith(1, { align: 'end' })
     scrollToIndex.mockClear()
 
     const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    fireEvent.keyDown(scroller, { key: 'PageUp' })
     scroller.scrollTop = 1060
     fireEvent.scroll(scroller)
 

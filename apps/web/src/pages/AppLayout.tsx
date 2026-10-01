@@ -2834,6 +2834,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     ])
 
     const activeChannel = channels.find((c) => c.id === activeChannelId)
+    const displayedChannelMessages = useMemo(() => (
+        (channelSearch.trim() ? (channelSearchResults ?? []) : messages)
+            .filter((message) => message.channel_id === activeChannelId)
+    ), [activeChannelId, channelSearch, channelSearchResults, messages])
     const channelCategorySuggestions = useMemo(
         () =>
             Array.from(
@@ -3297,8 +3301,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             )}
             <ChatArea
                 activeChannel={activeChannel}
-                loading={serverRouteLoading || (!activeServerId && serversLoading) || (channelSearch.trim() ? channelSearchResults === null : !olderMessagesReady && messages.length === 0)}
-                messages={channelSearch.trim() ? (channelSearchResults ?? []) : messages}
+                loading={serverRouteLoading || (!activeServerId && serversLoading) || (channelSearch.trim() ? channelSearchResults === null : !olderMessagesReady && displayedChannelMessages.length === 0)}
+                messages={displayedChannelMessages}
                 unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
                 draftAttachments={draftAttachments}
                 messageInput={messageInput}

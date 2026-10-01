@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-server"
-version = "0.2.16"
+version = "0.3.0"
 edition = "2021"
 description = "Voxpery - Privacy-first communication server"
 license = "AGPL-3.0-only"
