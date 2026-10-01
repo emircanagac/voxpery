@@ -59,7 +59,18 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 - `ParticipantConnected`: New user joined -> play a distinct rising join cue
 - `ParticipantDisconnected`: User left -> play a distinct descending leave cue, cleanup
 - `Reconnecting`/`Reconnected`: Network blip -> re-subscribe tracks, refresh stats
-- `Disconnected`: Lost connection -> backend WS resync handles re-join
+- `Disconnected`: Final media disconnect -> clear local voice state; rejoining requires an explicit user action (never automatically bypass revocation).
+
+### Mobile Browser Lifecycle
+
+- Hiding Voxpery does not leave the voice room. Microphone subscriptions remain active; video subscription optimizations remain independent.
+- On visibility return, page restore, focus, network recovery, or a user gesture, a still-connected room resumes its suspended/interrupted AudioContext. An ended microphone is re-captured only while visible; a live browser-muted track is not replaced merely because the OS temporarily interrupted it.
+- Recovery is coalesced per room and discarded after leave, channel change, or teardown. Replacement tracks stay disabled until current self-mute, self-deafen, and server moderation controls are reapplied. Stale device requests are stopped rather than cached into a later session.
+- A foreground/network-return event retries a disconnected application WebSocket even if its bounded background retry budget was exhausted. Healthy/connecting sockets are not duplicated; logout and auth-expired closure prohibit this retry. The existing reconnect callback resynchronizes active voice presence and controls.
+- Android browsers can suspend capture, audio processing, networking, or the page itself while another app is foregrounded or the screen is locked. The web/PWA client cannot guarantee uninterrupted background microphone access. No additional timer, silent-audio, or wake-lock workaround is introduced. Final LiveKit disconnect still clears the call instead of displaying a phantom connection or automatically rejoining after moderator removal.
+- Autoplay/permission failures remain visible as voice errors. A subsequent gesture retries audio recovery; platform behavior must be verified on the affected physical device. Mobile viewport emulation is not background-audio validation.
+
+Platform references: [Chrome Page Lifecycle](https://developer.chrome.com/docs/web-platform/page-lifecycle-api), [AudioContext states](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/state).
 
 ## Audio Pipeline
 

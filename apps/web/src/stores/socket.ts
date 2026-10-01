@@ -27,6 +27,7 @@ interface SocketState {
     isConnected: boolean
     token: string | null
     shouldReconnect: boolean
+    foregroundReconnectAllowed: boolean
     listeners: Set<WsListener>
     reconnectListeners: Set<ReconnectListener>
     reconnectAttempt: number
@@ -36,6 +37,7 @@ interface SocketState {
 
     // Actions
     connect: (token: string | null) => void
+    resumeConnection: () => void
     disconnect: () => void
     send: (type: string, data: unknown) => void
     subscribe: (listener: WsListener) => () => void
@@ -48,6 +50,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     isConnected: false,
     token: null,
     shouldReconnect: false,
+    foregroundReconnectAllowed: false,
     listeners: new Set(),
     reconnectListeners: new Set(),
     reconnectAttempt: 0,
@@ -69,7 +72,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         }
 
         const connectionId = state.connectionId + 1
-        set({ token, shouldReconnect: true, connectionId })
+        set({ token, shouldReconnect: true, foregroundReconnectAllowed: true, connectionId })
         const ws = createWebSocket(token)
 
         ws.onopen = () => {
@@ -100,10 +103,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             if (get().connectionId !== connectionId) return
 
             if (event.code === AUTH_EXPIRED_CLOSE_CODE) {
+                const timer = get().reconnectTimer
+                if (timer) clearTimeout(timer)
                 set({
                     isConnected: false,
                     socket: null,
                     shouldReconnect: false,
+                    foregroundReconnectAllowed: false,
                     reconnectAttempt: 0,
                     reconnectTimer: null,
                 })
@@ -156,6 +162,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         set({ socket: ws })
     },
 
+    resumeConnection: () => {
+        const state = get()
+        if (!state.foregroundReconnectAllowed) return
+        if (state.socket && (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)) return
+        get().connect(state.token)
+    },
+
     disconnect: () => {
         const { reconnectTimer } = get()
         if (reconnectTimer) clearTimeout(reconnectTimer)
@@ -164,6 +177,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         set({
             token: null,
             shouldReconnect: false,
+            foregroundReconnectAllowed: false,
             reconnectAttempt: 0,
             reconnectTimer: null,
             connectionId: get().connectionId + 1,

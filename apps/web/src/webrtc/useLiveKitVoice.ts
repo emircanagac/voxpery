@@ -22,11 +22,13 @@ import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
 import {
+  resumeVoiceAudioContext,
   shouldUseLightweightMobileVoicePipeline,
   useAudioEngine,
 } from './hooks/useAudioEngine'
 import { useLocalMedia, type ScreenShareCaptureResult } from './hooks/useLocalMedia'
 import { useVoiceActivity } from './hooks/useVoiceActivity'
+import { useVoiceForegroundRecovery } from './hooks/useVoiceForegroundRecovery'
 import { useWebrtcDiagnostics } from './hooks/useWebrtcDiagnostics'
 import { getStoredVoiceInputDeviceId, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 import {
@@ -423,6 +425,7 @@ export function useLiveKitVoice() {
   const selfDeafenedRef = useRef(false)
   const activeInputDeviceIdRef = useRef(getStoredVoiceInputDeviceId())
   const microphoneRecoveryInFlightRef = useRef(false)
+  const microphoneRebuildGenerationRef = useRef(0)
   const microphoneEndedHandlerRef = useRef<(track: MediaStreamTrack) => void>(() => undefined)
   const microphoneDeviceChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -750,12 +753,20 @@ export function useLiveKitVoice() {
     const room = roomRef.current
     const publishedTrack = localAudioTrackRef.current
     if (!room || !publishedTrack) return
+    const channelId = joinedChannelIdRef.current
+    const generation = ++microphoneRebuildGenerationRef.current
+    const isCurrent = () => roomRef.current === room
+      && joinedChannelIdRef.current === channelId
+      && localAudioTrackRef.current === publishedTrack
+      && microphoneRebuildGenerationRef.current === generation
 
     const forceNewDeviceStream = options?.forceNewDeviceStream ?? false
     const previousTrack = publishedTrack
     const previousGateCancel = gateCancelRef.current
     const previousRawTrack = rawMicTrackRef.current
     const previousInputGainNode = inputGainNodeRef.current
+    const nextRawTrackRef = { current: previousRawTrack }
+    const nextInputGainNodeRef = { current: previousInputGainNode }
     let sourceStream: MediaStream | null = null
     let ownsSourceStream = false
     let nextTrack: MediaStreamTrack | null = null
@@ -770,27 +781,37 @@ export function useLiveKitVoice() {
         ownsSourceStream = true
       }
 
+      if (!isCurrent()) throw new Error('Voice session changed during microphone recovery')
       const sourceRawTrack = sourceStream.getAudioTracks()[0] ?? null
       await applyLocalMicSettings(sourceRawTrack)
+      if (!isCurrent()) throw new Error('Voice session changed during microphone recovery')
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
       const built = await buildMicSendTrack(
         sourceStream,
         getInputVolumeFactor(),
         desiredMicMutedRef.current,
-        rawMicTrackRef,
-        inputGainNodeRef,
+        nextRawTrackRef,
+        nextInputGainNodeRef,
         noiseSuppressionEnabled,
+        isCurrent,
       )
       nextTrack = built.track
       nextGateCancel = built.cancelGate
-      const nextRawTrack = rawMicTrackRef.current
+      if (!isCurrent()) throw new Error('Voice session changed during microphone recovery')
+      const nextRawTrack = nextRawTrackRef.current
       if (nextRawTrack) {
         nextRawTrack.onended = () => microphoneEndedHandlerRef.current(nextRawTrack)
       }
 
+      // Keep replacement capture silent until the current moderation state is reapplied.
+      nextTrack.enabled = false
+      if (nextRawTrack) nextRawTrack.enabled = false
       await previousTrack.replaceTrack(nextTrack)
       trackReplaced = true
+      if (!isCurrent()) throw new Error('Voice session changed during microphone recovery')
       previousGateCancel?.()
+      rawMicTrackRef.current = nextRawTrack
+      inputGainNodeRef.current = nextInputGainNodeRef.current
       gateCancelRef.current = nextGateCancel
       localAudioTrackRef.current = previousTrack
       vadStreamRef.current = built.vadStream
@@ -808,7 +829,7 @@ export function useLiveKitVoice() {
       await setLocalMicMuted(desiredMicMutedRef.current)
     } catch (error) {
       nextGateCancel?.()
-      if (nextTrack && !trackReplaced) {
+      if (nextTrack && (!trackReplaced || !isCurrent())) {
         try {
           nextTrack.stop()
         } catch {
@@ -821,10 +842,12 @@ export function useLiveKitVoice() {
           track.stop()
         })
       }
-      rawMicTrackRef.current = previousRawTrack
-      inputGainNodeRef.current = previousInputGainNode
-      gateCancelRef.current = previousGateCancel ?? null
-      setLastError(error instanceof Error ? error.message : 'Could not rebuild microphone pipeline')
+      if (isCurrent()) {
+        rawMicTrackRef.current = previousRawTrack
+        inputGainNodeRef.current = previousInputGainNode
+        gateCancelRef.current = previousGateCancel ?? null
+        setLastError(error instanceof Error ? error.message : 'Could not rebuild microphone pipeline')
+      }
     }
   }, [applyLocalMicSettings, buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor])
 
@@ -833,7 +856,7 @@ export function useLiveKitVoice() {
   }, [rebuildPublishedMicrophoneTrack])
 
   const recoverMicrophoneCapture = useCallback(async () => {
-    if (microphoneRecoveryInFlightRef.current || !joinedChannelIdRef.current) return
+    if (document.visibilityState !== 'visible' || microphoneRecoveryInFlightRef.current || !joinedChannelIdRef.current) return
     microphoneRecoveryInFlightRef.current = true
     try {
       await rebuildPublishedMicrophoneTrack({ forceNewDeviceStream: true })
@@ -841,6 +864,34 @@ export function useLiveKitVoice() {
       microphoneRecoveryInFlightRef.current = false
     }
   }, [rebuildPublishedMicrophoneTrack])
+
+  const getRecoverySession = useCallback(() => {
+    const room = roomRef.current
+    if (!room || room.state !== 'connected' || !joinedChannelIdRef.current) return null
+    return { identity: room, microphone: rawMicTrackRef.current }
+  }, [])
+  const audioRecoveryErrorRef = useRef<string | null>(null)
+  const resumeVoiceAudio = useCallback(async () => {
+    const room = roomRef.current
+    await resumeVoiceAudioContext(getAudioContext())
+    if (roomRef.current !== room) return
+    const previousError = audioRecoveryErrorRef.current
+    if (previousError) {
+      setLastError((current) => current === previousError ? null : current)
+      audioRecoveryErrorRef.current = null
+    }
+  }, [getAudioContext])
+  const reportRecoveryError = useCallback((error: unknown) => {
+    const message = error instanceof Error ? error.message : 'Could not resume voice audio'
+    audioRecoveryErrorRef.current = message
+    setLastError(message)
+  }, [])
+  const recoverForegroundVoice = useVoiceForegroundRecovery({
+    getSession: getRecoverySession,
+    resumeAudio: resumeVoiceAudio,
+    recoverMicrophone: recoverMicrophoneCapture,
+    onError: reportRecoveryError,
+  })
 
   useEffect(() => {
     microphoneEndedHandlerRef.current = (endedTrack) => {
@@ -1042,9 +1093,7 @@ export function useLiveKitVoice() {
       if (!rawMicTrack) throw new Error('No microphone track available')
 
       const audioContext = getAudioContext()
-      if (audioContext?.state === 'suspended') {
-        await audioContext.resume()
-      }
+      await resumeVoiceAudioContext(audioContext)
 
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
 
@@ -1280,9 +1329,11 @@ export function useLiveKitVoice() {
           updateRoomStats()
         })
         .on(RoomEvent.Reconnected, () => {
+          if (roomRef.current !== room) return
           reportObservabilityEvent('livekit_reconnect_succeeded')
           updateRoomStats()
           refreshLocalStreams()
+          void recoverForegroundVoice()
           // Re-subscribe to all existing remote participants' tracks
           const currentRoom = roomRef.current
           if (currentRoom) {
@@ -1407,7 +1458,7 @@ export function useLiveKitVoice() {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false

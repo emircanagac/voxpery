@@ -147,6 +147,7 @@ describe('AppShell social refresh', () => {
       isConnected: false,
       token: null,
       shouldReconnect: false,
+      foregroundReconnectAllowed: false,
       listeners: new Set(),
       reconnectListeners: new Set(),
       reconnectAttempt: 0,
@@ -158,6 +159,27 @@ describe('AppShell social refresh', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('retries exhausted WebSocket connectivity only on visible return and removes lifecycle listeners on teardown', () => {
+    let visibility: DocumentVisibilityState = 'hidden'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+    const view = renderAppShell()
+    const socket = useSocketStore.getState().socket!
+    act(() => {
+      useSocketStore.setState({ reconnectAttempt: 8 })
+      socket.onclose?.(new CloseEvent('close', { code: 1006 }))
+    })
+    expect(useSocketStore.getState().shouldReconnect).toBe(false)
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(apiMocks.createWebSocket).toHaveBeenCalledTimes(1)
+    visibility = 'visible'
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(apiMocks.createWebSocket).toHaveBeenCalledTimes(2)
+    view.unmount()
+    useSocketStore.setState({ socket: null })
+    act(() => window.dispatchEvent(new Event('online')))
+    expect(apiMocks.createWebSocket).toHaveBeenCalledTimes(2)
   })
 
   it('keeps social data fresh from events and reconnects instead of aggressive polling', async () => {
