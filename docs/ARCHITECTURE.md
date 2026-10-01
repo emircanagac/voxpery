@@ -50,6 +50,14 @@ Voxpery is a real-time communication stack: Rust backend + React frontend + Live
 - Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket; REST list endpoints that derive online/offline from this map are instance-local until presence is externalized.
 - Voice session/control state is still tracked in-memory for low-latency UI sync; run sticky WebSocket routing for multi-instance voice until this state is moved to Redis or another shared coordinator.
 
+## Chat Scroll Ownership
+
+- `ChatArea` owns scroll intent for the active conversation. Normal channel/DM entry and returning to a hidden chat select latest mode; late media measurements, composer resizing, and same-count data refreshes keep that mode until explicit user input changes it.
+- Wheel, touch, scrollbar, and scroll-key input distinguish history reading from passive layout changes. Search, pinned-message, notification, and reply targets cancel pending latest work so the target is not overwritten.
+- Deferred scroll work is guarded by conversation identity and a generation invalidated on navigation or history intent. Parents scope displayed messages to the active channel/DM; late responses cannot display a different conversation's rows.
+- TanStack Virtual's end anchoring preserves visible history during row measurements. Prepending older messages retains the existing message anchor. Resize observers keep latest mode pinned after content or viewport size changes, without fixed-delay retry timers.
+- The centered Newest action occupies a reserved strip above the composer, outside the message viewport. Selecting it explicitly returns to latest mode.
+
 ## Security Model (Implemented)
 
 - JWT: HS256, expiration-based.

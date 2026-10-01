@@ -1,6 +1,6 @@
 {
   "productName": "Voxpery",
-  "version": "0.2.16",
+  "version": "0.3.0",
   "identifier": "com.voxpery",
   "build": {
     "frontendDist": "../../web/dist",

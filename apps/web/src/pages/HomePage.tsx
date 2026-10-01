@@ -1118,7 +1118,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [token, activeDmChannelId, dmMessages, user, clearDmUnread, rememberDmMessages]
   )
 
-  const displayedDmMessages = dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages
+  const displayedDmMessages = useMemo(() => (
+    (dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages)
+      .filter((message) => message.channel_id === activeDmChannelId)
+  ), [activeDmChannelId, dmMessages, dmSearch, dmSearchResults])
 
   const notificationJumpMessageId = useMemo(() => {
     const anchor = pendingDmNotificationAnchor ?? routeDmNotificationAnchor

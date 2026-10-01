@@ -200,13 +200,12 @@ test.describe('mocked channel permission regressions', () => {
     await page.goto('/servers')
 
     const scroller = page.locator('.chat-messages')
-    await scroller.evaluate((element) => {
-      element.scrollTop = 0
-      element.dispatchEvent(new Event('scroll'))
-    })
     await expect.poll(() => scroller.evaluate((element) => (
       element.scrollHeight - element.clientHeight
     ))).toBeGreaterThan(200)
+    await scroller.focus()
+    await page.keyboard.press('Home')
+    await expect(page.getByRole('button', { name: 'Jump to latest messages' })).toBeVisible()
     const firstRow = page.locator(`[data-message-id="${targetIds[0]}"]`)
     await expect(firstRow).toBeVisible()
     const anchorBefore = await firstRow.evaluate((element) => {

@@ -5832,10 +5832,15 @@ body {
   position: relative;
 }
 
+.message-input-container:has(.chat-jump-to-latest) {
+  padding-top: 38px;
+}
+
 .chat-jump-to-latest {
   position: absolute;
-  right: 12px;
-  bottom: calc(100% + 8px);
+  left: 50%;
+  top: 4px;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5843,48 +5848,31 @@ body {
   min-width: 94px;
   padding: 0 11px;
   border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 18%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 9%, var(--bg-popover)));
+  border-radius: 6px;
+  background: var(--bg-popover);
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
   z-index: 7;
-  box-shadow: var(--shadow-medium), inset 0 1px rgba(var(--ui-contrast-rgb), 0.14), 0 0 0 1px var(--accent-soft-hover);
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-low);
   transition:
     border-color var(--transition-fast),
-    background var(--transition-fast),
     color var(--transition-fast),
-    transform var(--transition-fast),
     box-shadow var(--transition-fast);
-  animation: chat-jump-to-latest-enter 170ms ease-out;
 }
 
 .chat-jump-to-latest:hover {
   border-color: var(--accent-border-strong);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 26%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 14%, var(--bg-popover)));
+  background: var(--bg-surface-hover);
   color: var(--text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-high), inset 0 1px rgba(var(--ui-contrast-rgb), 0.18), 0 0 0 1px var(--accent-border);
+  box-shadow: var(--shadow-low);
 }
 
 .chat-jump-to-latest:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-low), inset 0 1px rgba(var(--ui-contrast-rgb), 0.12), 0 0 0 1px var(--accent-soft-hover);
-}
-
-@keyframes chat-jump-to-latest-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  box-shadow: none;
 }
 
 .mention-suggest-menu {
@@ -14961,20 +14949,20 @@ button.message-author {
 
 .chat-jump-to-latest {
   border-color: var(--accent-border);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 18%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 9%, var(--bg-popover)));
+  background: var(--bg-popover);
   color: var(--text-primary);
-  box-shadow: var(--shadow-medium), inset 0 1px rgba(var(--ui-contrast-rgb), 0.14), 0 0 0 1px var(--accent-soft-hover);
+  box-shadow: var(--shadow-low);
 }
 
 .chat-jump-to-latest:hover {
   border-color: var(--accent-border-strong);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 26%, var(--bg-popover)), color-mix(in srgb, var(--accent-primary) 14%, var(--bg-popover)));
+  background: var(--bg-surface-hover);
   color: var(--text-primary);
-  box-shadow: var(--shadow-high), inset 0 1px rgba(var(--ui-contrast-rgb), 0.18), 0 0 0 1px var(--accent-border);
+  box-shadow: var(--shadow-low);
 }
 
 .chat-jump-to-latest:active {
-  box-shadow: var(--shadow-low), inset 0 1px rgba(var(--ui-contrast-rgb), 0.12), 0 0 0 1px var(--accent-soft-hover);
+  box-shadow: none;
 }
 
 .chat-gif-item:hover,
@@ -16210,8 +16198,6 @@ textarea {
   }
 
   .chat-jump-to-latest {
-    right: 8px;
-    bottom: calc(100% + 6px);
     height: 28px;
     min-width: 88px;
     padding: 0 10px;

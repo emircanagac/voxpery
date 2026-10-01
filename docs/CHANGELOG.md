@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+This release is in preparation. Remaining improvements and release-candidate validation must be completed before publishing; the final release date will be recorded at that time.
+
+### Changed
+- Moved project support links and repository funding to GitHub Sponsors across the app, public website, and documentation.
+- Updated the web and backend dependency sets and refreshed the Voxpery logo image.
+
+### Fixed
+- Kept the Settings frame stable when switching between Profile and other tabs.
+- Preserved latest-message positioning through channel/DM changes, delayed media, composer resizing, and same-count content refreshes without overriding deliberate history reading or message targets.
+- Centered Newest above the composer in a reserved area that does not cover messages.
+
 ## [0.2.16] - 2026-09-27
 
 ### Added

@@ -6,6 +6,14 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
+### v0.3.0 preparation (not release sign-off)
+
+Version metadata is prepared for `0.3.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+
+Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
+
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.3.0` and `voxpery/voxpery-web:v0.3.0`, the embedded web badge/build tag, desktop version `0.3.0`, and the release-generated updater `latest.json` version all agree. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
 ### Chat state regression checks (#361)
 
 - [ ] Download a ZIP in channel chat and DM: inline progress/start feedback appears; rapid repeated clicks do not create duplicate downloads. Simulate a failed request and retry. Confirm the actual file in the browser/desktop downloads folder (start feedback is not completion confirmation).
@@ -15,6 +23,8 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 - [ ] Open a chat external link in wide and narrow windows: the warning URL stays readable without horizontal overflow, and Cancel/Escape returns focus to the link.
 - [ ] Open a DM with more than 50 messages and scroll upward through multiple pages without jumping to the bottom or skipping messages.
 - [ ] Return to a previously read DM/channel, including after switching servers: normal entry shows the latest messages. Explicit notification/history jumps still show their target.
+- [ ] At 1920x1080 on web and desktop, rapidly switch cached/uncached channels and DMs, including while an older request is pending. Load a delayed GIF/photo, refresh content without changing the message count, and expand the composer: latest mode stays at the bottom without an unsolicited Newest action.
+- [ ] Read history using wheel, touch, scrollbar, and PageUp/Home; load older pages and allow media/reactions to resize. The visible message remains anchored rather than snapping to latest. Verify pinned/search/notification targets remain visible after delayed measurements. Newest is centered above the composer without covering messages; clicking it restores latest mode. Repeat at a narrow desktop and mobile viewport. The automated Chromium tests do not replace a real Tauri check.
 - [ ] Receive a DM while it is open, and while the app is backgrounded: unread clears when viewing/returning to the conversation, not when merely prefetching or loading older messages.
 
 ### Candidate details
