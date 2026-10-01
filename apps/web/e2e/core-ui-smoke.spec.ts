@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expectNotificationPromptLayout, installMockNotificationPermission } from './notification-prompt-fixture'
 import {
   buildCoreChannels,
   buildCoreMembers,
@@ -11,6 +12,46 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1100, height: 600 }]) {
+    test(`keeps the delayed notification prompt clear of chat controls at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      const server = buildCoreServer()
+      const channels = buildCoreChannels(server.id)
+      const general = channels.find((channel) => channel.name === 'general')!
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server], channelsByServerId: { [server.id]: channels },
+        membersByServerId: { [server.id]: buildCoreMembers() },
+      }))
+      await installMockNotificationPermission(page)
+      await page.setViewportSize(viewport)
+      await page.goto('/servers')
+      const composer = page.getByPlaceholder(`Message #${general.name}`)
+      await expect(composer).toBeVisible()
+      const topbarBefore = await page.locator('.shell-topbar').boundingBox()
+      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+      await page.clock.fastForward(120_001)
+      await expectNotificationPromptLayout(page)
+      expect((await page.locator('.shell-topbar').boundingBox())!.y).toBe(topbarBefore!.y)
+      expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
+      await page.getByRole('button', { name: 'Search in conversation' }).click()
+      await expectNotificationPromptLayout(page)
+      await page.getByText('Filters', { exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Filter messages by author' })).toBeVisible()
+      await page.getByText('Filters', { exact: true }).click()
+      await page.getByRole('button', { name: 'Close search' }).click()
+      await composer.fill('Composer remains usable')
+      await expect(composer).toBeInViewport()
+      await page.screenshot({ path: `test-results/notification-prompt-${viewport.width}.png` })
+      await page.getByRole('button', { name: 'Not now' }).click()
+      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+      expect(await page.evaluate(() => Number(localStorage.getItem('voxpery-push-prompt-snoozed-until')) > Date.now())).toBe(true)
+      expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
+      await page.reload()
+      await expect(composer).toBeVisible()
+      await page.clock.fastForward(120_001)
+      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+    })
+  }
+
   test('links project support to GitHub Sponsors', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState())
     await page.goto('/social')
@@ -394,13 +435,6 @@ test.describe('mocked core UI smoke', () => {
 
     await page.getByRole('button', { name: 'Pinned messages' }).click()
     await page.getByRole('button', { name: 'Search in conversation' }).click()
-    await page.evaluate(() => {
-      const prompt = document.createElement('section')
-      prompt.className = 'shell-notification-cta'
-      prompt.textContent = 'Notification prompt'
-      document.querySelector('.shell-content')?.prepend(prompt)
-    })
-    await expect(page.locator('.shell-content > .shell-notification-cta')).toBeHidden()
     await page.getByText('Filters', { exact: true }).click()
     await expect(page.getByRole('button', { name: 'Filter messages by author' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Filter messages with attachments' })).toBeVisible()
@@ -412,7 +446,6 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.locator('.welcome-screen[role="status"]')).toContainText('No messages found')
     await expect(page.getByText('Welcome to #general!')).toHaveCount(0)
     await page.getByRole('button', { name: 'Close search' }).click()
-    await expect(page.locator('.shell-content > .shell-notification-cta')).toBeVisible()
 
     await ownRow.hover()
     await ownRow.getByRole('button', { name: 'Delete' }).click()

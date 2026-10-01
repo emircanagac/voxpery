@@ -16,6 +16,7 @@ This release is in preparation. Remaining improvements and release-candidate val
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Moved the delayed notification permission prompt into a reserved banner below the app bar so it no longer covers chat search, message content, or the composer on desktop and mobile.
 - Resumed interrupted voice audio and ended microphone capture on foreground return, with room-scoped recovery and preserved mute/deafen controls; retried exhausted application WebSocket connections without reviving expired or logged-out sessions. Mobile browser background capture remains subject to OS restrictions.
 - Kept the Settings frame stable when switching between Profile and other tabs.
 - Preserved latest-message positioning through channel/DM changes, delayed media, composer resizing, and same-count content refreshes without overriding deliberate history reading or message targets.
