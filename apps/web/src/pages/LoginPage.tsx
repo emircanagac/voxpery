@@ -117,8 +117,11 @@ export default function LoginPage() {
                 )}
 
                 <div className="form-group">
-                    <label>Email or Username</label>
+                    <label htmlFor="login-identifier">Email or Username</label>
                     <input
+                        id="login-identifier"
+                        name="username"
+                        autoComplete="username"
                         type="text"
                         value={identifier}
                         onChange={(e) => setIdentifier(e.target.value)}
@@ -129,17 +132,20 @@ export default function LoginPage() {
 
                 <div className="form-group">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label>Password</label>
+                        <label htmlFor="login-password">Password</label>
                         {passwordResetEnabled && (
-                            <a
-                                onClick={() => navigate(ROUTES.forgotPassword)}
+                            <Link
+                                to={ROUTES.forgotPassword}
                                 style={{ fontSize: '0.8em', cursor: 'pointer', color: 'var(--text-link)' }}
                             >
                                 Forgot password?
-                            </a>
+                            </Link>
                         )}
                     </div>
                     <input
+                        id="login-password"
+                        name="password"
+                        autoComplete="current-password"
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -173,17 +179,11 @@ export default function LoginPage() {
 
                 <div className="auth-footer">
                     Don't have an account?{' '}
-                    <a
-                        onClick={() =>
-                            navigate(
-                                redirectTo
-                                    ? `${ROUTES.register}?redirect=${encodeURIComponent(redirectTo)}`
-                                    : ROUTES.register,
-                            )
-                        }
+                    <Link
+                        to={redirectTo ? `${ROUTES.register}?redirect=${encodeURIComponent(redirectTo)}` : ROUTES.register}
                     >
                         Sign Up
-                    </a>
+                    </Link>
                 </div>
             </form>
         </div>

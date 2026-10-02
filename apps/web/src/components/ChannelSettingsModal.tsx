@@ -1,4 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import ModalSurface from './ModalSurface'
 import { X, Shield, Settings, AlertTriangle } from 'lucide-react'
 import type { Channel, ServerRole } from '../api'
 import { channelApi, serverApi } from '../api'
@@ -15,8 +17,8 @@ function validateChannelNameInput(raw: string): string | null {
     if (Array.from(value).length > CHANNEL_NAME_MAX) {
         return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
     }
-    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
-        return "Channel name can only include letters, numbers, spaces, '-' and '_'."
+    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
+        return "Channel name can only include letters, numbers, spaces, '#', '-' and '_'."
     }
     if (value.includes('  ')) {
         return 'Channel name cannot contain consecutive spaces.'
@@ -30,8 +32,8 @@ function validateCategoryNameInput(raw: string): string | null {
     if (Array.from(value).length > CATEGORY_NAME_MAX) {
         return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
     }
-    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
-        return "Category name can only include letters, numbers, spaces, '-' and '_'."
+    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
+        return "Category name can only include letters, numbers, spaces, '#', '-' and '_'."
     }
     if (value.includes('  ')) {
         return 'Category name cannot contain consecutive spaces.'
@@ -267,7 +269,7 @@ export default function ChannelSettingsModal({
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal modal-server-settings channel-settings-modal" onClick={e => e.stopPropagation()}>
+            <ModalSurface name="Channel Settings" className="modal modal-server-settings channel-settings-modal" onClick={e => e.stopPropagation()}>
                 <div className="server-settings-layout">
                     <div className="server-settings-nav channel-settings-nav">
                         <div className="channel-settings-nav-title">
@@ -479,8 +481,8 @@ export default function ChannelSettingsModal({
                         </div>
                     </div>
                 </div>
-            </div>
-            {showDeleteConfirm && (
+            </ModalSurface>
+            {showDeleteConfirm && createPortal(
                 <div
                     className="modal-overlay"
                     onClick={(e) => {
@@ -488,7 +490,7 @@ export default function ChannelSettingsModal({
                         if (!deletingChannel) setShowDeleteConfirm(false)
                     }}
                 >
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Delete channel" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                         <h2>Delete channel</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                             Are you sure you want to delete <strong>{channel.name}</strong>? This action cannot be undone.
@@ -511,8 +513,8 @@ export default function ChannelSettingsModal({
                                 {deletingChannel ? 'Deleting...' : 'Delete Channel'}
                             </button>
                         </div>
-                    </div>
-                </div>
+                    </ModalSurface>
+                </div>, document.body,
             )}
         </div>
     )

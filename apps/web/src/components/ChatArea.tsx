@@ -1,19 +1,22 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, Sticker, Star } from 'lucide-react'
+import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment, MessageReaction } from '../types'
 import type { GifOption } from '../emoji'
-import { resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
+import { getApiBase, resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
 import type { DraftAttachmentItem } from '../draftAttachments'
+import { hasPendingDraftAttachments } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import { cleanReplyQuotePreview } from '../replyPreview'
 import EmojiPicker from './EmojiPicker'
+import DraftAttachmentCard from './DraftAttachmentCard'
 import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
 import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
 import { useAuthStore } from '../stores/auth'
-import { getFavoriteGifs, toggleFavoriteGif } from '../expressionPreferences'
+import { getFavoriteGifs, toggleFavoriteGif, getLastExpressionMode, setLastExpressionMode } from '../expressionPreferences'
 import { countMessageCharacters, messageBodyLimit, MESSAGE_MAX_CHARACTERS, truncateMessage } from '../messageLength'
 
 type UiMessage = MessageWithAuthor & {
@@ -43,7 +46,7 @@ const TOP_AUTO_LOAD_THRESHOLD_PX = 96
 const USER_SCROLL_INTENT_WINDOW_MS = 1200
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 // Includes the virtual item's 1px bottom padding. Keep these values aligned with
-// the desktop and max-width: 700px message/divider rules in index.css.
+// the desktop and max-width: 1023px message/divider rules in index.css.
 const MESSAGE_ROW_METRICS = {
     desktop: {
         grouped: 23,
@@ -319,6 +322,7 @@ function estimateAttachmentHeight(attachments?: Attachment[]) {
 }
 
 type AttachmentResolutionState = {
+    cacheKey: string
     sourceUrl: string
     resolvedUrl: string
     loadFailed: boolean
@@ -329,8 +333,9 @@ const MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES = 160
 const attachmentResolutionCache = new Map<string, AttachmentResolutionState>()
 const decodedAttachmentImageCache = new Set<string>()
 
-function defaultAttachmentResolution(sourceUrl: string): AttachmentResolutionState {
+function defaultAttachmentResolution(sourceUrl: string, cacheKey: string): AttachmentResolutionState {
     return {
+        cacheKey,
         sourceUrl,
         resolvedUrl: sourceUrl,
         loadFailed: false,
@@ -338,8 +343,24 @@ function defaultAttachmentResolution(sourceUrl: string): AttachmentResolutionSta
     }
 }
 
-function getAttachmentResolutionCacheKey(attachment: Attachment, token: string | null) {
-    return [attachment.url, attachment.type ?? '', token ?? 'cookie-auth'].join('\n')
+function getAttachmentIdentity(attachment: Attachment) {
+    if (attachment.id) {
+        try {
+            const url = new URL(attachment.url, window.location.href)
+            const apiOrigin = new URL(getApiBase(), window.location.href).origin
+            if ((url.origin === apiOrigin || url.origin === window.location.origin)
+                && url.pathname === `/api/attachments/content/${attachment.id}`) {
+                url.searchParams.delete('exp')
+                url.searchParams.delete('sig')
+                return [url.href, attachment.sha256 ?? ''].join('\n')
+            }
+        } catch { /* Legacy attachments retain their original URL identity. */ }
+    }
+    return attachment.url
+}
+
+function getAttachmentResolutionCacheKey(attachment: Attachment, token: string | null, userId: string | null) {
+    return [getAttachmentIdentity(attachment), attachment.type ?? '', userId ?? 'guest', token ?? 'cookie-auth'].join('\n')
 }
 
 function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentResolutionState) {
@@ -448,19 +469,20 @@ function captureVisibleMessageAnchor(element: HTMLDivElement): { messageId: stri
 
 function AttachmentLink({ attachment, index }: { attachment: Attachment; index: number }) {
     const token = useAuthStore((s) => s.token)
+    const userId = useAuthStore((s) => s.user?.id ?? null)
     const [previewOpen, setPreviewOpen] = useState(false)
     const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'started' | 'error'>('idle')
     const downloadBusyRef = useRef(false)
     const downloadCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fallbackInFlightRef = useRef(false)
     const isImage = isImageAttachment(attachment)
-    const cacheKey = getAttachmentResolutionCacheKey(attachment, token ?? null)
+    const cacheKey = getAttachmentResolutionCacheKey(attachment, token ?? null, userId)
     const [resolution, setResolution] = useState<AttachmentResolutionState>(() => (
-        attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url)
+        attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url, cacheKey)
     ))
-    const currentResolution = resolution.sourceUrl === attachment.url
+    const currentResolution = resolution.cacheKey === cacheKey
         ? resolution
-        : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url)
+        : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url, cacheKey)
     const [imageDecoded, setImageDecoded] = useState(() => (
         !isImage || decodedAttachmentImageCache.has(currentResolution.resolvedUrl)
     ))
@@ -469,7 +491,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         if (!isImage) return
         let cancelled = false
         const cached = attachmentResolutionCache.get(cacheKey)
-        if (cached) {
+        if (cached && (!cached.loadFailed || cached.sourceUrl === attachment.url)) {
             setResolution(cached)
             return () => {
                 cancelled = true
@@ -485,6 +507,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     return
                 }
                 const nextResolution = {
+                    cacheKey,
                     sourceUrl: attachment.url,
                     resolvedUrl: nextUrl,
                     loadFailed: false,
@@ -496,6 +519,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             .catch(() => {
                 if (!cancelled) {
                     const nextResolution = {
+                        cacheKey,
                         sourceUrl: attachment.url,
                         resolvedUrl: attachment.url,
                         loadFailed: isImage,
@@ -580,7 +604,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             if (shouldTryAuthenticatedFallback) {
                 fallbackInFlightRef.current = true
                 setResolution((current) => {
-                    if (current.sourceUrl !== attachment.url) return current
+                    if (current.cacheKey !== cacheKey) return current
                     return {
                         ...current,
                         triedDirectFallback: true,
@@ -592,11 +616,12 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                 })
                     .then((nextUrl) => {
                         setResolution((current) => {
-                            if (current.sourceUrl !== attachment.url) {
+                            if (current.cacheKey !== cacheKey) {
                                 if (nextUrl.startsWith('blob:')) URL.revokeObjectURL(nextUrl)
                                 return current
                             }
                             const nextResolution = {
+                                cacheKey,
                                 sourceUrl: attachment.url,
                                 resolvedUrl: nextUrl,
                                 loadFailed: false,
@@ -608,7 +633,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     })
                     .catch(() => {
                         setResolution((current) => {
-                            if (current.sourceUrl !== attachment.url) return current
+                            if (current.cacheKey !== cacheKey) return current
                             const nextResolution = {
                                 ...current,
                                 loadFailed: true,
@@ -625,7 +650,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
             }
 
             setResolution((current) => {
-                if (current.sourceUrl !== attachment.url) return current
+                if (current.cacheKey !== cacheKey) return current
                 const nextResolution = {
                     ...current,
                     loadFailed: true,
@@ -823,7 +848,7 @@ export default function ChatArea({
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
     const [useMobileMessageLayout, setUseMobileMessageLayout] = useState(
-        () => typeof window !== 'undefined' ? window.innerWidth <= 700 : false
+        () => typeof window !== 'undefined' ? window.innerWidth <= COMPACT_LAYOUT_MAX_WIDTH : false
     )
     const chatAreaRef = useRef<HTMLDivElement | null>(null)
     const messagesScrollRef = useRef<HTMLDivElement>(null)
@@ -869,6 +894,7 @@ export default function ChatArea({
     const prevViewActiveRef = useRef(isViewActive)
     const [showJumpToLatest, setShowJumpToLatest] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
+    const attachmentInputRef = useRef<HTMLInputElement>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
     const [searchOpen, setSearchOpen] = useState(false)
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
@@ -1105,6 +1131,15 @@ export default function ChatArea({
         userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS
     }, [])
 
+    const syncJumpToLatestVisibility = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el) return
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+        // Ignore small nudges; use distance rather than device-dependent wheel counts.
+        const threshold = Math.min(320, Math.max(160, el.clientHeight * 0.4))
+        setShowJumpToLatest(previous => messages.length > 0 && distance >= (previous ? threshold / 2 : threshold))
+    }, [messages.length])
+
     const markUserReadingHistory = useCallback(() => {
         noteUserScrollIntent()
         cancelLatestAnchor()
@@ -1115,8 +1150,8 @@ export default function ChatArea({
         }
         userReadingHistoryRef.current = true
         shouldAutoScrollRef.current = false
-        setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
-    }, [cancelLatestAnchor, messages.length, noteUserScrollIntent])
+        syncJumpToLatestVisibility()
+    }, [cancelLatestAnchor, noteUserScrollIntent, syncJumpToLatestVisibility])
 
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
@@ -1180,7 +1215,7 @@ export default function ChatArea({
                     lastKnownScrollTopRef.current = el.scrollTop
                 })
                 shouldAutoScrollRef.current = false
-                setShowJumpToLatest(true)
+                syncJumpToLatestVisibility()
                 return
             }
             if (anchoredMessage) {
@@ -1193,7 +1228,7 @@ export default function ChatArea({
                     })
                 }
                 shouldAutoScrollRef.current = false
-                setShowJumpToLatest(true)
+                syncJumpToLatestVisibility()
                 return
             }
         }
@@ -1202,8 +1237,8 @@ export default function ChatArea({
             lastKnownScrollTopRef.current = el.scrollTop
         })
         shouldAutoScrollRef.current = false
-        setShowJumpToLatest(true)
-    }, [messages, rowVirtualizer, runProgrammaticScroll])
+        syncJumpToLatestVisibility()
+    }, [messages, rowVirtualizer, runProgrammaticScroll, syncJumpToLatestVisibility])
 
     const captureOlderMessagesAnchor = useCallback(() => {
         const el = messagesScrollRef.current
@@ -1234,9 +1269,9 @@ export default function ChatArea({
         userReadingHistoryRef.current = true
         preservingOlderMessagesRef.current = true
         shouldAutoScrollRef.current = false
-        setShowJumpToLatest(true)
+        syncJumpToLatestVisibility()
         onLoadOlder()
-    }, [cancelLatestAnchor, captureOlderMessagesAnchor, hasMoreOlder, loadingOlder, messages.length, onLoadOlder])
+    }, [cancelLatestAnchor, captureOlderMessagesAnchor, hasMoreOlder, loadingOlder, messages.length, onLoadOlder, syncJumpToLatestVisibility])
 
     /* Jump to bottom before paint when opening/switching chats so the user does
        not see a visible "top -> bottom" scroll animation on first render. */
@@ -1299,7 +1334,7 @@ export default function ChatArea({
         }
         if (preservingOlderMessagesRef.current) {
             shouldAutoScrollRef.current = false
-            setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
+            syncJumpToLatestVisibility()
             return
         }
         const el = messagesScrollRef.current
@@ -1312,13 +1347,13 @@ export default function ChatArea({
                 return
             }
             shouldAutoScrollRef.current = false
-            setShowJumpToLatest((prev) => (messages.length > 0 ? true : prev))
+            syncJumpToLatestVisibility()
             return
         }
         // Layout/virtualizer scroll events are not a request to leave latest mode.
-        const nextShowJump = !shouldAutoScrollRef.current && !isAtBottom(el) && messages.length > 0
-        setShowJumpToLatest((prev) => (prev === nextShowJump ? prev : nextShowJump))
-    }, [activeChannel?.id, isAtBottom, messages.length])
+        if (!shouldAutoScrollRef.current) syncJumpToLatestVisibility()
+        else setShowJumpToLatest(false)
+    }, [activeChannel?.id, isAtBottom, syncJumpToLatestVisibility])
 
     const handleMessagesScroll = useCallback(() => {
         const el = messagesScrollRef.current
@@ -1847,11 +1882,11 @@ export default function ChatArea({
         }
     }
 
-    const toggleMessagePicker = (mode: MessagePickerMode, anchor: HTMLButtonElement) => {
+    const toggleMessagePicker = (anchor: HTMLButtonElement) => {
         if (!canSendMessages) return
         emojiPickerAnchorRef.current = anchor
-        setMessagePickerMode(mode)
-        setEmojiOpen((previousOpen) => !(previousOpen && messagePickerMode === mode))
+        if (!emojiOpen) setMessagePickerMode(getLastExpressionMode(messagePickerMode))
+        setEmojiOpen(previousOpen => !previousOpen)
     }
 
     useEffect(() => {
@@ -1980,6 +2015,7 @@ export default function ChatArea({
         const onKeyDown = (e: globalThis.KeyboardEvent) => {
             if (e.key !== 'Escape') return
             setEmojiOpen(false)
+            emojiPickerAnchorRef.current?.focus({ preventScroll: true })
         }
         syncPosition()
         document.addEventListener('click', close)
@@ -2082,7 +2118,7 @@ export default function ChatArea({
         if (typeof window === 'undefined') return
         const onResize = () => {
             setUseCompactMobileTimestamp(window.innerWidth <= 520)
-            setUseMobileMessageLayout(window.innerWidth <= 700)
+            setUseMobileMessageLayout(window.innerWidth <= COMPACT_LAYOUT_MAX_WIDTH)
         }
         onResize()
         window.addEventListener('resize', onResize)
@@ -2303,7 +2339,7 @@ export default function ChatArea({
 
     return (
         <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}`} ref={chatAreaRef}>
-            <div className="chat-header">
+            <div className={`chat-header${searchOpen ? ' chat-header--searching' : ''}`}>
                 <span className="channel-hash">
                     <Hash size={20} />
                 </span>
@@ -2719,7 +2755,7 @@ export default function ChatArea({
                                                 <div className="dm-attachments">
                                                     {msg.attachments.map((att: Attachment, i: number) => {
                                                         return (
-                                                            <AttachmentLink key={`${att.url}-${i}`} attachment={att} index={i} />
+                                                            <AttachmentLink key={`${getAttachmentIdentity(att)}-${i}`} attachment={att} index={i} />
                                                         )
                                                     })}
                                                 </div>
@@ -2770,9 +2806,10 @@ export default function ChatArea({
                             })
                         }}
                         aria-label="Jump to latest messages"
+                        title={returningToLatest ? 'Loading latest messages' : 'Jump to latest messages'}
+                        aria-busy={returningToLatest}
                     >
-                        <ArrowDown size={14} />
-                        {returningToLatest ? 'Loading...' : 'Newest'}
+                        {returningToLatest ? <LoaderCircle size={20} aria-hidden="true" /> : <ArrowDown size={20} aria-hidden="true" />}
                     </button>
                 )}
                 {replyingTo && onCancelReply && (
@@ -2812,63 +2849,53 @@ export default function ChatArea({
                 )}
                 {draftAttachments.length > 0 && (
                     <div className="dm-draft-attachments">
-                        {draftAttachments.map((att, i) => (
-                            <div
-                                key={`${att.name}-${i}`}
-                                className={`dm-draft-attachment is-${att.uploadStatus}`}
-                            >
-                                <div className="dm-draft-attachment-meta">
-                                    <span title={att.name}>{att.name}</span>
-                                    {att.uploadStatus === 'uploading' && (
-                                        <span className="dm-draft-attachment-state">Uploading...</span>
-                                    )}
-                                    {att.uploadStatus === 'uploaded' && (
-                                        <span className="dm-draft-attachment-state is-uploaded">Ready to send</span>
-                                    )}
-                                    {att.uploadStatus === 'failed' && (
-                                        <span className="dm-draft-attachment-state is-failed">
-                                            {att.uploadError || 'Upload failed'}
-                                        </span>
-                                    )}
-                                </div>
-                                {att.uploadStatus === 'failed' && onRetryAttachment && (
-                                    <button
-                                        type="button"
-                                        className="dm-draft-attachment-retry"
-                                        onClick={() => onRetryAttachment(att.localId)}
-                                    >
-                                        Retry
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    className="dm-msg-btn"
-                                    onClick={() => onRemoveAttachment(i)}
-                                >
-                                    <X size={12} />
-                                </button>
-                            </div>
-                        ))}
+                        {draftAttachments.map((att, i) => <DraftAttachmentCard
+                            key={att.localId}
+                            attachment={att}
+                            onRemove={() => onRemoveAttachment(i)}
+                            onRetry={onRetryAttachment ? () => onRetryAttachment(att.localId) : undefined}
+                        />)}
                     </div>
                 )}
                 <div className="message-input-wrapper" ref={messageInputWrapperRef}>
-                    <label className="dm-attach-btn" title="Attach files">
-                        <Paperclip size={16} />
-                        <input
-                            type="file"
-                            multiple
-                            accept="*/*"
-                            style={{ display: 'none' }}
-                            disabled={!canSendMessages}
-                            onChange={(e) => {
-                                onPickAttachments(e.target.files)
-                                e.currentTarget.value = ''
-                            }}
-                        />
-                    </label>
+                    <button type="button" className="dm-attach-btn" title="Attach files" aria-label="Attach files" disabled={!canSendMessages} onClick={() => attachmentInputRef.current?.click()}>
+                        <Paperclip size={18} aria-hidden="true" />
+                    </button>
+                    <input
+                        ref={attachmentInputRef}
+                        type="file"
+                        multiple
+                        accept="*/*"
+                        style={{ display: 'none' }}
+                        disabled={!canSendMessages}
+                        onChange={(e) => {
+                            onPickAttachments(e.target.files)
+                            e.currentTarget.value = ''
+                        }}
+                    />
+                    <button
+                        type="button"
+                        className="chat-emoji-btn"
+                        disabled={!canSendMessages}
+                        title="Emoji, GIFs and stickers"
+                        aria-label="Emoji, GIFs and stickers"
+                        aria-expanded={emojiOpen}
+                        aria-controls={emojiOpen ? 'message-expression-picker' : undefined}
+                        aria-haspopup="dialog"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            toggleMessagePicker(e.currentTarget)
+                        }}
+                    >
+                        <Smile size={18} aria-hidden="true" />
+                    </button>
                     {emojiOpen && emojiPickerPosition && createPortal(
                         <div
                             ref={emojiPickerRef}
+                            id="message-expression-picker"
+                            role="dialog"
+                            aria-label="Emoji, GIFs and stickers"
                             className="chat-emoji-picker-shell chat-emoji-picker-portal"
                             style={{
                                 top: emojiPickerPosition.top,
@@ -2878,7 +2905,13 @@ export default function ChatArea({
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <EmojiPicker initialMode={messagePickerMode} onSelect={insertEmoji} />
+                            <EmojiPicker initialMode={messagePickerMode} onSelect={insertEmoji} autoFocus onClose={() => {
+                                setEmojiOpen(false)
+                                emojiPickerAnchorRef.current?.focus({ preventScroll: true })
+                            }} onModeChange={mode => {
+                                setMessagePickerMode(mode)
+                                setLastExpressionMode(mode)
+                            }} />
                         </div>,
                         document.body
                     )}
@@ -2914,50 +2947,8 @@ export default function ChatArea({
                     <div className="message-input-actions" aria-label="Message actions">
                         <button
                             type="button"
-                            className="chat-emoji-btn"
-                            disabled={!canSendMessages}
-                            title="Insert emoji"
-                            aria-label="Insert emoji"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                toggleMessagePicker('emoji', e.currentTarget)
-                            }}
-                        >
-                            <Smile size={16} />
-                        </button>
-                        <button
-                            type="button"
-                            className="chat-emoji-btn chat-media-action-btn chat-mobile-secondary-action"
-                            disabled={!canSendMessages}
-                            title="Browse GIFs"
-                            aria-label="Browse GIFs"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                toggleMessagePicker('gif', e.currentTarget)
-                            }}
-                        >
-                            <span className="chat-media-action-label" aria-hidden="true">GIF</span>
-                        </button>
-                        <button
-                            type="button"
-                            className="chat-emoji-btn chat-mobile-secondary-action"
-                            disabled={!canSendMessages}
-                            title="Browse stickers"
-                            aria-label="Browse stickers"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                toggleMessagePicker('sticker', e.currentTarget)
-                            }}
-                        >
-                            <Sticker size={16} />
-                        </button>
-                        <button
-                            type="button"
                             className={`message-send-btn ${(messageInput.trim() || draftAttachments.length > 0) ? 'is-ready' : ''}`}
-                            disabled={!canSendMessages}
+                            disabled={!canSendMessages || hasPendingDraftAttachments(draftAttachments)}
                             title="Send message"
                             aria-label="Send message"
                             onClick={() => {

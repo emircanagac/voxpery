@@ -109,6 +109,27 @@ describe('ChannelSidebar voice media presence', () => {
         expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
     })
 
+    it.each([
+        { muted: true, deafened: false, serverMuted: false, serverDeafened: false },
+        { muted: false, deafened: true, serverMuted: false, serverDeafened: false },
+        { muted: false, deafened: false, serverMuted: true, serverDeafened: false },
+        { muted: false, deafened: false, serverMuted: false, serverDeafened: true },
+    ])('shows effective mute/deafen indicators for %j', (flags) => {
+        const control = { ...flags, screenSharing: true, cameraOn: true }
+        useAppStore.setState({ servers: [server], activeServerId: server.id, channels: [voiceChannel],
+            members: [remoteMember], voiceStates: { [remoteMember.user_id]: voiceChannel.id },
+            voiceStateServerIds: { [remoteMember.user_id]: server.id } })
+        render(<ChannelSidebar voiceControls={{ [remoteMember.user_id]: control }} />)
+        const byServer = flags.serverMuted || flags.serverDeafened
+        expect(screen.getByRole('img', { name: `${remoteMember.username}: Muted by ${byServer ? 'server' : 'self'}` })).toBeVisible()
+        if (flags.deafened || flags.serverDeafened) {
+            expect(screen.getByRole('img', { name: `${remoteMember.username}: Deafened by ${flags.serverDeafened ? 'server' : 'self'}` })).toBeVisible()
+        } else {
+            expect(screen.queryByRole('img', { name: /Deafened by/ })).toBeNull()
+        }
+        expect(screen.getAllByRole('img')).toHaveLength(flags.deafened || flags.serverDeafened ? 2 : 1)
+    })
+
     it('does not show remote speaking rings while the local listener is deafened', () => {
         const voiceControls = {
             'local-1': {

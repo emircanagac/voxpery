@@ -6,6 +6,7 @@ type InlineMediaImageProps = {
   src: string
   alt: string
   className?: string
+  loading?: 'eager' | 'lazy'
 }
 
 type InlineMediaState = {
@@ -15,7 +16,7 @@ type InlineMediaState = {
 
 const inlineMediaStateCache = new Map<string, InlineMediaState>()
 
-export default function InlineMediaImage({ src, alt, className }: InlineMediaImageProps) {
+export default function InlineMediaImage({ src, alt, className, loading = 'eager' }: InlineMediaImageProps) {
   const [state, setState] = useState<InlineMediaState>(() => (
     inlineMediaStateCache.get(src) ?? { useFallback: false, loadFailed: false }
   ))
@@ -46,7 +47,7 @@ export default function InlineMediaImage({ src, alt, className }: InlineMediaIma
       alt={alt}
       className={className}
       draggable={false}
-      loading="eager"
+      loading={loading}
       decoding="async"
       width={isSticker ? 120 : 320}
       height={isSticker ? 120 : 180}

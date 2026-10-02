@@ -11,6 +11,32 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('associates auth labels, supports keyboard navigation, and preserves redirect targets', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
+    await page.goto('/login?redirect=%2Fsocial%2Fdm')
+    await page.getByText('Email or Username', { exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Email or Username' })).toBeFocused()
+    await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'current-password')
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', '/forgot-password')
+    const signUp = page.getByRole('link', { name: 'Sign Up', exact: true })
+    await signUp.focus()
+    await signUp.press('Enter')
+    await expect(page).toHaveURL(/\/register\?redirect=%2Fsocial%2Fdm/)
+    for (const label of ['Username', 'Email', 'Password', 'Confirm password']) {
+      await page.getByText(label, { exact: true }).click()
+      await expect(page.getByLabel(label, { exact: true })).toBeFocused()
+      expect(await page.getByLabel(label, { exact: true }).evaluate((el: HTMLInputElement) => el.labels?.length)).toBe(1)
+    }
+    await expect(page.getByLabel('Username', { exact: true })).toHaveAttribute('autocomplete', 'username')
+    await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute('autocomplete', 'email')
+    await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password')
+    await expect(page.getByLabel('Confirm password', { exact: true })).toHaveAttribute('autocomplete', 'new-password')
+    await expect(page.getByRole('checkbox')).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Sign Up', exact: true })).toBeDisabled()
+    await page.getByRole('link', { name: 'Sign In', exact: true }).press('Enter')
+    await expect(page).toHaveURL(/\/login\?redirect=%2Fsocial%2Fdm/)
+  })
+
   test('keeps auth actions reachable in short desktop and mobile viewports', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({
       authenticated: false,

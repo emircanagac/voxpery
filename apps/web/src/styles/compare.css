@@ -1,17 +1,39 @@
+.comparison-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.comparison-page > .about-topbar,
+.comparison-page > .about-footer {
+  flex-shrink: 0;
+}
+
 .comparison-main {
   width: min(1180px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 48px 0 80px;
+  padding: 16px 0;
+  flex: 1 0 auto;
+}
+
+.comparison-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.comparison-intro > .about-kicker {
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
 }
 
 .comparison-intro h1 {
-  margin: 10px 0 12px;
+  margin: 0 0 8px;
   color: #fff;
-  font-size: clamp(32px, 4vw, 50px);
+  font-size: 38px;
   line-height: 1.15;
 }
 
-.comparison-intro > p:last-child {
+.comparison-intro > p:not(.about-kicker) {
   margin: 0;
   max-width: 760px;
   color: #d4def0;
@@ -20,7 +42,47 @@
 }
 
 .comparison-section {
-  margin-top: 38px;
+  margin-top: 16px;
+}
+
+.comparison-cta {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  margin-left: 20px;
+  min-height: 44px;
+}
+
+.comparison-advantages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+  padding-block: 12px;
+  border-block: 1px solid rgba(187, 205, 240, 0.2);
+}
+
+.comparison-advantages > div {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 4px 10px;
+}
+
+.comparison-advantages svg {
+  color: #78dfbd;
+}
+
+.comparison-advantages h2 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+
+.comparison-advantages p {
+  grid-column: 2;
+  margin: 0;
+  color: #d4def0;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .comparison-table-scroll {
@@ -38,7 +100,7 @@
 
 .comparison-table th,
 .comparison-table td {
-  padding: 19px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(187, 205, 240, 0.13);
   vertical-align: top;
   line-height: 1.4;
@@ -69,8 +131,13 @@
 }
 
 .comparison-table tbody td:nth-child(2) {
-  background: rgba(112, 219, 190, 0.07);
+  background: #193b36;
   color: #effff9;
+}
+
+.comparison-table th.comparison-voxpery {
+  background: #78dfbd;
+  color: #10201c;
 }
 
 .comparison-note,
@@ -85,7 +152,7 @@
 }
 
 .comparison-sources {
-  margin-top: 30px;
+  margin-top: 16px;
   color: #d4def0;
   font-size: 13px;
 }
@@ -115,9 +182,28 @@
   outline-offset: 3px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1023px) {
   .comparison-main {
     width: calc(100% - 28px);
-    padding: 28px 0 48px;
+    padding: 18px 0;
+  }
+
+  .comparison-intro {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-cta {
+    grid-column: 1;
+    grid-row: auto;
+    margin: 16px 0 0;
+  }
+
+  .comparison-intro h1 {
+    font-size: 32px;
+  }
+
+  .comparison-advantages {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 }

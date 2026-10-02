@@ -42,10 +42,6 @@ vi.mock('../components/UserBar', () => ({
   default: () => <div data-testid="user-bar" />,
 }))
 
-vi.mock('../components/NotificationPermissionPrompt', () => ({
-  default: () => null,
-}))
-
 vi.mock('../notificationSound', () => ({
   playMessageNotificationSound: vi.fn(),
   shouldPlayNotificationSound: vi.fn(() => false),
@@ -110,7 +106,9 @@ function renderAppShell(initialEntry = '/channels/@me') {
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/channels/@me" element={<LocationProbe />} />
+          <Route path="/social" element={<LocationProbe />} />
           <Route path="/social/dm" element={<LocationProbe />} />
+          <Route path="/servers" element={<LocationProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -159,6 +157,18 @@ describe('AppShell social refresh', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it.each(['/social', '/social/dm', '/servers'])('shows only project support in the footer on %s', (path) => {
+    renderAppShell(path)
+    const footer = screen.getByRole('contentinfo', { name: 'Voxpery support' })
+    const links = footer.querySelectorAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toBe('Support Voxpery')
+    expect(links[0].getAttribute('href')).toBe('https://github.com/sponsors/emircanagac')
+    expect(screen.queryByText('Share feedback on GitHub')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Report a bug' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Request a feature' })).toBeNull()
   })
 
   it('retries exhausted WebSocket connectivity only on visible return and removes lifecycle listeners on teardown', () => {

@@ -1,5 +1,5 @@
-import { Clock3, LoaderCircle, Search, Smile, Star, Sticker } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Clock3, Images, LoaderCircle, Search, Smile, Star, Sticker, X } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   EMOJI_CATEGORIES,
   filterGifOptions,
@@ -35,6 +35,21 @@ type EmojiPickerProps = {
   compact?: boolean
   reactionMode?: boolean
   initialMode?: PickerMode
+  autoFocus?: boolean
+  onModeChange?: (mode: PickerMode) => void
+  onClose?: () => void
+}
+
+function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+  const index = tabs.indexOf(event.target as HTMLButtonElement)
+  if (index < 0) return
+  event.preventDefault()
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  tabs[next]?.focus()
+  tabs[next]?.click()
 }
 
 function mediaMatchesQuery(entry: GifOption | StickerOption, query: string): boolean {
@@ -49,7 +64,12 @@ export default function EmojiPicker({
   compact = false,
   reactionMode = false,
   initialMode = 'emoji',
+  autoFocus = false,
+  onModeChange,
+  onClose,
 }: EmojiPickerProps) {
+  const pickerId = useId()
+  const searchRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [mode, setMode] = useState<PickerMode>(initialMode)
@@ -194,47 +214,63 @@ export default function EmojiPicker({
 
   return (
     <div className={`chat-emoji-picker${compact ? ' compact' : ''}`}>
+      {!reactionMode && (
+        <div className="chat-expression-header">
+          <div className="chat-emoji-mode-tabs" role="tablist" aria-label="Expression types" onKeyDown={navigateTabs}>
+            {(['emoji', 'gif', 'sticker'] as PickerMode[]).map((entryMode) => (
+              <button
+                key={entryMode}
+                type="button"
+                role="tab"
+                aria-selected={mode === entryMode}
+                id={`${pickerId}-${entryMode}`}
+                aria-controls={`${pickerId}-content`}
+                tabIndex={mode === entryMode ? 0 : -1}
+                className={`chat-emoji-mode-tab${mode === entryMode ? ' active' : ''}`}
+                onClick={() => {
+                  setMode(entryMode)
+                  onModeChange?.(entryMode)
+                  setQuery('')
+                }}
+              >
+                {entryMode === 'emoji' && <Smile size={16} aria-hidden="true" />}
+                {entryMode === 'gif' && <Images size={16} aria-hidden="true" />}
+                {entryMode === 'sticker' && <Sticker size={16} aria-hidden="true" />}
+                <span>{entryMode === 'gif' ? 'GIF' : `${entryMode[0].toUpperCase()}${entryMode.slice(1)}`}</span>
+              </button>
+            ))}
+          </div>
+          {onClose && <button type="button" className="chat-expression-icon-button" aria-label="Close expression picker" title="Close" onClick={onClose}><X size={16} /></button>}
+        </div>
+      )}
       <div className="chat-emoji-search">
-        <Search size={14} />
+        <Search size={16} aria-hidden="true" />
         <input
+          ref={searchRef}
           type="text"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={searchPlaceholder}
+          aria-label={searchPlaceholder}
           autoComplete="off"
+          autoFocus={autoFocus}
         />
+        {query && <button type="button" className="chat-expression-icon-button" aria-label="Clear search" title="Clear search" onClick={() => {
+          setQuery('')
+          searchRef.current?.focus()
+        }}><X size={14} /></button>}
       </div>
-      {!reactionMode && (
-        <div className="chat-emoji-mode-tabs" role="tablist" aria-label="Expression types">
-          {(['emoji', 'gif', 'sticker'] as PickerMode[]).map((entryMode) => (
-            <button
-              key={entryMode}
-              type="button"
-              role="tab"
-              aria-selected={mode === entryMode}
-              className={`chat-emoji-mode-tab${mode === entryMode ? ' active' : ''}`}
-              onClick={() => {
-                setMode(entryMode)
-                setQuery('')
-              }}
-            >
-              {entryMode === 'emoji' && <Smile size={13} aria-hidden="true" />}
-              {entryMode === 'sticker' && <Sticker size={13} aria-hidden="true" />}
-              <span>{entryMode === 'gif' ? 'GIF' : `${entryMode[0].toUpperCase()}${entryMode.slice(1)}`}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="chat-emoji-content">
+      <div className="chat-emoji-content" id={`${pickerId}-content`} role={reactionMode ? undefined : 'tabpanel'} aria-labelledby={reactionMode ? undefined : `${pickerId}-${mode}`}>
         {(reactionMode || mode === 'emoji') && (
           <>
-            <div className="chat-emoji-tabs" role="tablist" aria-label="Emoji categories">
+            <div className="chat-emoji-tabs" role="group" aria-label="Emoji categories">
               <button
                 type="button"
                 className={`chat-emoji-tab${activeCategory === 'recent' ? ' active' : ''}`}
                 onClick={() => setActiveCategory('recent')}
                 title={recentEmojiOptions.length > 0 ? 'Recently used' : 'No recently used emoji'}
                 aria-label="Recently used"
+                aria-pressed={activeCategory === 'recent'}
                 disabled={recentEmojiOptions.length === 0}
               >
                 <Clock3 size={13} aria-hidden="true" />
@@ -245,6 +281,7 @@ export default function EmojiPicker({
                 onClick={() => setActiveCategory('all')}
                 title="All"
                 aria-label="All"
+                aria-pressed={activeCategory === 'all'}
               >
                 <span aria-hidden="true">#</span>
               </button>
@@ -256,11 +293,13 @@ export default function EmojiPicker({
                   onClick={() => setActiveCategory(category.id)}
                   title={category.label}
                   aria-label={category.label}
+                  aria-pressed={activeCategory === category.id}
                 >
                   <span aria-hidden="true">{category.icon}</span>
                 </button>
               ))}
             </div>
+            <div className="chat-expression-section-label">{query.trim() ? 'Search results' : activeCategory === 'recent' ? 'Recently used' : EMOJI_CATEGORIES.find(category => category.id === activeCategory)?.label ?? 'All emoji'}</div>
             <div className="chat-emoji-grid">
               {visibleOptions.map((entry) => (
                 <button
@@ -281,10 +320,10 @@ export default function EmojiPicker({
         {!reactionMode && mode === 'gif' && (
           <>
             {!query.trim() && (
-              <div className="chat-expression-filter-tabs" role="tablist" aria-label="GIF collections">
-                <button type="button" className={gifView === 'browse' ? 'active' : ''} onClick={() => setGifView('browse')}>Browse</button>
-                <button type="button" className={gifView === 'recent' ? 'active' : ''} onClick={() => setGifView('recent')} disabled={recentGifs.length === 0}>Recent</button>
-                <button type="button" className={gifView === 'favorites' ? 'active' : ''} onClick={() => setGifView('favorites')}>Favorites</button>
+              <div className="chat-expression-filter-tabs" role="group" aria-label="GIF collections">
+                <button type="button" aria-pressed={gifView === 'browse'} className={gifView === 'browse' ? 'active' : ''} onClick={() => setGifView('browse')}><Images size={14} aria-hidden="true" />Browse</button>
+                <button type="button" aria-pressed={gifView === 'recent'} className={gifView === 'recent' ? 'active' : ''} onClick={() => setGifView('recent')} disabled={recentGifs.length === 0}><Clock3 size={14} aria-hidden="true" />Recent</button>
+                <button type="button" aria-pressed={gifView === 'favorites'} className={gifView === 'favorites' ? 'active' : ''} onClick={() => setGifView('favorites')}><Star size={14} aria-hidden="true" />Favorites</button>
               </div>
             )}
             <div className="chat-gif-grid">
@@ -300,8 +339,9 @@ export default function EmojiPicker({
                           onClick={() => selectGif(entry)}
                           title={entry.label}
                           aria-label={`Send ${entry.label}`}
+                          style={{ aspectRatio: `${entry.width || 320} / ${entry.height || 180}` }}
                         >
-                          <InlineMediaImage src={entry.previewUrl ?? entry.url} alt={entry.label} />
+                          <InlineMediaImage src={entry.previewUrl ?? entry.url} alt={entry.label} loading="lazy" />
                         </button>
                         <button
                           type="button"
@@ -309,6 +349,7 @@ export default function EmojiPicker({
                           onClick={() => setFavoriteGifs(toggleFavoriteGif(entry))}
                           title={favorite ? 'Remove from favorites' : 'Add to favorites'}
                           aria-label={favorite ? `Remove ${entry.label} from favorites` : `Add ${entry.label} to favorites`}
+                          aria-pressed={favorite}
                         >
                           <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
                         </button>
@@ -341,10 +382,10 @@ export default function EmojiPicker({
         {!reactionMode && mode === 'sticker' && (
           <>
             {!query.trim() && (
-              <div className="chat-expression-filter-tabs" role="tablist" aria-label="Sticker collections">
-                <button type="button" className={stickerView === 'browse' ? 'active' : ''} onClick={() => setStickerView('browse')}>Browse</button>
-                <button type="button" className={stickerView === 'recent' ? 'active' : ''} onClick={() => setStickerView('recent')} disabled={recentStickers.length === 0}>Recent</button>
-                <button type="button" className={stickerView === 'favorites' ? 'active' : ''} onClick={() => setStickerView('favorites')}>Favorites</button>
+              <div className="chat-expression-filter-tabs" role="group" aria-label="Sticker collections">
+                <button type="button" aria-pressed={stickerView === 'browse'} className={stickerView === 'browse' ? 'active' : ''} onClick={() => setStickerView('browse')}><Images size={14} aria-hidden="true" />Browse</button>
+                <button type="button" aria-pressed={stickerView === 'recent'} className={stickerView === 'recent' ? 'active' : ''} onClick={() => setStickerView('recent')} disabled={recentStickers.length === 0}><Clock3 size={14} aria-hidden="true" />Recent</button>
+                <button type="button" aria-pressed={stickerView === 'favorites'} className={stickerView === 'favorites' ? 'active' : ''} onClick={() => setStickerView('favorites')}><Star size={14} aria-hidden="true" />Favorites</button>
               </div>
             )}
             <div className="chat-sticker-grid">
@@ -359,7 +400,7 @@ export default function EmojiPicker({
                       title={entry.label}
                       aria-label={`Send ${entry.label}`}
                     >
-                      <InlineMediaImage src={entry.previewUrl ?? entry.imageUrl} alt={entry.label} className="chat-sticker-image" />
+                      <InlineMediaImage src={entry.previewUrl ?? entry.imageUrl} alt={entry.label} className="chat-sticker-image" loading="lazy" />
                     </button>
                     <button
                       type="button"
@@ -367,6 +408,7 @@ export default function EmojiPicker({
                       onClick={() => setFavoriteStickers(toggleFavoriteSticker(entry))}
                       title={favorite ? 'Remove from favorites' : 'Add to favorites'}
                       aria-label={favorite ? `Remove ${entry.label} from favorites` : `Add ${entry.label} to favorites`}
+                      aria-pressed={favorite}
                     >
                       <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
                     </button>

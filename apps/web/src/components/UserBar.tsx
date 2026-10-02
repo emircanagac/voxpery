@@ -1,6 +1,8 @@
 import { Settings, Eye, EyeOff, Lock, Download, Trash2, MessageSquare, Mic, Monitor, Shield, User, ChevronsUpDown, LogOut, Palette, Info, ExternalLink } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
+import { useDialogFocus } from '../hooks/useDialogFocus'
 import { createPortal, flushSync } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useAuthStore } from '../stores/auth'
@@ -191,7 +193,7 @@ function getEmailVerificationErrorMessage(err: unknown) {
   return message
 }
 
-export default function UserBar() {
+export default function UserBar({ compactSettingsTarget }: { compactSettingsTarget?: HTMLElement | null }) {
   const { user, token, setUserStatus, setUser, setAuth, logout } = useAuthStore()
   const features = useFeatureStore((s) => s.features)
   const emailVerificationEnabled = features?.email_verification_enabled === true
@@ -204,7 +206,7 @@ export default function UserBar() {
   const [pendingStatusMenuOpen, setPendingStatusMenuOpen] = useState(false)
   const [showOwnProfile, setShowOwnProfile] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
+    typeof window !== 'undefined' ? window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY).matches : false
   )
   const [openDeviceMenu, setOpenDeviceMenu] = useState<VoiceDeviceMenu | null>(null)
   const [deviceMenuAnchor, setDeviceMenuAnchor] = useState<{
@@ -298,7 +300,20 @@ export default function UserBar() {
   const userBarWrapRef = useRef<HTMLDivElement>(null)
   const userPanelRef = useRef<HTMLDivElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const profileButtonRef = useRef<HTMLButtonElement>(null)
+  const settingsReturnFocusRef = useRef<HTMLButtonElement | null>(null)
   const settingsModalRef = useRef<HTMLDivElement>(null)
+  const exportModalRef = useRef<HTMLDivElement>(null)
+  const deleteModalRef = useRef<HTMLDivElement>(null)
+  const emailModalRef = useRef<HTMLDivElement>(null)
+  const usernameModalRef = useRef<HTMLDivElement>(null)
+  const passwordModalRef = useRef<HTMLDivElement>(null)
+  useDialogFocus(settingsModalRef, showSettingsPanel, deviceMenuRef, settingsReturnFocusRef)
+  useDialogFocus(exportModalRef, showExportModal)
+  useDialogFocus(deleteModalRef, showDeleteModal)
+  useDialogFocus(emailModalRef, showEmailModal)
+  useDialogFocus(usernameModalRef, showUsernameModal)
+  useDialogFocus(passwordModalRef, showPwModal)
   const settingsScrollRef = useRef<HTMLDivElement>(null)
   const inputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
   const outputDeviceTriggerRef = useRef<HTMLButtonElement>(null)
@@ -318,6 +333,12 @@ export default function UserBar() {
   const closeDeviceMenu = useCallback(() => {
     setOpenDeviceMenu(null)
     setDeviceMenuAnchor(null)
+  }, [])
+
+  const closeExportModal = useCallback(() => {
+    setShowExportModal(false)
+    setExportPassword('')
+    setExportError(null)
   }, [])
 
   const updateDeviceMenuAnchor = useCallback((menu: VoiceDeviceMenu) => {
@@ -404,7 +425,7 @@ export default function UserBar() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 700px)')
+    const media = window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY)
     const sync = () => setIsMobileViewport(media.matches)
     sync()
     media.addEventListener('change', sync)
@@ -528,6 +549,7 @@ export default function UserBar() {
   }, [closeSettingsPanel, closeStatusMenu, disconnect, logout, navigate])
 
   const openSettingsPanel = useCallback(() => {
+    settingsReturnFocusRef.current = settingsButtonRef.current ?? profileButtonRef.current
     closeStatusMenu()
     setActiveSettingsSection(DEFAULT_SETTINGS_SECTION)
     setShowSettingsPanel(true)
@@ -542,35 +564,41 @@ export default function UserBar() {
     }
   }, [pushToast])
 
-  const reopenProfileSettings = useCallback(() => {
-    setActiveSettingsSection('profile')
-    setShowSettingsPanel(true)
-  }, [])
-
   const closeDeleteModal = useCallback(() => {
     setShowDeleteModal(false)
+    setDeletePassword('')
+    setDeleteConfirm('')
+    setDeleteError(null)
   }, [])
 
-  const closeUsernameModal = useCallback((restoreSettings = true) => {
+  const closeUsernameModal = useCallback(() => {
     if (usernameCheckTimeoutRef.current) {
       clearTimeout(usernameCheckTimeoutRef.current)
       usernameCheckTimeoutRef.current = null
     }
     setShowUsernameModal(false)
-    if (restoreSettings) reopenProfileSettings()
-  }, [reopenProfileSettings])
+    setUsernameEdit('')
+    setUsernameError(null)
+    setUsernameAvailable(null)
+  }, [])
 
-  const closeEmailModal = useCallback((restoreSettings = true) => {
+  const closeEmailModal = useCallback(() => {
     setEmailSaving(false)
     setEmailError(null)
     setShowEmailModal(false)
-    if (restoreSettings) reopenProfileSettings()
-  }, [reopenProfileSettings])
+    setEmailEdit('')
+  }, [])
 
-  const closePasswordModal = useCallback((restoreSettings = true) => {
+  const closePasswordModal = useCallback(() => {
     setShowPwModal(false)
-    if (restoreSettings) reopenProfileSettings()
-  }, [reopenProfileSettings])
+    setPwOld('')
+    setPwNew('')
+    setPwConfirm('')
+    setPwError(null)
+    setPwSuccess(false)
+    setPwShowOld(false)
+    setPwShowNew(false)
+  }, [])
 
   useEffect(() => {
     const sound = localStorage.getItem(SOUND_KEY)
@@ -787,9 +815,7 @@ export default function UserBar() {
         return
       }
       if (showExportModal) {
-        setShowExportModal(false)
-        setExportPassword('')
-        setExportError(null)
+        closeExportModal()
         return
       }
       if (showDeleteModal) {
@@ -824,6 +850,7 @@ export default function UserBar() {
     closeDeleteModal,
     closeDeviceMenu,
     closeEmailModal,
+    closeExportModal,
     closePasswordModal,
     closeSettingsPanel,
     closeStatusMenu,
@@ -964,7 +991,9 @@ export default function UserBar() {
         title: shortcut ? 'Mute shortcut updated' : 'Mute shortcut cleared',
         message: shortcut
           ? `${formatGlobalMuteShortcut(shortcut)} is ready to toggle your microphone.`
-          : 'The global microphone shortcut is no longer assigned.',
+          : isTauri()
+            ? 'The global microphone shortcut is no longer assigned.'
+            : 'The microphone shortcut for this tab is no longer assigned.',
       })
     } catch {
       setGlobalMuteShortcutError('This shortcut is unavailable. Choose another combination.')
@@ -1344,12 +1373,12 @@ export default function UserBar() {
   }
 
   const openPasswordModal = async () => {
-    setShowSettingsPanel(false)
     setPwOld('')
     setPwNew('')
     setPwConfirm('')
     setPwError(null)
     setPwSuccess(false)
+    setShowPwModal(true)
     try {
       const freshUser = await authApi.getMe(token ?? null)
       if (token) setAuth(token, freshUser)
@@ -1357,7 +1386,6 @@ export default function UserBar() {
     } catch {
       // Modal can still open with current in-memory user state.
     }
-    setShowPwModal(true)
   }
 
   const requestEmailVerification = async (nextEmail?: string) => {
@@ -1433,6 +1461,7 @@ export default function UserBar() {
     ? createPortal(
       <div
         ref={deviceMenuRef}
+        id="settings-voice-device-menu"
         className="device-select-menu"
         style={{
           left: `${deviceMenuAnchor.left}px`,
@@ -1525,6 +1554,19 @@ export default function UserBar() {
     </div>
   )
 
+  const settingsButton = (
+    <button
+      type="button"
+      className="user-panel-icon-btn"
+      ref={settingsButtonRef}
+      onClick={openSettingsPanel}
+      title="User settings"
+      aria-label="Settings"
+    >
+      <Settings size={18} />
+    </button>
+  )
+
   return (
     <div className="user-bar-wrap" ref={userBarWrapRef}>
       <div className="user-panel" ref={userPanelRef}>
@@ -1535,6 +1577,7 @@ export default function UserBar() {
           onClick={() => setShowOwnProfile(true)}
           title="View my profile"
           aria-label="View my profile"
+          ref={profileButtonRef}
         >
           {user?.avatar_url ? (
             <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt={user.username} className="user-avatar-image" />
@@ -1542,34 +1585,25 @@ export default function UserBar() {
             user ? getInitial(user.username) : '?'
           )}
         </button>
-        <div className="user-info">
-          <button type="button" className="user-name user-profile-name" onClick={() => setShowOwnProfile(true)} title="View my profile">
+        <button type="button" className="user-info user-info-btn user-status-button" onClick={toggleStatusMenu} title="Set status" aria-label="Set status" aria-haspopup="dialog" aria-expanded={showStatusMenu}>
+          <span className="user-name">
             {user?.username || 'User'}
-          </button>
-          <button type="button" className="user-status-row user-status-button" onClick={toggleStatusMenu} title="Set status" aria-label="Set status" aria-expanded={showStatusMenu}>
-            <div className="user-status" title={statusLabel(user?.status)}>
+          </span>
+          <span className="user-status-row">
+            <span className="user-status" title={statusLabel(user?.status)}>
               {footerStatusLabel(user?.status)}
-            </div>
+            </span>
             <span className="user-status-cue" aria-hidden>
               <span className="user-status-cue-label">Status</span>
               <ChevronsUpDown size={11} strokeWidth={2} />
             </span>
-          </button>
-        </div>
+          </span>
+        </button>
         </div>
       </div>
-      {!isMobileViewport && (
-        <button
-          type="button"
-          className="user-panel-icon-btn"
-          ref={settingsButtonRef}
-          onClick={openSettingsPanel}
-          title="User settings"
-          aria-label="Settings"
-        >
-          <Settings size={18} />
-        </button>
-      )}
+      {isMobileViewport
+        ? compactSettingsTarget && createPortal(settingsButton, compactSettingsTarget)
+        : settingsButton}
       {showStatusMenu && !isMobileViewport && statusPopover}
       {showStatusMenu && isMobileViewport && typeof document !== 'undefined' && createPortal(
         <>
@@ -1598,12 +1632,17 @@ export default function UserBar() {
           <div
             className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''}`}
             ref={settingsModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-settings-title"
+            aria-owns={openDeviceMenu ? 'settings-voice-device-menu' : undefined}
+            tabIndex={-1}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <header className="user-settings-header">
               <div className="user-settings-header-copy">
-                <h2>Settings</h2>
+                <h2 id="user-settings-title">Settings</h2>
                 <p className="user-settings-subtitle">
                   {desktopRuntime
                     ? 'Manage your account, appearance, communication, voice, desktop, and privacy preferences.'
@@ -1613,6 +1652,33 @@ export default function UserBar() {
             </header>
             <div className="user-settings-body">
               <nav className="user-settings-nav" aria-label="Settings sections">
+                {isMobileViewport ? (
+                  <>
+                    <select
+                      className="user-select user-settings-section-select"
+                      aria-label="Settings section"
+                      value={activeSettingsSection}
+                      onChange={(event) => setActiveSettingsSection(event.target.value as SettingsSection)}
+                    >
+                      <option value="profile">Profile</option>
+                      <option value="appearance">Appearance</option>
+                      <option value="communication">Communication</option>
+                      <option value="voice">Voice &amp; Audio</option>
+                      <option value="privacy">Privacy &amp; Data</option>
+                      {desktopRuntime && <option value="desktop">Desktop</option>}
+                    </select>
+                    <button
+                      type="button"
+                      className="user-settings-about-btn"
+                      aria-label="About Voxpery"
+                      title="Open the Voxpery website"
+                      onClick={() => void openAboutPage()}
+                    >
+                      <Info size={18} aria-hidden="true" />
+                    </button>
+                  </>
+                ) : (
+                <>
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'profile' ? 'user-settings-nav__item--active' : ''}`}
@@ -1675,6 +1741,8 @@ export default function UserBar() {
                     <ExternalLink size={14} aria-hidden="true" />
                   </button>
                 </div>
+                </>
+                )}
               </nav>
               <div className="user-settings-scroll" ref={settingsScrollRef}>
               {activeSettingsSection === 'appearance' && <ThemeSettings />}
@@ -1752,6 +1820,7 @@ export default function UserBar() {
                   <select
                     className="user-select"
                     value={serverNotificationPreference}
+                    aria-label="Server message notifications"
                     onChange={(e) => {
                       const next = e.target.value as ServerNotificationPreference
                       setServerNotificationPreferenceState(next)
@@ -1773,6 +1842,7 @@ export default function UserBar() {
                   <select
                     className="user-select"
                     value={dmPrivacy}
+                    aria-label="Who can send you DMs"
                     onChange={async (e) => {
                       const previous = dmPrivacy
                       const next = e.target.value as 'everyone' | 'friends'
@@ -1881,6 +1951,8 @@ export default function UserBar() {
                         min={1}
                         max={100}
                         value={inputVolume}
+                        aria-label="Input volume"
+                        aria-valuetext={`${inputVolume}%`}
                         className="user-slider"
                         onChange={(e) => {
                           const next = Number(e.target.value)
@@ -1902,6 +1974,8 @@ export default function UserBar() {
                         min={1}
                         max={100}
                         value={outputVolume}
+                        aria-label="Output volume"
+                        aria-valuetext={`${outputVolume}%`}
                         className="user-slider"
                         onChange={(e) => {
                           const next = Number(e.target.value)
@@ -1974,6 +2048,7 @@ export default function UserBar() {
                       <select
                         className="user-select"
                         value={voiceMode}
+                        aria-label="Activation mode"
                         onChange={(e) => {
                           const next = e.target.value === 'push_to_talk' ? 'push_to_talk' : 'voice_activity'
                           setVoiceMode(next)
@@ -2222,7 +2297,6 @@ export default function UserBar() {
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => {
-                      setShowSettingsPanel(false)
                       setUsernameEdit(user?.username ?? '')
                       setUsernameError(null)
                       setUsernameAvailable(null)
@@ -2265,7 +2339,6 @@ export default function UserBar() {
                         type="button"
                         className="user-toggle account-action-btn"
                         onClick={() => {
-                          setShowSettingsPanel(false)
                           setEmailEdit(user?.email ?? '')
                           setEmailError(null)
                           setShowEmailModal(true)
@@ -2323,7 +2396,6 @@ export default function UserBar() {
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => {
-                      setShowSettingsPanel(false)
                       setExportPassword('')
                       setExportError(null)
                       setShowExportModal(true)
@@ -2343,7 +2415,6 @@ export default function UserBar() {
                     type="button"
                     className="user-toggle account-action-btn"
                     onClick={() => {
-                      setShowSettingsPanel(false)
                       setDeletePassword('')
                       setDeleteConfirm('')
                       setDeleteError(null)
@@ -2371,11 +2442,11 @@ export default function UserBar() {
         </div>
       ), document.body)}
       {showExportModal && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
-          <div className="modal pw-modal data-export-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-overlay" onClick={closeExportModal}>
+          <div ref={exportModalRef} className="modal pw-modal data-export-modal" role="dialog" aria-modal="true" aria-labelledby="data-export-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
             <header className="pw-modal-header">
               <Download size={20} className="pw-modal-icon" />
-              <h2>Create data export</h2>
+              <h2 id="data-export-title">Create data export</h2>
               <p className="pw-modal-subtitle">
                 This ZIP can contain private messages and files. It is not encrypted; store it securely and delete it when no longer needed.
               </p>
@@ -2407,7 +2478,7 @@ export default function UserBar() {
               {exportError && <div className="pw-error">{exportError}</div>}
             </div>
             <footer className="pw-modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowExportModal(false)}>
+              <button type="button" className="btn btn-secondary" onClick={closeExportModal}>
                 Cancel
               </button>
               {isGoogleOnlyAccount && exportError && (
@@ -2429,10 +2500,10 @@ export default function UserBar() {
       ), document.body)}
       {showDeleteModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={closeDeleteModal}>
-          <div className="modal pw-modal delete-account-modal" onClick={(e) => e.stopPropagation()}>
+          <div ref={deleteModalRef} className="modal pw-modal delete-account-modal" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Trash2 size={20} className="pw-modal-icon" />
-              <h2>Delete account</h2>
+              <h2 id="delete-account-title">Delete account</h2>
               <p className="pw-modal-subtitle delete-account-danger-note">
                 This action permanently deletes your account. This cannot be undone.
               </p>
@@ -2495,9 +2566,9 @@ export default function UserBar() {
       ), document.body)}
       {showEmailModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={() => closeEmailModal()}>
-          <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
+          <div ref={emailModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-email-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
-              <h2>Change email</h2>
+              <h2 id="change-email-title">Change email</h2>
               <p className="pw-modal-subtitle">Update your sign-in email address and verify the new address.</p>
             </header>
             <div className="pw-change-form">
@@ -2550,9 +2621,9 @@ export default function UserBar() {
         const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
         return (
         <div className="modal-overlay" onClick={() => closeUsernameModal()}>
-          <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
+          <div ref={usernameModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-username-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
-              <h2>Change username</h2>
+              <h2 id="change-username-title">Change username</h2>
               <p className="pw-modal-subtitle">3–32 characters, letters, numbers, underscores, and periods.</p>
               <p className="pw-modal-subtitle" style={{ marginTop: 4, fontSize: 13 }}>
                 You can only change your username once every 7 days.
@@ -2698,10 +2769,10 @@ export default function UserBar() {
         ); })(), document.body)}
       {showPwModal && typeof document !== 'undefined' && createPortal((
         <div className="modal-overlay" onClick={() => closePasswordModal()}>
-          <div className="modal pw-modal" onClick={(e) => e.stopPropagation()}>
+          <div ref={passwordModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
             <header className="pw-modal-header">
               <Lock size={20} className="pw-modal-icon" />
-              <h2>{isGoogleOnlyAccount ? 'Set password' : 'Change password'}</h2>
+              <h2 id="change-password-title">{isGoogleOnlyAccount ? 'Set password' : 'Change password'}</h2>
               <p className="pw-modal-subtitle">
                 {isGoogleOnlyAccount
                   ? 'Set a password so you can sign in with email and password too.'

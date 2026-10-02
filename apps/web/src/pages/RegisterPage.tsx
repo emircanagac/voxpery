@@ -153,8 +153,11 @@ export default function RegisterPage() {
                 )}
 
                 <div className="form-group">
-                    <label>Username</label>
+                    <label htmlFor="register-username">Username</label>
                     <input
+                        id="register-username"
+                        name="username"
+                        autoComplete="username"
                         type="text"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
@@ -178,8 +181,11 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="form-group">
-                    <label>Email</label>
+                    <label htmlFor="register-email">Email</label>
                     <input
+                        id="register-email"
+                        name="email"
+                        autoComplete="email"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -189,8 +195,11 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="form-group">
-                    <label>Password</label>
+                    <label htmlFor="register-password">Password</label>
                     <input
+                        id="register-password"
+                        name="password"
+                        autoComplete="new-password"
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -201,8 +210,11 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="form-group">
-                    <label>Confirm password</label>
+                    <label htmlFor="register-confirm-password">Confirm password</label>
                     <input
+                        id="register-confirm-password"
+                        name="confirmPassword"
+                        autoComplete="new-password"
                         type="password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
@@ -273,15 +285,11 @@ export default function RegisterPage() {
 
                 <div className="auth-footer">
                     Already have an account?{' '}
-                    <a
-                        onClick={() =>
-                            navigate(
-                                redirectTo ? `${ROUTES.login}?redirect=${encodeURIComponent(redirectTo)}` : ROUTES.login,
-                            )
-                        }
+                    <Link
+                        to={redirectTo ? `${ROUTES.login}?redirect=${encodeURIComponent(redirectTo)}` : ROUTES.login}
                     >
                         Sign In
-                    </a>
+                    </Link>
                 </div>
             </form>
         </div>

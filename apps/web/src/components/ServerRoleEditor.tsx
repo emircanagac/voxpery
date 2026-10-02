@@ -102,6 +102,7 @@ export default function ServerRoleEditor({
                     <div className="server-role-editor-color-row">
                         <input
                             type="color"
+                            aria-label="Role color"
                             value={roleEditColor ?? '#ffffff'}
                             onChange={(e) => onRoleColorChange(e.target.value)}
                             className="server-role-editor-color-input"

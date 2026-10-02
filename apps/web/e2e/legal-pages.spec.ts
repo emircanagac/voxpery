@@ -8,6 +8,52 @@ const legalPages = [
 ]
 
 test.describe('public landing and comparison', () => {
+  for (const authenticated of [false, true]) {
+    test(`keeps the complete landing in a desktop viewport (signed in: ${authenticated})`, async ({ page }) => {
+      await installMockCoreApi(page, createMockCoreState({ authenticated }))
+      for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }]) {
+        await page.setViewportSize(viewport)
+        await page.goto('/about')
+        const host = page.locator('.about-page')
+        const image = page.getByRole('img', { name: 'Voxpery voice channel interface' })
+        await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+        await expect.poll(() => host.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+        await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
+        await expect(page.getByRole('link', { name: /Download/ })).toBeInViewport()
+        await expect(image).toBeInViewport()
+        expect(await host.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+        await page.getByRole('link', { name: 'Compare', exact: true }).click()
+        await expect(page.getByRole('region', { name: 'Voxpery advantages' })).toBeVisible()
+        await expect.poll(() => host.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+        await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
+        await expect(page.getByRole('table')).toBeInViewport()
+      }
+    })
+  }
+
+  test('switches public actions at the shared compact breakpoint without losing navigation', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.goto('/about')
+    await expect(page.getByRole('link', { name: /Download/ })).toBeVisible()
+    for (const viewport of [{ width: 1023, height: 768 }, { width: 800, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+      await page.setViewportSize(viewport)
+      await expect(page.getByRole('link', { name: /Download/ })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: 'Releases', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: /Use Voxpery in browser/ })).toBeVisible()
+      await page.getByRole('button', { name: 'Open navigation' }).click()
+      await expect(page.getByRole('link', { name: 'Source', exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Security', exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      const host = page.locator('.about-page')
+      expect(await host.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      await page.getByRole('link', { name: 'Terms of Service', exact: true }).scrollIntoViewIfNeeded()
+      await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
+    }
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(page.getByRole('link', { name: /Download/ })).toBeVisible()
+  })
+
   test('keeps public pages navigable and metadata distinct at desktop width', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
@@ -30,8 +76,9 @@ test.describe('public landing and comparison', () => {
 
     await page.getByRole('link', { name: 'Compare' }).click()
     await expect(page).toHaveURL(/\/compare$/)
-    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
-    await expect(page.getByText(/Voxpery combines open-source code, Docker self-hosting/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Voxpery', exact: true, level: 1 })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Voxpery advantages' })).toBeVisible()
+    await expect(page.getByText(/Open-source community chat/)).toBeVisible()
     await expect(page.getByRole('table')).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Element' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Zulip' })).toBeVisible()
@@ -39,7 +86,7 @@ test.describe('public landing and comparison', () => {
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://voxpery.com/compare')
 
     await page.reload()
-    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Voxpery', exact: true, level: 1 })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Voxpery', exact: true })).toHaveAttribute('href', '/about')
   })
 
@@ -55,7 +102,7 @@ test.describe('public landing and comparison', () => {
     await expect(page.getByRole('link', { name: 'Open Voxpery' })).toHaveAttribute('href', '/social')
 
     await page.goto('/compare')
-    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Voxpery', exact: true, level: 1 })).toBeVisible()
     await page.getByRole('link', { name: 'Voxpery', exact: true }).click()
     await page.getByRole('link', { name: 'Open Voxpery' }).click()
     await expect(page.getByRole('heading', { name: "Review Voxpery's legal documents" })).toBeVisible()
@@ -67,7 +114,7 @@ test.describe('public landing and comparison', () => {
     await page.goto('/compare')
 
     const comparison = page.getByRole('region', { name: 'Platform comparison table' })
-    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Voxpery', exact: true, level: 1 })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Primary' })).toBeHidden()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     expect(await comparison.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)

@@ -168,6 +168,12 @@ Notes:
 
 ### Channels
 
+Text/voice channel and category names accept 1-32 Unicode characters: letters,
+numbers, spaces, `#`, `-`, and `_`. Consecutive spaces are rejected. The same
+validation applies to creation and renaming; uniqueness and permission checks
+are unchanged. Category names in URL path segments must be percent-encoded
+(for example, `#Topics` becomes `%23Topics`).
+
 - `POST /api/channels` (requires `MANAGE_CHANNELS`)
   - If `category` is empty/missing, backend uses `General`.
   - Name uniqueness is enforced by scope: `(server, category, channel_type, case-insensitive name)`.

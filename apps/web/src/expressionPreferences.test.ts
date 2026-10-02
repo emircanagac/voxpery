@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { GifOption, StickerOption } from './emoji'
 import {
   getFavoriteGifs,
+  getLastExpressionMode,
+  setLastExpressionMode,
   getFavoriteStickers,
   getRecentEmojis,
   getRecentGifs,
@@ -30,6 +32,16 @@ const sticker = (id: string): StickerOption => ({
 
 describe('expression preferences', () => {
   beforeEach(() => localStorage.clear())
+
+  it('remembers only valid expression tabs', () => {
+    expect(getLastExpressionMode()).toBe('emoji')
+    setLastExpressionMode('gif')
+    expect(getLastExpressionMode()).toBe('gif')
+    setLastExpressionMode('sticker')
+    expect(getLastExpressionMode()).toBe('sticker')
+    localStorage.setItem('voxpery-expression-picker-mode-v1', 'unknown')
+    expect(getLastExpressionMode()).toBe('emoji')
+  })
 
   it('keeps recent expressions unique and newest first', () => {
     recordRecentEmoji('😀')

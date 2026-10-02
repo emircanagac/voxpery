@@ -19,18 +19,18 @@ export async function installMockNotificationPermission(page: Page) {
   })
 }
 
-export async function expectNotificationPromptLayout(page: Page) {
-  const prompt = page.getByRole('region', { name: 'Enable notifications' })
-  await expect(prompt).toBeVisible()
-  const promptBox = await prompt.boundingBox()
-  const topbarBox = await page.locator('.shell-topbar').boundingBox()
-  const headerBox = await page.locator('.chat-header').boundingBox()
-  expect(promptBox).not.toBeNull()
-  expect(topbarBox).not.toBeNull()
-  expect(headerBox).not.toBeNull()
-  expect(promptBox!.y).toBeGreaterThanOrEqual(topbarBox!.y + topbarBox!.height - 1)
-  expect(promptBox!.y + promptBox!.height).toBeLessThanOrEqual(headerBox!.y + 1)
-  expect(await prompt.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
-  await expect(prompt.getByRole('button', { name: 'Not now' })).toBeInViewport()
-  await expect(prompt.getByRole('button', { name: 'Enable', exact: true })).toBeInViewport()
+export async function enableNotificationsFromSettings(page: Page) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  const selector = settings.getByRole('combobox', { name: 'Settings section', exact: true })
+  if (await selector.count()) await selector.selectOption('communication')
+  else await settings.getByRole('button', { name: 'Communication', exact: true }).click()
+  expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
+  const toggle = settings.getByRole('button', { name: 'Browser notifications', exact: true })
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(1)
+  expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-push-enabled'))).toBe('1')
+  expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-push-explicit'))).toBe('1')
+  await settings.getByRole('button', { name: 'Done', exact: true }).click()
 }

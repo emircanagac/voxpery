@@ -16,6 +16,86 @@ const PERM_MANAGE_PINS = 1 << 9
 const PERM_CONNECT_VOICE = 1 << 10
 
 test.describe('mocked channel permission regressions', () => {
+  test('creates and renames hash-named categories and text/voice channels without relaxing invalid-name checks', async ({ page }) => {
+    const server = buildCoreServer()
+    const state = createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+    })
+    await installMockCoreApi(page, state)
+    const categories = [{ name: 'GENERAL', position: 0 }, { name: 'VOICE', position: 1 }]
+    let categoryWrites = 0
+    await page.route('**/api/channels/*', async route => {
+      if (route.request().method() !== 'PATCH') return route.fallback()
+      const id = new URL(route.request().url()).pathname.split('/').at(-1)
+      const channel = state.channelsByServerId[server.id].find(entry => entry.id === id)
+      if (!channel) return route.fallback()
+      Object.assign(channel, route.request().postDataJSON())
+      await route.fulfill({ json: channel })
+    })
+    await page.route('**/api/channels/server/**/categories**', async route => {
+      const request = route.request()
+      const pathname = new URL(request.url()).pathname
+      const base = `/api/channels/server/${server.id}/categories`
+      if (pathname === base && request.method() === 'POST') {
+        categoryWrites++
+        const { name } = request.postDataJSON() as { name: string }
+        categories.push({ name, position: categories.length })
+        await route.fulfill({ json: categories.at(-1) })
+      } else if (pathname === base && request.method() === 'GET') {
+        await route.fulfill({ json: categories })
+      } else if (pathname.startsWith(`${base}/`) && request.method() === 'PATCH') {
+        const oldName = decodeURIComponent(pathname.slice(base.length + 1))
+        expect(oldName).toBe('#Topics')
+        expect(request.url()).toContain('%23Topics')
+        const { name } = request.postDataJSON() as { name: string }
+        categories.find(category => category.name === oldName)!.name = name
+        state.channelsByServerId[server.id].forEach(channel => {
+          if (channel.category === oldName) channel.category = name
+        })
+        await route.fulfill({ json: { name } })
+      } else await route.fallback()
+    })
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/servers')
+    await expect(page.getByRole('button', { name: 'Create channel in GENERAL' })).toBeVisible()
+    const list = page.locator('.channel-list')
+    const bounds = await list.boundingBox()
+    if (!bounds) throw new Error('Channel list is missing')
+    await list.click({ button: 'right', position: { x: 10, y: bounds.height - 12 } })
+    await page.getByRole('menuitem', { name: 'Create Category', exact: true }).click()
+    const modal = page.locator('.modal-create-channel')
+    await modal.getByPlaceholder('e.g. Squad 1').fill('@invalid')
+    await modal.getByRole('button', { name: 'Create Category', exact: true }).click()
+    await expect(modal.locator('.auth-error')).toContainText("'#'")
+    expect(categoryWrites).toBe(0)
+    await modal.getByPlaceholder('e.g. Squad 1').fill('#Topics')
+    await modal.getByRole('button', { name: 'Create Category', exact: true }).click()
+    await expect(modal).toBeHidden()
+    for (const [type, name] of [['Text', '#general'], ['Voice', 'voice #1']]) {
+      await page.getByRole('button', { name: 'Create channel in #Topics', exact: true }).click()
+      await modal.getByPlaceholder('e.g. general').fill(name)
+      await modal.locator('.channel-type-option', { hasText: type }).click()
+      await modal.getByRole('button', { name: 'Create Channel', exact: true }).click()
+      await expect(modal).toBeHidden()
+      expect(state.channelsByServerId[server.id].find(channel => channel.name === name)?.channel_type).toBe(type.toLowerCase())
+      await page.locator('.channel-item', { hasText: name }).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+      const rename = page.locator('.modal', { has: page.getByRole('heading', { name: 'Edit Channel', exact: true }) })
+      await rename.getByPlaceholder('new-channel-name').fill(`${name} #2`)
+      await rename.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(rename).toBeHidden()
+      expect(state.channelsByServerId[server.id].some(channel => channel.name === `${name} #2`)).toBe(true)
+    }
+    await page.locator('.channel-category-btn', { hasText: '#Topics' }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Rename Category', exact: true }).click()
+    const renameCategory = page.locator('.modal', { has: page.getByRole('heading', { name: 'Rename Category', exact: true }) })
+    await renameCategory.locator('input').fill('#Renamed')
+    await renameCategory.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(renameCategory).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Create channel in #Renamed', exact: true })).toBeVisible()
+  })
+
   test('locks server and channel controls when the session lacks manage/send permissions', async ({ page }) => {
     const server = buildCoreServer({
       owner_id: 'server-owner',
@@ -52,8 +132,9 @@ test.describe('mocked channel permission regressions', () => {
     const input = page.getByPlaceholder("You don't have permission to send messages in #general")
     await expect(input).toBeVisible()
     await expect(input).toBeDisabled()
-    await expect(page.locator('.dm-attach-btn input[type="file"]')).toBeDisabled()
-    await expect(page.getByTitle('Insert emoji')).toBeDisabled()
+    await expect(page.locator('.message-input-wrapper input[type="file"]')).toBeDisabled()
+    await expect(page.getByTitle('Emoji, GIFs and stickers')).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Attach files' })).toBeDisabled()
 
     const remoteRow = page.locator('[data-message-id="remote-message"]')
     await expect(remoteRow).toBeVisible()
@@ -206,6 +287,15 @@ test.describe('mocked channel permission regressions', () => {
     await scroller.focus()
     await page.keyboard.press('Home')
     await expect(page.getByRole('button', { name: 'Jump to latest messages' })).toBeVisible()
+    // Wait for keyboard scrolling and virtual row measurement before capturing an anchor.
+    let previousTop = -1
+    let stableSamples = 0
+    await expect.poll(async () => {
+      const top = await scroller.evaluate(element => element.scrollTop)
+      stableSamples = top === previousTop ? stableSamples + 1 : 0
+      previousTop = top
+      return stableSamples
+    }, { intervals: [100] }).toBeGreaterThanOrEqual(3)
     const firstRow = page.locator(`[data-message-id="${targetIds[0]}"]`)
     await expect(firstRow).toBeVisible()
     const anchorBefore = await firstRow.evaluate((element) => {

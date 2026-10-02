@@ -64,7 +64,7 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await page.goto('/about')
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
     await page.goto('/compare')
-    await expect(page.getByRole('heading', { name: 'Voxpery, at a glance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Voxpery', level: 1, exact: true })).toBeVisible()
   })
 
   test('opens About Voxpery from Settings without leaving the web app', async ({ page }) => {

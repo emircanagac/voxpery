@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Shield, X } from 'lucide-react'
 import { channelApi, serverApi, type ChannelOverride, type ServerRole } from '../api'
 import { useAuthStore } from '../stores/auth'
+import ModalSurface from './ModalSurface'
 
 interface CategoryPermissionsModalProps {
     serverId: string
@@ -262,7 +263,7 @@ export default function CategoryPermissionsModal({
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal modal-server-settings channel-settings-modal category-permissions-modal" onClick={(e) => e.stopPropagation()}>
+            <ModalSurface name="Category Permissions" className="modal modal-server-settings channel-settings-modal category-permissions-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="server-settings-layout">
                     <div className="server-settings-nav channel-settings-nav">
                         <div className="channel-settings-nav-title">{category}</div>
@@ -422,7 +423,7 @@ export default function CategoryPermissionsModal({
                         </div>
                     </div>
                 </div>
-            </div>
+            </ModalSurface>
         </div>
     )
 }

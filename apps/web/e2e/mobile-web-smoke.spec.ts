@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test'
-import { expectNotificationPromptLayout, installMockNotificationPermission } from './notification-prompt-fixture'
+import { enableNotificationsFromSettings, installMockNotificationPermission } from './notification-prompt-fixture'
 import {
   buildCoreChannels,
   buildCoreMembers,
@@ -12,7 +12,107 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
-  test('keeps notification consent separate from mobile chat and requests permission only on Enable', async ({ page }) => {
+  test('opens Settings directly from the compact topbar and restores focus on dismissal', async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+    }))
+    for (const width of [320, 390, 800]) {
+      await page.setViewportSize({ width, height: width === 800 ? 600 : 844 })
+      for (const path of ['/social', '/servers']) {
+        await page.goto(path)
+        const opener = page.getByRole('button', { name: 'Settings', exact: true })
+        await expect(opener).toHaveCount(1)
+        await expect(opener).toBeInViewport()
+        await expectNoHorizontalOverflow(page.locator('.shell-topbar'))
+        await opener.click()
+        const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+        await expect(settings).toBeVisible()
+        await expect(page.getByRole('dialog', { name: /Profile/ })).toHaveCount(0)
+        await page.keyboard.press('Escape')
+        await expect(settings).toHaveCount(0)
+        await expect(opener).toBeFocused()
+      }
+    }
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await expect(page.locator('.left-bottom-panel').getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
+    await expect(page.locator('.shell-mobile-settings')).not.toBeVisible()
+  })
+
+  test('keeps Create and Join above the account dock with a long mobile server rail', async ({ page }) => {
+    const servers = Array.from({ length: 20 }, (_, index) => buildCoreServer({
+      id: `mobile-rail-${index}`, name: `Mobile Guild ${index}`, invite_code: `mobile-guild-${index}`,
+    }))
+    await installMockCoreApi(page, createMockCoreState({
+      servers, channelsByServerId: { [servers[0].id]: buildCoreChannels(servers[0].id) },
+    }))
+    for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 800, height: 600 }, { width: 844, height: 390 }]) {
+      await page.setViewportSize(viewport)
+      for (const route of ['/social', '/servers']) {
+        await page.goto(route)
+        const dock = (await page.locator('.left-bottom-panel').boundingBox())!
+        for (const name of ['Create Server', 'Join Server']) {
+          const button = page.getByRole('button', { name, exact: true })
+          await expect(button).toBeInViewport({ ratio: 1 })
+          const box = (await button.boundingBox())!
+          expect(box.y + box.height).toBeLessThanOrEqual(dock.y)
+          await button.click()
+          await expect(page.getByRole('dialog', { name: name === 'Create Server' ? 'Create a Server' : 'Join a Server', exact: true })).toBeVisible()
+          await page.keyboard.press('Escape')
+          await expect(button).toBeFocused()
+        }
+        const scroller = page.locator('.server-sidebar-scroll')
+        expect(await scroller.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+        await scroller.evaluate(el => el.scrollTo(0, el.scrollHeight))
+        await expect(page.getByRole('button', { name: 'Mobile Guild 19', exact: true })).toBeInViewport()
+      }
+    }
+  })
+
+  test('exposes public navigation on About and Compare without horizontal overflow', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    for (const path of ['/about', '/compare']) {
+      await page.goto(path)
+      const toggle = page.getByRole('button', { name: 'Open navigation', exact: true })
+      await toggle.click()
+      const nav = page.getByRole('navigation', { name: 'Primary', exact: true })
+      for (const name of ['Compare', 'Source', 'Contribute', 'Security']) {
+        await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
+      }
+      await expect(nav.getByRole('link', { name: 'Releases', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: /Download/ })).toHaveCount(0)
+      await expectNoHorizontalOverflow(page.locator('.about-topbar'))
+      await page.keyboard.press('Escape')
+      await expect(toggle).toBeFocused()
+      await expect(nav).not.toBeVisible()
+      await toggle.click()
+      await nav.getByRole('link', { name: 'Compare', exact: true }).click()
+      await expect(page).toHaveURL(/\/compare$/)
+      await expect(page.getByRole('navigation', { name: 'Primary', exact: true })).not.toBeVisible()
+    }
+  })
+
+  test('gives compact channel and DM search room for a query and keeps Close usable', async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, friends: buildFriends(1),
+    }))
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const path of ['/servers', '/social']) {
+      await page.goto(path)
+      if (path === '/social') await page.getByRole('button', { name: 'Message Friend 01', exact: true }).click()
+      await page.getByRole('button', { name: 'Search in conversation', exact: true }).click()
+      const input = page.getByRole('textbox', { name: 'Search messages', exact: true })
+      await input.fill('A useful search query')
+      expect((await input.boundingBox())!.width).toBeGreaterThan(200)
+      await expect(page.getByRole('button', { name: 'Close search', exact: true })).toBeInViewport()
+      await expectNoHorizontalOverflow(page.locator('.chat-header--searching'))
+      await page.getByRole('button', { name: 'Close search', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Search in conversation', exact: true })).toBeVisible()
+    }
+  })
+
+  test('keeps mobile chat stable and requests notification permission only from Settings', async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const general = channels.find((channel) => channel.name === 'general')!
@@ -25,16 +125,18 @@ test.describe('mocked mobile web smoke', () => {
     await page.goto('/servers')
     const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await expect(composer).toBeVisible()
+    const headerBefore = await page.locator('.chat-header').boundingBox()
     await page.clock.fastForward(120_001)
-    await expectNotificationPromptLayout(page)
+    await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+    expect(await page.locator('.chat-header').boundingBox()).toEqual(headerBefore)
     await page.getByRole('button', { name: 'Search in conversation' }).click()
-    await expectNotificationPromptLayout(page)
+    await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Close search' }).click()
     await composer.fill('Mobile composer remains usable')
     await expect(composer).toBeInViewport()
     await page.screenshot({ path: 'test-results/notification-prompt-mobile.png' })
     expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
-    await page.getByRole('button', { name: 'Enable', exact: true }).click()
+    await enableNotificationsFromSettings(page)
     await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
     expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(1)
     expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-push-enabled'))).toBe('1')
@@ -76,7 +178,7 @@ test.describe('mocked mobile web smoke', () => {
     })
     const profileHeader = await modal.locator('.user-settings-header').boundingBox()
     const profileFooter = await modal.locator('.user-settings-footer').boundingBox()
-    await page.getByRole('button', { name: 'Appearance' }).click()
+    await page.getByRole('combobox', { name: 'Settings section', exact: true }).selectOption('appearance')
     const appearanceHeader = await modal.locator('.user-settings-header').boundingBox()
     const appearanceFooter = await modal.locator('.user-settings-footer').boundingBox()
     expect(appearanceHeader?.y).toBeCloseTo(profileHeader!.y, 0)
@@ -102,7 +204,7 @@ test.describe('mocked mobile web smoke', () => {
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-custom-theme', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-custom-accent', 'true')
-    await expect(page.locator('.feedback-dock')).not.toBeVisible()
+    await expect(page.locator('.support-dock')).not.toBeVisible()
   })
 
   test('keeps Social friends, requests, and DM entry usable on a phone viewport', async ({ page }) => {
@@ -117,7 +219,7 @@ test.describe('mocked mobile web smoke', () => {
 
     await expect(page.getByRole('button', { name: /Online/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /All/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Requests/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Add Friend/ })).toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
     await page.getByRole('button', { name: /All/ }).click()
@@ -133,7 +235,7 @@ test.describe('mocked mobile web smoke', () => {
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
     await page.goto('/social')
-    await page.getByRole('button', { name: /Requests/ }).click()
+    await page.getByRole('button', { name: /^Add Friend/ }).click()
     const requestsScroller = page.locator('.home-friends-scroll--requests')
     await expectScrollable(requestsScroller)
     await requestsScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
@@ -197,12 +299,12 @@ test.describe('mocked mobile web smoke', () => {
     })).toBe(true)
     await expect(page.getByText('Mobile smoke baseline message')).toBeVisible()
     await expect(page.locator('.dm-attach-btn[title="Attach files"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Insert emoji' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Emoji, GIFs and stickers' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Browse GIFs' })).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Browse stickers' })).not.toBeVisible()
     await expectNoHorizontalOverflow(page.locator('.shell-layout'))
 
-    await page.getByRole('button', { name: 'Insert emoji' }).click()
+    await page.getByRole('button', { name: 'Emoji, GIFs and stickers' }).click()
     const expressionPicker = page.locator('.chat-emoji-picker')
     await expect(expressionPicker).toBeVisible()
     await expectNoHorizontalOverflow(expressionPicker)
@@ -221,10 +323,10 @@ test.describe('mocked mobile web smoke', () => {
       element.scrollWidth <= element.clientWidth + 1
     ))).toBe(true)
     await expressionPicker.getByRole('tab', { name: 'Emoji' }).click()
-    await expect(page.getByRole('tablist', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
+    await expect(page.getByRole('group', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
     await expect.poll(async () => page.locator('.chat-emoji-grid').evaluate((element) => (
-      getComputedStyle(element).gridTemplateColumns.split(' ').length
-    ))).toBe(8)
+      getComputedStyle(element).gridTemplateColumns.split(' ').every(width => parseFloat(width) >= 34)
+    ))).toBe(true)
     await page.keyboard.press('Escape')
 
     const mediaRow = page.locator('[data-message-id="mobile-media-reaction-message"]')

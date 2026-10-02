@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, HeadphoneOff, Radio, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
@@ -10,7 +10,7 @@ import { friendApi, resolveAvatarUrl, serverApi, type Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
-import { formatVoiceChannelDuration } from '../voiceChannelDuration'
+import VoiceChannelDuration from './VoiceChannelDuration'
 import {
     getRemotePlaybackVolume,
     MAX_REMOTE_VOICE_PLAYBACK_VOLUME,
@@ -104,12 +104,11 @@ export default function ChannelSidebar({
     const [contextMenu, setContextMenu] = useState<{ channelId: string; x: number; y: number } | null>(null)
     const [categoryMenu, setCategoryMenu] = useState<{ category: string; x: number; y: number } | null>(null)
     const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
-    const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; channelId: string; x: number; y: number } | null>(null)
+    const [participantMenu, setParticipantMenu] = useState<{ userId: string; username: string; channelId: string; x: number; y: number; trigger: HTMLElement; horizontalBoundary: HTMLElement | null; horizontalStart: HTMLElement } | null>(null)
     const [profileCard, setProfileCard] = useState<{ member: MemberProfileMember; isServerOwner: boolean } | null>(null)
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
     const [dragOverCategory, setDragOverCategory] = useState<{ name: string; position: 'before' | 'after' } | null>(null)
     const [dragOverCategoryForChannel, setDragOverCategoryForChannel] = useState<string | null>(null)
-    const [durationNow, setDurationNow] = useState(() => Date.now())
     const [peerVolumeByUserId, setPeerVolumeByUserId] = useState<Record<string, number>>(
         () => readRemotePlaybackVolumes(),
     )
@@ -211,7 +210,8 @@ export default function ChannelSidebar({
         participantMenuTriggerRef.current = trigger
         participantMenuKeyboardRef.current = fromKeyboard
         closeAllContextMenus()
-        setParticipantMenu({ userId, username, channelId, x: trigger.getBoundingClientRect().left, y })
+        const horizontalStart = trigger.querySelector<HTMLElement>('.voice-participant-avatar') ?? trigger
+        setParticipantMenu({ userId, username, channelId, x: horizontalStart.getBoundingClientRect().left, y, trigger, horizontalBoundary: sidebarRef.current, horizontalStart })
     }
 
     useEffect(() => {
@@ -273,12 +273,6 @@ export default function ChannelSidebar({
         }
     }, [contextMenu, participantMenu, categoryMenu, createMenu, profileCard, participantMenuRef])
 
-    useEffect(() => {
-        if (Object.keys(voiceChannelActiveSince).length === 0) return
-        setDurationNow(Date.now())
-        const intervalId = window.setInterval(() => setDurationNow(Date.now()), 1000)
-        return () => window.clearInterval(intervalId)
-    }, [voiceChannelActiveSince])
 
     const savePeerVolume = (userId: string, volume: number) => {
         const current = readRemotePlaybackVolumes()
@@ -558,9 +552,6 @@ export default function ChannelSidebar({
                             const voiceActiveSince = ch.channel_type === 'voice' && voiceMembers.length > 0
                                 ? voiceChannelActiveSince[ch.id] ?? null
                                 : null
-                            const voiceActiveDurationLabel = voiceActiveSince
-                                ? formatVoiceChannelDuration(durationNow - voiceActiveSince)
-                                : null
                             const hasMention = (mentionByChannel[ch.id] ?? 0) > 0
                             const isChannelMuted = mutedChannelIds.includes(ch.id)
                             return (
@@ -666,11 +657,7 @@ export default function ChannelSidebar({
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
                                         </span>
                                         <span className="channel-name" title={ch.description?.trim() || ch.name}>{ch.name}</span>
-                                        {voiceActiveDurationLabel && (
-                                            <span className="channel-voice-duration" title="Voice channel active time">
-                                                {voiceActiveDurationLabel}
-                                            </span>
-                                        )}
+                                        {voiceActiveSince != null && <VoiceChannelDuration startedAt={voiceActiveSince} />}
                                         {isVoiceLocked && (
                                             <span className="channel-item-lock" aria-hidden>
                                                 <Lock size={12} />
@@ -694,8 +681,8 @@ export default function ChannelSidebar({
                                                 const localPlaybackDeafened = !!(localControl?.deafened || localControl?.serverDeafened)
                                                 const isScreenSharing = !!control?.screenSharing
                                                 const isCameraOn = !!control?.cameraOn
-                                                const isDeafened = !!control?.deafened
-                                                const isMuted = !!control?.muted
+                                                const isDeafened = !!(control?.deafened || control?.serverDeafened)
+                                                const isMuted = !!(control?.muted || control?.serverMuted)
                                                 const isServerMuted = !!control?.serverMuted
                                                 const isServerDeafened = !!control?.serverDeafened
                                                 const isSpeaking = (
@@ -727,7 +714,7 @@ export default function ChannelSidebar({
                                                                 getInitial(vm.username)
                                                             )}
                                                         </div>
-                                                        <span className={`voice-participant-name${isSpeaking ? ' is-speaking' : ''}`}>{vm.username}</span>
+                                                        <span title={vm.username} className={`voice-participant-name${isSpeaking ? ' is-speaking' : ''}`}>{vm.username}</span>
                                                         {(isCameraOn || isScreenSharing) && (
                                                             <span className="voice-participant-media" aria-label={`${vm.username} live media`}>
                                                                 {isCameraOn && (
@@ -736,7 +723,7 @@ export default function ChannelSidebar({
                                                                         title="Camera on"
                                                                         aria-label={`${vm.username} camera on`}
                                                                     >
-                                                                        <Video size={13} />
+                                                                        <Video size={14} aria-hidden="true" />
                                                                     </span>
                                                                 )}
                                                                 {isScreenSharing && (
@@ -745,35 +732,29 @@ export default function ChannelSidebar({
                                                                         title="Screen sharing"
                                                                         aria-label={`${vm.username} screen sharing`}
                                                                     >
-                                                                        LIVE
+                                                                        <Radio size={12} aria-hidden="true" /><span>LIVE</span>
                                                                     </span>
                                                                 )}
                                                             </span>
                                                         )}
                                                         {(isDeafened || isMuted) && (
                                                             <span className="voice-participant-icons">
+                                                                <span
+                                                                    className={`voice-participant-icon-badge ${isServerMuted || isServerDeafened ? 'is-server-enforced' : ''}`}
+                                                                    role="img"
+                                                                    aria-label={`${vm.username}: ${isServerMuted || isServerDeafened ? 'Muted by server' : 'Muted by self'}`}
+                                                                    title={isServerMuted || isServerDeafened ? 'Muted by server' : 'Muted by self'}
+                                                                >
+                                                                    <MicOff size={14} aria-hidden="true" />
+                                                                </span>
                                                                 {isDeafened && (
-                                                                    <>
-                                                                        <span
-                                                                            className={`voice-participant-icon-badge ${isServerDeafened ? 'is-server-enforced' : ''}`}
-                                                                            title={isServerDeafened ? 'Muted by server' : 'Muted by self'}
-                                                                        >
-                                                                            <MicOff size={11} />
-                                                                        </span>
-                                                                        <span
-                                                                            className={`voice-participant-icon-badge ${isServerDeafened ? 'is-server-enforced' : ''}`}
-                                                                            title={isServerDeafened ? 'Deafened by server' : 'Deafened by self'}
-                                                                        >
-                                                                            <VolumeX size={11} />
-                                                                        </span>
-                                                                    </>
-                                                                )}
-                                                                {isMuted && !isDeafened && (
                                                                     <span
-                                                                        className={`voice-participant-icon-badge ${isServerMuted ? 'is-server-enforced' : ''}`}
-                                                                        title={isServerMuted ? 'Muted by server' : 'Muted by self'}
+                                                                        className={`voice-participant-icon-badge ${isServerDeafened ? 'is-server-enforced' : ''}`}
+                                                                        role="img"
+                                                                        aria-label={`${vm.username}: ${isServerDeafened ? 'Deafened by server' : 'Deafened by self'}`}
+                                                                        title={isServerDeafened ? 'Deafened by server' : 'Deafened by self'}
                                                                     >
-                                                                        <MicOff size={11} />
+                                                                        <HeadphoneOff size={14} aria-hidden="true" />
                                                                     </span>
                                                                 )}
                                                             </span>

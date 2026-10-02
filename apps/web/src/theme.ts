@@ -221,19 +221,20 @@ export function getThemeOption(theme: ThemeId): ThemeOption {
 export function createCustomThemePalette(baseColor: string, colorScheme: ThemeColorScheme): CustomThemePalette {
   const normalized = normalizeHexColor(baseColor) ?? getThemeOption(DEFAULT_THEME).defaultAccent
   if (colorScheme === 'light') {
-    const backgroundColor = mixHexColors(normalized, '#f5f7fa', 0.045)
-    const secondaryBackgroundColor = mixHexColors(normalized, '#e8ebf0', 0.075)
-    const tertiaryBackgroundColor = mixHexColors(normalized, '#dce2eb', 0.12)
-    const surfaceColor = mixHexColors(normalized, '#ffffff', 0.025)
-    const surfaceHoverColor = mixHexColors(normalized, '#edf0f4', 0.095)
-    const chatColor = mixHexColors(normalized, '#f8f9fb', 0.035)
-    const inputColor = mixHexColors(normalized, '#ffffff', 0.02)
-    const headerColor = mixHexColors(normalized, '#ffffff', 0.03)
-    const popoverColor = mixHexColors(normalized, '#ffffff', 0.045)
-    const elevatedColor = mixHexColors(normalized, '#f1f3f6', 0.08)
-    const topbarStartColor = mixHexColors(normalized, '#ffffff', 0.05)
-    const topbarEndColor = mixHexColors(normalized, '#f4f6f8', 0.055)
-    const accent = ensureContrastColor(normalized, [
+    // Tint every surface, with lighter inputs and stronger navigation hierarchy.
+    const backgroundColor = mixHexColors(normalized, '#f5f7fa', 0.24)
+    const secondaryBackgroundColor = mixHexColors(normalized, '#e8ebf0', 0.28)
+    const tertiaryBackgroundColor = mixHexColors(normalized, '#dce2eb', 0.30)
+    const surfaceColor = mixHexColors(normalized, '#ffffff', 0.18)
+    const surfaceHoverColor = mixHexColors(normalized, '#edf0f4', 0.26)
+    const chatColor = mixHexColors(normalized, '#f8f9fb', 0.22)
+    const inputColor = mixHexColors(normalized, '#ffffff', 0.12)
+    const headerColor = mixHexColors(normalized, '#ffffff', 0.24)
+    const popoverColor = mixHexColors(normalized, '#ffffff', 0.16)
+    const elevatedColor = mixHexColors(normalized, '#f1f3f6', 0.24)
+    const topbarStartColor = mixHexColors(normalized, '#ffffff', 0.28)
+    const topbarEndColor = mixHexColors(normalized, '#f4f6f8', 0.24)
+    const surfaces = [
       backgroundColor,
       secondaryBackgroundColor,
       tertiaryBackgroundColor,
@@ -246,11 +247,12 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
       elevatedColor,
       topbarStartColor,
       topbarEndColor,
-    ], '#111827')
+    ]
+    const accent = ensureContrastColor(normalized, surfaces, '#111827')
     return {
       colorScheme,
       baseColor: normalized,
-      chromeColor: mixHexColors(normalized, '#ffffff', 0.035),
+      chromeColor: topbarStartColor,
       backgroundColor,
       secondaryBackgroundColor,
       tertiaryBackgroundColor,
@@ -263,9 +265,9 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
       elevatedColor,
       topbarStartColor,
       topbarEndColor,
-      textColor: '#20242c',
-      secondaryTextColor: '#3f4855',
-      mutedTextColor: '#46505f',
+      textColor: ensureContrastColor('#20242c', surfaces, '#111827'),
+      secondaryTextColor: ensureContrastColor('#3f4855', surfaces, '#111827'),
+      mutedTextColor: ensureContrastColor('#46505f', surfaces, '#111827'),
       accentColor: accent,
       accentHoverColor: mixHexColors(accent, '#000000', 0.82),
       scrollbarColor: mixHexColors(accent, '#ffffff', 0.42),

@@ -9,21 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - Unreleased
 
-This release is in preparation. Remaining improvements and release-candidate validation must be completed before publishing; the final release date will be recorded at that time.
+This release is in preparation, not published. Further UI acceptance, real two-user voice/stream checks and native/physical-device validation remain release gates. No release date or LTS designation is assigned; the final release date will be recorded only when publishing.
+
+### Added
+- Added a lightweight Friend Activity dock showing only active friends in accessible voice channels, with avatars and server/channel context. Sharing friends appear once with a small indicator. Clicking only navigates, without joining voice or watching media. The list scrolls independently above Community/GitHub/About and the separate Support footer.
+- Added watched-stream previews that move by dragging the video body and resize from all four corners with one bottom-left icon, fitting the native stream ratio up to 960 px within central content. Retained owner avatars on media cards and removed redundant empty voice cards for participants represented by camera or screen-share tiles.
+- Added image/file draft cards with previews, file sizes, reduced-motion-aware upload activity, and retry/remove controls.
 
 ### Changed
+- Rebuilt Friends with Online, All and Add Friend filters, compact unframed rows, visible message actions and local search. Add Friend combines submission and incoming/outgoing requests, with an incoming-only badge and no duplicate header action; submission supports Enter, pending feedback and duplicate-submit protection.
+- Modernized voice-row LIVE, camera and mute/deafen indicators with flat theme-aware Lucide icons. Isolated the fixed-width channel-active-time counter so each second no longer rerenders the channel list; background-tab updates pause and catch up on return.
+- Restyled Social DMs as compact conversation rows with readable Pinned/Recent headings and a selected-row marker.
+- Rebuilt the emoji/GIF/sticker panel with fixed navigation/search, keyboard tabs, clear/close actions, semantic theme colors, and lazy media previews.
+- Simplified the landing to fit common desktop viewports and use browser-only entry points below 1024px; highlighted Voxpery's open-source, self-hosting, and chat/call capabilities on Compare.
+- Replaced compact Settings tab grids with one section selector and removed decorative gradients, backdrop blur, and shadows from personal and Server Settings surfaces.
+- Grouped Quick Search results into Direct messages, Servers, and Channels, with keyboard navigation following the displayed order.
+- Allowed `#` in text/voice channel and category names for both creation and renaming.
+- Made the footer avatar open the profile and the combined username/status area open status controls.
+- Unified narrow desktop and mobile chat layouts below 1024px, keeping channels and members reachable through drawers without squeezing the composer.
+- Grouped emoji, GIF, and sticker selection beside attachments, remembering the last selected tab and leaving the character counter and Send on the right.
+- Made Custom Light visibly tint the full application palette while preserving readable text and independent accent colors.
 - Restored default responsive sidebar widths and removed draggable panel resizing; previously saved custom widths no longer affect layout.
 - Made member profile dialogs easier to read with larger avatars, clearer text, and grouped actions without enlarging compact profile rows.
 - Moved project support links and repository funding to GitHub Sponsors across the app, public website, and documentation.
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Restricted signed-attachment cache normalization to the application/API origins; external image URLs retain their complete identity even when their paths resemble the attachment API.
+- Narrowed the voice active-time indicator and aligned Send Request with its input; blank/whitespace drafts now have a visibly disabled button instead of an active-looking primary surface.
+- Made server-only mute/deafen states visible in voice participant rows with explicit server-enforced labels.
+- Aligned the floating-stream hide action with the upper-right corner while preserving clickable button coverage and outer-corner resizing.
+- Hid idle server-rail scrollbars and revealed a thin thumb on hover, keyboard focus or drag without moving icons; matched member/DM menu widths and aligned voice menus with participant avatars.
+- Kept floating streams within visible central content on Friends despite retained hidden chats, and removed the dark owner-label strip so the original video remains visible.
+- Kept single favorite/recent/search stickers at regular grid-cell size and moved the latest-message arrow slightly right while retaining scrollbar clearance.
+- Separated the Social Friends selection from the header divider, removed the misleading DM heading count, and restored direct compact Settings access beside Quick Search.
+- Kept compact Create/Join Server actions above the fixed account dock, including on short landscape screens.
+- Kept all Settings account subdialogs anchored to their parent: Cancel, Escape, and backdrop dismissal return to the originating tab and clear private drafts.
+- Stopped treating Android and touch-enabled iPads as Linux/macOS desktop download targets.
+- Contained keyboard focus in Server Settings and channel/category dialogs, including nested confirmations and opener restoration.
+- Expanded compact conversation search and restored public-site mobile navigation with a named menu toggle.
+- Named settings, AutoMod, and role-color controls for assistive technology, and clarified that web microphone shortcuts are tab-scoped.
+- Removed the full-screen Quick Search blur that slowed list scrolling, and kept pointer hover from triggering automatic list scrolling while retaining keyboard navigation.
+- Kept the first active-voice server outline visible and made server reorder targets explicit, including first-position drops and edge scrolling.
+- Kept long Safety/Raid Events and Roles cards at their natural height within the Server Settings scroll area.
+- Reused authenticated attachment previews across renewed signed URLs, reactions, and channel switches; removed empty horizontal image frames.
 - Kept member and voice moderation menus inside the viewport with internal scrolling, accessible volume controls, and preserved keyboard focus; profile dialogs stay visible when their originating sidebar is hidden on a narrow screen.
-- Moved the delayed notification permission prompt into a reserved banner below the app bar so it no longer covers chat search, message content, or the composer on desktop and mobile.
+- Removed the automatic notification opt-in banner and its timer/snooze logic; notification permission remains a manual Settings > Communication action without shifting or covering chat.
 - Resumed interrupted voice audio and ended microphone capture on foreground return, with room-scoped recovery and preserved mute/deafen controls; retried exhausted application WebSocket connections without reviving expired or logged-out sessions. Mobile browser background capture remains subject to OS restrictions.
 - Kept the Settings frame stable when switching between Profile and other tabs.
 - Preserved latest-message positioning through channel/DM changes, delayed media, composer resizing, and same-count content refreshes without overriding deliberate history reading or message targets.
-- Centered Newest above the composer in a reserved area that does not cover messages.
+- Replaced the full-width Newest strip with an inset bottom-right arrow that appears after meaningful upward scrolling, without changing the message viewport height or scroll position.
+- Kept member, voice participant, and DM action menus clear of their source rows and inside their panel widths, flipping above or scrolling internally when space is limited.
+- Added Settings/account dialog focus containment and restoration, accessible auth labels, and keyboard-accessible attachment and auth navigation actions.
 
 ## [0.2.16] - 2026-09-27
 

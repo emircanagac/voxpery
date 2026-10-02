@@ -1,5 +1,6 @@
 import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { useNavigate } from 'react-router'
 import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
@@ -9,6 +10,8 @@ import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi,
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
+import ModalSurface from '../components/ModalSurface'
+import { useDialogFocus } from '../hooks/useDialogFocus'
 import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
@@ -147,8 +150,8 @@ function validateChannelNameInput(raw: string): string | null {
     if (Array.from(value).length > CHANNEL_NAME_MAX) {
         return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
     }
-    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
-        return "Channel name can only include letters, numbers, spaces, '-' and '_'."
+    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
+        return "Channel name can only include letters, numbers, spaces, '#', '-' and '_'."
     }
     if (value.includes('  ')) {
         return 'Channel name cannot contain consecutive spaces.'
@@ -162,8 +165,8 @@ function validateCategoryNameInput(raw: string): string | null {
     if (Array.from(value).length > CATEGORY_NAME_MAX) {
         return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
     }
-    if (!/^[\p{L}\p{N}_ -]+$/u.test(value)) {
-        return "Category name can only include letters, numbers, spaces, '-' and '_'."
+    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
+        return "Category name can only include letters, numbers, spaces, '#', '-' and '_'."
     }
     if (value.includes('  ')) {
         return 'Category name cannot contain consecutive spaces.'
@@ -390,7 +393,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     const [serverSettingsTab, setServerSettingsTab] = useState<ServerSettingsLocalTab>('overview')
     const [safetySettingsTab, setSafetySettingsTab] = useState<SafetySettingsTab>('reports')
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
-        typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false,
+        typeof window !== 'undefined' ? window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY).matches : false,
     )
 
     useEffect(() => {
@@ -545,11 +548,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     const createServerRequestIdRef = useRef<string | null>(null)
     const serverDialogRef = useRef<HTMLFormElement | null>(null)
     const serverDialogTriggerRef = useRef<HTMLElement | null>(null)
+    const serverSettingsReturnFocusRef = useRef<HTMLElement | null>(null)
+    const channelDialogReturnFocusRef = useRef<HTMLElement | null>(null)
     const serverIconInputRef = useRef<HTMLInputElement | null>(null)
     const messagesByChannelRef = useRef<Record<string, UiMessage[]>>({})
     const historicalChannelIdRef = useRef<string | null>(null)
     const serverBootstrapRequestRef = useRef(0)
     const channelMessagesRequestRef = useRef(0)
+
+    useDialogFocus(serverDialogRef, showCreateServer || showJoinServer, undefined, serverDialogTriggerRef)
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
@@ -628,7 +635,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
 
     useEffect(() => {
         if (typeof window === 'undefined') return
-        const media = window.matchMedia('(max-width: 700px)')
+        const media = window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY)
         const sync = () => setIsMobileViewport(media.matches)
         sync()
         media.addEventListener('change', sync)
@@ -1883,6 +1890,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         serverId?: string | null,
         initialTab: ServerSettingsOpenTab = 'overview',
     ) => {
+        serverSettingsReturnFocusRef.current = document.querySelector<HTMLElement>('.channel-header-server')
         setServerSettingsError(null)
         setDeleteServerError(null)
         setDeleteServerInput('')
@@ -2921,6 +2929,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     }
 
     const openCreateChannelModal = (category?: string) => {
+        channelDialogReturnFocusRef.current = document.querySelector<HTMLElement>('.channel-header-server')
         setCreateChannelError(null)
         setCreateChannelName('')
         setCreateChannelType('text')
@@ -2930,6 +2939,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     }
 
     const openCreateCategoryModal = () => {
+        channelDialogReturnFocusRef.current = document.querySelector<HTMLElement>('.channel-header-server')
         setCreateCategoryError(null)
         setCreateCategoryName('')
         setShowCreateCategory(true)
@@ -2957,6 +2967,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     }
 
     const openRenameCategoryModal = (category: string) => {
+        channelDialogReturnFocusRef.current = document.querySelector<HTMLElement>('.channel-header-server')
         setRenameCategoryError(null)
         setRenameCategoryFrom(category)
         setRenameCategoryName(category)
@@ -3017,6 +3028,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     )
 
     const openRenameChannelModal = (channel: Channel) => {
+        channelDialogReturnFocusRef.current = document.querySelector<HTMLElement>('.channel-header-server')
         setRenameChannelError(null)
         setRenameChannelId(channel.id)
         setRenameChannelName(channel.name)
@@ -3266,7 +3278,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             )}
             <ChannelSidebar
                 loading={serverRouteLoading || (!activeServerId && serversLoading)}
-                onOpenServerSettings={openServerSettingsModal}
+                onOpenServerSettings={() => openServerSettingsModal()}
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
                 onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}
@@ -3515,7 +3527,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     {/* Create Channel Modal */}
                     {showCreateChannel && activeServerId && (
                         <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>
-                            <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
+                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Channel" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
                                 <h2>Create Channel</h2>
                                 {createChannelError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{createChannelError}</div>
@@ -3527,7 +3539,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         value={createChannelName}
                                         onChange={(e) => setCreateChannelName(e.target.value)}
                                         placeholder="e.g. general"
-                                        autoFocus
                                         required
                                         maxLength={CHANNEL_NAME_MAX}
                                     />
@@ -3585,14 +3596,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Create Channel</button>
                                 </div>
-                            </form>
+                            </ModalSurface>
                         </div>
                     )}
 
                     {/* Create Category Modal */}
                     {showCreateCategory && activeServerId && (
                         <div className="modal-overlay" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null) }}>
-                            <form className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
+                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Category" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
                                 <h2>Create Category</h2>
                                 {createCategoryError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{createCategoryError}</div>
@@ -3604,7 +3615,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         value={createCategoryName}
                                         onChange={(e) => setCreateCategoryName(e.target.value)}
                                         placeholder="e.g. Squad 1"
-                                        autoFocus
                                         required
                                         maxLength={CATEGORY_NAME_MAX}
                                     />
@@ -3613,14 +3623,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null); }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Create Category</button>
                                 </div>
-                            </form>
+                            </ModalSurface>
                         </div>
                     )}
 
                     {/* Rename Channel Modal */}
                     {showRenameChannel && (
                         <div className="modal-overlay" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>
-                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
+                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Edit Channel" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
                                 <h2>Edit Channel</h2>
                                 {renameChannelError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{renameChannelError}</div>
@@ -3632,7 +3642,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         value={renameChannelName}
                                         onChange={(e) => setRenameChannelName(e.target.value)}
                                         placeholder="new-channel-name"
-                                        autoFocus
                                         required
                                         maxLength={CHANNEL_NAME_MAX}
                                     />
@@ -3651,7 +3660,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Save</button>
                                 </div>
-                            </form>
+                            </ModalSurface>
                         </div>
                     )}
 
@@ -3661,7 +3670,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
                             onClick={handleCloseServerSettings}
                         >
-                            <div className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface returnFocusRef={serverSettingsReturnFocusRef} name={canViewReports ? 'Server Settings' : 'Server information'} className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
                                 <div className="server-settings-header">
                                     <div className="server-settings-header__left">
                                         {effectiveServerIconSrc ? (
@@ -4167,12 +4176,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                 </div>
 
                                 {/* Footer removed; Overview card now owns its own Save button when needed. */}
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {showUnsavedServerSettingsConfirm && (
                         <div className="modal-overlay" onClick={() => setShowUnsavedServerSettingsConfirm(false)}>
-                            <div className="modal confirm-modal server-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface returnFocusRef={serverSettingsReturnFocusRef} name="Discard changes?" className="modal confirm-modal server-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Discard changes?</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     You have unsaved changes to the server name or icon. If you close now, those changes will be
@@ -4197,12 +4206,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Discard changes
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {deleteRoleConfirmId && settingsServer && (
                         <div className="modal-overlay" onClick={() => setDeleteRoleConfirmId(null)}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name="Delete role" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete role</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     Are you sure you want to delete this role? This cannot be undone.
@@ -4244,12 +4253,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Delete
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {reportTarget && (
                         <div className="modal-overlay" onClick={closeReportDialog}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name={reportTarget.kind === 'message' ? 'Report message' : 'Report user'} className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>{reportTarget.kind === 'message' ? 'Report message' : 'Report user'}</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     {reportTarget.kind === 'message'
@@ -4294,12 +4303,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         {reportSubmitting ? 'Submitting...' : 'Submit report'}
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {deleteMessageConfirmId && (
                         <div className="modal-overlay" onClick={() => setDeleteMessageConfirmId(null)}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name="Delete message" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete message</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     Are you sure you want to delete this message?
@@ -4312,12 +4321,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Delete
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {deleteChannelConfirm && (
                         <div className="modal-overlay" onClick={() => setDeleteChannelConfirm(null)}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name="Delete channel" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete channel</h2>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     Are you sure you want to permanently delete <strong>#{deleteChannelConfirm.name}</strong>?
@@ -4330,12 +4339,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Delete
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {showDeleteServerConfirm && settingsServer && (
                         <div className="modal-overlay" onClick={() => { setShowDeleteServerConfirm(false); setDeleteServerError(null) }}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name="Delete Server" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete Server</h2>
                                 <p style={{ marginBottom: 10, color: 'var(--text-secondary)' }}>
                                     Type <strong>{settingsServer.name}</strong> to confirm permanent deletion.
@@ -4350,7 +4359,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         value={deleteServerInput}
                                         onChange={(e) => setDeleteServerInput(e.target.value)}
                                         placeholder={settingsServer.name}
-                                        autoFocus
                                     />
                                 </div>
                                 <div className="modal-actions">
@@ -4369,7 +4377,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Delete Server
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                     {channelSettingsTarget && (
@@ -4397,7 +4405,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     {/* Rename Category Modal */}
                     {showRenameCategory && (
                         <div className="modal-overlay" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>
-                            <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
+                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Rename Category" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
                                 <h2>Rename Category</h2>
                                 {renameCategoryError && (
                                     <div className="auth-error" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
@@ -4409,7 +4417,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         value={renameCategoryName}
                                         onChange={(e) => setRenameCategoryName(e.target.value)}
                                         placeholder="new-category-name"
-                                        autoFocus
                                         required
                                         maxLength={CATEGORY_NAME_MAX}
                                     />
@@ -4418,7 +4425,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>Cancel</button>
                                     <button type="submit" className="btn btn-primary">Save</button>
                                 </div>
-                            </form>
+                            </ModalSurface>
                         </div>
                     )}
                     {categoryPermissionsTarget && activeServerId && (
@@ -4431,7 +4438,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     )}
                     {deleteCategoryConfirm && activeServerId && (
                         <div className="modal-overlay" onClick={() => setDeleteCategoryConfirm(null)}>
-                            <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                            <ModalSurface name="Delete category" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
                                 <h2>Delete category</h2>
                                 {(() => {
                                     const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
@@ -4484,7 +4491,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                         Delete Category
                                     </button>
                                 </div>
-                            </div>
+                            </ModalSurface>
                         </div>
                     )}
                 </>,

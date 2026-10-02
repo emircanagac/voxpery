@@ -40,7 +40,106 @@ async function openServerSettings(page: Page) {
   await expect(page.getByRole('heading', { name: 'Server Settings' })).toBeVisible()
 }
 
+async function expectFlatSettings(modal: import('@playwright/test').Locator) {
+  expect(await modal.evaluate(element => [element, ...element.querySelectorAll('*')].flatMap(node => {
+    return ['', '::before', '::after'].map(pseudo => getComputedStyle(node, pseudo || null))
+      .filter(style => /gradient\(/.test(style.backgroundImage) || style.backdropFilter !== 'none' || style.filter !== 'none')
+      .map(() => node.className)
+  }))).toEqual([])
+}
+
 test.describe('mocked server settings UI regressions', () => {
+  test('contains server and channel dialog focus and restores the opener through nested confirmation', async ({ page }) => {
+    await installMockCoreApi(page, createServerSettingsState())
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await openServerSettings(page)
+    const settings = page.getByRole('dialog', { name: 'Server Settings', exact: true })
+    const close = settings.getByRole('button', { name: 'Close', exact: true })
+    await expect(close).toBeFocused()
+    await close.press('Shift+Tab')
+    expect(await settings.evaluate(el => el.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Tab')
+    await expect(close).toBeFocused()
+    await expect(page.locator('#root')).toHaveAttribute('inert', '')
+    await settings.getByPlaceholder('Server name').fill('Unsaved test name')
+    await close.click()
+    const confirm = page.getByRole('dialog', { name: 'Discard changes?', exact: true })
+    await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    await expect(settings.locator('..')).toHaveAttribute('inert', '')
+    await page.keyboard.press('Escape')
+    await expect(close).toBeFocused()
+    await expect(settings.locator('..')).not.toHaveAttribute('inert')
+    await close.click()
+    await confirm.getByRole('button', { name: 'Discard changes', exact: true }).click()
+    await expect(page.getByTitle('Open server settings')).toBeFocused()
+    await expect(page.locator('#root')).not.toHaveAttribute('inert')
+
+    const create = page.getByRole('button', { name: 'Create channel in GENERAL', exact: true })
+    await create.click()
+    const dialog = page.getByRole('dialog', { name: 'Create Channel', exact: true })
+    await expect(dialog.getByPlaceholder('e.g. general')).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(dialog.getByRole('button', { name: 'Create Channel', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(create).toBeFocused()
+    const channel = page.locator('.channel-item', { hasText: channels[0].name }).first()
+    await channel.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+    const edit = page.getByRole('dialog', { name: 'Edit Channel', exact: true })
+    await expect(edit.getByPlaceholder('new-channel-name')).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(edit.getByRole('button', { name: 'Save', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    expect(await page.locator('body').evaluate(el => document.activeElement !== el)).toBe(true)
+    await expect(page.locator('#root')).not.toHaveAttribute('inert')
+  })
+
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 600 }]) {
+    test(`keeps every server settings panel scrollable with long raid history at ${viewport.width}px`, async ({ page }, testInfo) => {
+      const state = createServerSettingsState()
+      state.raidEventEntriesByServerId[server.id] = Array.from({ length: 24 }, (_, index) => ({
+        id: `raid-${index}`, server_id: server.id, event_type: 'message_burst', user_id: 'user-local', username: 'localuser',
+        channel_id: channels[0].id, channel_name: channels[0].name, created_at: '2026-10-02T00:34:31Z', metadata: { message_count: 12 + index, window_seconds: 10, detail: 'Long metadata '.repeat(20) },
+      }))
+      await installMockCoreApi(page, state)
+      await page.setViewportSize(viewport)
+      await openServerSettings(page)
+      const content = page.locator('.server-settings-content')
+      const modal = page.locator('.modal-server-settings')
+      const rect = (await modal.boundingBox())!
+      for (const label of ['Overview', 'Roles', 'Community', 'Audit Log', 'Safety', 'Danger Zone']) {
+        await page.locator('.server-settings-nav').getByRole('button', { name: label, exact: true }).click()
+        await expect(content).toBeInViewport()
+        await expectFlatSettings(modal)
+        expect(await content.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+        expect((await modal.boundingBox())!.height).toBeCloseTo(rect.height, 2)
+        for (const card of await content.locator(':scope > .server-settings-card').all()) {
+          expect(await card.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+        }
+      }
+      await page.getByRole('button', { name: 'Safety', exact: true }).click()
+      await expect(content.getByText('Loading reports...', { exact: true })).toHaveCount(0)
+      await expect(content.locator('.server-report-row').filter({ hasText: 'Long metadata' })).toHaveCount(24)
+      const last = content.locator('.server-report-row').last()
+      await expect(last).toContainText('Long metadata')
+      await expect.poll(() => content.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+      await content.hover()
+      await page.mouse.wheel(0, 20000)
+      await expect(last).toBeInViewport()
+      expect(await last.evaluate(el => {
+        const parent = el.closest('.server-settings-content')!.getBoundingClientRect()
+        const rect = el.getBoundingClientRect()
+        return rect.bottom <= parent.bottom && rect.top >= parent.top
+      })).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath('raid-history-scroll.png') })
+      for (const label of ['AutoMod', 'Bans', 'Reports']) {
+        await page.getByRole('button', { name: label, exact: true }).click()
+        expect(await content.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+        await expectFlatSettings(modal)
+      }
+    })
+  }
+
   test('does not report an unloaded role list as zero to a regular member', async ({ page }) => {
     const memberServer = buildCoreServer({ id: 'member-server', owner_id: 'someone-else' })
     const state = createMockCoreState({
@@ -217,7 +316,7 @@ async function readSettingsThemeSnapshot(modal: import('@playwright/test').Locat
 
     return {
       overlayBackground: getComputedStyle(element.parentElement ?? element).backgroundColor,
-      modalBackground: getComputedStyle(element).backgroundImage,
+      modalBackground: getComputedStyle(element).backgroundColor,
       navigationBackground: styleOf('.server-settings-nav').background,
       activeNavigationBackground: styleOf('.server-settings-nav__item--active').background,
       inputBackground: styleOf('input:not([type="checkbox"]):not([type="color"])').backgroundColor,

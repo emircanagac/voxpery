@@ -1196,10 +1196,10 @@ fn validate_channel_name(name: &str) -> Result<(), AppError> {
 
     let mut last_was_space = false;
     for c in name.chars() {
-        let allowed = c.is_alphanumeric() || c == ' ' || c == '-' || c == '_';
+        let allowed = c.is_alphanumeric() || c == ' ' || c == '#' || c == '-' || c == '_';
         if !allowed {
             return Err(AppError::Validation(
-                "Channel name can only include letters, numbers, spaces, '-' and '_'".into(),
+                "Channel name can only include letters, numbers, spaces, '#', '-' and '_'".into(),
             ));
         }
         if c == ' ' {
@@ -1244,10 +1244,10 @@ fn validate_category_name(name: &str) -> Result<(), AppError> {
 
     let mut last_was_space = false;
     for c in name.chars() {
-        let allowed = c.is_alphanumeric() || c == ' ' || c == '-' || c == '_';
+        let allowed = c.is_alphanumeric() || c == ' ' || c == '#' || c == '-' || c == '_';
         if !allowed {
             return Err(AppError::Validation(
-                "Category name can only include letters, numbers, spaces, '-' and '_'".into(),
+                "Category name can only include letters, numbers, spaces, '#', '-' and '_'".into(),
             ));
         }
         if c == ' ' {
@@ -1322,4 +1322,40 @@ struct RenameChannelRequest {
 struct ReorderChannelsRequest {
     pub server_id: Uuid,
     pub channel_ids: Vec<Uuid>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_category_name, validate_channel_name};
+
+    #[test]
+    fn channel_and_category_names_allow_hashes_and_unicode_letters() {
+        for name in [
+            "#general",
+            "voice #1",
+            "#Topics",
+            "#\u{15f}ehir-2_test",
+            &"#".repeat(32),
+        ] {
+            assert!(validate_channel_name(name).is_ok(), "channel: {name}");
+            assert!(validate_category_name(name).is_ok(), "category: {name}");
+        }
+    }
+
+    #[test]
+    fn channel_and_category_names_keep_length_and_character_guards() {
+        for name in [
+            "",
+            "two  spaces",
+            "bad/name",
+            "@everyone",
+            "line\nbreak",
+            "bad\u{0}name",
+            "\u{1f600}",
+            &"#".repeat(33),
+        ] {
+            assert!(validate_channel_name(name).is_err(), "channel: {name}");
+            assert!(validate_category_name(name).is_err(), "category: {name}");
+        }
+    }
 }
