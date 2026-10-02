@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { serverApi, type AuthToken, type AutoModRule, type AutoModTriggerType, type Channel, type ServerRole } from '../api'
 
 type ServerSettingsAutoModProps = {
@@ -74,6 +74,7 @@ function testRule(rule: Pick<AutoModRule, 'trigger_type' | 'pattern' | 'mention_
 }
 
 export default function ServerSettingsAutoMod({ serverId, token }: ServerSettingsAutoModProps) {
+    const fieldId = useId()
     const [rules, setRules] = useState<AutoModRule[]>([])
     const [roles, setRoles] = useState<ServerRole[]>([])
     const [channels, setChannels] = useState<Channel[]>([])
@@ -283,16 +284,18 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                                             <h3 className="server-settings-card__title">Edit rule</h3>
                                             <div className="server-settings-form-stack">
                                                 <div className="form-group">
-                                                    <label>Rule name</label>
+                                                    <label htmlFor={`${fieldId}-edit-name`}>Rule name</label>
                                                     <input
+                                                        id={`${fieldId}-edit-name`}
                                                         value={editingDraft.name}
                                                         maxLength={80}
                                                         onChange={(event) => setEditingDraft((prev) => ({ ...prev, name: event.target.value }))}
                                                     />
                                                 </div>
                                                 <div className="form-group">
-                                                    <label>Trigger</label>
+                                                    <label htmlFor={`${fieldId}-edit-trigger`}>Trigger</label>
                                                     <select
+                                                        id={`${fieldId}-edit-trigger`}
                                                         value={editingDraft.triggerType}
                                                         onChange={(event) => setEditingDraft((prev) => ({ ...prev, triggerType: event.target.value as AutoModTriggerType }))}
                                                     >
@@ -303,8 +306,9 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                                                 </div>
                                                 {editingDraft.triggerType === 'blocked_keyword' && (
                                                     <div className="form-group">
-                                                        <label>Keyword</label>
+                                                        <label htmlFor={`${fieldId}-edit-keyword`}>Keyword</label>
                                                         <input
+                                                            id={`${fieldId}-edit-keyword`}
                                                             value={editingDraft.pattern}
                                                             maxLength={128}
                                                             onChange={(event) => setEditingDraft((prev) => ({ ...prev, pattern: event.target.value }))}
@@ -313,8 +317,9 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                                                 )}
                                                 {editingDraft.triggerType === 'mention_spam' && (
                                                     <div className="form-group">
-                                                        <label>Mention limit</label>
+                                                        <label htmlFor={`${fieldId}-edit-mentions`}>Mention limit</label>
                                                         <input
+                                                            id={`${fieldId}-edit-mentions`}
                                                             type="number"
                                                             min={2}
                                                             max={50}
@@ -420,12 +425,12 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                 <h3 className="server-settings-card__title">Create rule</h3>
                 <div className="server-settings-form-stack">
                     <div className="form-group">
-                        <label>Rule name</label>
-                        <input value={draft.name} maxLength={80} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} />
+                        <label htmlFor={`${fieldId}-create-name`}>Rule name</label>
+                        <input id={`${fieldId}-create-name`} value={draft.name} maxLength={80} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} />
                     </div>
                     <div className="form-group">
-                        <label>Trigger</label>
-                        <select value={draft.triggerType} onChange={(e) => setDraft((prev) => ({ ...prev, triggerType: e.target.value as AutoModTriggerType }))}>
+                        <label htmlFor={`${fieldId}-create-trigger`}>Trigger</label>
+                        <select id={`${fieldId}-create-trigger`} value={draft.triggerType} onChange={(e) => setDraft((prev) => ({ ...prev, triggerType: e.target.value as AutoModTriggerType }))}>
                             {TRIGGER_OPTIONS.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
@@ -433,14 +438,14 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                     </div>
                     {draft.triggerType === 'blocked_keyword' && (
                         <div className="form-group">
-                            <label>Keyword</label>
-                            <input value={draft.pattern} maxLength={128} onChange={(e) => setDraft((prev) => ({ ...prev, pattern: e.target.value }))} />
+                            <label htmlFor={`${fieldId}-create-keyword`}>Keyword</label>
+                            <input id={`${fieldId}-create-keyword`} value={draft.pattern} maxLength={128} onChange={(e) => setDraft((prev) => ({ ...prev, pattern: e.target.value }))} />
                         </div>
                     )}
                     {draft.triggerType === 'mention_spam' && (
                         <div className="form-group">
-                            <label>Mention limit</label>
-                            <input type="number" min={2} max={50} value={draft.mentionLimit} onChange={(e) => setDraft((prev) => ({ ...prev, mentionLimit: Number(e.target.value) || 5 }))} />
+                            <label htmlFor={`${fieldId}-create-mentions`}>Mention limit</label>
+                            <input id={`${fieldId}-create-mentions`} type="number" min={2} max={50} value={draft.mentionLimit} onChange={(e) => setDraft((prev) => ({ ...prev, mentionLimit: Number(e.target.value) || 5 }))} />
                         </div>
                     )}
                     <label className="server-settings-check-row">
@@ -474,8 +479,8 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                         </div>
                     )}
                     <div className="form-group">
-                        <label>Test text</label>
-                        <input value={testText} onChange={(e) => setTestText(e.target.value)} />
+                        <label htmlFor={`${fieldId}-test-text`}>Test text</label>
+                        <input id={`${fieldId}-test-text`} value={testText} onChange={(e) => setTestText(e.target.value)} />
                         {draftTestResult != null && (
                             <div className="server-report-subline">
                                 {draftTestResult ? 'This rule would block the test text.' : 'This rule would allow the test text.'}

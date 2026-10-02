@@ -1,12 +1,16 @@
 import { DEPLOY_URL, PublicSiteFooter, PublicSiteHeader, REPO_URL } from './PublicSiteChrome'
 import { usePublicPageMetadata } from './publicPageMetadata'
+import { Code2, Globe2, Mic, Server } from 'lucide-react'
+import { Link } from 'react-router'
+import { ROUTES } from '../routes'
+import { useAuthStore } from '../stores/auth'
 import '../styles/about.css'
 import '../styles/compare.css'
 
 const comparison = [
   {
     feature: 'Open source',
-    voxpery: 'AGPL-3.0 codebase',
+    voxpery: 'AGPL-3.0 source',
     discord: 'Proprietary service',
     element: 'Open source',
     zulip: 'Open source',
@@ -20,14 +24,14 @@ const comparison = [
   },
   {
     feature: 'Voice and screen sharing',
-    voxpery: 'Built into voice channels',
+    voxpery: 'Built-in voice and screen sharing',
     discord: 'Built in',
     element: 'Element Call',
     zulip: 'Via a call provider',
   },
   {
     feature: 'Desktop',
-    voxpery: 'Tauri; uses the system webview',
+    voxpery: 'System webview (Tauri)',
     discord: 'Desktop app',
     element: 'Desktop app',
     zulip: 'Desktop app',
@@ -53,6 +57,7 @@ const sources = [
 ]
 
 export default function ComparePage() {
+  const isAuthenticated = useAuthStore(state => Boolean(state.user))
   usePublicPageMetadata(
     '/compare',
     'Compare Voxpery with Community Chat Platforms',
@@ -66,12 +71,21 @@ export default function ComparePage() {
       <main className="comparison-main">
         <header className="comparison-intro">
           <p className="about-kicker">COMPARE</p>
-          <h1>Voxpery, at a glance</h1>
+          <h1>Voxpery</h1>
           <p>
-            Voxpery combines open-source code, Docker self-hosting, built-in voice and screen sharing,
-            and a Tauri desktop app that uses the system webview.
+            Open-source community chat. Your conversations, your infrastructure.
           </p>
+          <Link to={isAuthenticated ? ROUTES.home : ROUTES.register} className="about-cta about-cta--primary comparison-cta">
+            <Globe2 size={18} aria-hidden />
+            {isAuthenticated ? 'Open Voxpery' : 'Use Voxpery in browser'}
+          </Link>
         </header>
+
+        <section className="comparison-advantages" aria-label="Voxpery advantages">
+          <div><Code2 size={22} aria-hidden /><h2>Open to inspection</h2><p>Public AGPL-3.0 code.</p></div>
+          <div><Server size={22} aria-hidden /><h2>Your infrastructure</h2><p>Hosted or Docker self-hosted.</p></div>
+          <div><Mic size={22} aria-hidden /><h2>Chat and calls together</h2><p>Voice and screen sharing included.</p></div>
+        </section>
 
         <section className="comparison-section" aria-label="Platform comparison">
           <div className="comparison-table-scroll" role="region" aria-label="Platform comparison table" tabIndex={0}>
@@ -79,7 +93,7 @@ export default function ComparePage() {
               <thead>
                 <tr>
                   <th scope="col">Feature</th>
-                  <th scope="col">Voxpery</th>
+                  <th scope="col" className="comparison-voxpery">Voxpery</th>
                   <th scope="col">Discord</th>
                   <th scope="col">Element</th>
                   <th scope="col">Zulip</th>
@@ -99,8 +113,7 @@ export default function ComparePage() {
             </table>
           </div>
           <p className="comparison-note">
-            Tauri uses the system webview instead of bundling a browser engine. We have not benchmarked
-            Voxpery against these apps for RAM or CPU use.
+            Tauri uses the system webview. Comparative RAM/CPU benchmarks are not yet available.
           </p>
         </section>
 

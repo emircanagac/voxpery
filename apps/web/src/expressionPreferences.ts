@@ -5,6 +5,26 @@ const RECENT_GIF_KEY = 'voxpery-expression-recent-gif-v1'
 const RECENT_STICKER_KEY = 'voxpery-expression-recent-sticker-v1'
 const FAVORITE_GIF_KEY = 'voxpery-expression-favorite-gif-v1'
 const FAVORITE_STICKER_KEY = 'voxpery-expression-favorite-sticker-v1'
+const PICKER_MODE_KEY = 'voxpery-expression-picker-mode-v1'
+
+export type ExpressionMode = 'emoji' | 'gif' | 'sticker'
+
+export function getLastExpressionMode(fallback: ExpressionMode = 'emoji'): ExpressionMode {
+  try {
+    const mode = window.localStorage.getItem(PICKER_MODE_KEY)
+    return mode === 'emoji' || mode === 'gif' || mode === 'sticker' ? mode : fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function setLastExpressionMode(mode: ExpressionMode): void {
+  try {
+    window.localStorage.setItem(PICKER_MODE_KEY, mode)
+  } catch {
+    // Keep the current picker state even if device preferences cannot be stored.
+  }
+}
 
 const MAX_RECENT_EMOJI = 24
 const MAX_RECENT_MEDIA = 16

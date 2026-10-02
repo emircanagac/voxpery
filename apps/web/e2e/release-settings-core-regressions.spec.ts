@@ -4,11 +4,317 @@ import {
   buildCoreMembers,
   buildCoreServer,
   buildFriends,
+  buildServerMessage,
   createMockCoreState,
   installMockCoreApi,
 } from './mock-core-api'
 
 test.describe('mocked release and settings regressions', () => {
+  test('keeps the first voice ring and reorder slot visible and persists drag order', async ({ page }, testInfo) => {
+    const servers = Array.from({ length: 3 }, (_, i) => buildCoreServer({ id: `rail-${i}`, name: `Rail ${i}` }))
+    const channels = buildCoreChannels(servers[0].id)
+    await installMockCoreApi(page, createMockCoreState({ servers, channelsByServerId: { [servers[0].id]: channels }, membersByServerId: { [servers[0].id]: buildCoreMembers() } }))
+    await page.addInitScript(() => {
+      const Base = window.WebSocket
+      window.WebSocket = class extends Base {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols)
+          Reflect.set(window, '__railSocket', this)
+        }
+      }
+    })
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/servers')
+    const list = page.locator('.server-sidebar-scroll')
+    const first = list.locator('[data-server-id="rail-0"]')
+    await expect(page.getByRole('button', { name: 'View profile for Friend 01' })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__railSocket')?.readyState)).toBe(1)
+    await page.evaluate(({ serverId, channelId }) => {
+      const socket = Reflect.get(window, '__railSocket') as WebSocket
+      socket.onmessage?.call(socket, new MessageEvent('message', { data: JSON.stringify({
+        type: 'VoiceStateUpdate', data: { server_id: serverId, channel_id: channelId, user_id: 'friend-01' },
+      }) }))
+    }, { serverId: servers[0].id, channelId: channels.find(c => c.channel_type === 'voice')!.id })
+    await expect(first).toHaveClass(/has-active-voice/)
+    const firstRect = (await first.boundingBox())!
+    const listRect = (await list.boundingBox())!
+    expect(firstRect.y - listRect.y).toBeGreaterThanOrEqual(7)
+    await page.screenshot({ path: testInfo.outputPath('rail-voice-ring.png') })
+    const last = list.locator('[data-server-id="rail-2"]')
+    const source = (await last.boundingBox())!
+    await page.mouse.move(source.x + 24, source.y + 24)
+    await page.mouse.down()
+    await page.mouse.move(source.x + 24, source.y + 8, { steps: 5 })
+    await page.mouse.move(firstRect.x + 24, firstRect.y - 3, { steps: 12 })
+    await expect(first.locator('..')).toHaveClass(/drag-over-before/)
+    const marker = await first.locator('..').evaluate(el => {
+      const style = getComputedStyle(el, '::before')
+      const rect = el.getBoundingClientRect()
+      return { top: rect.top + parseFloat(style.top), height: parseFloat(style.height) }
+    })
+    expect(marker.top).toBeGreaterThanOrEqual(listRect.y)
+    expect(marker.height).toBe(3)
+    await page.screenshot({ path: testInfo.outputPath('rail-first-insertion.png') })
+    await page.mouse.up()
+    const order = () => list.locator('[data-server-id]').evaluateAll(els => els.map(el => el.getAttribute('data-server-id')))
+    await expect.poll(order).toEqual(['rail-2', 'rail-0', 'rail-1'])
+    await page.reload()
+    await expect.poll(order).toEqual(['rail-2', 'rail-0', 'rail-1'])
+    await list.locator('[data-server-id="rail-2"]').dragTo(list.locator('[data-server-id="rail-1"]'), { targetPosition: { x: 24, y: 46 } })
+    await expect.poll(order).toEqual(['rail-0', 'rail-1', 'rail-2'])
+  })
+
+  test('scrolls long server rails during drag without losing Social or create/join controls', async ({ page }) => {
+    const servers = Array.from({ length: 16 }, (_, i) => buildCoreServer({ id: `rail-${i}`, name: `Rail ${i}` }))
+    await installMockCoreApi(page, createMockCoreState({ servers, channelsByServerId: { [servers[0].id]: buildCoreChannels(servers[0].id) } }))
+    await page.setViewportSize({ width: 1920, height: 600 })
+    await page.goto('/servers')
+    const list = page.locator('.server-sidebar-scroll')
+    const last = list.locator('[data-server-id="rail-15"]')
+    await last.scrollIntoViewIfNeeded()
+    expect(await list.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
+    const source = (await last.boundingBox())!
+    const bounds = (await list.boundingBox())!
+    await page.mouse.move(source.x + 24, source.y + 24)
+    await page.mouse.down()
+    await page.mouse.move(source.x + 24, source.y + 8, { steps: 5 })
+    await page.mouse.move(source.x + 24, bounds.y + 5, { steps: 15 })
+    await expect(page.locator('.server-sidebar')).toHaveClass(/is-dragging/)
+    await expect.poll(() => list.evaluate(el => el.scrollTop), { timeout: 15000 }).toBe(0)
+    await page.mouse.move(source.x + 24, bounds.y + 12)
+    await expect(list.locator('[data-server-id="rail-0"]').locator('..')).toHaveClass(/drag-over-before/)
+    await page.mouse.up()
+    await expect(list.locator('[data-server-id]').first()).toHaveAttribute('data-server-id', 'rail-15')
+    await expect(page.getByRole('link', { name: 'Social', exact: true })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Create Server' })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Join Server' })).toBeInViewport()
+  })
+
+  test('reveals a thin overflowing rail scrollbar on hover without moving icons', async ({ page }, testInfo) => {
+    const servers = Array.from({ length: 16 }, (_, i) => buildCoreServer({ id: `rail-${i}`, name: `Rail ${i}` }))
+    await installMockCoreApi(page, createMockCoreState({ servers, channelsByServerId: { [servers[0].id]: buildCoreChannels(servers[0].id) } }))
+    await page.setViewportSize({ width: 1920, height: 600 })
+    await page.goto('/servers')
+    const list = page.locator('.server-sidebar-scroll')
+    const first = list.locator('[data-server-id="rail-0"]')
+    await expect(first).toBeVisible()
+    await page.locator('.chat-header').click()
+    await page.mouse.move(1000, 200)
+    expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    await expect(list).toHaveCSS('scrollbar-color', 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)')
+    expect(await list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar').width)).toBe('4px')
+    const idle = (await first.boundingBox())!
+    await page.screenshot({ path: testInfo.outputPath('rail-scrollbar-idle.png') })
+    await first.hover()
+    const thumb = () => list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar-thumb').backgroundColor)
+    await expect.poll(thumb).not.toBe('rgba(0, 0, 0, 0)')
+    expect((await first.boundingBox())!.x).toBe(idle.x)
+    await page.screenshot({ path: testInfo.outputPath('rail-scrollbar-hover.png') })
+    await page.mouse.wheel(0, 200)
+    await expect.poll(() => list.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
+    await page.mouse.move(1000, 200)
+    await expect.poll(thumb).toBe('rgba(0, 0, 0, 0)')
+    await list.locator('[data-server-id="rail-15"]').focus()
+    await expect.poll(thumb).not.toBe('rgba(0, 0, 0, 0)')
+  })
+
+  test('groups Quick Search and preserves keyboard navigation, filtering and focus', async ({ page }, testInfo) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      dmChannels: [{ id: 'dm-friend-01', peer_id: 'friend-01', peer_username: 'Friend 01', peer_status: 'online', peer_avatar_url: null, unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+    }))
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/servers')
+    const trigger = page.getByRole('button', { name: /Quick Search/ })
+    await trigger.click()
+    const dialog = page.getByRole('dialog', { name: 'Quick switcher' })
+    await expect(dialog.getByRole('heading')).toHaveText(['Direct messages', 'Servers', 'Channels'])
+    const input = dialog.getByRole('textbox')
+    await expect(input).toBeFocused()
+    await input.press('ArrowDown')
+    await expect(dialog.locator('.quick-switcher-item.active')).toContainText(server.name)
+    await input.fill('not-a-match')
+    await expect(dialog.getByText(/No matches/)).toBeVisible()
+    await expect(dialog.getByRole('heading')).toHaveCount(0)
+    await input.fill('general')
+    await expect(dialog.getByRole('heading')).toHaveText(['Channels'])
+    await input.fill('')
+    await page.screenshot({ path: testInfo.outputPath('quick-search-groups.png') })
+    await dialog.locator('.quick-switcher-item').last().focus()
+    await page.keyboard.press('Tab')
+    await expect(input).toBeFocused()
+    await input.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+
+  test('keeps long Quick Search scrolling native without backdrop blur or pointer-driven jumps', async ({ page }) => {
+    const servers = Array.from({ length: 8 }, (_, n) => buildCoreServer({ id: `quick-scroll-${n}`, name: `Scroll Guild ${n}` }))
+    await installMockCoreApi(page, createMockCoreState({
+      servers, channelsByServerId: Object.fromEntries(servers.map(server => [server.id, buildCoreChannels(server.id)])),
+    }))
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/servers')
+    await page.getByRole('button', { name: /Quick Search/ }).click()
+    await expect(page.locator('.quick-switcher-overlay')).toHaveCSS('backdrop-filter', 'none')
+    const list = page.locator('.quick-switcher-list')
+    await expect.poll(() => list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    await list.hover()
+    await page.mouse.wheel(0, 20000)
+    await expect.poll(() => list.evaluate(el => Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop))).toBeLessThan(1)
+    const bottom = await list.evaluate(el => el.scrollTop)
+    const box = (await list.boundingBox())!
+    const rows = list.locator('.quick-switcher-item')
+    let checkedClippedRow = false
+    for (const row of await rows.all()) {
+      const rect = (await row.boundingBox())!
+      if (rect.y < box.y && rect.y + rect.height > box.y + 2) {
+        await page.mouse.move(box.x + box.width / 2, box.y + 2)
+        await expect(row).toHaveClass(/active/)
+        expect(await list.evaluate(el => el.scrollTop)).toBeCloseTo(bottom, 1)
+        checkedClippedRow = true
+        break
+      }
+    }
+    expect(checkedClippedRow).toBe(true)
+    const input = page.getByRole('textbox', { name: 'Search servers, channels, and direct messages' })
+    await input.fill('')
+    await input.hover()
+    for (let n = 0; n < 18; n++) await input.press('ArrowUp')
+    await expect(rows.first()).toHaveClass(/active/)
+    expect(await rows.first().evaluate(el => {
+      const row = el.getBoundingClientRect()
+      const list = el.closest('.quick-switcher-list')!.getBoundingClientRect()
+      return row.top >= list.top && row.bottom <= list.bottom
+    })).toBe(true)
+    await input.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Quick switcher' })).toHaveCount(0)
+  })
+
+  test('uses one compact chat layout below 1024px and keeps composer, photos, and panels usable', async ({ page }, testInfo) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const general = channels[0]
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels }, membersByServerId: { [server.id]: buildCoreMembers() },
+      messagesByChannelId: { [general.id]: [buildServerMessage(general.id, 'Square photo', {
+        id: 'responsive-photo', attachments: [{ url: '/responsive-square.svg', name: 'square.svg', type: 'image/svg+xml' }],
+      })] },
+    }))
+    await page.route('**/responsive-square.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#26b8a6"/></svg>' }))
+    for (const width of [1920, 1024, 1023, 800, 390]) {
+      await page.setViewportSize({ width, height: width < 1024 ? 600 : 1080 })
+      await page.goto('/servers')
+      const compact = width < 1024
+      const composer = page.locator('.message-input:visible')
+      await expect(composer).toBeVisible()
+      await expect(composer).toHaveAttribute('placeholder', compact ? 'Message' : 'Message #general')
+      expect((await composer.boundingBox())!.width).toBeGreaterThanOrEqual(compact ? width - 230 : 200)
+      expect(await page.locator('.shell-layout').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      await expect(page.locator('.sidebar-resizer')).toHaveCount(0)
+      const image = page.locator('.chat-image-attachment:visible')
+      await expect(image).toBeVisible()
+      const geometry = await image.evaluate((el: HTMLImageElement) => {
+        const rect = el.getBoundingClientRect()
+        const frame = el.parentElement!.getBoundingClientRect()
+        return { ratio: rect.width / rect.height, width: rect.width, frame: frame.width, inside: rect.left >= frame.left && rect.right <= frame.right && rect.top >= frame.top && rect.bottom <= frame.bottom }
+      })
+      expect(geometry.ratio).toBeCloseTo(1, 2)
+      expect(geometry.inside).toBe(true)
+      const attach = page.getByRole('button', { name: 'Attach files' })
+      const expressions = page.getByRole('button', { name: 'Emoji, GIFs and stickers' })
+      expect((await attach.boundingBox())!.x).toBeLessThan((await expressions.boundingBox())!.x)
+      expect((await expressions.boundingBox())!.x).toBeLessThan((await composer.boundingBox())!.x)
+      await expressions.press('Enter')
+      const picker = page.getByRole('dialog', { name: 'Emoji, GIFs and stickers' })
+      await expect(picker).toBeInViewport()
+      await expect(picker.getByPlaceholder('Search emoji')).toBeFocused()
+      for (const mode of ['GIF', 'Sticker', 'Emoji']) {
+        await picker.getByRole('tab', { name: mode, exact: true }).click()
+        await expect(picker).toBeInViewport()
+      }
+      await page.keyboard.press('Escape')
+      await expect(expressions).toBeFocused()
+      await expect(picker).toHaveCount(0)
+      await expressions.click()
+      await picker.getByRole('tab', { name: 'GIF', exact: true }).click()
+      await page.keyboard.press('Escape')
+      await expressions.click()
+      await expect(picker.getByRole('tab', { name: 'GIF', exact: true })).toHaveAttribute('aria-selected', 'true')
+      await picker.getByRole('tab', { name: 'Sticker', exact: true }).click()
+      await page.keyboard.press('Escape')
+      await page.reload()
+      await expressions.click()
+      await expect(picker.getByRole('tab', { name: 'Sticker', exact: true })).toHaveAttribute('aria-selected', 'true')
+      await picker.getByRole('tab', { name: 'Emoji', exact: true }).click()
+      await page.keyboard.press('Escape')
+      await composer.fill('A draft that survives layout changes')
+      if (compact) {
+        await expect(page.locator('.channel-sidebar')).not.toBeInViewport()
+        await expect(page.locator('.member-sidebar:not(.member-sidebar--sheet)')).toBeHidden()
+        await page.getByRole('button', { name: 'View members', exact: true }).click()
+        await expect(page.locator('.mobile-member-sheet')).toBeInViewport()
+        await page.getByRole('dialog', { name: 'Server members' }).getByRole('button', { name: 'Close members panel' }).click()
+        await page.getByRole('button', { name: server.name, exact: true }).and(page.locator('.server-icon')).click()
+        await expect(page.locator('.channel-sidebar')).toBeInViewport()
+        await page.getByRole('button', { name: 'Text channel general', exact: true }).click()
+        await expect(page.locator('.channel-sidebar')).not.toBeInViewport()
+      } else {
+        await expect(page.locator('.channel-sidebar')).toHaveCSS('width', '240px')
+        await expect(page.locator('.member-sidebar')).toHaveCSS('width', '240px')
+      }
+      await expect(composer).toHaveValue('A draft that survives layout changes')
+      await page.screenshot({ path: testInfo.outputPath(`responsive-chat-${width}.png`) })
+    }
+  })
+
+  for (const width of [1920, 800]) {
+    test(`contains Settings and account-dialog focus at ${width}px`, async ({ page }) => {
+      await installMockCoreApi(page, createMockCoreState({ features: { email_verification_enabled: true, email_delivery_enabled: true } }))
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto('/social')
+      const trigger = page.getByRole('button', { name: width >= 1024 ? 'Settings' : 'View my profile', exact: true })
+      await trigger.click()
+      if (width < 1024) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+      const firstControl = width >= 1024
+        ? settings.getByRole('button', { name: 'Profile', exact: true })
+        : settings.getByRole('combobox', { name: 'Settings section', exact: true })
+      await expect(settings).toHaveAttribute('aria-modal', 'true')
+      await expect(firstControl).toBeFocused()
+      await expect(page.locator('#root')).toHaveAttribute('inert', '')
+      await settings.getByRole('button', { name: 'Done', exact: true }).focus()
+      await page.keyboard.press('Tab')
+      await expect(firstControl).toBeFocused()
+      await page.keyboard.press('Shift+Tab')
+      await expect(settings.getByRole('button', { name: 'Done', exact: true })).toBeFocused()
+      for (const [row, dialog] of [['Username', 'Change username'], ['Email address', 'Change email'], ['Password', 'Change password']]) {
+        const opener = settings.locator('.user-setting-row').filter({ has: page.getByText(row, { exact: true }) }).getByRole('button', { name: 'Change', exact: true })
+        for (const dismissal of ['cancel', 'escape', 'backdrop']) {
+          await opener.click()
+          const account = page.getByRole('dialog', { name: dialog, exact: true })
+          await expect(account).toBeVisible()
+          await expect(page.locator('.user-settings-modal').locator('..')).toHaveAttribute('inert', '')
+          await expect(page.locator('#root')).toHaveAttribute('inert', '')
+          await account.getByRole('button', { name: 'Cancel', exact: true }).focus()
+          await page.keyboard.press('Tab')
+          expect(await account.evaluate(el => el.contains(document.activeElement))).toBe(true)
+          if (dismissal === 'cancel') await account.getByRole('button', { name: 'Cancel', exact: true }).click()
+          else if (dismissal === 'escape') await page.keyboard.press('Escape')
+          else await page.locator('.modal-overlay').filter({ has: account }).click({ position: { x: 2, y: 2 } })
+          await expect(account).toHaveCount(0)
+          await expect(settings).toBeVisible()
+          await expect(opener).toBeFocused()
+        }
+      }
+      await page.keyboard.press('Escape')
+      await expect(settings).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+      await expect(page.locator('#root')).not.toHaveAttribute('inert')
+    })
+  }
+
   test('opens profiles independently from messages and status', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(2) })
     await installMockCoreApi(page, state)
@@ -22,7 +328,16 @@ test.describe('mocked release and settings regressions', () => {
     await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
     await expect(page.locator('.user-settings-modal')).toBeVisible()
     await page.getByRole('button', { name: 'Done', exact: true }).click()
-    await page.getByRole('button', { name: 'Set status', exact: true }).click()
+    const statusButton = page.getByRole('button', { name: 'Set status', exact: true })
+    await expect(page.getByRole('button', { name: 'View my profile', exact: true })).toHaveCount(1)
+    await expect(statusButton).toContainText(state.user.username)
+    await statusButton.locator('.user-name').click()
+    await expect(page.locator('.user-status-popover')).toBeVisible()
+    await expect(page.getByRole('dialog', { name: state.user.username, exact: true })).toHaveCount(0)
+    await statusButton.locator('.user-status').click()
+    await expect(page.locator('.user-status-popover')).toBeHidden()
+    await statusButton.focus()
+    await page.keyboard.press('Enter')
     await expect(page.locator('.user-status-popover')).toBeVisible()
   })
 
@@ -38,7 +353,7 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('.social-sidebar')).toHaveCSS('width', '240px')
     await page.setViewportSize({ width: 1021, height: 600 })
     await expect.poll(() => page.locator('.home-main').evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(350)
-    await expect(page.locator('.social-sidebar')).toHaveCSS('width', '240px')
+    await expect(page.locator('.social-sidebar')).not.toBeInViewport()
     await page.setViewportSize({ width: 800, height: 600 })
     await expect(page.locator('.home-side')).toBeHidden()
     await expect.poll(() => page.locator('.home-main').evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(480)
@@ -51,7 +366,7 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('.user-settings-modal')).toBeVisible()
   })
 
-  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1021, height: 360 }]) {
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 360 }]) {
     test(`keeps long member and voice menus usable at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
       const server = buildCoreServer()
       const channels = buildCoreChannels(server.id)
@@ -83,7 +398,14 @@ test.describe('mocked release and settings regressions', () => {
       await member.press('Shift+F10')
       const menu = page.getByRole('menu', { name: `Actions for ${peer.username}` })
       await expectViewportPopup(menu)
-      await expect(menu).toHaveCSS('width', '264px')
+      const memberRect = (await member.boundingBox())!
+      const menuRect = (await menu.boundingBox())!
+      expect(menuRect.y >= memberRect.y + memberRect.height + 3 || menuRect.y + menuRect.height <= memberRect.y - 3).toBe(true)
+      await expect(menu).toHaveCSS('width', '224px')
+      const memberPanel = (await page.locator('.member-sidebar').boundingBox())!
+      expect(menuRect.x).toBeGreaterThanOrEqual(memberPanel.x + 7)
+      expect(menuRect.x + menuRect.width).toBeLessThanOrEqual(memberPanel.x + memberPanel.width - 7)
+      expect(await menu.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       await expect(menu.getByRole('menuitem', { name: 'Manage roles' })).toBeVisible()
       await menu.evaluate(el => el.scrollTop = el.scrollHeight)
       await expect(menu.getByRole('menuitem', { name: 'Ban user' })).toBeInViewport()
@@ -105,7 +427,16 @@ test.describe('mocked release and settings regressions', () => {
       await participant.press('Shift+F10')
       const voiceMenu = page.getByRole('group', { name: `Voice actions for ${peer.username}` })
       await expectViewportPopup(voiceMenu)
-      await expect(voiceMenu).toHaveCSS('width', '264px')
+      const participantRect = (await participant.boundingBox())!
+      const voiceMenuRect = (await voiceMenu.boundingBox())!
+      expect(voiceMenuRect.y >= participantRect.y + participantRect.height + 3 || voiceMenuRect.y + voiceMenuRect.height <= participantRect.y - 3).toBe(true)
+      const avatarRect = (await participant.locator('.voice-participant-avatar').boundingBox())!
+      expect(voiceMenuRect.x).toBeCloseTo(avatarRect.x, 0)
+      expect(voiceMenuRect.width).toBeLessThanOrEqual(224)
+      const channelPanel = (await page.locator('.channel-sidebar').boundingBox())!
+      expect(voiceMenuRect.x).toBeGreaterThanOrEqual(channelPanel.x + 7)
+      expect(voiceMenuRect.x + voiceMenuRect.width).toBeLessThanOrEqual(channelPanel.x + channelPanel.width - 7)
+      expect(await voiceMenu.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       const picker = voiceMenu.getByRole('combobox', { name: `Move ${peer.username} to voice channel` })
       await picker.scrollIntoViewIfNeeded()
       await expect(picker).toBeInViewport()
@@ -190,12 +521,62 @@ test.describe('mocked release and settings regressions', () => {
     await page.screenshot({ path: testInfo.outputPath('social-light.png') })
   })
 
+  test('tints real chat and settings surfaces in Custom Light independently from accent', async ({ page }, testInfo) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({ servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, membersByServerId: { [server.id]: buildCoreMembers() } }))
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/servers')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+    await page.locator('.theme-option', { hasText: 'Light' }).click()
+    await page.locator('.theme-option', { hasText: 'Custom' }).click()
+    const readSurfaces = () => page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement)
+      return Object.fromEntries(['--bg-primary', '--bg-secondary', '--bg-surface', '--bg-chat', '--bg-input', '--bg-header', '--bg-popover'].map(key => [key, root.getPropertyValue(key).trim()]))
+    })
+    const colors: Record<string, string>[] = []
+    const renderedSurfaces: string[][] = []
+    for (const color of ['#00ffee', '#ff00aa']) {
+      const field = page.getByRole('textbox', { name: 'Custom theme hex color' })
+      await field.fill(color)
+      await field.press('Enter')
+      colors.push(await readSurfaces())
+      const painted: string[] = []
+      for (const selector of ['.chat-area', '.channel-sidebar', '.member-sidebar', '.user-settings-modal']) {
+        const background = await page.locator(selector).evaluate(el => {
+          const style = getComputedStyle(el)
+          return { color: style.backgroundColor, image: style.backgroundImage }
+        })
+        expect(background.color, selector).not.toBe('rgb(255, 255, 255)')
+        if (background.image === 'none') expect(background.color, selector).not.toBe('rgba(0, 0, 0, 0)')
+        painted.push(JSON.stringify(background))
+      }
+      renderedSurfaces.push(painted)
+      await page.screenshot({ path: testInfo.outputPath(`custom-light-${color.slice(1)}.png`) })
+    }
+    for (const key of Object.keys(colors[0])) expect(colors[0][key]).not.toBe(colors[1][key])
+    for (let index = 0; index < renderedSurfaces[0].length; index++) expect(renderedSurfaces[0][index]).not.toBe(renderedSurfaces[1][index])
+    await page.getByRole('button', { name: 'Use Emerald accent' }).click()
+    expect(await readSurfaces()).toEqual(colors[1])
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'light')
+    expect(await readSurfaces()).toEqual(colors[1])
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+    await page.getByRole('button', { name: 'Reset defaults', exact: true }).click()
+    await expect(page.locator('html')).not.toHaveAttribute('data-custom-theme')
+    await expect(page.locator('html')).not.toHaveAttribute('data-custom-accent')
+  })
+
   test('keeps the settings frame stable across tabs', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState())
-    for (const viewport of [{ width: 1366, height: 768 }, { width: 800, height: 600 }]) {
+    for (const viewport of [{ width: 1366, height: 768 }, { width: 800, height: 600 }, { width: 320, height: 568 }]) {
       await page.setViewportSize(viewport)
       await page.goto('/social')
-      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      if (viewport.width < 1024) {
+        await page.getByRole('button', { name: 'View my profile', exact: true }).click()
+        await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+      } else await page.getByRole('button', { name: 'Settings', exact: true }).click()
       const modal = page.locator('.user-settings-modal')
       await modal.evaluate(async (element) => {
         await Promise.all(element.getAnimations().map((animation) => animation.finished))
@@ -216,14 +597,24 @@ test.describe('mocked release and settings regressions', () => {
         }
       })
       const initial = await readFrame()
+      if (viewport.width < 1024) {
+        expect(initial.scroll.height).toBeGreaterThan(250)
+        expect(initial.nav.height).toBeLessThan(70)
+        await expect(modal.getByRole('combobox', { name: 'Settings section' })).toBeFocused()
+        await expect(modal.getByRole('button', { name: 'About Voxpery', exact: true })).toBeVisible()
+      }
       for (const tab of ['Appearance', 'Communication', 'Voice & Audio', 'Privacy & Data', 'Profile']) {
-        await modal.getByRole('button', { name: tab, exact: true }).click()
+        if (viewport.width < 1024) {
+          await modal.getByRole('combobox', { name: 'Settings section' }).selectOption({ label: tab })
+        } else await modal.getByRole('button', { name: tab, exact: true }).click()
         const frame = await readFrame()
         for (const region of ['modal', 'header', 'nav', 'scroll', 'footer'] as const) {
           expect(frame[region].y, `${viewport.width}px ${tab} ${region} top`).toBeCloseTo(initial[region].y, 0)
           expect(frame[region].height, `${viewport.width}px ${tab} ${region} height`).toBeCloseTo(initial[region].height, 0)
         }
         await expect(modal.getByRole('button', { name: 'Done', exact: true })).toBeVisible()
+        await expectNoHorizontalOverflow(modal.locator('.user-settings-scroll'))
+        await expectFlatSettingsSurfaces(modal)
       }
       await modal.getByRole('button', { name: 'Done', exact: true }).click()
     }
@@ -281,6 +672,19 @@ test.describe('mocked release and settings regressions', () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('F')
     await page.keyboard.press('G')
     await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('G')
+    await modal.getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect(page.getByText('The microphone shortcut for this tab is no longer assigned.', { exact: true })).toBeVisible()
+    await expect(page.getByText('The global microphone shortcut is no longer assigned.', { exact: true })).toHaveCount(0)
+    for (const name of ['Input volume', 'Output volume']) {
+      await expect(modal.getByRole('slider', { name, exact: true })).toBeVisible()
+    }
+    for (const name of ['Input sensitivity preset', 'Activation mode']) {
+      await expect(modal.getByRole('combobox', { name, exact: true })).toBeVisible()
+    }
+    await modal.getByRole('button', { name: 'Communication', exact: true }).click()
+    for (const name of ['Server message notifications', 'Who can send you DMs']) {
+      await expect(modal.getByRole('combobox', { name, exact: true })).toBeVisible()
+    }
   })
 
   test('switches built-in themes and resets appearance defaults without layout overflow', async ({ page }) => {
@@ -447,7 +851,7 @@ test.describe('mocked release and settings regressions', () => {
     expect(custom.voiceSurface).not.toBe(dark.voiceSurface)
   })
 
-  test('keeps the compact feedback dock inside its fixed area on Social and server views', async ({ page }) => {
+  test('keeps a single support link inside the footer on Social and server views', async ({ page }) => {
     const server = buildCoreServer()
     const state = createMockCoreState({
       friends: buildFriends(2),
@@ -457,20 +861,50 @@ test.describe('mocked release and settings regressions', () => {
     })
     await installMockCoreApi(page, state)
     await page.setViewportSize({ width: 1366, height: 620 })
+    await page.addInitScript(() => {
+      window.open = (url) => { Reflect.set(window, '__supportOpenedUrl', String(url)); return null }
+    })
 
-    await page.goto('/social')
-
-    const feedbackCard = page.locator('.feedback-dock .feedback-card')
-    await expect(feedbackCard.getByRole('heading', { name: 'Share feedback on GitHub' })).toBeVisible()
-    await expect(feedbackCard.getByRole('button', { name: 'Report a bug' })).toBeVisible()
-    await expect(feedbackCard.getByRole('button', { name: 'Request a feature' })).toBeVisible()
-    await expect(page.locator('.home-side .feedback-card')).toHaveCount(0)
-
-    await expectCompactFeedbackDock(page)
-
-    await page.goto('/servers')
-    await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
-    await expectCompactFeedbackDock(page)
+    for (const path of ['/social', '/servers']) {
+      await page.goto(path)
+      if (path === '/servers') {
+        await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
+        await expect(page.locator('.member-sidebar')).toHaveCSS('width', '240px')
+      }
+      if (path === '/social') {
+        const resources = page.getByRole('navigation', { name: 'Voxpery resources' })
+        await expect(page.locator('.home-side').getByRole('heading', { name: 'Friend Activity' })).toBeVisible()
+        await expect(resources.locator(':scope > *')).toHaveCount(3)
+        for (const action of await resources.locator(':scope > *').all()) {
+          await expect(action).toHaveCSS('border-top-width', '1px')
+          await expect(action).toHaveCSS('cursor', 'pointer')
+          await expect(action.locator('.social-resource-link-trailing')).toBeVisible()
+          await action.focus()
+          await expect(action).toHaveCSS('outline-style', 'solid')
+        }
+      }
+      await expect(page.locator('.feedback-card')).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Share feedback on GitHub' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Report a bug' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Request a feature' })).toHaveCount(0)
+      const support = page.getByRole('link', { name: 'Support Voxpery' })
+      await expect(support).toHaveCount(1)
+      await expect(support).toHaveAttribute('href', 'https://github.com/sponsors/emircanagac')
+      await expect(support).toHaveCSS('border-top-style', 'solid')
+      await expect(support).toHaveCSS('border-top-width', '1px')
+      await expect(support.locator('.social-resource-link-trailing')).toBeVisible()
+      const idleBackground = await support.evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(idleBackground).not.toBe('rgba(0, 0, 0, 0)')
+      await support.focus()
+      await expect(support).toBeFocused()
+      await expect(support).toHaveCSS('outline-style', 'solid')
+      await expectCompactSupportDock(page)
+      await page.screenshot({ path: `test-results/support-footer-${path.slice(1)}.png` })
+      await support.click({ position: { x: 4, y: 4 } })
+      expect(await page.evaluate(() => Reflect.get(window, '__supportOpenedUrl')))
+        .toBe('https://github.com/sponsors/emircanagac')
+      await expect(page).toHaveURL(new RegExp(`${path}$`))
+    }
   })
 
   test('keeps profile password modal validation and submission wired', async ({ page }) => {
@@ -561,8 +995,8 @@ test.describe('mocked release and settings regressions', () => {
     expect(state.dataExportRequestCount).toBe(1)
     expect(state.lastDataExportPassword).toBe('current-password-123')
 
-    await page.getByRole('button', { name: 'Settings' }).click()
-    await page.getByRole('button', { name: 'Privacy & Data' }).click()
+    await expect(modal).toBeVisible()
+    await expect(modal).toContainText('Data export')
     await modal.locator('.user-setting-row', { hasText: 'Delete account' }).getByRole('button', { name: 'Manage' }).click()
     const deleteModal = page.locator('.delete-account-modal')
     await expect(deleteModal).toBeVisible()
@@ -579,7 +1013,63 @@ test.describe('mocked release and settings regressions', () => {
     expect(state.deleteAccountRequestCount).toBe(1)
     expect(state.lastDeleteAccountConfirm).toBe('DELETE')
   })
+  for (const width of [1920, 800]) {
+    test(`returns to Privacy & Data after cancelling export or deletion at ${width}px`, async ({ page }) => {
+      await installMockCoreApi(page, createMockCoreState())
+      await page.setViewportSize({ width, height: 600 })
+      await page.goto('/social')
+      await page.getByRole('button', { name: width >= 1024 ? 'Settings' : 'View my profile', exact: true }).click()
+      if (width < 1024) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+      const settings = page.locator('.user-settings-modal')
+      if (width < 1024) await settings.getByRole('combobox', { name: 'Settings section' }).selectOption('privacy')
+      else await settings.getByRole('button', { name: 'Privacy & Data', exact: true }).click()
+      for (const [action, title] of [['Export', 'Create data export'], ['Manage', 'Delete account']]) {
+      const opener = settings.getByRole('button', { name: action, exact: true })
+      for (const dismissal of ['cancel', 'escape', 'backdrop']) {
+        await opener.click()
+        const dialog = page.getByRole('dialog', { name: title, exact: true })
+        await expect(settings).toBeVisible()
+        await expect(settings.locator('..')).toHaveAttribute('inert', '')
+        if (action === 'Export') {
+          const password = dialog.getByLabel('Current password', { exact: true })
+          await expect(password).toBeFocused()
+          await expect(password).toHaveValue('')
+          await expect(dialog.getByRole('button', { name: 'Download ZIP' })).toBeDisabled()
+          await password.fill('unsent-test-password')
+        } else {
+          await expect(dialog.locator('#delete-password')).toHaveValue('')
+          await expect(dialog.locator('#delete-confirm')).toHaveValue('')
+          await expect(dialog.getByRole('button', { name: 'Delete account', exact: true })).toBeDisabled()
+          await dialog.locator('#delete-password').fill('unsent-test-password')
+          await dialog.locator('#delete-confirm').fill('DELETE')
+        }
+        await dialog.getByRole('button', { name: 'Cancel', exact: true }).focus()
+        await page.keyboard.press('Tab')
+        expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true)
+        if (dismissal === 'cancel') await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+        else if (dismissal === 'escape') await page.keyboard.press('Escape')
+        else await page.locator('.modal-overlay').filter({ has: dialog }).click({ position: { x: 2, y: 2 } })
+        await expect(dialog).toHaveCount(0)
+        await expect(settings.locator('..')).not.toHaveAttribute('inert')
+        await expect(opener).toBeFocused()
+        await expect(settings).toContainText('Data export')
+        await expect(page.locator('#root')).toHaveAttribute('inert', '')
+      }
+      }
+      await page.keyboard.press('Escape')
+      await expect(settings).toHaveCount(0)
+      await expect(page.locator('#root')).not.toHaveAttribute('inert')
+    })
+  }
 })
+
+async function expectFlatSettingsSurfaces(modal: Locator) {
+  expect(await modal.evaluate(element => [element, ...element.querySelectorAll('*')].flatMap(node => {
+    const styles = ['', '::before', '::after'].map(pseudo => getComputedStyle(node, pseudo || null))
+    return styles.filter(style => /gradient\(/.test(style.backgroundImage) || style.backdropFilter !== 'none' || style.filter !== 'none')
+      .map(() => node.className)
+  }))).toEqual([])
+}
 
 async function expectNoHorizontalOverflow(locator: import('@playwright/test').Locator) {
   await expect.poll(async () => {
@@ -587,9 +1077,9 @@ async function expectNoHorizontalOverflow(locator: import('@playwright/test').Lo
   }).toBe(true)
 }
 
-async function expectCompactFeedbackDock(page: import('@playwright/test').Page) {
-  const dock = page.locator('.feedback-dock')
-  const card = dock.locator('.feedback-card')
+async function expectCompactSupportDock(page: import('@playwright/test').Page) {
+  const dock = page.locator('.support-dock')
+  const card = dock.locator('.project-support-link')
   await expect(dock).toBeVisible()
   await expect(card).toBeVisible()
 

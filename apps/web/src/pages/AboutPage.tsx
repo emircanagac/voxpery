@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { Code2, Download, Globe2, Server, ShieldCheck } from 'lucide-react'
+import { Download, Globe2, Server, ShieldCheck } from 'lucide-react'
 import { releaseApi, type LatestReleaseResponse } from '../api'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
+import { useCompactLayout } from '../hooks/useCompactLayout'
 import productPreviewUrl from '../assets/voxpery.png?url'
 import { DEPLOY_URL, PublicSiteFooter, PublicSiteHeader, RELEASE_URL } from './PublicSiteChrome'
 import { usePublicPageMetadata } from './publicPageMetadata'
@@ -21,6 +22,8 @@ const PLATFORM_LABELS: Record<DownloadPlatform, string> = {
 function detectPlatform(): KnownPlatform {
   const userAgent = navigator.userAgent.toLowerCase()
   const platform = (navigator.platform || '').toLowerCase()
+
+  if (/android|iphone|ipad|ipod/.test(userAgent) || (platform.includes('mac') && navigator.maxTouchPoints > 1)) return 'unknown'
 
   if (userAgent.includes('win') || platform.includes('win')) return 'windows'
   if (userAgent.includes('mac') || platform.includes('mac') || userAgent.includes('darwin')) return 'macos'
@@ -46,6 +49,7 @@ export default function AboutPage() {
     'Voxpery is a free, open-source Discord alternative with community chat, voice, desktop apps, hosted access, and full self-hosting.',
   )
   const isAuthenticated = useAuthStore((state) => Boolean(state.user))
+  const isCompact = useCompactLayout()
   const platform = useMemo(() => detectPlatform(), [])
   const [releaseTag, setReleaseTag] = useState<string | null>(null)
   const [releaseDate, setReleaseDate] = useState<string | null>(null)
@@ -86,7 +90,7 @@ export default function AboutPage() {
   const releaseMeta = [releaseTag, releaseDate].filter(Boolean).join(' - ')
 
   return (
-    <div className="about-page">
+    <div className="about-page about-page--landing">
       <PublicSiteHeader releaseUrl={releaseUrl} page="about" />
 
       <main className="about-main">
@@ -95,8 +99,8 @@ export default function AboutPage() {
             <p className="about-kicker">Free and open source</p>
             <h1>Voxpery</h1>
             <p className="about-subtitle">
-              A Discord alternative for communities that want chat, voice, moderation, and ownership.
-              Use the hosted service in your browser or deploy the same stack yourself.
+              Text chat, voice channels, screen sharing, and moderation for your community.
+              Free, open source, and available in your browser or on your own server.
             </p>
           </div>
 
@@ -106,53 +110,29 @@ export default function AboutPage() {
                 <Globe2 size={20} />
                 <span>{appEntryLabel}</span>
               </Link>
-              <a href={primaryDownloadUrl} target="_blank" rel="noreferrer" className="about-cta about-cta--secondary about-cta--download">
+              {!isCompact && <a href={primaryDownloadUrl} target="_blank" rel="noreferrer" className="about-cta about-cta--secondary about-cta--download">
                 <Download size={20} />
                 <span>{primaryDownloadLabel}</span>
-              </a>
+              </a>}
             </div>
-            {!isAuthenticated && (
-              <p className="about-community-note">Free hosted access. Create an account and start chatting right away.</p>
-            )}
-            <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-self-host-link">
+            <div className="about-secondary-actions">
+            {!isCompact && <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-self-host-link">
               <Server size={16} />
               <span>Self-host with Docker</span>
-            </a>
-            <p className="about-release-meta about-release-meta--center">
+            </a>}
+            {!isCompact && <p className="about-release-meta about-release-meta--center">
               <ShieldCheck size={16} />
               <span>{releaseMeta ? `Latest release: ${releaseMeta}` : 'Latest release available on GitHub'}</span>
-            </p>
+            </p>}
+            {isCompact && <p className="about-mobile-note">Community chat, wherever you are. No desktop download needed.</p>}
+            </div>
           </section>
 
           <div className="about-product-previews" aria-label="Voxpery app preview">
             <figure className="about-product-preview about-product-preview--desktop">
-              <img src={productPreviewUrl} alt="Voxpery voice channel interface" />
+              <img src={productPreviewUrl} alt="Voxpery voice channel interface" width={1918} height={950} />
             </figure>
           </div>
-
-          <section className="about-proof-band" aria-label="Why Voxpery">
-            <div className="about-proof-item">
-              <Code2 size={20} />
-              <div>
-                <strong>Inspectable by design</strong>
-                <span>Hosted and self-hosted builds share the same public AGPL codebase.</span>
-              </div>
-            </div>
-            <div className="about-proof-item">
-              <Server size={20} />
-              <div>
-                <strong>Your deployment choice</strong>
-                <span>Use voxpery.com or keep the full stack on infrastructure you control.</span>
-              </div>
-            </div>
-            <div className="about-proof-item">
-              <ShieldCheck size={20} />
-              <div>
-                <strong>No attention business</strong>
-                <span>No ads or analytics by default, with account export and deletion built in.</span>
-              </div>
-            </div>
-          </section>
 
         </section>
       </main>

@@ -532,6 +532,7 @@ export default function SensitivityBar({
                     </div>
                     <select
                         className="user-select sensitivity-bar-select"
+                        aria-label="Input sensitivity preset"
                         value={preset}
                         onChange={(e) => onPresetChange(e.target.value as SpeakingPreset)}
                     >

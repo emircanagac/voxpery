@@ -139,7 +139,7 @@ describe('theme preferences', () => {
   })
 
   it('generates readable dark and light palettes for extreme user colors', () => {
-    for (const baseColor of ['#000000', '#ffffff', '#ff00aa', '#1463ff']) {
+    for (const baseColor of ['#000000', '#ffffff', '#ff00aa', '#1463ff', '#00ffee', '#ff0000', '#ffff00', '#00ff00']) {
       for (const mode of ['dark', 'light'] as const) {
         const palette = createCustomThemePalette(baseColor, mode)
         const surfaces = [
@@ -168,5 +168,20 @@ describe('theme preferences', () => {
         ).toBeGreaterThanOrEqual(4.5)
       }
     }
+  })
+
+  it('makes custom light color visible on every main surface without changing the built-in Light theme', () => {
+    const mint = createCustomThemePalette('#00ffee', 'light')
+    const rose = createCustomThemePalette('#ff00aa', 'light')
+    for (const key of ['backgroundColor', 'secondaryBackgroundColor', 'surfaceColor', 'chatColor', 'inputColor', 'headerColor', 'popoverColor', 'topbarStartColor'] as const) {
+      expect(mint[key]).not.toBe(rose[key])
+      const channels = mint[key].slice(1).match(/../g)!.map(channel => parseInt(channel, 16))
+      expect(Math.max(...channels) - Math.min(...channels), key).toBeGreaterThanOrEqual(25)
+    }
+    setThemePreference({ theme: 'light', customAccent: null, customThemeColor: '#00ffee', customThemeMode: 'light' })
+    setThemePreference({ theme: 'light', customAccent: null, customThemeColor: null, customThemeMode: 'light' })
+    expect(document.documentElement.style.getPropertyValue('--user-theme-bg-chat')).toBe('')
+    expect(document.documentElement.dataset.customTheme).toBeUndefined()
+    expect(document.documentElement.dataset.theme).toBe('light')
   })
 })

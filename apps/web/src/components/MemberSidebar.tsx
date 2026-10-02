@@ -194,6 +194,8 @@ export default function MemberSidebar({
         role: string
         x: number
         y: number
+        trigger: HTMLElement
+        horizontalBoundary: HTMLElement | null
         canMakeAdmin: boolean
         canAddFriend: boolean
         canSendDm: boolean
@@ -558,8 +560,10 @@ export default function MemberSidebar({
             userId: member.user_id,
             username: member.username,
             role: member.role,
-            x: position.x,
+            x: trigger.getBoundingClientRect().left,
             y: position.y,
+            trigger,
+            horizontalBoundary: trigger.closest<HTMLElement>('.member-sidebar'),
             canMakeAdmin,
             canAddFriend,
             canSendDm,

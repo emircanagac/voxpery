@@ -1,6 +1,8 @@
 import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
+import FloatingScreenShare from './FloatingScreenShare'
 import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
@@ -296,7 +298,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [showCameraConfirm, setShowCameraConfirm] = useState(false)
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)').matches : false
+    typeof window !== 'undefined' ? window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY).matches : false
   )
   const lastShownErrorRef = useRef<string | null>(null)
   const OUTPUT_VOL_KEY = 'voxpery-settings-output-volume'
@@ -1073,7 +1075,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 700px)')
+    const media = window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY)
     const sync = () => setIsMobileViewport(media.matches)
     sync()
     media.addEventListener('change', sync)
@@ -1453,18 +1455,36 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }
 
   const localInitial = (user?.username?.charAt(0) || 'Y').toUpperCase()
-  const remoteShareOwner = (peerId: string) => members.find((m) => m.user_id === peerId)?.username ?? 'User'
-  const localFallbackTileCount = currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) ? 1 : 0
-  const visibleRemoteMediaTileCount = remoteVideoTrackEntries.filter((entry) => (
+  const remoteShareOwner = (peerId: string) => members.find((m) => m.user_id === resolvePeerVolumeKey(peerId))?.username ?? 'User'
+  const mediaOwnerAvatar = (peerId: string | null, compact = false) => {
+    const owner = peerId ? members.find(member => member.user_id === resolvePeerVolumeKey(peerId)) : user
+    const username = owner?.username ?? 'User'
+    const avatar = resolveAvatarUrl(owner?.avatar_url)
+    return <span className={`voice-stage-media-avatar${compact ? ' voice-stage-media-avatar--compact' : ''}`}>
+      {avatar ? <img src={avatar} alt={`${username}'s profile`} /> : <span aria-label={`${username}'s profile`}>{username.charAt(0).toUpperCase()}</span>}
+    </span>
+  }
+  const visibleRemoteMediaEntries = remoteVideoTrackEntries.filter((entry) => (
     entry.kind === 'screen'
       ? watchedRemoteScreenPeerIds.has(entry.peerId)
       : !isRemoteMediaHidden(entry.peerId, entry.kind)
-  )).length
-  const totalStageTiles = channelParticipants.length
+  ))
+  // A media tile represents its owner; a camera plus a share are two media, not two people.
+  const representedParticipantIds = new Set([
+    ...visibleRemoteMediaEntries.map((entry) => resolvePeerVolumeKey(entry.peerId)),
+    ...remoteScreenSharePlaceholders.map(resolvePeerVolumeKey),
+    ...remoteMediaPlaceholdersToRender.map((entry) => resolvePeerVolumeKey(entry.peerId)),
+  ])
+  if (user?.id && (state.cameraStream || (state.isScreenSharing && state.screenStream))) representedParticipantIds.add(user.id)
+  const avatarParticipants = channelParticipants.filter((participant) => !representedParticipantIds.has(participant.user_id))
+  const localParticipantMissing = !!currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id)
+  const showLocalFallbackTile = localParticipantMissing && !representedParticipantIds.has(user?.id ?? '')
+  const localFallbackTileCount = showLocalFallbackTile ? 1 : 0
+  const totalStageTiles = avatarParticipants.length
     + localFallbackTileCount
     + (state.isScreenSharing && state.screenStream ? 1 : 0)
     + (state.cameraStream ? 1 : 0)
-    + visibleRemoteMediaTileCount
+    + visibleRemoteMediaEntries.length
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
   const stageColumns = getStageColumns(totalStageTiles)
@@ -1573,53 +1593,41 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       {typeof document !== 'undefined' && createPortal(cameraModal, document.body)}
       {showActiveCallBar && (
         <>
-          {miniPlayerEntry && (
-            <aside className="screen-share-mini-player" aria-label={`Watching ${remoteShareOwner(miniPlayerEntry.peerId)}'s screen share`}>
-              <button
-                type="button"
-                className="screen-share-mini-player-open"
-                onClick={() => {
-                  setDismissedMiniPlayerKeys((current) => {
-                    const next = new Set(current)
-                    next.delete(miniPlayerEntry.key)
-                    return next
-                  })
-                  setTheaterStreamKey(miniPlayerEntry.key)
-                  goToVoiceChannel()
-                }}
-                title={`Return to ${remoteShareOwner(miniPlayerEntry.peerId)}'s stream`}
-                aria-label={`Return to ${remoteShareOwner(miniPlayerEntry.peerId)}'s stream`}
-              >
-                <RemoteVideoTrack track={miniPlayerEntry.track} />
-                <span className="screen-share-mini-player-label">
-                  <Monitor size={14} aria-hidden="true" />
-                  {remoteShareOwner(miniPlayerEntry.peerId)} is sharing
-                </span>
-              </button>
-              <button
-                type="button"
-                className="screen-share-mini-player-stop"
-                title="Stop watching"
-                aria-label={`Stop watching ${remoteShareOwner(miniPlayerEntry.peerId)}'s screen share`}
-                onClick={() => {
-                  setDismissedMiniPlayerKeys((current) => new Set(current).add(miniPlayerEntry.key))
-                  setTheaterStreamKey((current) => current === miniPlayerEntry.key ? null : current)
-                  setRemoteMediaSubscribed(miniPlayerEntry.peerId, 'screen', false)
-                }}
-              >
-                <EyeOff size={15} aria-hidden="true" />
-              </button>
-            </aside>
-          )}
+          <FloatingScreenShare
+            key={currentVoiceChannelId}
+            visible={!!miniPlayerEntry}
+            owner={miniPlayerEntry ? remoteShareOwner(miniPlayerEntry.peerId) : ''}
+            layoutKey={activeChannelId}
+            onReturn={() => {
+              if (!miniPlayerEntry) return
+              setDismissedMiniPlayerKeys((current) => {
+                const next = new Set(current)
+                next.delete(miniPlayerEntry.key)
+                return next
+              })
+              setTheaterStreamKey(miniPlayerEntry.key)
+              goToVoiceChannel()
+            }}
+            onStop={() => {
+              if (!miniPlayerEntry) return
+              setDismissedMiniPlayerKeys((current) => new Set(current).add(miniPlayerEntry.key))
+              setTheaterStreamKey((current) => current === miniPlayerEntry.key ? null : current)
+              setRemoteMediaSubscribed(miniPlayerEntry.peerId, 'screen', false)
+            }}
+          >
+            {miniPlayerEntry && <RemoteVideoTrack track={miniPlayerEntry.track} />}
+          </FloatingScreenShare>
           {showVoiceStage && (
             <div
               className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}`}
               data-stage-density={stageDensity}
               data-stage-columns={stageColumns}
+              data-participant-count={channelParticipants.length + (localParticipantMissing ? 1 : 0)}
+              data-media-tile-count={totalStageTiles - avatarParticipants.length - localFallbackTileCount}
               data-theater-mode={hasTheaterFocus ? 'true' : undefined}
               style={hasTheaterFocus ? undefined : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
             >
-              {channelParticipants.map((p) => {
+              {avatarParticipants.map((p) => {
                 const isLocal = p.user_id === user?.id
                 const participantControl = voiceControls[p.user_id]
                 const participantSilenced = !!(
@@ -1641,7 +1649,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </div>
                 )
               })}
-              {currentVoiceChannelId && !channelParticipants.some((p) => p.user_id === user?.id) && (
+              {showLocalFallbackTile && (
                 <div key="participant-local-fallback" className="voice-stage-tile">
                   <div className={`voice-stage-avatar${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}>
                     {user?.avatar_url ? <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" /> : localInitial}
@@ -1653,7 +1661,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               {state.cameraStream && (
                 <div className="screen-share-preview voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video ref={attachCameraPreviewElement} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
-                  <div className="screen-share-info-overlay"><span className="screen-share-info-text">Camera · You</span></div>
+                  <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Camera · You</span></div>
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
@@ -1685,7 +1693,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               {state.isScreenSharing && state.screenStream && (
                 <div className={`screen-share-preview voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
-                  <div className="screen-share-info-overlay"><span className="screen-share-info-text">Screen share · You</span></div>
+                  <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Screen share · You</span></div>
                   {user?.id && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(user.id)} members={members} />}
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
@@ -1715,9 +1723,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 const isConnecting = watchedRemoteScreenPeerIds.has(peerId)
                 return (
                   <div key={`screen-available-${peerId}`} className="voice-stage-hidden-media-tile voice-stage-share-tile">
-                    <div className="voice-stage-hidden-media-icon">
-                      <Monitor size={18} />
-                    </div>
+                    {mediaOwnerAvatar(peerId)}
                     <div className="voice-stage-hidden-media-title">
                       {isConnecting ? 'Connecting to stream' : 'Stream available'}
                     </div>
@@ -1738,9 +1744,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               })}
               {remoteMediaPlaceholdersToRender.map((placeholder) => (
                 <div key={`hidden-${placeholder.key}`} className="voice-stage-hidden-media-tile">
-                  <div className="voice-stage-hidden-media-icon">
-                    <EyeOff size={18} />
-                  </div>
+                  {mediaOwnerAvatar(placeholder.peerId)}
                   <div className="voice-stage-hidden-media-title">
                     {placeholder.label} hidden
                   </div>
@@ -1772,7 +1776,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 return (
                   <div key={tileKey} className={`screen-share-preview remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
-                    <div className="screen-share-info-overlay"><span className="screen-share-info-text">{label} · {owner}</span></div>
+                    <div className="screen-share-info-overlay">{mediaOwnerAvatar(peerId, true)}<span className="screen-share-info-text">{label} · {owner}</span></div>
                     {kind === 'screen' && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />}
                     <div className="screen-share-controls-bar">
                       <div className="screen-share-controls-left">

@@ -428,7 +428,7 @@ describe('ChatArea regressions', () => {
     )
 
     expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
-    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
   })
 
   it('does not re-lock to latest when a pointer drag scrolls upward near the bottom', () => {
@@ -462,7 +462,7 @@ describe('ChatArea regressions', () => {
     )
 
     expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
-    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
   })
 
   it('keeps latest locked after passive scroll events and same-count content replacement', () => {
@@ -528,7 +528,26 @@ describe('ChatArea regressions', () => {
     )
 
     expect(scrollToIndex).not.toHaveBeenCalledWith(2, { align: 'end' })
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
+  })
+
+  it('shows the latest arrow only after meaningful history scrolling and avoids threshold flicker', () => {
+    const { container } = renderChatArea()
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    fireEvent.wheel(scroller, { deltaY: -24 })
+    scroller.scrollTop = 1056
+    fireEvent.scroll(scroller)
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
+    scroller.scrollTop = 910
+    fireEvent.scroll(scroller)
     expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+    scroller.scrollTop = 960
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+    scroller.scrollTop = 1030
+    fireEvent.scroll(scroller)
+    expect(screen.queryByRole('button', { name: 'Jump to latest messages' })).not.toBeInTheDocument()
+    expect(scroller.scrollTop).toBe(1030)
   })
 
   it('handles a notification jump only after the target row is visible', async () => {
@@ -632,17 +651,18 @@ describe('ChatArea regressions', () => {
       .toHaveAttribute('data-message-id', 'message-unread')
   })
 
-  it('exposes separate emoji, GIF, and sticker composer actions', async () => {
+  it('groups emoji, GIF, and sticker selection beside the attachment action', async () => {
     renderChatArea()
 
-    expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument()
-    const gifButton = screen.getByRole('button', { name: 'Browse GIFs' })
-    expect(gifButton).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Browse stickers' })).toBeInTheDocument()
-
-    fireEvent.click(gifButton)
-
+    const pickerButton = screen.getByRole('button', { name: 'Emoji, GIFs and stickers' })
+    expect(screen.getByRole('button', { name: 'Attach files' }).nextElementSibling?.nextElementSibling).toBe(pickerButton)
+    expect(screen.queryByRole('button', { name: 'Browse GIFs' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Browse stickers' })).not.toBeInTheDocument()
+    fireEvent.click(pickerButton)
+    fireEvent.click(await screen.findByRole('tab', { name: 'GIF' }))
     expect(await screen.findByPlaceholderText('Search GIFs')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Sticker' }))
+    expect(await screen.findByPlaceholderText('Search stickers')).toBeInTheDocument()
   })
 
   it('renders inline stickers and GIFs as chat media instead of text links', () => {
@@ -712,6 +732,45 @@ describe('ChatArea regressions', () => {
     const link = await screen.findByRole('link', { name: 'archive.zip' })
     expect(link).toHaveAttribute('download', 'archive.zip')
     expect(link).not.toHaveAttribute('target')
+  })
+
+  it('keeps a decoded attachment and its image node when reaction responses renew its signature', async () => {
+    mockDecodedImages()
+    const resolve = vi.spyOn(api, 'resolveAttachmentUrl').mockResolvedValue('https://cdn.example.test/stable-preview.png')
+    const attachment = { id: 'stable-photo', sha256: 'immutable-content', url: 'http://localhost:3001/api/attachments/content/stable-photo?exp=1&sig=old', type: 'image/png', name: 'stable.png' }
+    const row = { ...message('stable-reaction-photo', 'Photo', 0), attachments: [attachment] }
+    const { rerender } = renderChatArea({ messages: [row] })
+    const image = (await screen.findByRole('button', { name: 'Preview stable.png' })).querySelector('img')!
+    rerender(<ChatArea activeChannel={channel('general', 'general')} messages={[{ ...row, attachments: [{ ...attachment, url: attachment.url.replace('exp=1&sig=old', 'exp=2&sig=new') }], reactions: [{ emoji: '👍', count: 1, reacted: true }] }]} messageInput="" draftAttachments={[]} onMessageInputChange={vi.fn()} onRemoveAttachment={vi.fn()} onSendMessage={vi.fn()} onPickAttachments={vi.fn()} onRetryMessage={vi.fn()} />)
+    await screen.findByRole('button', { name: /reaction, 1 total/ })
+    expect(screen.getByRole('button', { name: 'Preview stable.png' }).querySelector('img')).toBe(image)
+    expect(resolve).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not merge unrelated external image URLs that happen to have the same attachment id', async () => {
+    mockDecodedImages()
+    const resolve = vi.spyOn(api, 'resolveAttachmentUrl').mockImplementation(async url => url)
+    renderChatArea({ messages: [{ ...message('external-identities', 'Two photos', 0), attachments: [
+      { id: 'external-photo', url: 'https://cdn.example.test/photo.png?version=1', type: 'image/png', name: 'one.png' },
+      { id: 'external-photo', url: 'https://cdn.example.test/photo.png?version=2', type: 'image/png', name: 'two.png' },
+    ] }] })
+    await screen.findByRole('button', { name: 'Preview one.png' })
+    await screen.findByRole('button', { name: 'Preview two.png' })
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps external signatures distinct even when the URL resembles our attachment API', async () => {
+    mockDecodedImages()
+    const resolve = vi.spyOn(api, 'resolveAttachmentUrl').mockImplementation(async url => url)
+    const attachment = { id: 'external-api-photo', url: 'https://cdn.example.test/api/attachments/content/external-api-photo?exp=1&sig=old', type: 'image/png', name: 'external-signed.png' }
+    const row = { ...message('external-signed-identity', 'Photo', 0), attachments: [attachment] }
+    const { rerender } = renderChatArea({ messages: [row] })
+    await screen.findByRole('button', { name: 'Preview external-signed.png' })
+    const nextUrl = attachment.url.replace('exp=1&sig=old', 'exp=2&sig=new')
+    rerender(<ChatArea activeChannel={channel('general', 'general')} messages={[{ ...row, attachments: [{ ...attachment, url: nextUrl }] }]} messageInput="" draftAttachments={[]} onMessageInputChange={vi.fn()} onRemoveAttachment={vi.fn()} onSendMessage={vi.fn()} onPickAttachments={vi.fn()} onRetryMessage={vi.fn()} />)
+    await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2))
+    expect(resolve).toHaveBeenLastCalledWith(nextUrl, null, expect.any(Object))
+    expect(screen.getByRole('button', { name: 'Preview external-signed.png' }).querySelector('img')).toHaveAttribute('src', nextUrl)
   })
 
   it('keeps the download filename when desktop resolves an attachment to a blob URL', async () => {

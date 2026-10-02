@@ -44,7 +44,8 @@ export function applyUploadedDraftAttachments(
       url: uploadedItem.url,
       size: typeof uploadedItem.size === 'number' ? uploadedItem.size : item.size,
       type: uploadedItem.type || item.type || 'application/octet-stream',
-      file: undefined,
+      // Keep the local preview until send/removal; an unlinked upload may not be readable yet.
+      file: item.file,
       uploadStatus: 'uploaded',
       uploadError: undefined,
     }

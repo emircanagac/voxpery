@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemberInfo } from '../api'
+import { resolveAvatarUrl } from '../api'
 import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -321,6 +322,70 @@ describe('ActiveCallBar regressions', () => {
     )
     expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
     expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+  })
+
+  it.each(['screen', 'camera', 'both'] as const)('replaces the remote empty avatar with %s media without changing participant count', (mode) => {
+    const tracks = [
+      ...(mode !== 'camera' ? [mediaTrack('video', 'screen-track')] : []),
+      ...(mode !== 'screen' ? [mediaTrack('video', 'camera-track', { label: 'webcam' })] : []),
+    ]
+    const { container, voice } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream(tracks)]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const stage = container.querySelector('.screen-share-stage')!
+    expect(stage).toHaveAttribute('data-participant-count', '2')
+    expect(stage.querySelectorAll('.voice-stage-tile')).toHaveLength(1)
+    expect(stage.querySelectorAll('.voice-stage-share-tile')).toHaveLength(mode === 'both' ? 2 : 1)
+    expect(stage.querySelector('.voice-stage-tile')).toHaveTextContent('cooluser')
+    expect(voice.setRemoteMediaSubscribed).not.toHaveBeenCalled()
+  })
+
+  it('represents an unwatched stream by its available card rather than another empty avatar', () => {
+    useAppStore.setState({ members: members.map(member => ({ ...member, avatar_url: member.user_id === 'peer-1' ? 'https://example.test/admin-avatar.png' : null })) })
+    useAppStore.getState().setVoiceControl('peer-1', false, false, true)
+    const { container } = renderActiveCallBar()
+    expect(container.querySelectorAll('.voice-stage-tile')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Watch stream' })).toBeVisible()
+    expect(screen.getByRole('img', { name: "admin's profile" })).toHaveAttribute('src', resolveAvatarUrl('https://example.test/admin-avatar.png'))
+    expect(container.querySelector('.screen-share-stage')).toHaveAttribute('data-participant-count', '2')
+  })
+
+  it('retains the camera owner photo when hiding camera, without restoring a duplicate card', () => {
+    useAppStore.setState({ members: members.map(member => ({ ...member, avatar_url: member.user_id === 'peer-1' ? 'https://example.test/admin-avatar.png' : null })) })
+    const { container } = renderActiveCallBar({ remoteStreams: new Map([['peer-1', new MediaStream([mediaTrack('video', 'camera-track', { label: 'webcam' })])]]) })
+    expect(screen.getByRole('img', { name: "admin's profile" })).toHaveAttribute('src', resolveAvatarUrl('https://example.test/admin-avatar.png'))
+    fireEvent.click(screen.getByTitle('Hide camera'))
+    expect(container.querySelector('.voice-stage-hidden-media-tile')).toHaveTextContent('Camera hidden')
+    expect(screen.getByRole('img', { name: "admin's profile" })).toHaveAttribute('src', resolveAvatarUrl('https://example.test/admin-avatar.png'))
+    expect(container.querySelectorAll('.voice-stage-tile')).toHaveLength(1)
+  })
+
+  it('restores the remote avatar when the last media track stops', () => {
+    const { container, voice, rerender } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([mediaTrack('video', 'screen-track')])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    expect(container.querySelectorAll('.voice-stage-tile')).toHaveLength(1)
+    voice.state = voiceState() as typeof voice.state
+    rerender(<MemoryRouter><ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} /></MemoryRouter>)
+    expect(container.querySelectorAll('.voice-stage-tile')).toHaveLength(2)
+    expect(container.querySelector('.screen-share-stage')).toHaveAttribute('data-participant-count', '2')
+  })
+
+  it.each([false, true])('does not duplicate the local sharing user with camera enabled: %s', (camera) => {
+    const { container } = renderActiveCallBar({
+      isScreenSharing: true,
+      screenStream: new MediaStream([mediaTrack('video', 'local-screen')]),
+      cameraStream: camera ? new MediaStream([mediaTrack('video', 'local-camera', { label: 'webcam' })]) : null,
+    })
+    const stage = container.querySelector('.screen-share-stage')!
+    expect(stage.querySelectorAll('.voice-stage-tile')).toHaveLength(1)
+    expect(stage.querySelector('.voice-stage-tile')).toHaveTextContent('admin')
+    expect(stage.querySelectorAll('.voice-stage-share-tile')).toHaveLength(camera ? 2 : 1)
+    expect(stage).toHaveAttribute('data-participant-count', '2')
   })
 
   it('removes the mini player immediately when the viewer stops watching', () => {

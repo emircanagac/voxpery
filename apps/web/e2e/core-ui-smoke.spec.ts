@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { expectNotificationPromptLayout, installMockNotificationPermission } from './notification-prompt-fixture'
+import { enableNotificationsFromSettings, installMockNotificationPermission } from './notification-prompt-fixture'
 import {
   buildCoreChannels,
   buildCoreMembers,
@@ -13,7 +13,7 @@ import {
 
 test.describe('mocked core UI smoke', () => {
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 1100, height: 600 }]) {
-    test(`keeps the delayed notification prompt clear of chat controls at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test(`keeps chat layout stable without automatic notification prompts at ${viewport.width}x${viewport.height}`, async ({ page }) => {
       const server = buildCoreServer()
       const channels = buildCoreChannels(server.id)
       const general = channels.find((channel) => channel.name === 'general')!
@@ -26,14 +26,14 @@ test.describe('mocked core UI smoke', () => {
       await page.goto('/servers')
       const composer = page.getByPlaceholder(`Message #${general.name}`)
       await expect(composer).toBeVisible()
-      const topbarBefore = await page.locator('.shell-topbar').boundingBox()
+      const headerBefore = await page.locator('.chat-header').boundingBox()
       await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
       await page.clock.fastForward(120_001)
-      await expectNotificationPromptLayout(page)
-      expect((await page.locator('.shell-topbar').boundingBox())!.y).toBe(topbarBefore!.y)
+      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
+      expect(await page.locator('.chat-header').boundingBox()).toEqual(headerBefore)
       expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
       await page.getByRole('button', { name: 'Search in conversation' }).click()
-      await expectNotificationPromptLayout(page)
+      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
       await page.getByText('Filters', { exact: true }).click()
       await expect(page.getByRole('button', { name: 'Filter messages by author' })).toBeVisible()
       await page.getByText('Filters', { exact: true }).click()
@@ -41,10 +41,7 @@ test.describe('mocked core UI smoke', () => {
       await composer.fill('Composer remains usable')
       await expect(composer).toBeInViewport()
       await page.screenshot({ path: `test-results/notification-prompt-${viewport.width}.png` })
-      await page.getByRole('button', { name: 'Not now' }).click()
-      await expect(page.getByRole('region', { name: 'Enable notifications' })).toHaveCount(0)
-      expect(await page.evaluate(() => Number(localStorage.getItem('voxpery-push-prompt-snoozed-until')) > Date.now())).toBe(true)
-      expect(await page.evaluate(() => Reflect.get(window, '__notificationRequests'))).toBe(0)
+      await enableNotificationsFromSettings(page)
       await page.reload()
       await expect(composer).toBeVisible()
       await page.clock.fastForward(120_001)
@@ -52,16 +49,231 @@ test.describe('mocked core UI smoke', () => {
     })
   }
 
-  test('links project support to GitHub Sponsors', async ({ page }) => {
+  test('keeps Social resource links compact and keyboard accessible without leaving the app', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState())
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.addInitScript(() => {
+      const openedUrls: string[] = []
+      Reflect.set(window, '__socialOpenedUrls', openedUrls)
+      window.open = (url) => { openedUrls.push(String(url)); return null }
+    })
     await page.goto('/social')
 
-    const sponsorLink = page.getByRole('link', { name: 'Sponsor on GitHub' })
+    const panel = page.getByRole('complementary', { name: 'Voxpery information' })
+    const community = panel.getByRole('button', { name: 'Community' })
+    const star = panel.getByRole('link', { name: 'Star on GitHub' })
+    const about = panel.getByRole('link', { name: 'About Voxpery' })
+    const sponsorLink = page.getByRole('link', { name: 'Support Voxpery' })
+    await expect(panel).toHaveCSS('width', '240px')
+    await expect(panel.getByRole('heading', { name: 'Friend Activity' })).toBeVisible()
+    await expect(panel.getByRole('heading', { name: 'Voxpery', exact: true })).toHaveCount(0)
+    await expect(panel.locator('.community-card, .community-note')).toHaveCount(0)
+    await expect(page.locator('.feedback-card')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /Support Voxpery/ })).toHaveCount(1)
     await expect(sponsorLink).toHaveAttribute('href', 'https://github.com/sponsors/emircanagac')
     await expect(sponsorLink).toHaveAttribute('target', '_blank')
-    await expect(page.getByText('Support Voxpery through GitHub Sponsors.')).toBeVisible()
-    await expect(page.getByRole('link', { name: /Support Voxpery/ })).toHaveCount(0)
+    await community.focus()
+    await page.keyboard.press('Tab')
+    await expect(star).toBeFocused()
+    await expect(star).toHaveCSS('outline-style', 'solid')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Tab')
+    await expect(about).toBeFocused()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Tab')
+    await expect(sponsorLink).toBeFocused()
+    await page.keyboard.press('Enter')
+    expect(await page.evaluate(() => Reflect.get(window, '__socialOpenedUrls'))).toEqual([
+      'https://github.com/emircanagac/voxpery',
+      new URL('/about', page.url()).href,
+      'https://github.com/sponsors/emircanagac',
+    ])
+    await expect(page).toHaveURL(/\/social$/)
+    await page.screenshot({ path: 'test-results/social-resources-desktop.png' })
+
+    await star.locator('span').evaluate((element) => { element.textContent = 'VeryLongResourceLabel'.repeat(8) })
+    await expect.poll(() => panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const starBox = (await panel.locator('.social-resource-link--star').boundingBox())!
+    const footerBox = (await sponsorLink.boundingBox())!
+    expect(starBox.y + starBox.height).toBeLessThan(footerBox.y)
   })
+
+  test('keeps Social resource contrast and flat surfaces across dark and light themes', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/social')
+    for (const theme of ['Dark', 'Light']) {
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await page.locator('.user-settings-modal .theme-option', { hasText: theme }).click()
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme.toLowerCase())
+      const rows = await page.locator('.social-resource-link').evaluateAll((elements) => {
+        const rgb = (color: string) => color.match(/[\d.]+/g)!.map(Number)
+        const luminance = (color: number[]) => color.slice(0, 3).reduce((sum, value, index) => {
+          const channel = value / 255
+          return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+            * [0.2126, 0.7152, 0.0722][index]
+        }, 0)
+        return elements.map((element) => {
+          const style = getComputedStyle(element)
+          const surface = rgb(getComputedStyle(element.closest('.home-side, .support-dock')!).backgroundColor)
+          // Resolve color-mix through a canvas before compositing a translucent row.
+          const canvas = document.createElement('canvas')
+          canvas.width = canvas.height = 1
+          const context = canvas.getContext('2d')!
+          context.fillStyle = style.backgroundColor
+          context.fillRect(0, 0, 1, 1)
+          const pixel = context.getImageData(0, 0, 1, 1).data
+          const alpha = pixel[3] / 255
+          const background = surface.map((value, index) => pixel[index] * alpha + value * (1 - alpha))
+          const text = luminance(rgb(style.color))
+          const bg = luminance(background)
+          return {
+            contrast: (Math.max(text, bg) + 0.05) / (Math.min(text, bg) + 0.05),
+            backgroundImage: style.backgroundImage,
+            backdropFilter: style.backdropFilter,
+          }
+        })
+      })
+      expect(rows).toHaveLength(4)
+      for (const row of rows) {
+        expect(row.contrast).toBeGreaterThanOrEqual(4.5)
+        expect(row.backgroundImage).toBe('none')
+        expect(row.backdropFilter).toBe('none')
+      }
+      await page.screenshot({ path: `test-results/social-resources-${theme.toLowerCase()}.png` })
+    }
+  })
+
+  for (const theme of ['Dark', 'Light', 'Custom Light']) {
+    test(`unifies right panel surfaces and resource row states in ${theme}`, async ({ page }) => {
+      const server = buildCoreServer()
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server],
+        channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+        membersByServerId: { [server.id]: buildCoreMembers() },
+      }))
+      await page.setViewportSize({ width: 1920, height: 1080 })
+      await page.goto('/social')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await page.locator('.user-settings-modal .theme-option', { hasText: theme === 'Custom Light' ? 'Light' : theme }).click()
+      if (theme === 'Custom Light') {
+        await page.locator('.user-settings-modal .theme-option', { hasText: 'Custom' }).click()
+        const color = page.getByRole('textbox', { name: 'Custom theme hex color' })
+        await color.fill('#00a896')
+        await color.press('Enter')
+        await expect(page.locator('html')).toHaveAttribute('data-custom-theme-mode', 'light')
+      }
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await page.mouse.move(320, 10)
+      const panel = page.locator('.home-side')
+      await expect(panel).toHaveCSS('background-image', 'none')
+      const surface = await panel.evaluate((element) => getComputedStyle(element).backgroundColor)
+      await expect(page.locator('.support-dock')).toHaveCSS('background-color', surface)
+      await expect(panel.getByRole('heading', { name: 'Friend Activity' })).toBeVisible()
+      const panelBox = (await panel.boundingBox())!
+      const navBox = (await panel.locator('.social-resource-nav').boundingBox())!
+      expect(navBox.y).toBeGreaterThanOrEqual(panelBox.y)
+      expect(navBox.y).toBeGreaterThan(panelBox.y + 40)
+      expect(navBox.y + navBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height - 80)
+      const rows = page.locator('.social-resource-nav .social-resource-link')
+      const rowStyles = await rows.evaluateAll((elements) => elements.map((element) => {
+        const style = getComputedStyle(element)
+        return {
+          background: style.backgroundColor,
+          padding: style.padding,
+          height: style.height,
+          radius: style.borderRadius,
+          weight: style.fontWeight,
+          color: style.color,
+          borderStyle: style.borderTopStyle,
+          borderWidth: style.borderTopWidth,
+        }
+      }))
+      expect(rowStyles).toHaveLength(3)
+      expect(new Set(rowStyles.map((style) => JSON.stringify(style))).size).toBe(1)
+      expect(rowStyles[0].background).not.toBe('rgba(0, 0, 0, 0)')
+      expect(rowStyles[0].borderStyle).toBe('solid')
+      expect(rowStyles[0].borderWidth).toBe('1px')
+      await expect(rows.locator('.social-resource-link-trailing')).toHaveCount(3)
+      const hoverColors: string[] = []
+      for (let index = 0; index < 3; index++) {
+        const row = rows.nth(index)
+        await row.hover()
+        hoverColors.push(await row.evaluate((element) => getComputedStyle(element).backgroundColor))
+        await row.focus()
+        await page.keyboard.press('Tab')
+        await page.keyboard.press('Shift+Tab')
+        await expect(row).toBeFocused()
+        await expect(row).toHaveCSS('outline-style', 'solid')
+      }
+      expect(new Set(hoverColors).size).toBe(1)
+      await page.mouse.move(320, 10)
+      await page.screenshot({ path: `test-results/right-panel-social-${theme.replace(' ', '-').toLowerCase()}.png` })
+      await page.goto('/servers')
+      const members = page.locator('.member-sidebar:not(.member-sidebar--sheet)')
+      await expect(members).toBeVisible()
+      await expect(members).toHaveCSS('width', '240px')
+      await expect(members).toHaveCSS('background-color', surface)
+      await expect(members).toHaveCSS('background-image', 'none')
+      await expect(members).toHaveCSS('box-shadow', 'none')
+      await expect(page.locator('.support-dock')).toHaveCSS('background-color', surface)
+      await page.screenshot({ path: `test-results/right-panel-server-${theme.replace(' ', '-').toLowerCase()}.png` })
+    })
+  }
+
+  for (const viewport of [
+    { width: 1024, height: 600 }, { width: 1023, height: 600 },
+    { width: 800, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 568 },
+  ]) {
+    test(`preserves Social resource responsiveness at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      await installMockCoreApi(page, createMockCoreState())
+      await page.setViewportSize(viewport)
+      await page.goto('/social')
+      const panel = page.getByRole('complementary', { name: 'Voxpery information', includeHidden: true })
+      const support = page.locator('.project-support-link')
+      if (viewport.width >= 1024) {
+        await expect(panel).toHaveCSS('width', '240px')
+        await expect(panel).toBeVisible()
+        await expect(support).toBeInViewport()
+        const actionBox = (await panel.getByRole('link', { name: 'About Voxpery' }).boundingBox())!
+        const supportBox = (await support.boundingBox())!
+        expect(actionBox.y + actionBox.height).toBeLessThan(supportBox.y)
+      } else {
+        await expect(panel).toBeHidden()
+        await expect(support).toBeHidden()
+        await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeInViewport()
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await page.screenshot({ path: `test-results/social-resources-${viewport.width}.png` })
+    })
+  }
+
+  for (const alreadyJoined of [true, false]) {
+    test(`opens the existing Community flow when already joined is ${alreadyJoined}`, async ({ page }) => {
+      const server = buildCoreServer({ name: 'Voxpery', invite_code: 'voxpery' })
+      const state = createMockCoreState({
+        servers: alreadyJoined ? [server] : [],
+        inviteServersByCode: { voxpery: server },
+        channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+        membersByServerId: { [server.id]: buildCoreMembers() },
+      })
+      await installMockCoreApi(page, state)
+      await page.goto('/social')
+      await page.getByRole('complementary', { name: 'Voxpery information' })
+        .getByRole('button', { name: 'Community' }).focus()
+      await page.keyboard.press('Enter')
+      await expect(page).toHaveURL(/\/servers$/)
+      await expect(page.locator('.channel-header-title')).toHaveText('Voxpery')
+      await expect(page.locator('.member-sidebar')).toHaveCSS('width', '240px')
+      await expect(page.getByRole('contentinfo', { name: 'Voxpery support' })
+        .getByRole('link', { name: 'Support Voxpery' })).toBeVisible()
+      await expect(page.locator('.feedback-card')).toHaveCount(0)
+      expect(state.serverJoinCount).toBe(alreadyJoined ? 0 : 1)
+    })
+  }
 
   test('keeps Friends tabs scrollable and friend actions reachable', async ({ page }) => {
     const state = createMockCoreState({
@@ -87,7 +299,7 @@ test.describe('mocked core UI smoke', () => {
     await allScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
     await expect(page.getByText('Friend 30')).toBeVisible()
 
-    await page.getByRole('button', { name: /Requests/ }).click()
+    await page.getByRole('button', { name: /^Add Friend/ }).click()
     const requestScroller = page.locator('.home-friends-scroll--requests')
     await expect(page.getByText('Incoming')).toBeVisible()
     await expect(page.getByText('Outgoing')).toBeVisible()
@@ -130,7 +342,7 @@ test.describe('mocked core UI smoke', () => {
 
     await expect(page.getByRole('button', { name: /Online/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /All/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Requests/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Add Friend/ })).toBeVisible()
 
     await page.getByRole('button', { name: /All/ }).click()
     await expect(page.getByRole('button', { name: 'Message Friend 01' })).toBeVisible()
@@ -169,7 +381,9 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.locator('.channel-header-title')).toHaveText('Core Guild')
     await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
     await expect(page.getByText('Pinned release note')).toBeVisible()
-    await expect(page.locator('.feedback-dock .feedback-card').getByRole('heading', { name: 'Share feedback on GitHub' })).toBeVisible()
+    await expect(page.getByRole('contentinfo', { name: 'Voxpery support' })
+      .getByRole('link', { name: 'Support Voxpery' })).toBeVisible()
+    await expect(page.locator('.feedback-card')).toHaveCount(0)
 
     const content = `Server smoke message ${Date.now()}`
     const messageInput = page.getByPlaceholder('Message #general')
@@ -219,7 +433,8 @@ test.describe('mocked core UI smoke', () => {
     await page.setViewportSize({ width: 1366, height: 768 })
     await page.goto('/servers')
 
-    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    await page.getByRole('button', { name: 'Emoji, GIFs and stickers' }).click()
+    await page.getByRole('tab', { name: 'GIF', exact: true }).click()
     const picker = page.locator('.chat-emoji-picker')
     await expect(picker).toBeVisible()
     await expect.poll(async () => picker.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(420)
@@ -256,21 +471,52 @@ test.describe('mocked core UI smoke', () => {
     })).toEqual({ fit: 'contain', usesNaturalRatio: true })
     expect(state.messagesByChannelId[general.id]?.some((message) => message.content.startsWith('![gif]('))).toBe(true)
 
-    await page.getByRole('button', { name: 'Insert emoji' }).click()
-    await expect(page.getByRole('tablist', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
+    await page.getByRole('button', { name: 'Emoji, GIFs and stickers' }).click()
+    await expect(page.getByRole('tab', { name: 'GIF', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await page.getByRole('tab', { name: 'Emoji', exact: true }).click()
+    await expect(page.getByRole('group', { name: 'Emoji categories' }).getByRole('button')).toHaveCount(10)
     await expect.poll(async () => page.locator('.chat-emoji-grid').evaluate((element) => (
       getComputedStyle(element).gridTemplateColumns.split(' ').length
     ))).toBe(10)
     await page.keyboard.press('Escape')
 
-    await page.getByRole('button', { name: 'Browse GIFs' }).click()
+    await page.getByRole('button', { name: 'Emoji, GIFs and stickers' }).click()
+    await page.getByRole('tab', { name: 'GIF', exact: true }).click()
     await page.getByRole('button', { name: 'Favorites', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Remove Celebration from favorites' })).toBeVisible()
 
     await page.getByRole('tab', { name: 'Sticker' }).click()
-    const stickerCollections = page.getByRole('tablist', { name: 'Sticker collections' })
+    const stickerCollections = page.getByRole('group', { name: 'Sticker collections' })
     await expect(stickerCollections.getByRole('button')).toHaveCount(3)
     await expect(stickerCollections.getByRole('button').allTextContents()).resolves.toEqual(['Browse', 'Recent', 'Favorites'])
+    await expect(stickerCollections.getByRole('button', { name: 'Browse' })).toHaveAttribute('aria-pressed', 'true')
+    const sticker = picker.locator('.chat-sticker-card').first()
+    const stickerSize = (await sticker.boundingBox())!
+    await sticker.hover()
+    await sticker.getByRole('button', { name: /^Add .* to favorites$/ }).click()
+    await stickerCollections.getByRole('button', { name: 'Favorites', exact: true }).click()
+    await expect(picker.locator('.chat-sticker-card')).toHaveCount(1)
+    const favoriteSize = (await picker.locator('.chat-sticker-card').boundingBox())!
+    expect(favoriteSize.width).toBeCloseTo(stickerSize.width, 1)
+    expect(favoriteSize.height).toBeCloseTo(stickerSize.height, 1)
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 568 })
+      const favorite = (await picker.locator('.chat-sticker-card').boundingBox())!
+      expect(favorite.width).toBeLessThanOrEqual(110)
+      expect(favorite.height).toBeCloseTo(favorite.width, 1)
+      await expect.poll(() => picker.locator('.chat-expression-filter-tabs button').evaluateAll(elements => elements.every(element => {
+        const rect = element.getBoundingClientRect()
+        const content = document.querySelector('.chat-emoji-content')!.getBoundingClientRect()
+        return rect.left >= content.left && rect.right <= content.right + 1 && element.scrollWidth <= element.clientWidth + 1
+      }))).toBe(true)
+    }
+    await stickerCollections.getByRole('button', { name: 'Browse', exact: true }).click()
+    const beforeScroll = await picker.getByRole('tablist').boundingBox()
+    await page.locator('.chat-sticker-grid').evaluate(element => { element.scrollTop = element.scrollHeight })
+    expect(await picker.getByRole('tablist').boundingBox()).toEqual(beforeScroll)
+    await page.getByRole('button', { name: 'Close expression picker' }).click()
+    await expect(picker).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Emoji, GIFs and stickers' })).toBeFocused()
   })
 
   test('keeps first-message text fixed while optimistic delivery is confirmed', async ({ page }) => {
@@ -420,7 +666,7 @@ test.describe('mocked core UI smoke', () => {
     await ownRow.getByRole('textbox', { name: 'Edit message' }).fill('Edited local note')
     await ownRow.getByTitle('Save').click()
     await expect(page.getByText('Edited local note')).toBeVisible()
-    expect(state.messagesByChannelId[general.id].some((message) => message.content === 'Edited local note')).toBe(true)
+    await expect.poll(() => state.messagesByChannelId[general.id].some((message) => message.content === 'Edited local note')).toBe(true)
 
     await friendRow.hover()
     await friendRow.getByRole('button', { name: 'Add reaction' }).click()
@@ -452,7 +698,7 @@ test.describe('mocked core UI smoke', () => {
     const confirmModal = page.locator('.confirm-modal', { hasText: 'Delete message' })
     await confirmModal.getByRole('button', { name: 'Delete' }).click()
     await expect(page.getByText('Edited local note')).toBeHidden()
-    expect(state.messagesByChannelId[general.id].some((message) => message.id === 'own-message')).toBe(false)
+    await expect.poll(() => state.messagesByChannelId[general.id].some((message) => message.id === 'own-message')).toBe(false)
   })
 
   test('keeps reactions below inline media and attachments', async ({ page }) => {
@@ -574,10 +820,14 @@ test.describe('mocked core UI smoke', () => {
           renderedRatio: element.getBoundingClientRect().width / element.getBoundingClientRect().height,
           width: element.getBoundingClientRect().width,
           height: element.getBoundingClientRect().height,
+          frameWidth: element.parentElement!.clientWidth,
+          frameHeight: element.parentElement!.clientHeight,
         }))
         expect(size.renderedRatio).toBeCloseTo(size.naturalRatio, 2)
         expect(size.width).toBeLessThanOrEqual(320)
         expect(size.height).toBeLessThanOrEqual(220)
+        expect(size.width).toBeLessThanOrEqual(size.frameWidth + 1)
+        expect(size.height).toBeLessThanOrEqual(size.frameHeight + 1)
         await row.getByRole('button', { name: `Preview ${image.id}.svg` }).click()
         await expect(page.locator('.chat-image-preview-modal')).toBeVisible()
         await page.getByRole('button', { name: 'Close image preview' }).click()

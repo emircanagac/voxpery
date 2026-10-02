@@ -30,9 +30,10 @@ export function compareFriendsForList(a: Friend, b: Friend): number {
   return compareFriendNames(a, b)
 }
 
-export function getVisibleFriendsForFilter(friends: Friend[], filter: Exclude<FriendsFilter, 'requests'>): Friend[] {
+export function getVisibleFriendsForFilter(friends: Friend[], filter: Exclude<FriendsFilter, 'requests'>, search = ''): Friend[] {
   const source = filter === 'online' ? friends.filter(isActiveFriend) : friends
-  return [...source].sort(compareFriendsForList)
+  const query = search.trim().toLowerCase()
+  return source.filter(friend => !query || friend.username.toLowerCase().includes(query)).sort(compareFriendsForList)
 }
 
 function dmActivityTimestamp(channel: DmChannel): number {

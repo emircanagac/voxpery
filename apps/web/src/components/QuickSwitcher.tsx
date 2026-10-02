@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Hash, MessageCircleMore, Search, Server, X } from 'lucide-react'
+import { useDialogFocus } from '../hooks/useDialogFocus'
 
 export type QuickSwitcherItem = {
   id: string
@@ -22,6 +23,12 @@ function itemKindLabel(kind: QuickSwitcherItem['kind']) {
   return 'DM'
 }
 
+const ITEM_GROUPS = [
+  { kind: 'dm', label: 'Direct messages' },
+  { kind: 'server', label: 'Servers' },
+  { kind: 'channel', label: 'Channels' },
+] as const
+
 export default function QuickSwitcher({
   items,
   onClose,
@@ -34,12 +41,14 @@ export default function QuickSwitcher({
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const scrollSelectionRef = useRef(false)
+  useDialogFocus(dialogRef, true)
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) return items.slice(0, 14)
-
-    return items
+    const matches = !normalizedQuery ? items : items
       .map((item) => {
         const haystack = item.searchText.toLowerCase()
         const starts = item.label.toLowerCase().startsWith(normalizedQuery)
@@ -52,8 +61,15 @@ export default function QuickSwitcher({
         return a.item.label.localeCompare(b.item.label)
       })
       .map((entry) => entry.item)
-      .slice(0, 18)
+    return ITEM_GROUPS.flatMap(group => matches.filter(item => item.kind === group.kind)
+      .slice(0, normalizedQuery ? 18 : 6)).slice(0, 18)
   }, [items, query])
+
+  useEffect(() => {
+    if (!scrollSelectionRef.current) return
+    scrollSelectionRef.current = false
+    listRef.current?.querySelector<HTMLElement>('.quick-switcher-item.active')?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, filteredItems])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -72,15 +88,17 @@ export default function QuickSwitcher({
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault()
+        scrollSelectionRef.current = true
         setActiveIndex((prev) => Math.min(prev + 1, Math.max(filteredItems.length - 1, 0)))
         return
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
+        scrollSelectionRef.current = true
         setActiveIndex((prev) => Math.max(prev - 1, 0))
         return
       }
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' && event.target === inputRef.current) {
         const activeItem = filteredItems[activeIndex]
         if (!activeItem) return
         event.preventDefault()
@@ -97,6 +115,7 @@ export default function QuickSwitcher({
     <div className="quick-switcher-overlay" onClick={onClose}>
       <div
         className="quick-switcher"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Quick switcher"
@@ -108,8 +127,10 @@ export default function QuickSwitcher({
             ref={inputRef}
             className="quick-switcher-input"
             placeholder="Search servers, channels, and direct messages"
+            aria-label="Search servers, channels, and direct messages"
             value={query}
             onChange={(event) => {
+              scrollSelectionRef.current = true
               setQuery(event.target.value)
               setActiveIndex(0)
             }}
@@ -119,34 +140,47 @@ export default function QuickSwitcher({
           </button>
         </div>
 
-        <div className="quick-switcher-list">
+        <div className="quick-switcher-list" ref={listRef}>
           {filteredItems.length === 0 ? (
             <div className="quick-switcher-empty">
               No matches for <strong>{query}</strong>
             </div>
           ) : (
-            filteredItems.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`quick-switcher-item ${index === activeIndex ? 'active' : ''}`}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => onSelect(item)}
-              >
-                <span className={`quick-switcher-item-icon quick-switcher-item-icon-${item.kind}`} aria-hidden>
-                  {itemIcon(item.kind)}
-                </span>
-                <span className="quick-switcher-item-copy">
-                  <span className="quick-switcher-item-label">{item.label}</span>
-                  {item.subtitle ? (
-                    <span className="quick-switcher-item-subtitle">{item.subtitle}</span>
-                  ) : null}
-                </span>
-                <span className={`quick-switcher-kind quick-switcher-kind-${item.kind}`}>
-                  {itemKindLabel(item.kind)}
-                </span>
-              </button>
-            ))
+            ITEM_GROUPS.map(group => {
+              const groupItems = filteredItems.filter(item => item.kind === group.kind)
+              if (!groupItems.length) return null
+              return <section className="quick-switcher-group" key={group.kind} aria-label={group.label}>
+                <h3 className="quick-switcher-group-title">{group.label}</h3>
+                {groupItems.map(item => {
+                  const index = filteredItems.indexOf(item)
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`quick-switcher-item ${index === activeIndex ? 'active' : ''}`}
+                      onMouseEnter={() => {
+                        scrollSelectionRef.current = false
+                        setActiveIndex(index)
+                      }}
+                      onClick={() => onSelect(item)}
+                    >
+                      <span className={`quick-switcher-item-icon quick-switcher-item-icon-${item.kind}`} aria-hidden>
+                        {itemIcon(item.kind)}
+                      </span>
+                      <span className="quick-switcher-item-copy">
+                        <span className="quick-switcher-item-label">{item.label}</span>
+                        {item.subtitle ? (
+                          <span className="quick-switcher-item-subtitle">{item.subtitle}</span>
+                        ) : null}
+                      </span>
+                      <span className={`quick-switcher-kind quick-switcher-kind-${item.kind}`}>
+                        {itemKindLabel(item.kind)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </section>
+            })
           )}
         </div>
       </div>

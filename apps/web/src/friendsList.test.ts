@@ -31,6 +31,15 @@ function dmChannel(id: string, peerUsername: string): DmChannel {
 }
 
 describe('friends list helpers', () => {
+  it('searches literally without changing sorting, presence filtering, or the source array', () => {
+    const source = [friend('3', 'Meme.2', 'offline'), friend('2', 'meme.10', 'dnd'), friend('1', 'Meme.1', 'online'), friend('4', 'Someone', 'online')]
+    expect(getVisibleFriendsForFilter(source, 'all', '  MEME.  ').map(item => item.id)).toEqual(['1', '2', '3'])
+    expect(getVisibleFriendsForFilter(source, 'online', 'meme.').map(item => item.id)).toEqual(['1', '2'])
+    expect(getVisibleFriendsForFilter(source, 'all', '.*')).toEqual([])
+    expect(source.map(item => item.id)).toEqual(['3', '2', '1', '4'])
+    expect(getVisibleFriendsForFilter(source, 'all', '   ')).toEqual(getVisibleFriendsForFilter(source, 'all'))
+  })
+
   it('orders all friends with active users first, then alphabetically', () => {
     const visible = getVisibleFriendsForFilter(
       [

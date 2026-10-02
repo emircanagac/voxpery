@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Compass, Github, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Send, UserMinus, UserRound, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Clock3, Compass, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Search, Send, UserMinus, UserPlus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -13,6 +13,9 @@ import {
   type MessageWithAuthor,
 } from '../api'
 import ChatArea from '../components/ChatArea'
+import SocialInfoPanel from '../components/SocialInfoPanel'
+import '../styles/friends.css'
+import useViewportMenu from '../useViewportMenu'
 import type { StatusValue } from '../components/StatusIcon'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -85,6 +88,8 @@ type SocialContextMenu = {
   channelId?: string
   x: number
   y: number
+  trigger?: HTMLElement
+  horizontalBoundary?: HTMLElement | null
 }
 
 function OnboardingCard({
@@ -177,11 +182,17 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [view, setView] = useState<SocialView>('friends')
   const isDmConversationVisible = isMessagesView && location.pathname === ROUTES.dm && view === 'dm'
   const [friendsFilter, setFriendsFilter] = useState<FriendsFilter>('online')
+  const [friendsSearch, setFriendsSearch] = useState('')
+  const friendsSearchRef = useRef<HTMLInputElement>(null)
+  const addFriendInputRef = useRef<HTMLInputElement>(null)
+  const focusAddFriendRef = useRef(false)
   const [socialBootstrapLoading, setSocialBootstrapLoading] = useState(() => !useAppStore.getState().socialDataReady)
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
   const [addFriendUsername, setAddFriendUsername] = useState('')
   const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
+  const [sendingFriendRequest, setSendingFriendRequest] = useState(false)
+  const sendingFriendRequestRef = useRef(false)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
   const [removingFriend, setRemovingFriend] = useState(false)
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
@@ -298,6 +309,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const socialContextMenuTriggerRef = useRef<HTMLElement | null>(null)
   const socialSidebarRef = useRef<HTMLElement | null>(null)
   const socialContentRef = useRef<HTMLDivElement | null>(null)
+  const { ref: socialMenuRef, style: socialMenuStyle } = useViewportMenu(socialContextMenu)
 
   useEffect(() => {
     setDmInput(readMessageDraft(userId, 'dm', activeDmChannelId))
@@ -327,10 +339,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     target: Omit<SocialContextMenu, 'x' | 'y'>,
   ) => {
     event.preventDefault()
-    const menuWidth = target.kind === 'dm' ? 196 : 240
-    const menuHeight = 116
+    const menuWidth = target.kind === 'dm' ? 224 : 240
     const pad = 8
-    const rect = event.currentTarget.getBoundingClientRect()
+    const trigger = event.currentTarget.closest<HTMLElement>('.social-dm-item, .home-member-row') ?? event.currentTarget
+    const rect = trigger.getBoundingClientRect()
     const sidebarRect = socialSidebarRef.current?.getBoundingClientRect()
     const socialContentRect = socialContentRef.current?.getBoundingClientRect()
     const menuContainerRect = target.kind === 'dm' ? sidebarRect : socialContentRect
@@ -340,8 +352,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
       : shouldOpenFriendMenuLeft
         ? rect.right - menuWidth
-        : event.clientX || rect.left + Math.min(24, rect.width / 2)
-    const requestedY = event.clientY || rect.top + Math.min(24, rect.height / 2)
+        : rect.left
     const minX = menuContainerRect ? Math.max(pad, menuContainerRect.left + pad) : pad
     const maxX = menuContainerRect
       ? Math.min(window.innerWidth - menuWidth - pad, menuContainerRect.right - menuWidth - pad)
@@ -350,27 +361,30 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setSocialContextMenu({
       ...target,
       x: Math.min(Math.max(preferredX, minX), Math.max(minX, maxX)),
-      y: Math.min(Math.max(pad, requestedY), Math.max(pad, window.innerHeight - menuHeight - pad)),
+      y: rect.bottom + 4,
+      trigger,
+      horizontalBoundary: target.kind === 'dm' ? socialSidebarRef.current : socialContentRef.current,
     })
   }, [])
 
   useEffect(() => {
     if (!socialContextMenu) return
-    const closeMenu = () => closeSocialContextMenu()
+    const closeMenu = (event: Event) => {
+      if (event.target instanceof Node && socialMenuRef.current?.contains(event.target)) return
+      closeSocialContextMenu()
+    }
     const closeMenuOnKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeSocialContextMenu(true)
     }
     window.addEventListener('click', closeMenu)
     window.addEventListener('scroll', closeMenu, true)
-    window.addEventListener('resize', closeMenu)
     window.addEventListener('keydown', closeMenuOnKey)
     return () => {
       window.removeEventListener('click', closeMenu)
       window.removeEventListener('scroll', closeMenu, true)
-      window.removeEventListener('resize', closeMenu)
       window.removeEventListener('keydown', closeMenuOnKey)
     }
-  }, [closeSocialContextMenu, socialContextMenu])
+  }, [closeSocialContextMenu, socialContextMenu, socialMenuRef])
 
   const rememberDmMessages = useCallback((channelId: string, messages: UiDmMessage[]) => {
     dmMessagesByChannelRef.current[channelId] = messages
@@ -471,9 +485,29 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const onlineFriends = useMemo(() => getVisibleFriendsForFilter(friends, 'online'), [friends])
   const visibleFriends = useMemo(
-    () => (friendsFilter === 'requests' ? [] : getVisibleFriendsForFilter(friends, friendsFilter)),
-    [friends, friendsFilter],
+    () => (friendsFilter === 'requests' ? [] : getVisibleFriendsForFilter(friends, friendsFilter, friendsSearch)),
+    [friends, friendsFilter, friendsSearch],
   )
+  const requestQuery = friendsSearch.trim().toLowerCase()
+  const visibleIncomingRequests = useMemo(() => incomingRequests.filter(request =>
+    request.requester_username.toLowerCase().includes(requestQuery)), [incomingRequests, requestQuery])
+  const visibleOutgoingRequests = useMemo(() => outgoingRequests.filter(request =>
+    request.receiver_username.toLowerCase().includes(requestQuery)), [outgoingRequests, requestQuery])
+
+  useEffect(() => {
+    if (friendsFilter !== 'requests' || !focusAddFriendRef.current) return
+    focusAddFriendRef.current = false
+    addFriendInputRef.current?.focus()
+  }, [friendsFilter])
+
+  const openAddFriend = () => {
+    setFriendsSearch('')
+    if (friendsFilter === 'requests') addFriendInputRef.current?.focus()
+    else {
+      focusAddFriendRef.current = true
+      setFriendsFilter('requests')
+    }
+  }
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
     if (!user || !userId) return
     const requestId = ++dmMessagesRequestRef.current
@@ -777,7 +811,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const openMessageForFriend = openDirectMessage
 
   const sendFriendRequest = async () => {
-    if (!user || !addFriendUsername.trim()) return
+    if (!user || !addFriendUsername.trim() || sendingFriendRequestRef.current) return
+    sendingFriendRequestRef.current = true
+    setSendingFriendRequest(true)
     setAddFriendMessage(null)
     try {
       await friendApi.sendRequest(addFriendUsername.trim(), token)
@@ -789,6 +825,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setOutgoingRequests(req.outgoing)
     } catch (err: unknown) {
       setAddFriendMessage((err as Error)?.message ?? 'Failed to send request')
+    } finally {
+      sendingFriendRequestRef.current = false
+      setSendingFriendRequest(false)
     }
   }
 
@@ -1223,7 +1262,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           {incomingRequests.length > 0 && <span className="notif-dot" />}
         </button>
         <div className="social-sidebar-divider" />
-        <div className="social-sidebar-title">Direct Messages</div>
+        <div className="social-sidebar-title">
+          <h2>Direct Messages</h2>
+        </div>
         {showSocialBootstrapLoading ? (
           <div className="home-sidebar-skeleton" aria-hidden="true">
             <div className="home-sidebar-skeleton-row" />
@@ -1243,10 +1284,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
           dmChannels.map((channel, index) => (
             <Fragment key={channel.id}>
               {channel.is_pinned && (index === 0 || !dmChannels[index - 1]?.is_pinned) && (
-                <div className="social-dm-group-label">Pinned</div>
+                <h3 className="social-dm-group-label"><Pin size={12} aria-hidden="true" />Pinned</h3>
               )}
-              {!channel.is_pinned && index > 0 && dmChannels[index - 1]?.is_pinned && (
-                <div className="social-dm-group-label">Recent</div>
+              {!channel.is_pinned && (index === 0 || dmChannels[index - 1]?.is_pinned) && (
+                <h3 className="social-dm-group-label"><Clock3 size={12} aria-hidden="true" />Recent</h3>
               )}
             <div
               className={`social-dm-item ${view === 'dm' && activeDmChannelId === channel.id ? 'active' : ''}`}
@@ -1279,6 +1320,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   setMobileSidebarPanel('none')
                 }}
                 aria-label={`Open DM with ${channel.peer_username}`}
+                aria-current={view === 'dm' && activeDmChannelId === channel.id ? 'page' : undefined}
               >
                 <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
                   {channel.peer_avatar_url ? (
@@ -1319,13 +1361,18 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       )}
 
       <section className={`home-main${view === 'dm' ? ' home-main-dm' : ''}`}>
-        <div ref={socialContentRef} className={`social-content${view === 'dm' ? ' social-content-dm' : ''}`}>
+        <div ref={socialContentRef} className={`social-content${view === 'dm' ? ' social-content-dm' : ' social-content--friends'}`}>
           {view === 'friends' && (
             <>
-              <div className="home-chip-row">
+              <header className="friends-page-header">
+                <div className="friends-page-title"><Users size={22} aria-hidden="true" /><h1>Friends</h1></div>
+              </header>
+              <div className="friends-toolbar">
+              <div className="home-chip-row" role="group" aria-label="Friends filters">
                 <button
                   type="button"
                   className={`home-chip ${friendsFilter === 'online' ? 'active' : ''}`}
+                  aria-pressed={friendsFilter === 'online'}
                   onClick={() => setFriendsFilter('online')}
                 >
                   <Activity size={14} />
@@ -1334,6 +1381,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 <button
                   type="button"
                   className={`home-chip ${friendsFilter === 'all' ? 'active' : ''}`}
+                  aria-pressed={friendsFilter === 'all'}
                   onClick={() => setFriendsFilter('all')}
                 >
                   <Users size={14} />
@@ -1342,50 +1390,69 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 <button
                   type="button"
                   className={`home-chip ${friendsFilter === 'requests' ? 'active' : ''}`}
-                  onClick={() => setFriendsFilter('requests')}
+                  aria-pressed={friendsFilter === 'requests'}
+                  aria-label={incomingRequests.length > 0 ? `Add Friend, ${incomingRequests.length} incoming friend request${incomingRequests.length === 1 ? '' : 's'}` : 'Add Friend'}
+                  onClick={openAddFriend}
                 >
-                  <MessageSquarePlus size={14} />
-                  <span className="home-chip-label">Requests</span>
+                  <UserPlus size={14} />
+                  <span className="home-chip-label">Add Friend</span>
                   {incomingRequests.length > 0 && (
-                    <span className="home-chip-badge">{formatBadgeCount(incomingRequests.length)}</span>
+                    <span className="home-chip-badge" aria-hidden="true" title={`${incomingRequests.length} incoming friend request${incomingRequests.length === 1 ? '' : 's'}`}>{formatBadgeCount(incomingRequests.length)}</span>
                   )}
                 </button>
+              </div>
+              <div className="friends-search">
+                <Search size={16} aria-hidden="true" />
+                <input ref={friendsSearchRef} type="search" aria-label={friendsFilter === 'requests' ? 'Search requests' : 'Search friends'}
+                  placeholder={friendsFilter === 'requests' ? 'Search requests' : 'Search friends'} value={friendsSearch}
+                  onChange={event => setFriendsSearch(event.target.value)}
+                  onKeyDown={event => { if (event.key === 'Escape' && friendsSearch) { event.stopPropagation(); setFriendsSearch('') } }} />
+                <button type="button" title="Clear search" aria-label="Clear friends search" disabled={!friendsSearch}
+                  onClick={() => { setFriendsSearch(''); friendsSearchRef.current?.focus() }}><X size={14} aria-hidden="true" /></button>
+              </div>
               </div>
               {friendsFilter === 'requests' ? (
                 <div className="home-friends-scroll home-friends-scroll--requests">
                   <div className="home-list-group home-requests-add-card">
                     <div className="home-list-title">Add a Friend</div>
-                    <div className="home-add-row">
+                    <form className="home-add-row" aria-busy={sendingFriendRequest} onSubmit={event => { event.preventDefault(); void sendFriendRequest() }}>
                       <input
+                        ref={addFriendInputRef}
+                        aria-label="Friend username"
                         className="home-search"
                         placeholder="Enter username"
                         value={addFriendUsername}
+                        disabled={sendingFriendRequest}
                         onChange={(e) => setAddFriendUsername(e.target.value)}
                       />
-                      <button type="button" className="home-send-request-btn" onClick={sendFriendRequest} disabled={!addFriendUsername.trim()}>
-                        Send Request
+                      <button type="submit" className="home-send-request-btn" disabled={!addFriendUsername.trim() || sendingFriendRequest}>
+                        <Send size={14} aria-hidden="true" />
+                        <span>{sendingFriendRequest ? 'Sending...' : 'Send Request'}</span>
                       </button>
-                    </div>
-                    {addFriendMessage && <div className="home-empty-row home-add-message">{addFriendMessage}</div>}
-                    <p className="home-requests-hint">Enter a username above to send a friend request.</p>
+                    </form>
+                    {addFriendMessage && <div className="home-empty-row home-add-message" role="status">{addFriendMessage}</div>}
                   </div>
                   <div className="home-list-group">
                     <div className="home-list-title home-list-title-with-icon">
                       <Inbox size={16} />
                       <span>Incoming</span>
-                      <span className="home-list-count">{formatBadgeCount(incomingRequests.length)}</span>
+                      <span className="home-list-count">{formatBadgeCount(visibleIncomingRequests.length)}</span>
                     </div>
-                    {incomingRequests.length === 0 ? (
-                      <div className="home-empty-row home-empty-muted">No incoming requests.</div>
+                    {visibleIncomingRequests.length === 0 ? (
+                      <div className="home-empty-row home-empty-muted">{requestQuery ? 'No matching incoming requests.' : 'No incoming requests.'}</div>
                     ) : (
-                      incomingRequests.map((r) => (
+                      visibleIncomingRequests.map((r) => (
                         <div key={r.id} className="home-request-row">
-                          <span>{r.requester_username}</span>
+                          <span className="friends-request-person">
+                            <span className="friends-request-avatar" aria-hidden="true">{r.requester_username.charAt(0).toUpperCase()}</span>
+                            <span title={r.requester_username}>{r.requester_username}</span>
+                          </span>
                           <div className="home-request-actions">
                             <button
                               type="button"
                               className="home-request-btn accept"
                               aria-label={`Accept friend request from ${r.requester_username}`}
+                              title="Accept request"
                               onClick={() => acceptRequest(r.id)}
                             >
                               <Check size={14} />
@@ -1394,6 +1461,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                               type="button"
                               className="home-request-btn reject"
                               aria-label={`Reject friend request from ${r.requester_username}`}
+                              title="Reject request"
                               onClick={() => rejectRequest(r.id)}
                             >
                               <X size={14} />
@@ -1405,14 +1473,17 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     <div className="home-list-title home-list-title-with-icon home-list-title-secondary">
                       <Send size={16} />
                       <span>Outgoing</span>
-                      <span className="home-list-count">{formatBadgeCount(outgoingRequests.length)}</span>
+                      <span className="home-list-count">{formatBadgeCount(visibleOutgoingRequests.length)}</span>
                     </div>
-                    {outgoingRequests.length === 0 ? (
-                      <div className="home-empty-row home-empty-muted">No outgoing requests.</div>
+                    {visibleOutgoingRequests.length === 0 ? (
+                      <div className="home-empty-row home-empty-muted">{requestQuery ? 'No matching outgoing requests.' : 'No outgoing requests.'}</div>
                     ) : (
-                      outgoingRequests.map((r) => (
+                      visibleOutgoingRequests.map((r) => (
                         <div key={`out-${r.id}`} className="home-request-row home-request-row-outgoing">
-                          <span>Pending to <strong>{r.receiver_username}</strong></span>
+                          <span className="friends-request-person">
+                            <span className="friends-request-avatar" aria-hidden="true">{r.receiver_username.charAt(0).toUpperCase()}</span>
+                            <span className="friends-request-copy"><strong title={r.receiver_username}>{r.receiver_username}</strong><span>Pending request</span></span>
+                          </span>
                           <div className="home-request-actions">
                             <button
                               type="button"
@@ -1434,8 +1505,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   <div className="home-list-group">
                     <div className="home-list-title">
                       {friendsFilter === 'online'
-                        ? `Online Friends — ${onlineFriends.length}`
-                        : `All Friends — ${friends.length}`}
+                        ? `Online Friends — ${visibleFriends.length}`
+                        : `All Friends — ${visibleFriends.length}`}
+                      {requestQuery && <> <span className="friends-filter-total">of {friendsFilter === 'online' ? onlineFriends.length : friends.length}</span></>}
                     </div>
                     {showSocialBootstrapLoading ? (
                       <div className="home-list-skeleton" aria-hidden="true">
@@ -1444,14 +1516,16 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         <div className="home-list-skeleton-row" />
                       </div>
                     ) : visibleFriends.length === 0 ? (
-                      friends.length === 0 ? (
+                      requestQuery ? (
+                        <div className="friends-empty-state"><Search size={28} aria-hidden="true" /><h3>No matching friends</h3><button type="button" className="btn btn-secondary" onClick={() => { setFriendsSearch(''); friendsSearchRef.current?.focus() }}>Clear search</button></div>
+                      ) : friends.length === 0 ? (
                         <OnboardingCard
-                          title="Start your social graph"
-                          description="Add a friend or jump into the official Voxpery community so you have someone to message right away."
+                          title="No friends yet"
+                          description="Your friend list is empty."
                           actions={[
                             {
                               label: 'Add a friend',
-                              onClick: () => setFriendsFilter('requests'),
+                              onClick: openAddFriend,
                               icon: <MessageSquarePlus size={14} />,
                             },
                             {
@@ -1465,11 +1539,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                           ]}
                         />
                       ) : (
-                        <div className="home-empty-row">
+                        <div className="friends-empty-state"><Users size={28} aria-hidden="true" /><h3>
                           {friendsFilter === 'online'
                             ? "No one's online right now."
                             : 'No friends found for this view.'}
-                        </div>
+                        </h3><button type="button" className="btn btn-secondary" onClick={() => setFriendsFilter('all')}>Show everyone</button></div>
                       )
                     ) : (
                       visibleFriends.map((friend) => {
@@ -1496,7 +1570,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                             >
                               <div className={`home-member-avatar avatar-status-${['online', 'dnd', 'offline'].includes((friend.status ?? '').toLowerCase()) ? (friend.status ?? 'offline').toLowerCase() : 'offline'}`}>
                                 {friend.avatar_url ? (
-                                  <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" />
+                                  <img src={resolveAvatarUrl(friend.avatar_url) ?? ''} alt="" loading="lazy" decoding="async" />
                                 ) : (
                                   friend.username.charAt(0).toUpperCase()
                                 )}
@@ -1510,9 +1584,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                               onClick={() => void openMessageForFriend(friend.id)}
                             >
                               <div className="home-member-meta">
-                                <div>{friend.username}</div>
+                                <div title={friend.username}>{friend.username}</div>
                                 <span>
-                                  <span className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
+                                  <span title={presenceLabel(friend.status)} className={`home-presence-pill home-presence-pill-${normalizePresence(friend.status)}`}>
                                     <span className="home-presence-pill-dot" aria-hidden />
                                     {presenceLabel(friend.status)}
                                   </span>
@@ -1520,6 +1594,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                               </div>
                             </button>
                             <div className="home-member-actions">
+                              <button type="button" className="home-member-action home-member-action--message"
+                                title={`Send a message to ${friend.username}`} aria-label={`Send a message to ${friend.username}`}
+                                disabled={openingDmPeerId !== null} onClick={() => void openMessageForFriend(friend.id)}>
+                                <MessageCircle size={17} aria-hidden="true" />
+                              </button>
                               <button
                                 type="button"
                                 className="home-member-action"
@@ -1681,7 +1760,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             className={`server-context-menu social-dm-context-menu${socialContextMenu.kind === 'friend' ? ' social-dm-context-menu--friend' : ''}`}
             role="menu"
             aria-label={`Actions for ${socialContextMenu.username}`}
-            style={{ left: socialContextMenu.x, top: socialContextMenu.y }}
+            ref={socialMenuRef}
+            style={socialMenuStyle}
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -1820,77 +1900,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         document.body
       )}
 
-      <aside className="home-side">
-        <div className="community-note community-intro">
-          <h3>What is Voxpery?</h3>
-          <p>
-            Voice and text chat for friends and communities. Servers, voice channels, screen share — all in one place.
-          </p>
-        </div>
-
-        <div className="community-card">
-          <div className="community-card-badge">
-            <Compass size={14} />
-            Official Community
-          </div>
-          <h2>Voxpery Community</h2>
-          <p>
-            {voxperyServer
-              ? 'Updates, announcements, and discussions in the official server.'
-              : 'Join to connect with others, get updates, and join discussions.'}
-          </p>
-          <button
-            type="button"
-            className="community-open-btn"
-            onClick={() => {
-              void openOfficialCommunity()
-            }}
-          >
-            <span className="community-btn-emoji" aria-hidden>🦊</span>
-            {voxperyServer ? 'Open Server' : 'Join Server'}
-          </button>
-        </div>
-
-        <div className="community-card community-card-github">
-          <div className="community-card-badge">
-            <Github size={14} />
-            Open Source
-          </div>
-          <h2>View the code</h2>
-          <p>
-            Open source. Browse, report issues, or contribute on GitHub.
-          </p>
-          <a
-            href="https://github.com/emircanagac/voxpery"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="community-open-btn"
-          >
-            <Github size={16} />
-            View on GitHub
-          </a>
-        </div>
-
-        <div className="community-card community-card-support">
-          <div className="community-card-badge">
-            <Github size={14} />
-            Support
-          </div>
-          <h2>Support the project</h2>
-          <p>
-            Support Voxpery through GitHub Sponsors.
-          </p>
-          <a
-            href="https://github.com/sponsors/emircanagac"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="community-open-btn"
-          >
-            <Github size={16} />
-            Sponsor on GitHub
-          </a>
-        </div>
-      </aside>
+      <SocialInfoPanel onOpenCommunity={() => void openOfficialCommunity()} />
 
       {deleteDmConfirmMessageId &&
         createPortal(

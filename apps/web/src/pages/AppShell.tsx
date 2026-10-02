@@ -9,8 +9,7 @@ import { useAppStore } from '../stores/app'
 import ActiveCallBar from '../components/ActiveCallBar'
 import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
-import NotificationPermissionPrompt from '../components/NotificationPermissionPrompt'
-import FeedbackCard from '../components/FeedbackCard'
+import { ProjectSupportLink } from '../components/SocialInfoPanel'
 import { useToastStore } from '../stores/toast'
 import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
@@ -60,7 +59,6 @@ export default function AppShell() {
     setDmUnreadFromChannels,
     setFriends,
     setSocialDataReady,
-    socialDataReady,
     activeDmChannelId,
     setActiveServer,
     setActiveChannel,
@@ -84,7 +82,6 @@ export default function AppShell() {
       setDmUnreadFromChannels: s.setDmUnreadFromChannels,
       setFriends: s.setFriends,
       setSocialDataReady: s.setSocialDataReady,
-      socialDataReady: s.socialDataReady,
       activeDmChannelId: s.activeDmChannelId,
       setActiveServer: s.setActiveServer,
       setActiveChannel: s.setActiveChannel,
@@ -112,6 +109,7 @@ export default function AppShell() {
   const previousUnreadCountRef = useRef(0)
   const desktopUnreadInitializedRef = useRef(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [compactSettingsTarget, setCompactSettingsTarget] = useState<HTMLDivElement | null>(null)
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const appVersionBadge = BUILD_APP_VERSION ?? desktopAppVersion
   const socialSyncInFlightRef = useRef<Promise<void> | null>(null)
@@ -339,6 +337,9 @@ export default function AppShell() {
           if (user_id) {
             setVoiceState(user_id, channel_id ?? null, channel_active_since_ms ?? null)
             useAppStore.getState().setVoiceStateServerId(user_id, server_id ?? null)
+            useAppStore.setState(state => ({ voiceActivityConnectionIds: {
+              ...state.voiceActivityConnectionIds, [user_id]: useSocketStore.getState().connectionId,
+            } }))
             if (!channel_id) clearScreenShareViewerMembership(user_id)
             if (user_id === userId) {
               setJoinedVoiceChannelId(channel_id ?? null)
@@ -719,9 +720,9 @@ export default function AppShell() {
             <span className="shell-quick-switch-mobile-label">Search</span>
             <span className="shell-quick-switch-shortcut">Ctrl K</span>
           </button>
+          <div className="shell-mobile-settings" ref={setCompactSettingsTarget} />
         </div>
       </header>
-      <NotificationPermissionPrompt ready={socialDataReady} />
       <main className="shell-content">
         <Outlet />
       </main>
@@ -732,9 +733,9 @@ export default function AppShell() {
           activeChannelId={showVoiceStage ? activeChannelId : null}
         />
       </div>
-      <div className="feedback-dock">
-        <FeedbackCard />
-      </div>
+      <footer className="support-dock" aria-label="Voxpery support">
+        <ProjectSupportLink />
+      </footer>
       {/* User profile bar — stays in left sidebar */}
       <div className="left-bottom-panel">
         {isTauri() && desktopUpdate?.available && (
@@ -755,7 +756,7 @@ export default function AppShell() {
             </button>
           </div>
         )}
-        <UserBar />
+        <UserBar compactSettingsTarget={compactSettingsTarget} />
       </div>
       {showQuickSwitcher && (
         <QuickSwitcher

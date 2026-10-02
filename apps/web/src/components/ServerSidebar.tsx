@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { PlusCircle, LogIn, LogOut, Settings, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -20,7 +20,6 @@ interface ServerSidebarProps {
 type DragIntent = 'before' | 'after'
 
 const PREFETCH_DELAY_MS = 120
-const SIDEBAR_END_DROP_ID = '__sidebar-end-drop__'
 
 export default function ServerSidebar({
     onCreateServer,
@@ -107,6 +106,7 @@ export default function ServerSidebar({
     const sidebarRef = useRef<HTMLDivElement>(null)
     const prefetchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const dragPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null)
+    const dragPointerYRef = useRef<number | null>(null)
 
     const orderStorageKey = `voxpery-server-order:${user?.id ?? 'guest'}`
 
@@ -118,27 +118,9 @@ export default function ServerSidebar({
     const getCurrentOrder = () => (orderedServerIds.length > 0 ? [...orderedServerIds] : servers.map((s) => s.id))
 
     const clearDragUiState = () => {
+        dragPointerYRef.current = null
         setDraggedServerId(null)
         setDragOverState(null)
-    }
-
-    const getIntentForServerDrop = (event: React.DragEvent<HTMLElement>): DragIntent => {
-        const rect = event.currentTarget.getBoundingClientRect()
-        const y = event.clientY - rect.top
-        return y < rect.height / 2 ? 'before' : 'after'
-    }
-
-    const normalizeLinearDropTarget = (
-        targetId: string,
-        intent: DragIntent,
-    ): { targetId: string; intent: DragIntent } => {
-        const order = getCurrentOrder().filter((id) => servers.some((s) => s.id === id))
-        if (intent === 'before') return { targetId, intent: 'before' }
-        const idx = order.indexOf(targetId)
-        if (idx >= 0 && idx < order.length - 1) {
-            return { targetId: order[idx + 1], intent: 'before' }
-        }
-        return { targetId, intent: 'after' }
     }
 
     const moveServerByOrder = (draggedId: string, targetId: string, intent: DragIntent) => {
@@ -150,19 +132,11 @@ export default function ServerSidebar({
         saveOrder(current)
     }
 
-    const getSidebarDropTarget = (sidebarEl: HTMLElement, clientY: number): { targetId: string; intent: DragIntent } | null => {
+    const getSidebarDropTarget = useCallback((sidebarEl: HTMLElement, clientY: number): { targetId: string; intent: DragIntent } | null => {
         const buttons = Array.from(
             sidebarEl.querySelectorAll<HTMLButtonElement>('.server-icon.is-draggable[data-drop-id]'),
-        )
+        ).filter(button => button.dataset.dropId !== draggedServerId)
         if (buttons.length === 0) return null
-
-        const first = buttons[0]
-        const firstId = first.dataset.dropId
-        if (!firstId) return null
-        const firstRect = first.getBoundingClientRect()
-        if (clientY < firstRect.top) {
-            return { targetId: firstId, intent: 'before' }
-        }
 
         for (const button of buttons) {
             const dropId = button.dataset.dropId
@@ -177,15 +151,13 @@ export default function ServerSidebar({
         const last = buttons[buttons.length - 1]
         const lastId = last.dataset.dropId
         if (!lastId) return null
-        const lastRect = last.getBoundingClientRect()
-        if (clientY > lastRect.bottom + 18) return null
         return { targetId: lastId, intent: 'after' }
-    }
+    }, [draggedServerId])
 
-    const isNearSidebarBottom = (sidebarEl: HTMLElement, clientY: number) => {
-        const rect = sidebarEl.getBoundingClientRect()
-        return clientY >= rect.bottom - 44
-    }
+    const updateDragTarget = useCallback((sidebarEl: HTMLElement, clientY: number) => {
+        const next = getSidebarDropTarget(sidebarEl, clientY)
+        setDragOverState(previous => previous?.targetId === next?.targetId && previous?.intent === next?.intent ? previous : next)
+    }, [getSidebarDropTarget])
 
     const getDropLineClass = (targetId: string) => {
         if (dragOverState?.targetId !== targetId) return ''
@@ -240,21 +212,25 @@ export default function ServerSidebar({
 
     useEffect(() => {
         if (!draggedServerId) return
-        const onWindowDragOver = (event: DragEvent) => {
+        let frame = 0
+        const scrollAtEdge = () => {
             const sidebarEl = sidebarRef.current
-            if (!sidebarEl) return
-            const target = event.target as Node | null
-            if (!target || !sidebarEl.contains(target)) return
-            event.preventDefault()
-            if (event.dataTransfer) {
-                event.dataTransfer.dropEffect = 'move'
+            const list = sidebarEl?.querySelector<HTMLElement>('.server-sidebar-scroll')
+            const y = dragPointerYRef.current
+            if (sidebarEl && list && y !== null) {
+                const rect = list.getBoundingClientRect()
+                const delta = y < rect.top + 32 ? -8 : y > rect.bottom - 32 ? 8 : 0
+                if (delta) {
+                    const previous = list.scrollTop
+                    list.scrollTop += delta
+                    if (list.scrollTop !== previous) updateDragTarget(sidebarEl, y)
+                }
             }
+            frame = requestAnimationFrame(scrollAtEdge)
         }
-        window.addEventListener('dragover', onWindowDragOver, true)
-        return () => {
-            window.removeEventListener('dragover', onWindowDragOver, true)
-        }
-    }, [draggedServerId])
+        frame = requestAnimationFrame(scrollAtEdge)
+        return () => cancelAnimationFrame(frame)
+    }, [draggedServerId, updateDragTarget])
 
     useEffect(() => {
         if (!leaveServerConfirmId && !ownerLeaveGuardServerId) return
@@ -331,7 +307,7 @@ export default function ServerSidebar({
         return (
             <div
                 key={server.id}
-                className={`server-icon-wrapper ${dropLineClass} ${unreadCount > 0 ? 'has-unread' : ''}`}
+                className={`server-icon-wrapper ${dropLineClass} ${draggedServerId === server.id ? 'is-drag-source' : ''} ${unreadCount > 0 ? 'has-unread' : ''}`}
             >
                 <button
                     type="button"
@@ -348,44 +324,13 @@ export default function ServerSidebar({
                     data-server-id={server.id}
                     data-drop-id={server.id}
                     onDragStart={(e) => {
+                        handleServerMouseLeave()
+                        setContextMenu(null)
+                        setDragOverState(null)
                         setDraggedServerId(server.id)
                         e.dataTransfer.effectAllowed = 'move'
                         e.dataTransfer.setData('text/plain', server.id)
                         suppressDragPreview(e)
-                    }}
-                    onDragOver={(e) => {
-                        if (!draggedServerId) return
-                        if (draggedServerId === server.id) {
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            setDragOverState((prev) => (prev ? null : prev))
-                            return
-                        }
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'move'
-                        const intent = getIntentForServerDrop(e)
-                        const normalized = normalizeLinearDropTarget(server.id, intent)
-                        setDragOverState((prev) =>
-                            prev?.targetId === normalized.targetId && prev.intent === normalized.intent
-                                ? prev
-                                : normalized,
-                        )
-                    }}
-                    onDrop={(e) => {
-                        if (!draggedServerId || draggedServerId === server.id) return
-                        e.preventDefault()
-                        const stateDrop =
-                            dragOverState && dragOverState.targetId !== SIDEBAR_END_DROP_ID
-                                ? dragOverState
-                                : null
-                        const fallbackIntent = getIntentForServerDrop(e)
-                        const normalized = stateDrop ?? normalizeLinearDropTarget(server.id, fallbackIntent)
-                        if (normalized.targetId === draggedServerId) {
-                            clearDragUiState()
-                            return
-                        }
-                        moveServerByOrder(draggedServerId, normalized.targetId, normalized.intent)
-                        clearDragUiState()
                     }}
                     onDragEnd={clearDragUiState}
                     title={server.name}
@@ -419,66 +364,26 @@ export default function ServerSidebar({
         <div
             ref={sidebarRef}
             className={`server-sidebar ${isDraggingSidebar ? 'is-dragging' : ''}`}
-            onDragOverCapture={(e) => {
-                if (!draggedServerId) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-            }}
             onDragOver={(e) => {
                 if (!draggedServerId) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
-                const target = e.target as HTMLElement | null
-                if (!target?.closest('.server-icon')) {
-                    const nearest = getSidebarDropTarget(e.currentTarget, e.clientY)
-                    if (!nearest) {
-                        if (!isNearSidebarBottom(e.currentTarget, e.clientY)) {
-                            setDragOverState((prev) => (prev ? null : prev))
-                            return
-                        }
-                        setDragOverState((prev) =>
-                            prev?.targetId === SIDEBAR_END_DROP_ID && prev.intent === 'after'
-                                ? prev
-                                : { targetId: SIDEBAR_END_DROP_ID, intent: 'after' },
-                        )
-                        return
-                    }
-                    setDragOverState((prev) =>
-                        prev?.targetId === nearest.targetId && prev.intent === nearest.intent
-                            ? prev
-                            : nearest,
-                    )
-                }
+                dragPointerYRef.current = e.clientY
+                updateDragTarget(e.currentTarget, e.clientY)
             }}
             onDragLeave={(e) => {
                 if (!draggedServerId) return
                 const related = e.relatedTarget as Node | null
-                if (related && !e.currentTarget.contains(related)) {
-                    clearDragUiState()
+                if (!related || !e.currentTarget.contains(related)) {
+                    dragPointerYRef.current = null
+                    setDragOverState(null)
                 }
             }}
             onDrop={(e) => {
                 if (!draggedServerId) return
-                const target = e.target as HTMLElement | null
-                if (target?.closest('.server-icon')) return
                 e.preventDefault()
-
-                if (
-                    dragOverState &&
-                    dragOverState.targetId !== SIDEBAR_END_DROP_ID &&
-                    (dragOverState.intent === 'before' || dragOverState.intent === 'after')
-                ) {
-                    if (dragOverState.targetId !== draggedServerId) {
-                        moveServerByOrder(draggedServerId, dragOverState.targetId, dragOverState.intent)
-                    }
-                    clearDragUiState()
-                    return
-                }
-
-                const current = getCurrentOrder()
-                const next = current.filter((id) => id !== draggedServerId)
-                next.push(draggedServerId)
-                saveOrder(next)
+                const target = getSidebarDropTarget(e.currentTarget, e.clientY)
+                if (target) moveServerByOrder(draggedServerId, target.targetId, target.intent)
                 clearDragUiState()
             }}
         >
@@ -494,9 +399,6 @@ export default function ServerSidebar({
                 )}
                 {orderedServers.map((server) => renderServerButton(server))}
 
-                {draggedServerId && dragOverState?.targetId === SIDEBAR_END_DROP_ID && (
-                    <div className="server-drop-end-indicator" aria-hidden="true" />
-                )}
             </div>
 
             <div className="server-sidebar-actions">

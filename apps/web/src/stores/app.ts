@@ -67,6 +67,8 @@ interface AppState {
     voiceChannelActiveSince: Record<string, number>
     // Voice presence: user_id -> server_id when in a voice channel (null when left)
     voiceStateServerIds: Record<string, string | null>
+    // Activity must not advertise stale voice presence after a socket reconnect.
+    voiceActivityConnectionIds: Record<string, number>
     setVoiceStateServerId: (userId: string, serverId: string | null) => void
     // Voice control state (user_id -> mute/deafen)
     voiceControls: Record<string, { muted: boolean; deafened: boolean; serverMuted: boolean; serverDeafened: boolean; screenSharing: boolean; cameraOn: boolean }>
@@ -317,6 +319,7 @@ export const useAppStore = create<AppState>()(
                     return { voiceStates, voiceChannelActiveSince }
                 }),
             voiceStateServerIds: {},
+            voiceActivityConnectionIds: {},
             setVoiceStateServerId: (userId, serverId) =>
                 set((s) => ({
                     voiceStateServerIds: { ...s.voiceStateServerIds, [userId]: serverId },
@@ -432,6 +435,7 @@ export const useAppStore = create<AppState>()(
                     voiceStates: {},
                     voiceChannelActiveSince: {},
                     voiceStateServerIds: {},
+                    voiceActivityConnectionIds: {},
                     voiceControls: {},
                     screenShareViewerIdsByPublisherId: {},
                     voiceSpeakingUserIds: [],
