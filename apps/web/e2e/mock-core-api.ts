@@ -1051,6 +1051,13 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  const hideDmMatch = pathname.match(/^\/api\/dm\/channels\/([^/]+)\/hide$/)
+  if (hideDmMatch && method === 'POST') {
+    state.dmChannels = state.dmChannels.filter((channel) => channel.id !== hideDmMatch[1])
+    await json(route, {})
+    return
+  }
+
   const createDmMatch = pathname.match(/^\/api\/dm\/channels\/([^/]+)$/)
   if (createDmMatch && method === 'POST') {
     const peerId = createDmMatch[1]

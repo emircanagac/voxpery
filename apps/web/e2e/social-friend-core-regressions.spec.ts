@@ -165,7 +165,7 @@ test.describe('mocked social friend UI regressions', () => {
   })
 
   for (const width of [1920, 390]) {
-    test(`keeps grouped DM rows compact and scrollable at ${width}px`, async ({ page }) => {
+    test(`keeps grouped DM rows compact and scrollable at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
       const channels = Array.from({ length: 32 }, (_, index) => ({
         id: `dm-layout-${index}`, peer_id: `peer-layout-${index}`,
@@ -183,6 +183,24 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(sidebar.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible()
       const row = sidebar.locator('.social-dm-item').first()
       expect((await row.boundingBox())!.height).toBe(46)
+      const hide = row.getByRole('button', { name: /^Hide DM with/ })
+      if (width === 1920) {
+        await page.locator('.social-sidebar-header').hover()
+        await expect(hide).toHaveCSS('opacity', '0')
+        await row.hover()
+      }
+      await expect(hide).toHaveCSS('opacity', '1')
+      await expect(hide).toHaveCSS('pointer-events', 'auto')
+      expect(await row.evaluate(element => {
+        const rowBounds = element.getBoundingClientRect()
+        const hideBounds = element.querySelector('.social-dm-close')!.getBoundingClientRect()
+        return hideBounds.right <= rowBounds.right + 1
+      })).toBe(true)
+      await row.locator('.social-dm-open').focus()
+      await page.keyboard.press('Tab')
+      await expect(hide).toBeFocused()
+      await expect(hide).toHaveCSS('outline-style', 'solid')
+      await sidebar.screenshot({ path: testInfo.outputPath('social-dock.png') })
       await expect(sidebar.locator('.social-sidebar-title')).toHaveText('Direct Messages')
       const header = (await sidebar.locator('.social-sidebar-header').boundingBox())!
       const friends = (await sidebar.getByRole('button', { name: 'Friends', exact: true }).boundingBox())!
@@ -197,6 +215,10 @@ test.describe('mocked social friend UI regressions', () => {
       await last.click({ button: 'right' })
       await expect(page.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
       await page.keyboard.press('Escape')
+      const lastHide = sidebar.getByRole('button', { name: 'Hide DM with Contact 31', exact: true })
+      await last.hover()
+      await lastHide.click()
+      await expect(last).toHaveCount(0)
     })
   }
 

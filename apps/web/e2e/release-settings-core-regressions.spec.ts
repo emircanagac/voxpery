@@ -734,7 +734,20 @@ test.describe('mocked release and settings regressions', () => {
       await page.locator('.home-page').screenshot({ path: testInfo.outputPath('social-outlines.png') })
       await openDm.press('Enter')
       await expect(row).toHaveClass(/active/)
-      await page.locator('.social-nav-item').click()
+      const friendsNav = page.locator('.social-nav-item')
+      const navBorder = await friendsNav.evaluate(border)
+      expect(navBorder.width).toBe('1px')
+      expect(navBorder.color).not.toBe('rgba(0, 0, 0, 0)')
+      const sidebarBox = (await page.locator('.social-sidebar').boundingBox())!
+      const rowBox = (await row.boundingBox())!
+      const navBox = (await friendsNav.boundingBox())!
+      expect(rowBox.width).toBeCloseTo(navBox.width, 0)
+      expect(rowBox.x - sidebarBox.x).toBeGreaterThanOrEqual(16)
+      expect(sidebarBox.x + sidebarBox.width - rowBox.x - rowBox.width).toBeGreaterThanOrEqual(16)
+      await friendsNav.focus()
+      await expect(friendsNav).toHaveCSS('outline-style', 'solid')
+      await friendsNav.press('Enter')
+      await expect(friendsNav).toHaveAttribute('aria-current', 'page')
       for (const width of [1920, 1100, 390, 320]) {
         await page.setViewportSize({ width, height: 844 })
         const filters = page.getByRole('group', { name: 'Friends filters' })

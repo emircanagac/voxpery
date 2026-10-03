@@ -17,6 +17,7 @@ This release is in preparation, not published. Further UI acceptance, real two-u
 - Added image/file draft cards with previews, file sizes, reduced-motion-aware upload activity, and retry/remove controls.
 
 ### Changed
+- Refreshed the Social dock with an outlined Friends navigation button, inset conversation rows, balanced section spacing, and theme-aware hover/keyboard-focus hide controls. Touch layouts keep hide actions visible without shifting usernames or unread badges.
 - Redesigned voice confirmations into distinct short sound families: rising/falling room melodies, low microphone taps, spaced deafen pulses, bright camera bells, and screen-share chords. Kept the existing sound-effects preference and local/remote event routing, with no downloaded audio assets.
 - Refreshed the shared DM, mention and message notification sound into one soft double tap, distinct from camera and voice controls, without changing notification eligibility, sound settings or do-not-disturb behavior.
 - Show GIF/sticker favorite stars on hover or keyboard focus instead of keeping saved stars visible while idle; touch devices retain direct favorite access.
