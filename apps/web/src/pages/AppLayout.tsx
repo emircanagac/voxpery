@@ -3488,7 +3488,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                     >
                                         Cancel
                                     </button>
-                                    <button type="submit" className="btn btn-primary" disabled={isCreatingServer}>
+                                    <button type="submit" className="btn btn-primary" disabled={isCreatingServer || !newServerName.trim()}>
                                         {isCreatingServer ? 'Creating...' : 'Create'}
                                     </button>
                                 </div>
@@ -3518,7 +3518,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                 </div>
                                 <div className="modal-actions">
                                     <button type="button" className="btn btn-secondary" onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Join</button>
+                                    <button type="submit" className="btn btn-primary" disabled={!parseInviteInput(inviteCode)}>Join</button>
                                 </div>
                             </form>
                         </div>
@@ -3992,12 +3992,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
 
                                             {serverSettingsTab === 'audit' && canViewAuditLog && (
                                                 <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
-                                                    <h3 className="server-settings-card__title">Audit Log</h3>
-                                                    <div className="server-settings-panel-copy">
-                                                        <p className="server-settings-note">
-                                                            Track major moderation actions, channel changes, and server updates in one timeline.
-                                                        </p>
-                                                    </div>
                                                     {auditLogError && (
                                                         <div className="auth-error" style={{ marginBottom: 12 }}>
                                                             {auditLogError}

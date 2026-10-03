@@ -21,6 +21,9 @@ export default function ServerWelcomeGuide({
         .filter((channel): channel is Channel => !!channel)
     const title = guide.title.trim() || `Welcome to ${serverName}`
     const body = guide.body.trim()
+    const introductionTask = guide.starter_tasks.find((task) => task.trim().toLowerCase() === 'introduce yourself')
+    const introductionChannel = introductionTask ? recommendedChannels.find((channel) => channel.channel_type === 'text') : undefined
+    const starterTasks = guide.starter_tasks.filter((task) => !(introductionChannel && task === introductionTask))
 
     return (
         <section className="server-welcome-guide">
@@ -33,13 +36,13 @@ export default function ServerWelcomeGuide({
                 <X size={16} />
             </button>
             <div className="server-welcome-guide__copy">
-                <span className="server-welcome-guide__eyebrow">Start here</span>
                 <h2>{title}</h2>
                 {body && <p>{body}</p>}
             </div>
-            {guide.starter_tasks.length > 0 && (
+            <div className="server-welcome-guide__actions">
+            {starterTasks.length > 0 && (
                 <div className="server-welcome-guide__tasks">
-                    {guide.starter_tasks.map((task) => (
+                    {starterTasks.map((task) => (
                         <div key={task} className="server-welcome-guide__task">
                             <CheckCircle2 size={15} />
                             <span>{task}</span>
@@ -58,11 +61,12 @@ export default function ServerWelcomeGuide({
                             onClick={() => onSelectChannel(channel.id)}
                         >
                             {channel.channel_type === 'voice' ? <Mic size={14} /> : <Hash size={14} />}
-                            <span>{channel.name}</span>
+                            <span>{channel.id === introductionChannel?.id ? `Introduce yourself in #${channel.name}` : channel.name}</span>
                         </button>
                     ))}
                 </div>
             )}
+            </div>
         </section>
     )
 }

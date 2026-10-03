@@ -38,6 +38,27 @@ const guide: ServerOnboardingGuide = {
 }
 
 describe('ServerWelcomeGuide', () => {
+  it('combines the introduction task with its text-channel action without duplicating it', () => {
+    const onSelectChannel = vi.fn()
+    const onDismiss = vi.fn()
+    render(<ServerWelcomeGuide guide={{ ...guide, starter_tasks: ['Introduce yourself'], recommended_channel_ids: ['text-1'] }}
+      channels={channels} serverName="Voxpery" onSelectChannel={onSelectChannel} onDismiss={onDismiss} />)
+    const action = screen.getByRole('button', { name: 'Open channel general' })
+    expect(action).toHaveTextContent('Introduce yourself in #general')
+    expect(screen.queryByText('Introduce yourself', { exact: true })).not.toBeInTheDocument()
+    fireEvent.click(action)
+    expect(onSelectChannel).toHaveBeenCalledWith('text-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome guide' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the introduction task if its recommended text channel is unavailable', () => {
+    render(<ServerWelcomeGuide guide={{ ...guide, starter_tasks: ['Introduce yourself'], recommended_channel_ids: ['missing'] }}
+      channels={channels} serverName="Voxpery" onSelectChannel={vi.fn()} onDismiss={vi.fn()} />)
+    expect(screen.getByText('Introduce yourself')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Open channel/ })).not.toBeInTheDocument()
+  })
+
   it('only allows the guide that belongs to the active text-channel server', () => {
     expect(shouldShowServerWelcomeGuide({
       activeServerId: 'server-1',

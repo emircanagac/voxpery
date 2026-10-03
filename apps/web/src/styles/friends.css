@@ -21,9 +21,9 @@
 .social-content--friends .home-chip {
   min-height: 38px;
   padding: 6px 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--btn-secondary-border);
   border-radius: 4px;
-  background: transparent;
+  background: var(--bg-surface);
   gap: 6px;
   color: var(--text-secondary);
   box-shadow: none;
@@ -31,8 +31,8 @@
   font-size: 13px;
   line-height: 20px;
 }
-.social-content--friends .home-chip:hover { background: var(--bg-surface-hover); }
-.social-content--friends .home-chip.active { border-color: var(--btn-secondary-border); background: var(--accent-soft); color: var(--text-primary); box-shadow: none; }
+.social-content--friends .home-chip:hover { border-color: color-mix(in srgb, var(--text-secondary) 50%, transparent); background: var(--bg-surface-hover); }
+.social-content--friends .home-chip.active { border-color: color-mix(in srgb, var(--accent-primary) 65%, transparent); background: var(--accent-soft); color: var(--text-primary); box-shadow: none; }
 .social-content--friends .home-chip svg { flex-shrink: 0; }
 .social-content--friends .home-chip-badge { margin-left: 0; flex-shrink: 0; }
 

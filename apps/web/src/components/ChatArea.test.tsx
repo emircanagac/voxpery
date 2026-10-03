@@ -131,6 +131,60 @@ describe('ChatArea regressions', () => {
     expect(screen.queryByText('Welcome to #general!')).not.toBeInTheDocument()
   })
 
+  it.each(['Escape', 'Close search'])('restores the remounted search trigger after %s', async (dismiss) => {
+    const onSearchChange = vi.fn()
+    renderChatArea({ searchQuery: 'hello', onSearchChange })
+    const opener = screen.getByRole('button', { name: 'Search in conversation' })
+    fireEvent.click(opener)
+    const input = screen.getByRole('textbox', { name: 'Search messages' })
+    await waitFor(() => expect(input).toHaveFocus())
+    expect(opener.isConnected).toBe(false)
+    if (dismiss === 'Escape') fireEvent.keyDown(input, { key: 'Escape' })
+    else fireEvent.click(screen.getByRole('button', { name: 'Close search' }))
+    expect(screen.queryByRole('textbox', { name: 'Search messages' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search in conversation' })).toHaveFocus()
+    expect(onSearchChange).toHaveBeenLastCalledWith('')
+  })
+
+  it('restores the search trigger after dismissing shortcut-opened search', async () => {
+    renderChatArea({ onSearchChange: vi.fn() })
+    const composer = screen.getByPlaceholderText('Message #general')
+    composer.focus()
+    fireEvent.keyDown(composer, { key: 'f', ctrlKey: true })
+    const input = screen.getByRole('textbox', { name: 'Search messages' })
+    await waitFor(() => expect(input).toHaveFocus())
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.getByRole('button', { name: 'Search in conversation' })).toHaveFocus()
+  })
+
+  it('does not steal focus when Pins replaces search', async () => {
+    renderChatArea({ onSearchChange: vi.fn() })
+    fireEvent.click(screen.getByRole('button', { name: 'Search in conversation' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Search messages' })).toHaveFocus())
+    const pins = screen.getByRole('button', { name: 'Pinned messages' })
+    pins.focus()
+    fireEvent.click(pins)
+    expect(screen.queryByRole('textbox', { name: 'Search messages' })).not.toBeInTheDocument()
+    expect(pins).toHaveFocus()
+    expect(pins).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it.each(['', '   '])('disables send for an empty draft %j', (messageInput) => {
+    const onSendMessage = vi.fn()
+    renderChatArea({ messageInput, onSendMessage })
+    const send = screen.getByRole('button', { name: 'Send message' })
+    expect(send).toBeDisabled()
+    fireEvent.click(send)
+    expect(onSendMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['uploaded', 'uploading', 'failed'] as const)('keeps attachment-only drafts gated by upload status %s', (uploadStatus) => {
+    renderChatArea({ draftAttachments: [{ localId: 'draft', url: '/photo.png', name: 'photo.png', type: 'image/png', size: 42, uploadStatus }] })
+    const send = screen.getByRole('button', { name: 'Send message' })
+    if (uploadStatus === 'uploaded') expect(send).toBeEnabled()
+    else expect(send).toBeDisabled()
+  })
+
   it('caps pasted Unicode text and shows the reply-adjusted character budget', () => {
     const onMessageInputChange = vi.fn()
     renderChatArea({

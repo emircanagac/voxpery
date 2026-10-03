@@ -16,6 +16,7 @@ import ChatArea from '../components/ChatArea'
 import SocialInfoPanel from '../components/SocialInfoPanel'
 import '../styles/friends.css'
 import useViewportMenu from '../useViewportMenu'
+import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 import type { StatusValue } from '../components/StatusIcon'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
@@ -1762,6 +1763,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             aria-label={`Actions for ${socialContextMenu.username}`}
             ref={socialMenuRef}
             style={socialMenuStyle}
+            onKeyDown={handleMenuKeyboardNavigation}
             onClick={(event) => event.stopPropagation()}
           >
             <button

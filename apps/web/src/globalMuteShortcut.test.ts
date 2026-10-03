@@ -6,6 +6,7 @@ import {
   keyboardEventMatchesShortcut,
   muteShortcutConflictsWithPushToTalk,
   resetGlobalMuteShortcutRegistrationForTests,
+  setGlobalMuteShortcutCaptureActive,
   shortcutFromKeyboardEvent,
 } from './globalMuteShortcut'
 
@@ -50,6 +51,19 @@ describe('global mute shortcut', () => {
     expect(keyboardEventMatchesShortcut(keyEvent('KeyF', { ctrlKey: true }), 'F')).toBe(false)
   })
 
+  it.each(['KeyA', 'KeyZ', 'Digit0', 'Digit9', 'F1', 'F24'])('captures the supported single key %s', (code) => {
+    expect(shortcutFromKeyboardEvent(keyEvent(code))).toBe(code.replace(/^Key|^Digit/, ''))
+  })
+
+  it.each(['Space', 'ArrowUp', 'Slash', 'Backquote'])('captures %s with modifiers, not as a bare key', (code) => {
+    expect(shortcutFromKeyboardEvent(keyEvent(code))).toBeNull()
+    expect(shortcutFromKeyboardEvent(keyEvent(code, { ctrlKey: true }))).toBe(`CommandOrControl+${code}`)
+  })
+
+  it.each(['Escape', 'ShiftLeft', 'ControlLeft', 'Numpad1', 'Enter', 'Tab'])('does not silently assign unsupported %s', (code) => {
+    expect(shortcutFromKeyboardEvent(keyEvent(code))).toBeNull()
+  })
+
   it('detects single-key push-to-talk conflicts', () => {
     localStorage.setItem('voxpery-settings-voice-mode', 'push_to_talk')
     localStorage.setItem('voxpery-settings-ptt-key', 'V')
@@ -88,5 +102,31 @@ describe('global mute shortcut', () => {
     await expect(applyGlobalMuteShortcut('Alt+Shift+M')).rejects.toThrow('Shortcut unavailable')
     expect(shortcutMocks.unregister).toHaveBeenCalledWith('CommandOrControl+Shift+M')
     expect(shortcutMocks.register).toHaveBeenLastCalledWith('CommandOrControl+Shift+M', expect.any(Function))
+    expect(localStorage.getItem('voxpery-settings-global-mute-shortcut')).toBe('CommandOrControl+Shift+M')
+  })
+
+  it('retains one registration on reload, suppresses capture, and clears the shortcut', async () => {
+    ;(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+    shortcutMocks.register.mockResolvedValue(undefined)
+    const listener = vi.fn()
+    window.addEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, listener)
+    try {
+      await applyGlobalMuteShortcut('F5')
+      shortcutMocks.isRegistered.mockResolvedValue(true)
+      await applyGlobalMuteShortcut('F5')
+      expect(shortcutMocks.register).toHaveBeenCalledOnce()
+      const handler = shortcutMocks.register.mock.calls[0][1]
+      setGlobalMuteShortcutCaptureActive(true)
+      handler({ state: 'Pressed' })
+      expect(listener).not.toHaveBeenCalled()
+      setGlobalMuteShortcutCaptureActive(false)
+      handler({ state: 'Pressed' })
+      expect(listener).toHaveBeenCalledOnce()
+      await applyGlobalMuteShortcut(null)
+      expect(shortcutMocks.unregister).toHaveBeenCalledWith('F5')
+      expect(localStorage.getItem('voxpery-settings-global-mute-shortcut')).toBeNull()
+    } finally {
+      window.removeEventListener(GLOBAL_MUTE_SHORTCUT_EVENT, listener)
+    }
   })
 })

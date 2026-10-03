@@ -1,9 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use image::{
-    imageops::{crop_imm, overlay, resize, FilterType},
-    ImageReader, RgbaImage,
-};
+use image::ImageReader;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -78,62 +75,8 @@ fn blend_pixel(rgba: &mut [u8], idx: usize, r: u8, g: u8, b: u8, a: u8) {
     rgba[idx + 3] = ((255.0 * alpha) + (rgba[idx + 3] as f32 * inv_alpha)).round() as u8;
 }
 
-fn focus_tray_icon_canvas(img: RgbaImage, padding: u32) -> RgbaImage {
-    let (width, height) = img.dimensions();
-    if width == 0 || height == 0 {
-        return img;
-    }
-
-    let mut min_x = width;
-    let mut min_y = height;
-    let mut max_x = 0u32;
-    let mut max_y = 0u32;
-    let mut found = false;
-
-    for (x, y, pixel) in img.enumerate_pixels() {
-        if pixel[3] <= 10 {
-            continue;
-        }
-        found = true;
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-
-    if !found {
-        return img;
-    }
-
-    let crop_width = max_x.saturating_sub(min_x) + 1;
-    let crop_height = max_y.saturating_sub(min_y) + 1;
-    let available_width = width.saturating_sub(padding.saturating_mul(2)).max(1);
-    let available_height = height.saturating_sub(padding.saturating_mul(2)).max(1);
-    let scale = f32::min(
-        available_width as f32 / crop_width as f32,
-        available_height as f32 / crop_height as f32,
-    )
-    .max(1.0);
-
-    let target_width = ((crop_width as f32 * scale).round() as u32).clamp(1, width);
-    let target_height = ((crop_height as f32 * scale).round() as u32).clamp(1, height);
-    let cropped = crop_imm(&img, min_x, min_y, crop_width, crop_height).to_image();
-    let resized = resize(
-        &cropped,
-        target_width,
-        target_height,
-        FilterType::CatmullRom,
-    );
-
-    let mut canvas = RgbaImage::new(width, height);
-    let offset_x = ((width - target_width) / 2) as i64;
-    let offset_y = ((height - target_height) / 2) as i64;
-    overlay(&mut canvas, &resized, offset_x, offset_y);
-    canvas
-}
-
 fn make_base_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
-    let bytes = include_bytes!("../icons/64x64.png");
+    let bytes = include_bytes!("../icons/tray.png");
     let img = ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()?
@@ -141,14 +84,8 @@ fn make_base_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
         .ok()?
         .to_rgba8();
 
-    let focused = focus_tray_icon_canvas(img, 2);
-    let (width, height) = focused.dimensions();
-    Some(apply_icon_variant(
-        focused.into_raw(),
-        width,
-        height,
-        variant,
-    ))
+    let (width, height) = img.dimensions();
+    Some(apply_icon_variant(img.into_raw(), width, height, variant))
 }
 
 fn make_unread_tray_icon(variant: bool) -> Option<tauri::image::Image<'static>> {
@@ -466,4 +403,81 @@ fn main() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running Voxpery");
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::{make_base_tray_icon, make_unread_tray_icon};
+
+    #[test]
+    fn tray_artwork_has_visible_color_and_transparent_margins() {
+        let icon = make_base_tray_icon(false).expect("embedded tray PNG must decode");
+        assert_eq!((icon.width(), icon.height()), (64, 64));
+        let pixels: Vec<_> = icon.rgba().chunks_exact(4).collect();
+        assert!(pixels.iter().filter(|p| p[3] > 200).count() > 2000);
+        assert!(pixels
+            .iter()
+            .any(|p| p[0] > 240 && p[1] > 240 && p[2] > 240 && p[3] > 200));
+        assert!(pixels
+            .iter()
+            .any(|p| p[0] > 200 && p[1] > 80 && p[1] < 180 && p[3] > 200));
+        assert_eq!(pixels[0][3], 0);
+    }
+
+    #[test]
+    fn tray_refresh_variants_do_not_change_visible_artwork() {
+        let base = make_base_tray_icon(false).unwrap();
+        let alternate = make_base_tray_icon(true).unwrap();
+        for (a, b) in base
+            .rgba()
+            .chunks_exact(4)
+            .zip(alternate.rgba().chunks_exact(4))
+        {
+            assert_eq!(a[3], b[3]);
+            if a[3] > 0 {
+                assert_eq!(a, b);
+            }
+        }
+        let unread = make_unread_tray_icon(false).unwrap();
+        assert_eq!(
+            (unread.width(), unread.height()),
+            (base.width(), base.height())
+        );
+        assert_ne!(unread.rgba(), base.rgba());
+    }
+
+    #[test]
+    fn windows_ico_includes_small_dpi_frames_and_original_large_artwork() {
+        let ico = include_bytes!("../icons/icon.ico");
+        assert_eq!(u16::from_le_bytes([ico[2], ico[3]]), 1);
+        let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
+        let sizes: Vec<_> = (0..count)
+            .map(|index| {
+                let entry = 6 + index * 16;
+                assert_eq!(ico[entry], ico[entry + 1]);
+                let size = if ico[entry] == 0 {
+                    256
+                } else {
+                    ico[entry] as u32
+                };
+                let start =
+                    u32::from_le_bytes(ico[entry + 12..entry + 16].try_into().unwrap()) as usize;
+                let length =
+                    u32::from_le_bytes(ico[entry + 8..entry + 12].try_into().unwrap()) as usize;
+                let png = &ico[start..start + length];
+                let decoded = image::load_from_memory(png)
+                    .expect("ICO PNG frame must decode")
+                    .to_rgba8();
+                assert_eq!(decoded.dimensions(), (size, size));
+                assert!(
+                    decoded.pixels().filter(|p| p[3] > 200).count() > (size * size / 3) as usize
+                );
+                if size == 32 {
+                    assert_eq!(png, include_bytes!("../icons/32x32.png"));
+                }
+                size
+            })
+            .collect();
+        assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
+    }
 }

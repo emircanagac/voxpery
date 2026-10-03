@@ -12,6 +12,7 @@ import { setPersistedSocialView } from '../socialView'
 import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
+import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 
 interface MemberItemProps {
     member: MemberProfileMember
@@ -651,6 +652,7 @@ export default function MemberSidebar({
                     role="menu"
                     aria-label={`Actions for ${contextMenu.username}`}
                     style={menuStyle}
+                    onKeyDown={handleMenuKeyboardNavigation}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button

@@ -13,6 +13,10 @@ The goal is to verify the real user path, not every implementation detail. Run t
 
 ## 1. Join, Controls, and Cues
 
+- [ ] At normal listening volume, distinguish the short rising/falling three-note room melodies, microphone taps, spaced deafen pulses, bright camera bells, and screen-share chord confirmations without looking at the controls. Each cue is at most 400 ms; compare on/off pairs without repeated clicking or clipping. Microphone/deafen confirmations must remain noticeable on both speakers and headphones without raising the approved room/media cue levels.
+- [ ] Participant rows match call controls: self-mute/deafen indicators are red, active camera/sharing indicators are green, and server-enforced restrictions retain their warning color and explicit labels. Deafen shows both microphone and headphone indicators. Check all four indicators together with long names on desktop and compact sidebars in dark/light themes; no horizontal overflow occurs.
+- [ ] Disable sound effects and repeat join/leave, mute/deafen, camera, and screen-share actions: confirmations remain silent without disabling voice/media playback. Re-enable effects and verify one confirmation per successful transition; failed or cancelled media capture must not sound like success.
+- [ ] Eligible DM, mention and channel-message notifications use the same short double-tap sound, distinguishable from voice and camera controls. Existing muted-channel/server notification rules, do-not-disturb and disabled sound effects remain respected; active-conversation messages do not gain new notification sounds.
 - [ ] User A joins a voice channel and User B sees A in the channel list.
 - [ ] User B joins the same voice channel and both users hear the join cue.
 - [ ] Repeat two-way microphone transmission with Firefox as the first participant and Chromium as the second, then reverse the join order and repeat with the desktop app. Every receiver hears every sender while the speaking indicator is active and RNNoise remains available on each browser.
@@ -35,6 +39,10 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 - [ ] With 3-5 members in one channel, every member can hear every other microphone; reconnecting one member restores all expected subscriptions without duplicate or missing audio.
 - [ ] If Web Audio processing is unavailable for one remote source, that participant remains audible through direct `MediaStream` playback and the other participants remain unaffected.
+
+The cue catalog is synthesized locally in `apps/web/src/audioCues.ts`, with no downloaded samples or runtime asset requests. From `apps/web`, run `node scripts/render-voice-cues.mjs` to render preview WAVs and validate output duration, non-silence, headroom, unique waveforms, and a settled tail using Chromium's OfflineAudioContext. Output is under ignored `test-results/voice-cues`; an explicit output directory may be supplied. The paired previews play join then leave, mute then unmute, deafen then undeafen, and camera/share start then stop. Render checks do not replace the listening acceptance above.
+
+The renderer also validates the shared catalog in `apps/web/src/notificationSound.ts` and writes `message.wav`, for eleven total event profiles. Listen to that preview beside the voice-control pairs to confirm the notification is recognizable but not confused with camera or mute/deafen events.
 
 ## 2. Reconnect and Revocation
 

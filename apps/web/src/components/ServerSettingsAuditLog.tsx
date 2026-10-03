@@ -1,4 +1,5 @@
 import type { AuditLogEntry } from '../api'
+import { raidEventLabel, raidEventSummary, readableEventName } from '../moderationEventText'
 
 type ServerSettingsAuditLogProps = {
     entries: AuditLogEntry[]
@@ -30,7 +31,7 @@ function toAuditText(
     targetName: string | null,
     details: Record<string, unknown> | null | undefined,
 ) {
-    let actionText = entry.action
+    let actionText = readableEventName(entry.action)
     let targetDesc = targetName
     const channelName = entry.channel_name ?? textDetail(details, 'channel_name')
     let contextText = channelName ? `in ${channelName}` : null
@@ -58,6 +59,32 @@ function toAuditText(
             actionText = 'Updated server settings'
             targetDesc = null
             contextText = null
+            break
+        case 'category_rename': {
+            actionText = 'Renamed category'
+            const oldName = textDetail(details, 'old_name')
+            const newName = textDetail(details, 'new_name')
+            targetDesc = oldName && newName ? `${oldName} to ${newName}` : 'Unknown category'
+            contextText = null
+            break
+        }
+        case 'category_create':
+        case 'category_delete':
+            actionText = entry.action === 'category_create' ? 'Created category' : 'Deleted category'
+            targetDesc = textDetail(details, 'name') ?? 'Unknown category'
+            contextText = null
+            break
+        case 'member_ban':
+            actionText = 'Banned'
+            break
+        case 'member_unban':
+            actionText = 'Unbanned'
+            break
+        case 'member_timeout_create':
+            actionText = 'Timed out'
+            break
+        case 'member_timeout_clear':
+            actionText = 'Removed timeout from'
             break
         case 'member_kick':
             actionText = 'Kicked'
@@ -97,6 +124,12 @@ function toAuditText(
             contextText = `from ${source} to ${destination}`
             break
         }
+        default:
+            if (entry.action.startsWith('raid_')) {
+                actionText = raidEventLabel(entry.action)
+                const summary = raidEventSummary(entry.action, details)
+                contextText = [summary, contextText].filter(Boolean).join(' · ') || null
+            }
     }
 
     return { actionText, targetDesc, contextText }

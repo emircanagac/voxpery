@@ -471,6 +471,12 @@ describe('ChannelSidebar voice media presence', () => {
         )
 
         fireEvent.contextMenu(screen.getByText(remoteMember.username))
+        const profileAction = screen.getByRole('button', { name: `View profile (@${remoteMember.username})` })
+        profileAction.focus()
+        fireEvent.keyDown(profileAction, { key: 'ArrowDown' })
+        expect(screen.getByRole('button', { name: 'Send direct message' })).toHaveFocus()
+        fireEvent.keyDown(document.activeElement!, { key: 'Home' })
+        expect(profileAction).toHaveFocus()
         fireEvent.click(screen.getByRole('button', { name: `View profile (@${remoteMember.username})` }))
 
         expect(screen.getByRole('dialog', { name: remoteMember.username })).toBeVisible()

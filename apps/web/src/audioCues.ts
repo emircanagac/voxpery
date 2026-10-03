@@ -23,45 +23,53 @@ export type VoiceCueKind =
   | 'screen-stop'
 
 export const VOICE_CUE_TONES: Readonly<Record<VoiceCueKind, readonly CueTone[]>> = {
+  // Room events use a three-note melody; controls have their own rhythm and register.
   join: [
-    { from: 430, to: 520, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.12, filterHz: 1800, q: 0.9 },
-    { from: 640, to: 780, offsetSec: 0.07, durationSec: 0.1, peak: 0.023, type: 'triangle', overtoneGain: 0.14, filterHz: 2400, q: 0.9 },
-    { from: 960, to: 1160, offsetSec: 0.155, durationSec: 0.13, peak: 0.026, type: 'sine', overtoneGain: 0.08, filterHz: 3200, q: 0.75 },
+    { from: 523.25, durationSec: 0.13, peak: 0.022, type: 'triangle', overtoneGain: 0.05, filterHz: 1900 },
+    { from: 659.25, offsetSec: 0.09, durationSec: 0.13, peak: 0.022, type: 'triangle', overtoneGain: 0.05, filterHz: 2100 },
+    { from: 783.99, offsetSec: 0.18, durationSec: 0.18, peak: 0.024, type: 'sine', overtoneGain: 0.06, filterHz: 2400 },
   ],
   leave: [
-    { from: 900, to: 650, durationSec: 0.13, peak: 0.032, type: 'triangle', overtoneGain: 0.12, filterHz: 2400, q: 0.9 },
-    { from: 520, to: 320, offsetSec: 0.105, durationSec: 0.18, peak: 0.028, type: 'sine', overtoneGain: 0.06, filterHz: 1300, q: 0.78 },
+    { from: 392, offsetSec: 0, durationSec: 0.12, peak: 0.026, type: 'sine', overtoneGain: 0.06, filterHz: 1400 },
+    { from: 329.63, offsetSec: 0.09, durationSec: 0.12, peak: 0.025, type: 'sine', overtoneGain: 0.06, filterHz: 1200 },
+    { from: 261.63, offsetSec: 0.18, durationSec: 0.17, peak: 0.024, type: 'sine', overtoneGain: 0.04, filterHz: 1000 },
   ],
   mute: [
-    { from: 520, to: 410, durationSec: 0.085, peak: 0.02, type: 'triangle', overtoneGain: 0.14, filterHz: 1700, q: 1.1 },
+    { from: 196, to: 164.81, durationSec: 0.1, peak: 0.048, type: 'triangle', overtoneGain: 0.08, filterHz: 950 },
   ],
   unmute: [
-    { from: 390, to: 560, durationSec: 0.09, peak: 0.022, type: 'triangle', overtoneGain: 0.18, filterHz: 2200, q: 0.9 },
+    { from: 196, to: 220, durationSec: 0.06, peak: 0.046, type: 'triangle', overtoneGain: 0.08, filterHz: 1000 },
+    { from: 349.23, offsetSec: 0.085, durationSec: 0.085, peak: 0.046, type: 'triangle', overtoneGain: 0.08, filterHz: 1400 },
   ],
   deafen: [
-    { from: 480, to: 360, durationSec: 0.08, peak: 0.019, type: 'triangle', overtoneGain: 0.12, filterHz: 1600, q: 1.2 },
-    { from: 300, to: 230, offsetSec: 0.07, durationSec: 0.105, peak: 0.016, type: 'sine', overtoneGain: 0.06, filterHz: 1100, q: 0.8 },
+    { from: 220, to: 196, durationSec: 0.1, peak: 0.05, type: 'triangle', overtoneGain: 0.08, filterHz: 1000 },
+    { from: 196, to: 164.81, offsetSec: 0.145, durationSec: 0.12, peak: 0.049, type: 'triangle', overtoneGain: 0.08, filterHz: 850 },
   ],
   undeafen: [
-    { from: 270, to: 340, durationSec: 0.08, peak: 0.018, type: 'sine', overtoneGain: 0.08, filterHz: 1400, q: 0.8 },
-    { from: 430, to: 640, offsetSec: 0.065, durationSec: 0.11, peak: 0.024, type: 'triangle', overtoneGain: 0.2, filterHz: 2400, q: 0.9 },
+    { from: 196, to: 261.63, durationSec: 0.1, peak: 0.049, type: 'triangle', overtoneGain: 0.08, filterHz: 1100 },
+    { from: 293.66, to: 349.23, offsetSec: 0.145, durationSec: 0.14, peak: 0.048, type: 'triangle', overtoneGain: 0.08, filterHz: 1400 },
   ],
+  // Camera confirmations are bright overlapping bells, not room-join melodies.
   'camera-start': [
-    { from: 3100, to: 980, durationSec: 0.026, peak: 0.016, type: 'square', overtoneGain: 0.02, filterHz: 5200, q: 1.4 },
-    { from: 3600, to: 1250, offsetSec: 0.052, durationSec: 0.03, peak: 0.014, type: 'sawtooth', overtoneGain: 0.015, filterHz: 5800, q: 1.2 },
+    { from: 1046.5, durationSec: 0.075, peak: 0.022, type: 'sine', overtoneGain: 0.12, filterHz: 3600 },
+    { from: 1567.98, offsetSec: 0.045, durationSec: 0.13, peak: 0.022, type: 'sine', overtoneGain: 0.05, filterHz: 3800 },
   ],
   'camera-stop': [
-    { from: 1700, to: 420, durationSec: 0.032, peak: 0.015, type: 'square', overtoneGain: 0.02, filterHz: 3600, q: 1.2 },
-    { from: 900, to: 260, offsetSec: 0.048, durationSec: 0.038, peak: 0.012, type: 'triangle', overtoneGain: 0.02, filterHz: 2200, q: 1 },
+    { from: 1567.98, to: 1046.5, durationSec: 0.09, peak: 0.021, type: 'sine', overtoneGain: 0.06, filterHz: 3200 },
+    { from: 783.99, offsetSec: 0.07, durationSec: 0.1, peak: 0.021, type: 'sine', overtoneGain: 0.04, filterHz: 2400 },
   ],
+  // Sharing opens/closes a soft chord with a separate confirmation pulse.
   'screen-start': [
-    { from: 180, durationSec: 0.22, peak: 0.017, type: 'square', overtoneGain: 0.025, filterHz: 900, q: 0.72 },
-    { from: 360, to: 540, durationSec: 0.22, peak: 0.019, type: 'triangle', overtoneGain: 0.08, filterHz: 1800, q: 0.75 },
-    { from: 980, offsetSec: 0.2, durationSec: 0.08, peak: 0.016, type: 'sine', overtoneGain: 0.03, filterHz: 3000, q: 0.7 },
+    { from: 329.63, durationSec: 0.25, peak: 0.014, type: 'triangle', overtoneGain: 0.04, filterHz: 1600 },
+    { from: 392, durationSec: 0.25, peak: 0.014, type: 'sine', overtoneGain: 0.04, filterHz: 1800 },
+    { from: 523.25, durationSec: 0.25, peak: 0.014, type: 'sine', overtoneGain: 0.04, filterHz: 2000 },
+    { from: 1046.5, offsetSec: 0.27, durationSec: 0.085, peak: 0.018, type: 'sine', overtoneGain: 0.04, filterHz: 3000 },
   ],
   'screen-stop': [
-    { from: 540, to: 180, durationSec: 0.19, peak: 0.018, type: 'square', overtoneGain: 0.025, filterHz: 1600, q: 0.8 },
-    { from: 270, to: 135, durationSec: 0.19, peak: 0.015, type: 'sine', overtoneGain: 0.035, filterHz: 900, q: 0.75 },
+    { from: 329.63, to: 164.81, durationSec: 0.2, peak: 0.015, type: 'triangle', overtoneGain: 0.02, filterHz: 1200 },
+    { from: 392, to: 196, durationSec: 0.2, peak: 0.015, type: 'sine', overtoneGain: 0.02, filterHz: 1400 },
+    { from: 523.25, to: 261.63, durationSec: 0.2, peak: 0.015, type: 'sine', overtoneGain: 0.02, filterHz: 1600 },
+    { from: 196, offsetSec: 0.225, durationSec: 0.08, peak: 0.025, type: 'triangle', overtoneGain: 0.02, filterHz: 750 },
   ],
 }
 
@@ -100,8 +108,8 @@ export function playCueStack(ctx: AudioContext, tones: CueTone[]): void {
   tones.forEach((tone) => {
     const startAt = startBase + (tone.offsetSec ?? 0)
     const endAt = startAt + tone.durationSec
-    const attack = Math.min(0.02, Math.max(0.006, tone.durationSec * 0.24))
-    const releaseStart = endAt - Math.max(0.028, tone.durationSec * 0.42)
+    const attack = Math.min(0.012, tone.durationSec * 0.2)
+    const releaseStart = Math.max(startAt + attack, endAt - Math.max(0.028, tone.durationSec * 0.55))
     const peak = tone.peak ?? 0.03
     const filterHz = tone.filterHz ?? Math.max(1200, tone.from * 2.8)
     const q = tone.q ?? 0.7
@@ -140,6 +148,14 @@ export function playCueStack(ctx: AudioContext, tones: CueTone[]): void {
     overtoneMix.connect(mix)
     mix.connect(filter)
     filter.connect(ctx.destination)
+
+    mainOsc.onended = () => {
+      mainOsc.disconnect()
+      overtoneOsc.disconnect()
+      overtoneMix.disconnect()
+      mix.disconnect()
+      filter.disconnect()
+    }
 
     mainOsc.start(startAt)
     overtoneOsc.start(startAt)
