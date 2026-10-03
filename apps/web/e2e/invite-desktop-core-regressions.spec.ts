@@ -46,7 +46,7 @@ async function installMockTauriRuntime(page: Page) {
 }
 
 test.describe('mocked invite and desktop runtime regressions', () => {
-  test('keeps the desktop root on login when signed out', async ({ page }) => {
+  test('keeps the desktop root on login when signed out', { tag: '@core' }, async ({ page }) => {
     await installMockTauriRuntime(page)
     await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
     await page.goto('/')
@@ -83,7 +83,7 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await aboutTab.close()
   })
 
-  test('redirects unauthenticated invite visitors to login with the invite return path', async ({ page }) => {
+  test('redirects unauthenticated invite visitors to login with the invite return path', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({ authenticated: false })
     await installMockCoreApi(page, state)
 
@@ -92,7 +92,7 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await expect(page).toHaveURL(/\/login\?redirect=%2Finvite%2Fcore-invite/)
   })
 
-  test('requires server rules acceptance before joining from an invite', async ({ page }) => {
+  test('requires server rules acceptance before joining from an invite', { tag: '@core' }, async ({ page }) => {
     const inviteServer = buildCoreServer({
       id: 'server-invite-core',
       name: 'Invite Guild',

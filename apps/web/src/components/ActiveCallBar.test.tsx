@@ -7,7 +7,7 @@ import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
-import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
+import { useLiveKitVoice, type UseLiveKitVoiceState } from '../webrtc/useLiveKitVoice'
 import {
   GLOBAL_MUTE_SHORTCUT_EVENT,
   GLOBAL_MUTE_SHORTCUT_STORAGE_KEY,
@@ -164,7 +164,7 @@ function installAudioContextMock(options: { failMediaStreamSource?: boolean } = 
   return instances
 }
 
-function voiceState(overrides?: Record<string, unknown>) {
+function voiceState(overrides?: Record<string, unknown>): UseLiveKitVoiceState {
   return {
     joinedChannelId: voiceChannel.id,
     isJoining: false,
@@ -236,6 +236,65 @@ function renderActiveCallBar(
 }
 
 describe('ActiveCallBar regressions', () => {
+  it('prepares voice controls without a stream or joining and restores the previous mute choice after deafen', () => {
+    const { voice, container } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    expect(screen.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+    expect(screen.getByRole('group', { name: 'Voice preferences' })).toHaveClass('callbar-frame')
+    expect(screen.getByText('Not in voice')).toBeVisible()
+    expect(container.querySelector('.active-call-bar')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Turn on camera' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Share screen' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, false, false)
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, true, false)
+    expect(screen.getByRole('button', { name: 'Unmute microphone' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Unmute microphone' })).toHaveClass('is-off')
+    expect(screen.getByRole('button', { name: 'Undeafen' })).toHaveClass('is-off')
+    fireEvent.click(screen.getByRole('button', { name: 'Undeafen' }))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, false, false)
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute microphone' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Undeafen' }))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(false, false, false)
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    expect(voice.startCamera).not.toHaveBeenCalled()
+    expect(voice.startScreenShare).not.toHaveBeenCalled()
+  })
+
+  it('keeps pre-join deafen and mute across connection and disconnection', async () => {
+    const { voice, rerender } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+    const mic = mediaTrack('audio', 'joined-muted-mic')
+    voice.state.joinedChannelId = voiceChannel.id
+    voice.state.localStream = new MediaStream([mic])
+    rerender(<MemoryRouter><ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} /></MemoryRouter>)
+    expect(mic.enabled).toBe(false)
+    expect(screen.queryByText('Not in voice')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undeafen' }).closest('.active-call-bar')).toHaveClass('callbar-frame')
+    expect(screen.getByRole('button', { name: 'Undeafen' })).toHaveClass('is-off')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Leave voice channel' })) })
+    expect(voice.leaveVoice).toHaveBeenCalledOnce()
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, true, false)
+    voice.state.joinedChannelId = null
+    voice.state.localStream = null
+    rerender(<MemoryRouter><ActiveCallBar selectedVoiceChannelId={voiceChannel.id} activeChannelId={voiceChannel.id} /></MemoryRouter>)
+    expect(screen.getByText('Not in voice')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Undeafen' }))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(false, false, false)
+  })
+
+  it('locks audio preferences while joining to avoid changing the capture mid-connection', () => {
+    localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, 'F9')
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null, isJoining: true })
+    expect(screen.getByRole('button', { name: 'Mute microphone' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Deafen' })).toBeDisabled()
+    expect(screen.queryByText('Not in voice')).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { code: 'F9' })
+    fireEvent(window, new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+    expect(voice.setVoiceControls).not.toHaveBeenCalled()
+  })
+
   afterEach(() => {
     restoreAudioContextMock?.()
     restoreAudioContextMock = null
@@ -636,7 +695,8 @@ describe('ActiveCallBar regressions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Leave voice channel' }))
 
-    expect(voice.setVoiceControls).toHaveBeenCalledWith(false, false, false)
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, true, false)
+    expect(voice.setVoiceControls).toHaveBeenCalledTimes(2)
     expect(voice.leaveVoice).toHaveBeenCalledOnce()
   })
 
@@ -1077,22 +1137,51 @@ describe('ActiveCallBar regressions', () => {
       localStream: new MediaStream([localMic]),
     })
 
-    window.dispatchEvent(new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+    fireEvent(window, new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
 
     expect(localMic.enabled).toBe(false)
     expect(voice.setVoiceControls).toHaveBeenCalledWith(true, false, false)
     expect(voice.playVoiceCue).toHaveBeenCalledWith('mute')
   })
 
-  it('ignores shortcut events without an active voice session', () => {
+  it('prepares idle microphone preferences through desktop shortcut events without joining', () => {
     const { voice } = renderActiveCallBar({
       joinedChannelId: null,
       localStream: null,
     })
 
-    window.dispatchEvent(new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+    fireEvent(window, new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
 
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, false, false)
+    expect(voice.playVoiceCue).toHaveBeenCalledWith('mute')
+    fireEvent(window, new Event(GLOBAL_MUTE_SHORTCUT_EVENT))
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(false, false, false)
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { shortcut: 'F9', code: 'F9', modifiers: {} },
+    { shortcut: 'G', code: 'KeyG', modifiers: {} },
+    { shortcut: 'CommandOrControl+Shift+M', code: 'KeyM', modifiers: { ctrlKey: true, shiftKey: true } },
+  ])('uses $shortcut before joining while preserving typing, repeat and deafen guards', ({ shortcut, code, modifiers }) => {
+    localStorage.setItem(GLOBAL_MUTE_SHORTCUT_STORAGE_KEY, shortcut)
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    const input = document.createElement('input')
+    document.body.append(input)
+    fireEvent.keyDown(input, { code, ...modifiers })
+    input.remove()
+    fireEvent.keyDown(window, { code, ...modifiers, repeat: true })
     expect(voice.setVoiceControls).not.toHaveBeenCalled()
-    expect(voice.playVoiceCue).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { code, ...modifiers })
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(true, false, false)
+    fireEvent.keyDown(window, { code, ...modifiers })
+    expect(voice.setVoiceControls).toHaveBeenLastCalledWith(false, false, false)
+    fireEvent.click(screen.getByRole('button', { name: 'Deafen' }))
+    fireEvent.keyDown(window, { code, ...modifiers })
+    expect(voice.setVoiceControls).toHaveBeenCalledTimes(3)
+    expect(screen.getByRole('button', { name: 'Unmute microphone' })).toBeDisabled()
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    expect(voice.startCamera).not.toHaveBeenCalled()
+    expect(voice.startScreenShare).not.toHaveBeenCalled()
   })
 })

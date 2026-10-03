@@ -8254,13 +8254,13 @@ body {
 .social-nav-item {
   width: calc(100% - 16px);
   min-width: 0;
-  min-height: 42px;
+  min-height: 48px;
   margin: 12px 8px 4px;
   border: 1px solid var(--btn-secondary-border);
   background: rgba(var(--ui-contrast-rgb), 0.03);
   color: var(--text-primary);
-  border-radius: var(--border-radius-sm);
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 6px 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -8275,6 +8275,32 @@ body {
 
 .social-nav-item svg {
   flex-shrink: 0;
+}
+
+.social-sidebar-header {
+  gap: 9px;
+}
+
+.social-sidebar-header svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.social-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 6px;
+  background: rgba(var(--ui-contrast-rgb), 0.06);
+  color: var(--text-secondary);
+}
+
+.social-nav-item.active .social-nav-icon {
+  background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  color: var(--text-primary);
 }
 
 .social-nav-item-label {
@@ -8323,20 +8349,27 @@ body {
   margin: 0;
 }
 
+.social-conversation-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .social-dm-item {
   width: calc(100% - 16px);
   min-width: 0;
   margin: 0 8px;
-  min-height: 46px;
+  min-height: 56px;
   box-sizing: border-box;
   flex-shrink: 0;
-  border: 1px solid var(--btn-secondary-border);
-  background: rgba(var(--ui-contrast-rgb), 0.02);
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
+  background: rgba(var(--ui-contrast-rgb), 0.025);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 6px 8px;
   border-radius: 6px;
   text-align: left;
   cursor: default;
@@ -8348,7 +8381,7 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 36px;
+  min-height: 42px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -8394,7 +8427,7 @@ body {
 .social-dm-item.active {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent-primary) 65%, transparent);
-  box-shadow: inset 2px 0 0 var(--accent-primary);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
   color: var(--text-primary);
 }
 
@@ -8408,6 +8441,18 @@ body {
 .social-dm-open .home-member-meta {
   min-width: 0;
   font-size: 13px;
+  line-height: 18px;
+}
+
+.social-dm-open .home-member-meta > .social-dm-status {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
 }
 
 .social-dm-item.active .home-member-meta {
@@ -8955,9 +9000,9 @@ body {
 }
 
 .social-dm-actions .home-member-action:hover {
-  background: var(--accent-soft);
-  color: var(--text-primary);
-  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--text-danger) 12%, var(--bg-surface));
+  color: var(--text-danger);
+  border-color: color-mix(in srgb, var(--text-danger) 45%, var(--btn-secondary-border));
 }
 
 .social-dm-actions .home-member-action:focus-visible {
@@ -10262,9 +10307,23 @@ button.message-author {
   width: 100%;
 }
 
-.callbar-overlay .active-call-bar {
+.callbar-overlay .callbar-frame {
   max-width: 600px;
   margin: 0 auto;
+}
+
+.callbar-idle {
+  width: 100%;
+}
+
+.callbar-idle::after {
+  content: '';
+  flex: 1 1 0%;
+}
+
+.callbar-control-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 /* Profile: anchored to bottom, clearly separated from content above */
@@ -10996,7 +11055,7 @@ button.message-author {
   display: none;
 }
 
-.active-call-bar {
+.callbar-frame {
   min-height: 48px;
   display: flex;
   flex-direction: row;
@@ -11309,6 +11368,10 @@ button.message-author {
 .callbar-control-btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.callbar-control-btn.is-off:disabled {
+  opacity: 1;
 }
 
 .callbar-control-btn:hover:not(:disabled) {
@@ -15524,10 +15587,15 @@ button.message-author {
   color: var(--text-secondary);
 }
 
+.callbar-frame {
+  border-color: var(--callbar-border, rgba(var(--ui-contrast-rgb), 0.18));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--callbar-tint, var(--text-secondary)) 5%, var(--bg-popover)), var(--bg-popover));
+  box-shadow: var(--shadow-medium), inset 0 0 0 1px color-mix(in srgb, var(--callbar-tint, var(--text-secondary)) 7%, transparent);
+}
+
 .active-call-bar {
-  border-color: color-mix(in srgb, var(--text-positive) 34%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--text-positive) 5%, var(--bg-popover)), var(--bg-popover));
-  box-shadow: var(--shadow-medium), inset 0 0 0 1px color-mix(in srgb, var(--text-positive) 7%, transparent);
+  --callbar-border: color-mix(in srgb, var(--text-positive) 34%, transparent);
+  --callbar-tint: var(--text-positive);
 }
 
 .active-call-title-btn {
@@ -15572,6 +15640,25 @@ button.message-author {
 .callbar-control-btn.is-server-off {
   border-color: color-mix(in srgb, var(--text-warning) 58%, transparent);
   background: color-mix(in srgb, var(--text-warning) 22%, transparent);
+  color: var(--text-warning);
+}
+
+.callbar-control-btn.is-off:hover:not(:disabled),
+.callbar-control-btn.danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-danger) 80%, transparent);
+  background: color-mix(in srgb, var(--text-danger) 30%, transparent);
+  color: var(--text-danger);
+}
+
+.callbar-control-btn.media-control.is-live:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-positive) 78%, transparent);
+  background: color-mix(in srgb, var(--text-positive) 28%, transparent);
+  color: var(--text-positive);
+}
+
+.callbar-control-btn.is-server-off:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-warning) 75%, transparent);
+  background: color-mix(in srgb, var(--text-warning) 30%, transparent);
   color: var(--text-warning);
 }
 
@@ -16140,14 +16227,14 @@ textarea {
   }
 
   .social-nav-item {
-    min-height: 40px;
-    padding: 0 12px;
+    min-height: 48px;
+    padding: 6px 8px;
   }
 
   .social-dm-item {
-    min-height: 46px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    min-height: 56px;
+    padding-top: 6px;
+    padding-bottom: 6px;
   }
 
   .social-dm-actions .home-member-action {
@@ -16406,7 +16493,7 @@ textarea {
     display: none;
   }
 
-  .callbar-overlay .active-call-bar {
+  .callbar-overlay .callbar-frame {
     max-width: none;
   }
 
@@ -16491,16 +16578,26 @@ textarea {
     height: 100%;
   }
 
-  .active-call-bar {
+  .callbar-frame {
     width: 100%;
     max-width: 100%;
     min-height: 42px;
-    padding: 6px;
+    padding: 4px;
     border-radius: 12px;
     gap: 5px;
   }
 
   .callbar-status {
+    display: none;
+  }
+
+  .callbar-idle .callbar-status {
+    display: flex;
+    flex: 0 1 auto;
+    padding-right: 8px;
+  }
+
+  .callbar-idle::after {
     display: none;
   }
 
@@ -16532,7 +16629,7 @@ textarea {
     gap: 6px;
   }
 
-  .callbar-overlay .active-call-bar {
+  .callbar-overlay .callbar-frame {
     width: fit-content;
     max-width: 100%;
     margin: 0 auto;
@@ -16563,6 +16660,12 @@ textarea {
     width: 30px;
     min-width: 30px;
     height: 30px;
+  }
+
+  .callbar-control-btn.audio-control {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .callbar-control-btn-disconnect,
@@ -17414,6 +17517,19 @@ textarea {
     font-size: 12px;
   }
 
+}
+
+@media (max-width: 360px) {
+  .callbar-ping-chip {
+    min-width: 28px;
+    width: 28px;
+    padding: 0 4px;
+    justify-content: center;
+  }
+
+  .callbar-ping-chip .callbar-ping-value {
+    display: none;
+  }
 }
 
 @media (min-width: 1024px) and (max-width: 1180px) {

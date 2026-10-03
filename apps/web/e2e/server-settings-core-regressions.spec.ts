@@ -209,7 +209,7 @@ test.describe('mocked server settings UI regressions', () => {
     expect(dark.inputBackground).not.toBe(light.inputBackground)
   })
 
-  test('opens server settings and saves overview profile changes', async ({ page }) => {
+  test('opens server settings and saves overview profile changes', { tag: '@core' }, async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
 
@@ -224,7 +224,7 @@ test.describe('mocked server settings UI regressions', () => {
     expect(state.servers.find((item) => item.id === server.id)?.description).toBe('A tested settings surface.')
   })
 
-  test('creates, edits, and deletes roles from the Roles tab', async ({ page }) => {
+  test('creates, edits, and deletes roles from the Roles tab', { tag: '@core' }, async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
 

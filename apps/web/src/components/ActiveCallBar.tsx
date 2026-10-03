@@ -1,4 +1,4 @@
-import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
+import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
@@ -290,8 +290,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
   const localControl = user?.id ? voiceControls[user.id] : null
-  const serverMuted = !!localControl?.serverMuted
-  const serverDeafened = !!localControl?.serverDeafened
+  const serverMuted = !!state.joinedChannelId && !!localControl?.serverMuted
+  const serverDeafened = !!state.joinedChannelId && !!localControl?.serverDeafened
   const [blockedAutoJoinChannelId, setBlockedAutoJoinChannelId] = useState<string | null>(null)
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false)
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>(() => readScreenShareQuality())
@@ -1171,10 +1171,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current ?? state.localStream
-    if (!state.joinedChannelId || !stream || deafened) return
+    if (state.isJoining || deafened || (state.joinedChannelId && !stream)) return
     const next = !muted
     const shouldMuteTrack = next || deafened || serverMuted || serverDeafened
-    for (const t of stream.getAudioTracks()) t.enabled = !shouldMuteTrack
+    for (const t of stream?.getAudioTracks() ?? []) t.enabled = !shouldMuteTrack
     setMuted(next)
     setVoiceControls(next, deafened, state.isScreenSharing)
     playVoiceCue(next ? 'mute' : 'unmute')
@@ -1186,6 +1186,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     serverMuted,
     setVoiceControls,
     state.isScreenSharing,
+    state.isJoining,
     state.joinedChannelId,
     state.localStream,
   ])
@@ -1243,23 +1244,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!selectedVoiceChannelId) return
     if (isInThisChannel) {
       micTestAutoDeafenedRef.current = false
-      setVoiceControls(false, false, false)
       leaveVoice()
-      setDeafened(false)
-      setMuted(false)
       setBlockedAutoJoinChannelId(selectedVoiceChannelId)
     } else {
       await joinWithPreflight(selectedVoiceChannelId)
       micTestAutoDeafenedRef.current = false
-      setMuted(false)
-      setDeafened(false)
-      setVoiceControls(false, false, false)
       setBlockedAutoJoinChannelId(null)
     }
   }
 
   const toggleDeafen = () => {
-    if (!state.joinedChannelId) return
+    if (state.isJoining) return
     micTestAutoDeafenedRef.current = false
     const stream = localStreamRef.current ?? state.localStream
     const nextDeafened = !deafened
@@ -1522,6 +1517,32 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const cameraControlLabel = state.cameraStream ? 'Turn off camera' : 'Turn on camera'
   const screenShareControlLabel = state.isScreenSharing ? 'Stop sharing' : 'Share screen'
   const disconnectControlLabel = isDisconnectVisualActive ? 'Leave voice channel' : 'Join voice channel'
+  const audioControls = (
+    <>
+      <button
+        type="button"
+        onClick={toggleMute}
+        disabled={state.isJoining || deafened || (!!state.joinedChannelId && !state.localStream)}
+        className={`callbar-control-btn audio-control ${muted ? 'is-off' : (serverMuted || serverDeafened) ? 'is-server-off' : ''}`}
+        aria-label={micControlLabel}
+        aria-pressed={muted}
+        title={showActiveCallBar ? micControlLabel : `${deafened ? 'Undeafen to unmute microphone' : micControlLabel}. Applies when you join voice.`}
+      >
+        {(muted || serverMuted || serverDeafened) ? <MicOff size={16} /> : <Mic size={16} />}
+      </button>
+      <button
+        type="button"
+        onClick={toggleDeafen}
+        disabled={state.isJoining}
+        className={`callbar-control-btn audio-control ${deafened ? 'is-off' : serverDeafened ? 'is-server-off' : ''}`}
+        aria-label={deafenControlLabel}
+        aria-pressed={deafened}
+        title={showActiveCallBar ? deafenControlLabel : `${deafenControlLabel}. Applies when you join voice.`}
+      >
+        {(deafened || serverDeafened) ? <HeadphoneOff size={16} /> : <Headphones size={16} />}
+      </button>
+    </>
+  )
 
   useEffect(() => {
     if (!hasActiveVoiceSession) {
@@ -1578,6 +1599,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   return (
     <>
+      {!showActiveCallBar && (
+        <div className="callbar-wrap">
+          <div className="callbar-frame callbar-idle" role="group" aria-label="Voice preferences">
+            <div className="callbar-status callbar-idle-status"><span className="active-call-title">Not in voice</span></div>
+            <div className="callbar-controls-center">{audioControls}</div>
+          </div>
+        </div>
+      )}
       {state.cameraStream && (
         <video
           ref={attachCameraKeepaliveElement}
@@ -1644,7 +1673,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                     <div className={`voice-stage-avatar${pSpeaking ? ' is-speaking' : ''}`}>
                       {p.avatar_url ? <img src={resolveAvatarUrl(p.avatar_url) ?? ''} alt="" /> : (p.username.charAt(0) || '?').toUpperCase()}
                     </div>
-                    <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`}>{p.username}</div>
+                    <div className={`voice-stage-name${pSpeaking ? ' is-speaking' : ''}`} title={p.username}>{p.username}</div>
                     <div className="voice-stage-sub"><Users size={12} />In voice</div>
                   </div>
                 )
@@ -1654,7 +1683,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <div className={`voice-stage-avatar${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}>
                     {user?.avatar_url ? <img src={resolveAvatarUrl(user.avatar_url) ?? ''} alt="" /> : localInitial}
                   </div>
-                  <div className={`voice-stage-name${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}>{user?.username ?? 'You'}</div>
+                  <div className={`voice-stage-name${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`} title={user?.username ?? 'You'}>{user?.username ?? 'You'}</div>
                   <div className="voice-stage-sub"><Users size={12} />In voice</div>
                 </div>
               )}
@@ -1868,7 +1897,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
             </div>
           )}
           <div className="callbar-wrap">
-            <div className="active-call-bar">
+            <div className="callbar-frame active-call-bar">
               <RemoteAudioPlaybackLayer
                 remoteStreams={state.remoteStreams}
                 watchedScreenPeerIds={watchedRemoteScreenPeerIds}
@@ -1888,24 +1917,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </button>
               </div>
               <div className="callbar-controls-center">
-                <button
-                  onClick={toggleMute}
-                  disabled={!state.joinedChannelId || !state.localStream || deafened}
-                  className={`callbar-control-btn ${muted ? 'is-off' : (serverMuted || serverDeafened) ? 'is-server-off' : ''}`}
-                  aria-label={micControlLabel}
-                  title={micControlLabel}
-                >
-                  {(muted || serverMuted || serverDeafened) ? <MicOff size={16} /> : <Mic size={16} />}
-                </button>
-                <button
-                  onClick={toggleDeafen}
-                  disabled={!state.joinedChannelId}
-                  className={`callbar-control-btn ${deafened ? 'is-off' : serverDeafened ? 'is-server-off' : ''}`}
-                  aria-label={deafenControlLabel}
-                  title={deafenControlLabel}
-                >
-                  {(deafened || serverDeafened) ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                </button>
+                {audioControls}
                 <button onClick={handleCamera} disabled={!state.joinedChannelId} className={`callbar-control-btn media-control ${state.cameraStream ? 'is-live' : ''}`} aria-label={cameraControlLabel} title={cameraControlLabel}>
                   {state.cameraStream ? <Video size={16} /> : <VideoOff size={16} />}
                 </button>

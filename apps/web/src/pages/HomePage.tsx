@@ -1247,7 +1247,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   return (
     <div className={`home-page ${isMobileSocialSidebarOpen ? 'home-page--mobile-sidebar-open' : ''}`}>
       <aside ref={socialSidebarRef} className={`social-sidebar ${isMobileSocialSidebarOpen ? 'social-sidebar--mobile-open' : ''}`}>
-        <div className="social-sidebar-header">Social</div>
+        <div className="social-sidebar-header"><MessageCircle size={17} aria-hidden="true" /><span>Social</span></div>
         <button
           type="button"
           className={`social-nav-item ${view === 'friends' ? 'active' : ''}`}
@@ -1259,13 +1259,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             setMobileSidebarPanel('none')
           }}
         >
-          <Users size={14} />
+          <span className="social-nav-icon"><Users size={16} aria-hidden="true" /></span>
           <span className="social-nav-item-label">Friends</span>
           {incomingRequests.length > 0 && <span className="notif-dot" />}
         </button>
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">
           <h2>Direct Messages</h2>
+          {dmChannels.length > 0 && <span className="social-conversation-count" title={`${dmChannels.length} conversations`}>{dmChannels.length}</span>}
         </div>
         {showSocialBootstrapLoading ? (
           <div className="home-sidebar-skeleton" aria-hidden="true">
@@ -1332,7 +1333,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   )}
                 </div>
                 <div className="home-member-meta">
-                  <div>{channel.peer_username}</div>
+                  <div title={channel.peer_username}>{channel.peer_username}</div>
+                  <span className="social-dm-status">{channel.peer_status === 'online' ? 'Online' : channel.peer_status === 'dnd' ? 'Do not disturb' : 'Offline'}</span>
                 </div>
               </button>
               <div className="social-dm-actions">
@@ -1344,7 +1346,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   aria-label={`Hide DM with ${channel.peer_username}`}
                   onClick={() => void handleHideDmChannel(channel.id)}
                 >
-                  <X size={12} />
+                  <X size={14} />
                 </button>
               </div>
             </div>

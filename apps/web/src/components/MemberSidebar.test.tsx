@@ -75,6 +75,7 @@ describe('MemberSidebar profile interaction', () => {
     )
 
     const memberRow = screen.getByText('admin').closest('.member-item')
+    expect(screen.getByText('admin')).toHaveAttribute('title', 'admin')
     expect(memberRow).not.toBeNull()
     const memberSidebar = container.querySelector('.member-sidebar')
     expect(memberSidebar).not.toBeNull()

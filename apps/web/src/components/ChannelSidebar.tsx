@@ -657,7 +657,7 @@ export default function ChannelSidebar({
                                         <span className="channel-icon">
                                             {ch.channel_type === 'voice' ? <Volume2 size={18} /> : <Hash size={18} />}
                                         </span>
-                                        <span className="channel-name" title={ch.description?.trim() || ch.name}>{ch.name}</span>
+                                        <span className="channel-name" title={ch.description?.trim() ? `${ch.name}\n${ch.description.trim()}` : ch.name}>{ch.name}</span>
                                         {voiceActiveSince != null && <VoiceChannelDuration startedAt={voiceActiveSince} />}
                                         {isVoiceLocked && (
                                             <span className="channel-item-lock" aria-hidden>

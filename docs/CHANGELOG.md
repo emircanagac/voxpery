@@ -12,12 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release is in preparation, not published. Further UI acceptance, real two-user voice/stream checks and native/physical-device validation remain release gates. No release date or LTS designation is assigned; the final release date will be recorded only when publishing.
 
 ### Added
+- Added an idle voice dock shared by server, Friends and DM views, with microphone/deafen preparation before joining. Preferences apply on explicit join, deafen retains both muted indicators and restores the previous microphone choice, and leaving voice preserves the in-session preferences. Idle controls do not capture media or send voice-state commands; camera/sharing remain connection-only.
 - Added a lightweight Friend Activity dock showing only active friends in accessible voice channels, with avatars and server/channel context. Sharing friends appear once with a small indicator. Clicking only navigates, without joining voice or watching media. The list scrolls independently above Community/GitHub/About and the separate Support footer.
 - Added watched-stream previews that move by dragging the video body and resize from all four corners with one bottom-left icon, fitting the native stream ratio up to 960 px within central content. Retained owner avatars on media cards and removed redundant empty voice cards for participants represented by camera or screen-share tiles.
 - Added image/file draft cards with previews, file sizes, reduced-motion-aware upload activity, and retry/remove controls.
 
 ### Changed
+- Enlarged mobile microphone/deafen touch targets to 44px without resizing icons or the footer; very narrow connected docks retain ping through an accessible icon. Added full-name hover titles to DM/member/voice labels and preserved channel names beside descriptions. Increased DM presence text contrast and size.
+- Applied the user-configured microphone shortcut to both idle preparation and connected voice controls, without requesting media access before joining; typing, repeat, push-to-talk conflicts, joining and deafen guards remain intact.
 - Refreshed the Social dock with an outlined Friends navigation button, inset conversation rows, balanced section spacing, and theme-aware hover/keyboard-focus hide controls. Touch layouts keep hide actions visible without shifting usernames or unread badges.
+- Unified idle and connected voice docks with a shared framed surface, aligned audio controls and responsive sizing; only connected voice uses the green session border.
+- Kept voice-control state colors readable while hovered, including the deafen-locked microphone, active camera/sharing and server restrictions.
+- Refined Social navigation with an icon-led Friends entry, a conversation count, presence subtitles and separated hide controls; preserved unread, pinning and keyboard behavior.
+- Reduced mandatory frontend E2E to tagged basic feature checks and a short mobile smoke set. Detailed visual regressions remain available through an explicit manual command; no new scheduled or parallel CI jobs were added.
 - Redesigned voice confirmations into distinct short sound families: rising/falling room melodies, low microphone taps, spaced deafen pulses, bright camera bells, and screen-share chords. Kept the existing sound-effects preference and local/remote event routing, with no downloaded audio assets.
 - Refreshed the shared DM, mention and message notification sound into one soft double tap, distinct from camera and voice controls, without changing notification eligibility, sound settings or do-not-disturb behavior.
 - Show GIF/sticker favorite stars on hover or keyboard focus instead of keeping saved stars visible while idle; touch devices retain direct favorite access.
@@ -45,6 +52,7 @@ This release is in preparation, not published. Further UI acceptance, real two-u
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Split the multi-viewport compact-chat regression into isolated tests with independent timeout budgets and updated the theme fixture to use the shared voice-frame class.
 - Kept short synthesized-cue envelopes in chronological order and disconnected completed cue audio nodes after playback.
 - Added wrapping Up/Down and Home/End keyboard navigation to Friends, DM, channel/category and member/voice action menus, skipping unavailable actions without intercepting sliders or selectors.
 - Restored focus to the remounted conversation-search button after Escape or Close, including shortcut-opened search, without stealing focus when Pins replaces search.
