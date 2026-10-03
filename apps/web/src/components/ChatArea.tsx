@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
+import { useDialogFocus } from '../hooks/useDialogFocus'
 import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment, MessageReaction } from '../types'
@@ -204,6 +205,8 @@ function AttachmentImagePreviewModal({
     onClose: () => void
     onImageLoadError: () => void
 }) {
+    const dialogRef = useRef<HTMLDivElement>(null)
+    useDialogFocus(dialogRef, true)
     useEffect(() => {
         const handleKeyDown = (event: globalThis.KeyboardEvent) => {
             if (event.key === 'Escape') onClose()
@@ -217,9 +220,11 @@ function AttachmentImagePreviewModal({
     return createPortal(
         <div
             className="chat-image-preview-backdrop"
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={title}
+            tabIndex={-1}
             onMouseDown={(event) => {
                 if (event.target === event.currentTarget) onClose()
             }}
@@ -901,6 +906,8 @@ export default function ChatArea({
     const pinnedDropdownRef = useRef<HTMLDivElement | null>(null)
     const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const searchTriggerRef = useRef<HTMLButtonElement | null>(null)
+    const restoreSearchFocusRef = useRef(false)
     const searchDropdownRef = useRef<HTMLDivElement | null>(null)
     const searchHelpRef = useRef<HTMLDetailsElement | null>(null)
     const applySearchFilter = useCallback((token: 'from:' | 'has:attachment') => {
@@ -1938,18 +1945,29 @@ export default function ChatArea({
         return () => document.removeEventListener('click', close)
     }, [pinnedOpen])
 
+    const closeSearch = useCallback(() => {
+        restoreSearchFocusRef.current = true
+        onSearchChange?.('')
+        setSearchOpen(false)
+    }, [onSearchChange])
+
+    useLayoutEffect(() => {
+        if (searchOpen || !restoreSearchFocusRef.current) return
+        restoreSearchFocusRef.current = false
+        if (isCurrentViewActive) searchTriggerRef.current?.focus()
+    }, [isCurrentViewActive, searchOpen])
+
     useEffect(() => {
         if (!searchOpen) return
         const onKeyDown = (e: globalThis.KeyboardEvent) => {
             if (e.key !== 'Escape') return
-            onSearchChange?.('')
-            setSearchOpen(false)
+            closeSearch()
         }
         document.addEventListener('keydown', onKeyDown)
         return () => {
             document.removeEventListener('keydown', onKeyDown)
         }
-    }, [onSearchChange, searchOpen])
+    }, [closeSearch, searchOpen])
 
     useEffect(() => {
         if (!onSearchChange) return
@@ -2363,6 +2381,7 @@ export default function ChatArea({
                                 <button
                                     type="button"
                                     className="chat-header-search-trigger"
+                                    ref={searchTriggerRef}
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         setPinnedOpen(false)
@@ -2413,8 +2432,7 @@ export default function ChatArea({
                                         className="chat-header-search-close"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            onSearchChange('')
-                                            setSearchOpen(false)
+                                            closeSearch()
                                         }}
                                         title="Close search"
                                         aria-label="Close search"
@@ -2939,7 +2957,7 @@ export default function ChatArea({
                             : (useMobileMessageLayout ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
                         rows={1}
                     />
-                    {canSendMessages && (
+                    {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (
                         <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : ''}`} aria-label="Characters remaining">
                             {remainingCharacters < 0 ? `${-remainingCharacters} over limit` : remainingCharacters}
                         </span>
@@ -2948,7 +2966,7 @@ export default function ChatArea({
                         <button
                             type="button"
                             className={`message-send-btn ${(messageInput.trim() || draftAttachments.length > 0) ? 'is-ready' : ''}`}
-                            disabled={!canSendMessages || hasPendingDraftAttachments(draftAttachments)}
+                            disabled={!canSendMessages || hasPendingDraftAttachments(draftAttachments) || (!messageInput.trim() && draftAttachments.length === 0)}
                             title="Send message"
                             aria-label="Send message"
                             onClick={() => {

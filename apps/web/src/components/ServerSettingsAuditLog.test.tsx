@@ -23,6 +23,23 @@ const moveEntry: AuditLogEntry = {
 }
 
 describe('ServerSettingsAuditLog', () => {
+    it('explains category renames and raid signals instead of raw action keys', () => {
+        render(<ServerSettingsAuditLog
+            entries={[
+                { ...moveEntry, id: 'category', action: 'category_rename', resource_username: null, resource_id: null, channel_name: null, details: { old_name: 'Old', new_name: 'New' } },
+                { ...moveEntry, id: 'raid', action: 'raid_message_burst', details: { message_count: 12, window_seconds: 10 } },
+                { ...moveEntry, id: 'future', action: 'future_moderation_event' },
+            ]}
+            memberUsernameById={new Map()} actionFilter="" onActionFilterChange={vi.fn()}
+            hasMore={false} loadingMore={false} onLoadMore={vi.fn()}
+        />)
+        expect(screen.getByText('Renamed category')).toBeVisible()
+        expect(screen.getByText('Old to New')).toBeVisible()
+        expect(screen.getByText('Message burst detected')).toBeVisible()
+        expect(screen.getByText('12 messages in 10 seconds · in Support')).toBeVisible()
+        expect(screen.getByText('Future moderation event')).toBeVisible()
+        expect(screen.queryByText('category_rename')).not.toBeInTheDocument()
+    })
     it('explains structured voice moderation context and reason', () => {
         render(
             <ServerSettingsAuditLog

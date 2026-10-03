@@ -1,6 +1,7 @@
 import { Ban, Flag, ShieldAlert } from 'lucide-react'
 import ServerSettingsAutoMod from './ServerSettingsAutoMod'
 import type { AuthToken, RaidEventEntry, ServerBanEntry, ServerReportEntry, ServerTimeoutEntry } from '../api'
+import { raidEventLabel, raidEventSummary } from '../moderationEventText'
 
 export type SafetySettingsTab = 'reports' | 'automod' | 'bans'
 
@@ -231,7 +232,7 @@ export default function ServerSettingsSafety({
                                         <div key={entry.id} className="server-report-row">
                                             <div className="server-report-meta">
                                                 <div className="server-report-head">
-                                                    <strong>{entry.event_type.replaceAll('_', ' ')}</strong>
+                                                    <strong>{raidEventLabel(entry.event_type)}</strong>
                                                     <span className="server-report-status is-open">Detected</span>
                                                 </div>
                                                 <div className="server-report-subline">
@@ -240,9 +241,17 @@ export default function ServerSettingsSafety({
                                                     {entry.channel_name ? ` in #${entry.channel_name}` : ''}
                                                 </div>
                                                 {entry.metadata != null && (
-                                                    <div className="server-report-excerpt server-report-excerpt--details">
-                                                        {JSON.stringify(entry.metadata) ?? ''}
-                                                    </div>
+                                                    <>
+                                                        {raidEventSummary(entry.event_type, entry.metadata) && (
+                                                            <p className="server-report-excerpt server-report-excerpt--details">
+                                                                {raidEventSummary(entry.event_type, entry.metadata)}
+                                                            </p>
+                                                        )}
+                                                        <details className="server-report-event-details">
+                                                            <summary>Event details</summary>
+                                                            <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
+                                                        </details>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>

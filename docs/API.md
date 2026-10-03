@@ -119,6 +119,7 @@ Notes:
 
 - `GET /api/servers/:server_id/onboarding` (requires `VIEW_SERVER`)
   - Returns the server welcome guide, including enabled state, intro copy, starter tasks, and recommended channel IDs.
+  - The web client displays a compact, wrapping guide. An `Introduce yourself` task is combined with the first available recommended text-channel action; other tasks and custom copy are preserved. This presentation does not change the API payload.
 - `PATCH /api/servers/:server_id/onboarding` (requires `MANAGE_SERVER`)
   - Body: `{ "enabled": true, "title": "Welcome", "body": "Start here", "recommended_channel_ids": ["uuid"], "starter_tasks": ["Read the rules"] }`
   - Limits: title 80 chars, body 1000 chars, up to 6 recommended channels, up to 6 starter tasks of 120 chars each.

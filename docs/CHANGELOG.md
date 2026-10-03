@@ -17,8 +17,17 @@ This release is in preparation, not published. Further UI acceptance, real two-u
 - Added image/file draft cards with previews, file sizes, reduced-motion-aware upload activity, and retry/remove controls.
 
 ### Changed
+- Redesigned voice confirmations into distinct short sound families: rising/falling room melodies, low microphone taps, spaced deafen pulses, bright camera bells, and screen-share chords. Kept the existing sound-effects preference and local/remote event routing, with no downloaded audio assets.
+- Refreshed the shared DM, mention and message notification sound into one soft double tap, distinct from camera and voice controls, without changing notification eligibility, sound settings or do-not-disturb behavior.
+- Show GIF/sticker favorite stars on hover or keyboard focus instead of keeping saved stars visible while idle; touch devices retain direct favorite access.
+- Improved compact composer touch targets without enlarging icons; the mobile character counter appears near the limit. Empty Create, Join and Send actions now display a disabled state.
+- Made category and raid audit entries readable, removed the duplicate Audit Log heading, and moved raw raid metadata into expandable event details.
+- Simplified the app header to one compact, theme-aware `Beta v0.3.0` badge, without a glowing status dot or animation; the version remains resolved from the running build.
+- Made Social direct-message rows and all Friends filter buttons visibly outlined, with theme-aware hover, selected and keyboard-focus states.
+- Added simplified Windows small-icon artwork and DPI-specific ICO frames, retaining the original large icons and avoiding a second runtime tray scaling pass.
 - Rebuilt Friends with Online, All and Add Friend filters, compact unframed rows, visible message actions and local search. Add Friend combines submission and incoming/outgoing requests, with an incoming-only badge and no duplicate header action; submission supports Enter, pending feedback and duplicate-submit protection.
 - Modernized voice-row LIVE, camera and mute/deafen indicators with flat theme-aware Lucide icons. Isolated the fixed-width channel-active-time counter so each second no longer rerenders the channel list; background-tab updates pause and catch up on return.
+- Matched participant indicators to call-control colors: red self-mute/deafen, green active camera/sharing, and warning-colored server restrictions. Kept both microphone and headphone indicators while deafened and strengthened microphone/deafen confirmations without changing room or media sounds.
 - Restyled Social DMs as compact conversation rows with readable Pinned/Recent headings and a selected-row marker.
 - Rebuilt the emoji/GIF/sticker panel with fixed navigation/search, keyboard tabs, clear/close actions, semantic theme colors, and lazy media previews.
 - Simplified the landing to fit common desktop viewports and use browser-only entry points below 1024px; highlighted Voxpery's open-source, self-hosting, and chat/call capabilities on Compare.
@@ -35,11 +44,18 @@ This release is in preparation, not published. Further UI acceptance, real two-u
 - Updated the web and backend dependency sets and refreshed the Voxpery logo image.
 
 ### Fixed
+- Kept short synthesized-cue envelopes in chronological order and disconnected completed cue audio nodes after playback.
+- Added wrapping Up/Down and Home/End keyboard navigation to Friends, DM, channel/category and member/voice action menus, skipping unavailable actions without intercepting sliders or selectors.
+- Restored focus to the remounted conversation-search button after Escape or Close, including shortcut-opened search, without stealing focus when Pins replaces search.
+- Contained keyboard focus inside attachment image previews and restored the opener on dismissal. Closed compact Social/channel drawers no longer remain in the keyboard or accessibility navigation sequence.
+- Prevented repeated or rapid keyboard events from starting overlapping microphone-shortcut saves; verified registration rollback, clearing and supported-key boundaries.
 - Restricted signed-attachment cache normalization to the application/API origins; external image URLs retain their complete identity even when their paths resemble the attachment API.
 - Narrowed the voice active-time indicator and aligned Send Request with its input; blank/whitespace drafts now have a visibly disabled button instead of an active-looking primary surface.
 - Made server-only mute/deafen states visible in voice participant rows with explicit server-enforced labels.
 - Aligned the floating-stream hide action with the upper-right corner while preserving clickable button coverage and outer-corner resizing.
 - Hid idle server-rail scrollbars and revealed a thin thumb on hover, keyboard focus or drag without moving icons; matched member/DM menu widths and aligned voice menus with participant avatars.
+- Fixed Chromium/Brave server-rail scrollbar colors overriding the custom 4 px width, removed native arrow buttons, and preserved Firefox's thin scrollbar without crowding server icons.
+- Compacted server welcome guides into an inline, wrapping layout and combined the introduction task with its recommended text-channel button while preserving custom copy, other tasks, channel actions, and dismissal.
 - Kept floating streams within visible central content on Friends despite retained hidden chats, and removed the dark owner-label strip so the original video remains visible.
 - Kept single favorite/recent/search stickers at regular grid-cell size and moved the latest-message arrow slightly right while retaining scrollbar clearance.
 - Separated the Social Friends selection from the header divider, removed the misleading DM heading count, and restored direct compact Settings access beside Quick Search.

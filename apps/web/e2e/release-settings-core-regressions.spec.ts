@@ -90,33 +90,59 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.getByRole('button', { name: 'Join Server' })).toBeInViewport()
   })
 
-  test('reveals a thin overflowing rail scrollbar on hover without moving icons', async ({ page }, testInfo) => {
+  for (const viewport of [{ width: 1920, height: 600 }, { width: 1100, height: 600 }, { width: 390, height: 844 }]) {
+  test(`reveals a thin overflowing rail scrollbar on hover without moving icons at ${viewport.width}px`, async ({ page }, testInfo) => {
     const servers = Array.from({ length: 16 }, (_, i) => buildCoreServer({ id: `rail-${i}`, name: `Rail ${i}` }))
     await installMockCoreApi(page, createMockCoreState({ servers, channelsByServerId: { [servers[0].id]: buildCoreChannels(servers[0].id) } }))
-    await page.setViewportSize({ width: 1920, height: 600 })
+    await page.setViewportSize(viewport)
     await page.goto('/servers')
     const list = page.locator('.server-sidebar-scroll')
     const first = list.locator('[data-server-id="rail-0"]')
     await expect(first).toBeVisible()
     await page.locator('.chat-header').click()
-    await page.mouse.move(1000, 200)
+    await page.mouse.move(viewport.width - 20, 200)
     expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
-    await expect(list).toHaveCSS('scrollbar-color', 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)')
-    expect(await list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar').width)).toBe('4px')
+    const usesWebkitScrollbar = await page.evaluate(() => CSS.supports('selector(::-webkit-scrollbar)'))
+    const gutter = () => list.evaluate(el => el.offsetWidth - el.clientWidth)
+    // Measure the actual reserved space: pseudo-element styles alone can be ignored by Chromium.
+    expect(await gutter()).toBeLessThanOrEqual(usesWebkitScrollbar ? 8 : 16)
+    if (usesWebkitScrollbar) {
+      await expect(list).toHaveCSS('scrollbar-width', 'auto')
+    } else {
+      // Headless Firefox suppresses native scrollbar rendering; verify the authored fallback too.
+      const declaredWidth = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => {
+        try { return [...sheet.cssRules] } catch { return [] }
+      }).filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === '.server-sidebar-scroll')
+        .map(rule => rule.style.getPropertyValue('scrollbar-width')))
+      expect(declaredWidth).toContain('thin')
+    }
+    await expect(list).toHaveCSS('scrollbar-color', usesWebkitScrollbar ? 'auto' : 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)')
+    if (usesWebkitScrollbar) {
+      expect(await list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar').width)).toBe('4px')
+      expect(await list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar-button').display)).toBe('none')
+    }
     const idle = (await first.boundingBox())!
     await page.screenshot({ path: testInfo.outputPath('rail-scrollbar-idle.png') })
     await first.hover()
-    const thumb = () => list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar-thumb').backgroundColor)
-    await expect.poll(thumb).not.toBe('rgba(0, 0, 0, 0)')
+    const thumb = () => list.evaluate((el, webkit) => webkit
+      ? getComputedStyle(el, '::-webkit-scrollbar-thumb').backgroundColor
+      : getComputedStyle(el).scrollbarColor, usesWebkitScrollbar)
+    const transparent = usesWebkitScrollbar ? 'rgba(0, 0, 0, 0)' : 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)'
+    await expect.poll(thumb).not.toBe(transparent)
+    expect(await gutter()).toBeLessThanOrEqual(usesWebkitScrollbar ? 8 : 16)
+    if (usesWebkitScrollbar) await expect(list).toHaveCSS('scrollbar-color', 'auto')
+    const bounds = (await list.boundingBox())!
+    expect(idle.x + idle.width).toBeLessThan(bounds.x + bounds.width - (await gutter()) / 2)
     expect((await first.boundingBox())!.x).toBe(idle.x)
     await page.screenshot({ path: testInfo.outputPath('rail-scrollbar-hover.png') })
     await page.mouse.wheel(0, 200)
     await expect.poll(() => list.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
-    await page.mouse.move(1000, 200)
-    await expect.poll(thumb).toBe('rgba(0, 0, 0, 0)')
+    await page.mouse.move(viewport.width - 20, 200)
+    await expect.poll(thumb).toBe(transparent)
     await list.locator('[data-server-id="rail-15"]').focus()
-    await expect.poll(thumb).not.toBe('rgba(0, 0, 0, 0)')
+    await expect.poll(thumb).not.toBe(transparent)
   })
+  }
 
   test('groups Quick Search and preserves keyboard navigation, filtering and focus', async ({ page }, testInfo) => {
     const server = buildCoreServer()
@@ -636,6 +662,155 @@ test.describe('mocked release and settings regressions', () => {
       return element.scrollWidth > element.clientWidth + 1
     })
     expect(hasHorizontalOverflow).toBe(false)
+  })
+
+  for (const theme of ['Dark', 'Light', 'Custom Light']) {
+    test(`keeps the unified beta version badge flat and readable in ${theme}`, async ({ page }, testInfo) => {
+      await installMockCoreApi(page, createMockCoreState())
+      await page.setViewportSize({ width: 1920, height: 1080 })
+      await page.goto('/social')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await page.locator('.user-settings-modal .theme-option', { hasText: theme === 'Custom Light' ? 'Light' : theme }).click()
+      if (theme === 'Custom Light') {
+        await page.locator('.user-settings-modal .theme-option', { hasText: 'Custom' }).click()
+        await page.getByRole('textbox', { name: 'Custom theme hex color' }).fill('#00a896')
+        await page.getByRole('textbox', { name: 'Custom theme hex color' }).press('Enter')
+      }
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      const badge = page.locator('.shell-brand-release')
+      await expect(badge).toHaveText('Beta v0.2.0-test')
+      await expect(badge.locator('span')).toHaveCount(0)
+      for (const width of [1920, 1100, 1024, 390, 320]) {
+        await page.setViewportSize({ width, height: width < 1024 ? 844 : 768 })
+        await expect(badge).toBeVisible({ visible: width >= 1024 })
+        const style = await badge.evaluate(element => ({
+          dot: getComputedStyle(element, '::before').content,
+          shadow: getComputedStyle(element).boxShadow,
+          overflow: element.scrollWidth > element.clientWidth + 1,
+          headerOverflow: element.closest('.shell-topbar')!.scrollWidth > element.closest('.shell-topbar')!.clientWidth + 1,
+        }))
+        expect(style.dot).toBe('none')
+        expect(style.shadow).toBe('none')
+        if (width >= 1024) expect(style.overflow).toBe(false)
+        expect(style.headerOverflow).toBe(false)
+        await page.evaluate(() => Promise.all(document.getAnimations()
+          .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map(animation => animation.finished.catch(() => {}))))
+        await page.screenshot({ path: testInfo.outputPath(`beta-${width}.png`) })
+        await page.locator('.shell-brand').screenshot({ path: testInfo.outputPath(`beta-brand-${width}.png`) })
+      }
+    })
+  }
+
+  for (const theme of ['Dark', 'Light']) {
+    test(`outlines Social DM rows and Friends filters in ${theme}`, async ({ page }, testInfo) => {
+      const friend = buildFriends(1)[0]
+      await installMockCoreApi(page, createMockCoreState({
+        friends: [friend],
+        dmChannels: [{ id: 'dm-outline', peer_id: friend.id, peer_username: friend.username, peer_status: 'online', peer_avatar_url: null, unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+      }))
+      await page.setViewportSize({ width: 1920, height: 1080 })
+      await page.goto('/social')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await page.locator('.user-settings-modal .theme-option', { hasText: theme }).click()
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      const row = page.locator('.social-dm-item').first()
+      const border = (element: HTMLElement | SVGElement) => {
+        const style = getComputedStyle(element)
+        return { width: style.borderTopWidth, color: style.borderTopColor }
+      }
+      await expect(row).toBeVisible()
+      const idleBorder = await row.evaluate(border)
+      expect(idleBorder.width).toBe('1px')
+      expect(idleBorder.color).not.toBe('rgba(0, 0, 0, 0)')
+      await row.hover()
+      expect((await row.evaluate(border)).color).not.toBe(idleBorder.color)
+      const openDm = row.locator('.social-dm-open')
+      await openDm.focus()
+      await expect(openDm).toBeFocused()
+      expect((await row.evaluate(border)).color).not.toBe(idleBorder.color)
+      await page.locator('.home-page').screenshot({ path: testInfo.outputPath('social-outlines.png') })
+      await openDm.press('Enter')
+      await expect(row).toHaveClass(/active/)
+      await page.locator('.social-nav-item').click()
+      for (const width of [1920, 1100, 390, 320]) {
+        await page.setViewportSize({ width, height: 844 })
+        const filters = page.getByRole('group', { name: 'Friends filters' })
+        await expect(filters).toBeVisible()
+        for (const name of ['Online', 'All', 'Add Friend']) {
+          const button = filters.getByRole('button', { name: name === 'Add Friend' ? /^Add Friend/ : name, exact: name !== 'Add Friend' })
+          const outline = await button.evaluate(border)
+          expect(outline.width).toBe('1px')
+          expect(outline.color).not.toBe('rgba(0, 0, 0, 0)')
+          await button.click()
+          await expect(button).toHaveAttribute('aria-pressed', 'true')
+          expect(await button.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        }
+        expect(await page.locator('.home-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        await page.locator('.home-main').screenshot({ path: testInfo.outputPath(`friends-filters-${width}.png`) })
+      }
+    })
+  }
+
+  test('serializes captured desktop shortcut saves and retains the previous key on failure', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.addInitScript(() => {
+      const registered = new Set<string>()
+      const calls: string[] = []
+      Reflect.set(window, '__shortcutCalls', calls)
+      Reflect.set(window, '__TAURI_INTERNALS__', {
+        invoke: async (command: string, args?: { shortcut?: string; shortcuts?: string[]; payload?: { prefixedKey?: string } }) => {
+          if (command === 'plugin:app|version') return '0.3.0'
+          if (command === 'plugin:autostart|is_enabled') return true
+          if (command === 'plugin:secure-storage|get_item' && args?.payload?.prefixedKey === 'voxpery-auth-token') return 'mock-token'
+          if (command === 'plugin:global-shortcut|is_registered') return registered.has(args?.shortcut ?? '')
+          if (command === 'plugin:global-shortcut|unregister') {
+            args?.shortcuts?.forEach(key => registered.delete(key))
+          }
+          if (command === 'plugin:global-shortcut|register') {
+            const key = args!.shortcuts![0]
+            calls.push(key)
+            if (Reflect.get(window, '__rejectNextShortcut')) {
+              Reflect.set(window, '__rejectNextShortcut', false)
+              throw new Error('Shortcut occupied')
+            }
+            if (calls.length === 1) await new Promise<void>(resolve => Reflect.set(window, '__releaseShortcut', resolve))
+            registered.add(key)
+          }
+          return null
+        },
+        transformCallback: () => 1,
+        unregisterCallback: () => {},
+        convertFileSrc: (path: string) => path,
+      })
+    })
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Voice & Audio', exact: true }).click()
+    const modal = page.locator('.user-settings-modal')
+    const row = modal.locator('.user-setting-row', { hasText: 'Toggle microphone mute' })
+    await expect(row).toContainText('system-wide while Voxpery is running')
+    await row.getByRole('button', { name: 'Set shortcut' }).click()
+    await page.keyboard.down('F5')
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__shortcutCalls'))).toEqual(['F5'])
+    await page.keyboard.down('F5')
+    await page.keyboard.press('G')
+    await page.keyboard.up('F5')
+    expect(await page.evaluate(() => Reflect.get(window, '__shortcutCalls'))).toEqual(['F5'])
+    await page.evaluate(() => Reflect.get(window, '__releaseShortcut')())
+    await expect(row.getByRole('button', { name: 'Rebind' })).toBeEnabled()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('F5')
+    await page.evaluate(() => Reflect.set(window, '__rejectNextShortcut', true))
+    await row.getByRole('button', { name: 'Rebind' }).click()
+    await page.keyboard.press('Control+Shift+M')
+    await expect(row).toContainText('This shortcut is unavailable')
+    expect(await page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBe('F5')
+    expect(await page.evaluate(() => Reflect.get(window, '__shortcutCalls'))).toEqual(['F5', 'CommandOrControl+Shift+M', 'F5'])
+    await page.keyboard.press('Escape')
+    await row.getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('voxpery-settings-global-mute-shortcut'))).toBeNull()
   })
 
   test('keeps developer diagnostics out of web settings and uses web-specific copy', async ({ page }) => {

@@ -698,13 +698,7 @@ export default function AppShell() {
               className="shell-brand-release"
               title={appVersionBadge ? `Beta channel, running build ${appVersionBadge}` : 'Beta channel'}
             >
-              <span>Beta</span>
-              {appVersionBadge && (
-                <>
-                  <span className="shell-brand-release-separator" aria-hidden="true">·</span>
-                  <span className="shell-brand-release-version">{appVersionBadge}</span>
-                </>
-              )}
+              {appVersionBadge ? `Beta ${appVersionBadge}` : 'Beta'}
             </span>
           </button>
         </div>

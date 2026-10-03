@@ -2,6 +2,7 @@ import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, HeadphoneOff, Radio,
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
+import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 import { useShallow } from 'zustand/react/shallow'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -777,6 +778,7 @@ export default function ChannelSidebar({
                     className="server-context-menu channel-context-menu"
                     role="menu"
                     style={{ left: createMenu.x, top: createMenu.y }}
+                    onKeyDown={handleMenuKeyboardNavigation}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button
@@ -819,6 +821,7 @@ export default function ChannelSidebar({
                         role="menu"
                         aria-label={`Actions for ${channel.name}`}
                         style={{ left: contextMenu.x, top: contextMenu.y }}
+                        onKeyDown={handleMenuKeyboardNavigation}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {isTextChannel && (
@@ -871,6 +874,7 @@ export default function ChannelSidebar({
                     role="menu"
                     aria-label={`Actions for ${categoryMenu.category}`}
                     style={{ left: categoryMenu.x, top: categoryMenu.y }}
+                    onKeyDown={handleMenuKeyboardNavigation}
                     onClick={(e) => e.stopPropagation()}
                 >
                     {onOpenCreateChannel && (
@@ -947,6 +951,7 @@ export default function ChannelSidebar({
                         role="group"
                         aria-label={`Voice actions for ${participantMenu.username}`}
                         style={participantMenuStyle}
+                        onKeyDown={handleMenuKeyboardNavigation}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {profileMember && (

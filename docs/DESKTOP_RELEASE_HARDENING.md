@@ -13,6 +13,8 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
     - `icons/icon.icns`
     - `icons/128x128.png`
 - Release pipeline validates icon files and minimum file sizes before build.
+- Windows small taskbar/notification-area artwork is adapted from `icons/small-icon.svg`: flat colors and simplified facial details, rendered into 16/20/24/32/40/48 px ICO frames. Larger original ICO frames are retained. The runtime tray uses `icons/tray.png` without a second crop/upscale pass; `32x32.png` also serves the default small window icon. macOS/large installer artwork is unchanged.
+- Rebuild those assets with `node .github/scripts/generate-desktop-small-icons.mjs --sharp-module <absolute-path-to-installed-sharp>`. Sharp is an optional asset-generation tool, not an application/runtime dependency. Regeneration preserves large ICO payloads and is deterministic. Validate normal/unread icons on light/dark Windows taskbars at 100%, 125%, 150% and 200% scaling; Windows may retain pinned-icon caches until the updated application is restarted or repinned.
 - macOS release bundles must merge `Info.plist` usage descriptions for microphone, camera, screen recording, and shared system audio.
 - macOS release bundles must apply `Entitlements.plist` with audio-input and camera capture entitlements.
 - Until Developer ID signing is configured, macOS release bundles use Tauri's ad-hoc signing identity (`-`) so those entitlements are applied consistently.
@@ -41,6 +43,13 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Release preflight rejects missing `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, or `media-src 'self' blob:` directives.
 - If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
 - Voxpery development uses `apps/desktop/src-tauri/tauri.dev.conf.json` together with `cargo tauri dev --config tauri.dev.conf.json` for local backend connectivity.
+
+## 2.2) Microphone Shortcut Validation
+
+- Toggle microphone mute accepts bare physical letter/digit keys and F1-F24; supported space/arrow/punctuation codes require a modifier. Modifier-only keys, Escape, mouse buttons, numpad and unsupported special keys are not assigned. Escape cancels recording. Keyboard layout labels may differ from the stored physical key code.
+- The desktop global-shortcut plugin registers the chosen binding before it is stored. Registration failure preserves the previous binding/preference and displays an error. Capture ignores repeated keys and serializes pending saves; capture itself cannot toggle mute. Clear unregisters the active binding and removes its preference.
+- The binding calls the existing voice mute action only in an active session, with existing server mute/deafen and push-to-talk conflict guards. Desktop registration works while the application runs, including minimized/tray mode, subject to OS-reserved or occupied shortcuts; web fallback is limited to the focused Voxpery tab and does not fire while typing.
+- Unit/mocked-runtime tests do not prove native system-wide delivery. Before release, assign, rebind and clear on Windows while focused, unfocused and minimized, restart with a saved binding, test an occupied shortcut and a push-to-talk conflict, and verify exactly one mute toggle per physical key press.
 
 ## 3) Signing Strategy
 

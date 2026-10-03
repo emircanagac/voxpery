@@ -109,6 +109,7 @@ test.describe('mocked mobile web smoke', () => {
       await expectNoHorizontalOverflow(page.locator('.chat-header--searching'))
       await page.getByRole('button', { name: 'Close search', exact: true }).click()
       await expect(page.getByRole('button', { name: 'Search in conversation', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Search in conversation', exact: true })).toBeFocused()
     }
   })
 

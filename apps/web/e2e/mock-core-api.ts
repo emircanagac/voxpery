@@ -408,6 +408,7 @@ export async function installMockCoreApi(page: Page, state: MockCoreState = crea
       Object.defineProperty(navigator, 'mediaDevices', {
         configurable: true,
         value: {
+          getSupportedConstraints: () => ({}),
           enumerateDevices: async () => [
             {
               deviceId: 'mock-microphone',

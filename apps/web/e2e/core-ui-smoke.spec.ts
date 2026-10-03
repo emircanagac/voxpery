@@ -12,6 +12,39 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  for (const width of [1920, 1100, 390, 320]) {
+    test(`keeps the welcome introduction inline and compact at ${width}px`, async ({ page }, testInfo) => {
+      const server = buildCoreServer()
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      }))
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto('/servers')
+      const guide = page.locator('.server-welcome-guide')
+      const action = guide.getByRole('button', { name: 'Open channel general' })
+      await expect(action).toHaveText('Introduce yourself in #general')
+      await expect(guide.locator('.server-welcome-guide__task')).toHaveCount(0)
+      await expect(guide.locator('.server-welcome-guide__eyebrow')).toHaveCount(0)
+      expect(await guide.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      const bounds = (await guide.boundingBox())!
+      expect(bounds.height).toBeLessThan(160)
+      if (width === 1920) {
+        expect(bounds.height).toBeLessThan(60)
+        const heading = (await guide.getByRole('heading').boundingBox())!
+        const button = (await action.boundingBox())!
+        expect(Math.abs(heading.y + heading.height / 2 - button.y - button.height / 2)).toBeLessThan(2)
+      }
+      await action.click()
+      await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
+      await expect(page.getByRole('textbox', { name: /^Message/ })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath(`compact-welcome-${width}.png`) })
+      await guide.getByRole('button', { name: 'Dismiss welcome guide' }).click()
+      await expect(guide).toBeHidden()
+      await page.reload()
+      await expect(guide).toBeHidden()
+    })
+  }
+
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 1100, height: 600 }]) {
     test(`keeps chat layout stable without automatic notification prompts at ${viewport.width}x${viewport.height}`, async ({ page }) => {
       const server = buildCoreServer()
@@ -458,6 +491,7 @@ test.describe('mocked core UI smoke', () => {
       }
     })).toEqual({ display: 'grid', columns: 2, masonryColumns: 2, overflowsHorizontally: false })
 
+    await picker.locator('.chat-gif-card').filter({ has: page.getByRole('button', { name: 'Send Celebration', exact: true }) }).hover()
     await page.getByRole('button', { name: 'Add Celebration to favorites' }).click()
     await page.getByRole('button', { name: 'Favorites', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Send Celebration' })).toBeVisible()

@@ -160,9 +160,22 @@ for (const scenario of [
     await expect(sidebar.getByRole('img', { name: 'Friend 03: Deafened by server' })).toBeVisible()
     await expect(sidebar.locator('.voice-live-badge')).toHaveCount(2)
     await expect(sidebar.locator('.voice-participant-camera')).toHaveCount(1)
+    const mutedColor = scenario.theme === 'light' ? 'rgb(180, 35, 58)' : 'rgb(240, 71, 71)'
+    const activeColor = scenario.theme === 'light' ? 'rgb(23, 114, 69)' : 'rgb(67, 181, 129)'
+    for (const label of [/Very long.*Muted by self/, /Very long.*Deafened by self/]) {
+      await expect(sidebar.getByRole('img', { name: label })).toHaveCSS('color', mutedColor)
+    }
+    for (const media of await sidebar.locator('.voice-participant-camera, .voice-live-badge').all()) {
+      await expect(media).toHaveCSS('color', activeColor)
+      await expect(media).toHaveCSS('border-top-style', 'solid')
+    }
+    const enforcedColor = await sidebar.getByRole('img', { name: 'Friend 02: Muted by server' }).evaluate(el => getComputedStyle(el).color)
+    expect(enforcedColor).not.toBe(mutedColor)
+    await expect(sidebar.getByRole('img', { name: 'Friend 03: Deafened by server' })).toHaveCSS('color', enforcedColor)
     for (const indicator of await sidebar.locator('.voice-participant-icon-badge').all()) {
       await expect(indicator).toHaveCSS('width', '20px')
       await expect(indicator).toHaveCSS('box-shadow', 'none')
+      await expect(indicator).toHaveCSS('border-top-style', 'solid')
       await expect(indicator.locator('svg')).toHaveAttribute('width', '14')
     }
     expect(await participants.evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth))).toBe(true)

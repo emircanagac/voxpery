@@ -280,6 +280,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [globalMuteShortcut, setGlobalMuteShortcut] = useState<string | null>(() => getStoredGlobalMuteShortcut())
   const [capturingGlobalMuteShortcut, setCapturingGlobalMuteShortcut] = useState(false)
   const [globalMuteShortcutSaving, setGlobalMuteShortcutSaving] = useState(false)
+  const globalMuteShortcutSavingRef = useRef(false)
   const [globalMuteShortcutError, setGlobalMuteShortcutError] = useState<string | null>(null)
   const [showUsernameModal, setShowUsernameModal] = useState(false)
   const [usernameEdit, setUsernameEdit] = useState('')
@@ -976,10 +977,12 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   }, [])
 
   const saveGlobalMuteShortcut = useCallback(async (shortcut: string | null) => {
+    if (globalMuteShortcutSavingRef.current) return
     if (voiceMode === 'push_to_talk' && shortcut === pttKey) {
       setGlobalMuteShortcutError('This key is also assigned to push-to-talk. Choose another shortcut.')
       return
     }
+    globalMuteShortcutSavingRef.current = true
     setGlobalMuteShortcutSaving(true)
     setGlobalMuteShortcutError(null)
     try {
@@ -998,6 +1001,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     } catch {
       setGlobalMuteShortcutError('This shortcut is unavailable. Choose another combination.')
     } finally {
+      globalMuteShortcutSavingRef.current = false
       setGlobalMuteShortcutSaving(false)
     }
   }, [pttKey, pushToast, voiceMode])
@@ -1008,6 +1012,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     const onKeyDown = (event: KeyboardEvent) => {
       event.preventDefault()
       event.stopImmediatePropagation()
+      if (event.repeat || globalMuteShortcutSavingRef.current) return
       if (event.key === 'Escape') {
         setCapturingGlobalMuteShortcut(false)
         setGlobalMuteShortcutError(null)
