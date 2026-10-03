@@ -1251,6 +1251,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         <button
           type="button"
           className={`social-nav-item ${view === 'friends' ? 'active' : ''}`}
+          aria-current={view === 'friends' ? 'page' : undefined}
           onClick={() => {
             setView('friends')
             setPersistedSocialView('friends')
