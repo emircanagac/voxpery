@@ -72,6 +72,13 @@ describe('ChannelSidebar voice media presence', () => {
         useSocketStore.setState({ send: vi.fn() })
     })
 
+    it('preserves the full channel name alongside its description in the tooltip', () => {
+        const namedChannel = { ...voiceChannel, name: 'A long channel name that needs truncation', description: 'Discuss community events.' }
+        useAppStore.setState({ servers: [server], activeServerId: server.id, channels: [namedChannel], activeChannelId: null })
+        render(<ChannelSidebar channelCategories={['Voice']} />)
+        expect(screen.getByText(namedChannel.name)).toHaveAttribute('title', `${namedChannel.name}\n${namedChannel.description}`)
+    })
+
     it('shows camera and screen-share activity to a member outside the voice channel', () => {
         const voiceControls = {
             [remoteMember.user_id]: {

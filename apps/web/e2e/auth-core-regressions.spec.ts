@@ -11,7 +11,7 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
-  test('associates auth labels, supports keyboard navigation, and preserves redirect targets', async ({ page }) => {
+  test('associates auth labels, supports keyboard navigation, and preserves redirect targets', { tag: '@core' }, async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
     await page.goto('/login?redirect=%2Fsocial%2Fdm')
     await page.getByText('Email or Username', { exact: true }).click()
@@ -108,7 +108,7 @@ test.describe('mocked auth and account regressions', () => {
     }
   })
 
-  test('requires separate current legal acknowledgements before registration', async ({ page }) => {
+  test('requires separate current legal acknowledgements before registration', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       authenticated: false,
       features: { ...AUTH_FEATURES, google_oauth_enabled: true },
@@ -133,7 +133,7 @@ test.describe('mocked auth and account regressions', () => {
     expect(oauthUrl.searchParams.get('privacy_notice_version')).toBe('2026-08-23')
   })
 
-  test('keeps configured Google sign-in visible and preserves the post-auth route', async ({ page }) => {
+  test('keeps configured Google sign-in visible and preserves the post-auth route', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       authenticated: false,
       features: { ...AUTH_FEATURES, google_oauth_enabled: true },
@@ -153,7 +153,7 @@ test.describe('mocked auth and account regressions', () => {
     expect(oauthUrl.searchParams.get('redirect')).toBe('/social/dm')
   })
 
-  test('disables email verification resend while the request is in flight', async ({ page }) => {
+  test('disables email verification resend while the request is in flight', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       features: AUTH_FEATURES,
       emailVerificationRequestDelayMs: 400,
@@ -181,7 +181,7 @@ test.describe('mocked auth and account regressions', () => {
     expect(state.emailVerificationRequestCount).toBe(1)
   })
 
-  test('confirms an email verification token once and keeps the success state', async ({ page }) => {
+  test('confirms an email verification token once and keeps the success state', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       features: AUTH_FEATURES,
       user: {
@@ -198,7 +198,7 @@ test.describe('mocked auth and account regressions', () => {
     expect(state.user.email_verified).toBe(true)
   })
 
-  test('shows success when a consumed verification token belongs to an already verified session', async ({ page }) => {
+  test('shows success when a consumed verification token belongs to an already verified session', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       features: AUTH_FEATURES,
       validEmailVerificationTokens: [],
@@ -216,7 +216,7 @@ test.describe('mocked auth and account regressions', () => {
     await expect(page.getByText('Invalid email verification token')).toBeHidden()
   })
 
-  test('keeps forgot-password and reset-password flows wired to the API', async ({ page }) => {
+  test('keeps forgot-password and reset-password flows wired to the API', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({ authenticated: false, features: AUTH_FEATURES })
     await installMockCoreApi(page, state)
 

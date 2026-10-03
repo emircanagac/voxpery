@@ -165,7 +165,7 @@ test.describe('mocked social friend UI regressions', () => {
   })
 
   for (const width of [1920, 390]) {
-    test(`keeps grouped DM rows compact and scrollable at ${width}px`, async ({ page }, testInfo) => {
+    test(`keeps grouped DM rows compact and scrollable at ${width}px`, { tag: '@core' }, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
       const channels = Array.from({ length: 32 }, (_, index) => ({
         id: `dm-layout-${index}`, peer_id: `peer-layout-${index}`,
@@ -178,11 +178,16 @@ test.describe('mocked social friend UI regressions', () => {
       await page.goto('/social')
       if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
+      if (width < 1024) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
       await expect(sidebar.getByRole('heading', { name: 'Direct Messages', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Pinned', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible()
       const row = sidebar.locator('.social-dm-item').first()
-      expect((await row.boundingBox())!.height).toBe(46)
+      await expect(row).toHaveCSS('height', '56px')
+      await expect(row.locator('.social-dm-status')).toBeVisible()
+      await expect(row.locator('.social-dm-status')).toHaveCSS('font-size', '12px')
+      await expect(row.locator('.home-member-meta > div')).toHaveAttribute('title', channels[0].peer_username)
+      const avatarBeforeHover = await row.locator('.home-member-avatar').boundingBox()
       const hide = row.getByRole('button', { name: /^Hide DM with/ })
       if (width === 1920) {
         await page.locator('.social-sidebar-header').hover()
@@ -191,6 +196,7 @@ test.describe('mocked social friend UI regressions', () => {
       }
       await expect(hide).toHaveCSS('opacity', '1')
       await expect(hide).toHaveCSS('pointer-events', 'auto')
+      expect(await row.locator('.home-member-avatar').boundingBox()).toEqual(avatarBeforeHover)
       expect(await row.evaluate(element => {
         const rowBounds = element.getBoundingClientRect()
         const hideBounds = element.querySelector('.social-dm-close')!.getBoundingClientRect()
@@ -201,7 +207,9 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(hide).toBeFocused()
       await expect(hide).toHaveCSS('outline-style', 'solid')
       await sidebar.screenshot({ path: testInfo.outputPath('social-dock.png') })
-      await expect(sidebar.locator('.social-sidebar-title')).toHaveText('Direct Messages')
+      await expect(sidebar.locator('.social-sidebar-title h2')).toHaveText('Direct Messages')
+      await expect(sidebar.locator('.social-conversation-count')).toHaveText('32')
+      await expect(row.locator('.social-dm-status')).toHaveText('Online')
       const header = (await sidebar.locator('.social-sidebar-header').boundingBox())!
       const friends = (await sidebar.getByRole('button', { name: 'Friends', exact: true }).boundingBox())!
       expect(friends.y - (header.y + header.height)).toBeGreaterThanOrEqual(8)
@@ -222,7 +230,7 @@ test.describe('mocked social friend UI regressions', () => {
     })
   }
 
-  test('sends a friend request and keeps the outgoing request visible', async ({ page }) => {
+  test('sends a friend request and keeps the outgoing request visible', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: [],
       incomingRequests: [],
@@ -241,7 +249,7 @@ test.describe('mocked social friend UI regressions', () => {
     expect(state.outgoingRequests[0]?.receiver_username).toBe('newfriend')
   })
 
-  test('accepts and rejects incoming friend requests from the Requests tab', async ({ page }) => {
+  test('accepts and rejects incoming friend requests from the Requests tab', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: [],
       incomingRequests: buildRequests(2, 'incoming'),
@@ -265,7 +273,7 @@ test.describe('mocked social friend UI regressions', () => {
     await expect(page.getByRole('button', { name: 'Message Request In 01' })).toBeVisible()
   })
 
-  test('cancels an outgoing friend request without clearing incoming requests', async ({ page }) => {
+  test('cancels an outgoing friend request without clearing incoming requests', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: [],
       incomingRequests: buildRequests(1, 'incoming'),
@@ -284,7 +292,7 @@ test.describe('mocked social friend UI regressions', () => {
     expect(state.incomingRequests).toHaveLength(1)
   })
 
-  test('removes a friend only after confirmation', async ({ page }) => {
+  test('removes a friend only after confirmation', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(2),
       incomingRequests: [],
@@ -394,7 +402,7 @@ test.describe('mocked social friend UI regressions', () => {
     await expect(page.locator('.chat-header-pinned-dropdown')).toBeInViewport()
   })
 
-  test('keeps direct-message context actions available from the Social sidebar', async ({ page }) => {
+  test('keeps direct-message context actions available from the Social sidebar', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       dmChannels: [{
         id: 'dm-friend-01',

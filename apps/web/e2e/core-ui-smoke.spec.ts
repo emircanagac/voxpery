@@ -12,6 +12,146 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  for (const scenario of [{ width: 1920, theme: 'dark' }, { width: 1100, theme: 'light' }, { width: 390, theme: 'dark' }, { width: 320, theme: 'light' }]) {
+    test(`prepares voice without capture and retains preferences across views at ${scenario.width}px`, { tag: [1920, 320].includes(scenario.width) ? '@core' : [] }, async ({ page }, testInfo) => {
+      const server = buildCoreServer()
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+        dmChannels: [{ id: 'dm-ready', peer_id: 'friend-01', peer_username: 'Friend 01', peer_avatar_url: null, peer_status: 'online', unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+      }))
+      await page.addInitScript(theme => {
+        localStorage.setItem('voxpery-settings-theme', theme)
+        localStorage.setItem('voxpery-settings-global-mute-shortcut', 'F9')
+        const activity = { captures: 0, voiceCommands: 0 }
+        Reflect.set(window, '__voiceReadyActivity', activity)
+        const queryPermission = navigator.permissions.query.bind(navigator.permissions)
+        navigator.permissions.query = descriptor => descriptor.name === ('microphone' as PermissionName)
+          ? Promise.resolve(Object.assign(new EventTarget(), { state: 'prompt', onchange: null }) as PermissionStatus)
+          : queryPermission(descriptor)
+        const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        navigator.mediaDevices.getUserMedia = (...args) => { activity.captures++; return capture(...args) }
+        const send = WebSocket.prototype.send
+        WebSocket.prototype.send = function (data) {
+          if (typeof data === 'string' && /SetVoiceControl|JoinVoice/.test(data)) activity.voiceCommands++
+          return send.call(this, data)
+        }
+      }, scenario.theme)
+      await page.setViewportSize({ width: scenario.width, height: 844 })
+      await page.goto('/servers')
+      const dock = page.getByRole('group', { name: 'Voice preferences' })
+      await expect(dock).toContainText('Not in voice')
+      await expect(dock).toHaveClass(/callbar-frame/)
+      await expect(dock).toHaveCSS('border-top-width', '1px')
+      await expect(dock).toHaveCSS('border-top-style', 'solid')
+      await expect(dock.locator('.callbar-controls-center')).toBeVisible()
+      const micBox = (await dock.getByRole('button', { name: 'Mute microphone', exact: true }).boundingBox())!
+      const controlsBox = (await dock.locator('.callbar-controls-center').boundingBox())!
+      expect(micBox.height).toBe(scenario.width < 1024 ? 44 : 36)
+      expect(micBox.width).toBe(micBox.height)
+      await expect(dock.locator('.audio-control svg').first()).toHaveCSS('width', scenario.width < 1024 ? '13px' : '16px')
+      if (scenario.width === 1920) {
+        const frameBox = (await dock.boundingBox())!
+        expect(frameBox.width).toBe(600)
+        expect(Math.abs(controlsBox.x + controlsBox.width / 2 - frameBox.x - frameBox.width / 2)).toBeLessThan(1)
+      }
+      const originalHeight = await page.locator('.callbar-overlay').evaluate(el => el.getBoundingClientRect().height)
+      await page.keyboard.press('F9')
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await page.keyboard.press('F9')
+      await dock.getByRole('button', { name: 'Mute microphone', exact: true }).click({ position: { x: 4, y: 4 } })
+      await dock.getByRole('button', { name: 'Deafen', exact: true }).click()
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toBeDisabled()
+      await expect(dock.getByRole('button', { name: 'Undeafen', exact: true })).toHaveClass(/is-off/)
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toHaveCSS('opacity', '1')
+      await dock.getByRole('button', { name: 'Undeafen', exact: true }).hover()
+      await expect.poll(() => dock.evaluate(el => {
+        const buttons = Array.from(el.querySelectorAll('button'))
+        return buttons.every(button => button.getAnimations().every(animation => animation.playState !== 'running'))
+          && new Set(buttons.map(button => getComputedStyle(button).color)).size === 1
+      })).toBe(true)
+      await dock.getByRole('button', { name: 'Undeafen', exact: true }).click()
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toBeEnabled()
+      await page.getByRole('link', { name: 'Social', exact: true }).click()
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toHaveClass(/is-off/)
+      await page.getByRole('button', { name: 'Open DM with Friend 01', exact: true }).click()
+      await expect(page).toHaveURL(/\/social\/dm/)
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toHaveClass(/is-off/)
+      await page.locator('.message-input:visible').focus()
+      await page.keyboard.press('F9')
+      await expect(dock.getByRole('button', { name: 'Unmute microphone', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await dock.getByRole('button', { name: 'Unmute microphone', exact: true }).click()
+      await dock.getByRole('button', { name: 'Deafen', exact: true }).click()
+      await dock.getByRole('button', { name: 'Undeafen', exact: true }).click()
+      await expect(dock.getByRole('button', { name: 'Mute microphone', exact: true })).toHaveAttribute('aria-pressed', 'false')
+      await dock.getByRole('button', { name: 'Mute microphone', exact: true }).press('Tab')
+      await expect(dock.getByRole('button', { name: 'Deafen', exact: true })).toBeFocused()
+      await expect(dock.getByRole('button', { name: 'Deafen', exact: true })).toHaveCSS('outline-style', 'solid')
+      expect(await page.evaluate(() => Reflect.get(window, '__voiceReadyActivity'))).toEqual({ captures: 0, voiceCommands: 0 })
+      expect(await page.locator('.callbar-overlay').evaluate(el => el.getBoundingClientRect().height)).toBe(originalHeight)
+      expect(await dock.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      expect(await dock.evaluate(el => {
+        const bounds = el.getBoundingClientRect()
+        return bounds.left >= 0 && bounds.right <= window.innerWidth
+      })).toBe(true)
+      await page.locator('.callbar-overlay').screenshot({ path: testInfo.outputPath('idle-voice-dock.png') })
+    })
+  }
+
+  test('keeps connected audio touch targets inside the existing footer with every control visible', async ({ page }, testInfo) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.goto('/social')
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+    // This layout fixture checks the connected chrome, not a real media session.
+    await page.evaluate(() => {
+      const idle = document.querySelector<HTMLElement>('.callbar-frame')!
+      const frame = idle.cloneNode(true) as HTMLElement
+      frame.className = 'callbar-frame active-call-bar'
+      frame.setAttribute('aria-label', 'Connected voice layout fixture')
+      const status = frame.querySelector<HTMLElement>('.callbar-status')!
+      status.className = 'callbar-status'
+      status.textContent = 'Test voice'
+      const controls = frame.querySelector<HTMLElement>('.callbar-controls-center')!
+      for (const label of ['Camera', 'Share screen']) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'callbar-control-btn media-control'
+        button.setAttribute('aria-label', label)
+        button.textContent = label[0]
+        controls.append(button)
+      }
+      const right = document.createElement('div')
+      right.className = 'callbar-controls-right'
+      right.innerHTML = '<span class="callbar-connection-inline"><span class="callbar-ping-chip is-good" role="status" aria-label="Voice ping: 92ms." title="Voice ping: 92ms."><span class="callbar-ping-inline-icon" aria-hidden="true">~</span><span class="callbar-ping-value">92ms</span></span></span><button type="button" class="callbar-control-btn danger" aria-label="Leave voice channel">X</button>'
+      frame.append(right)
+      idle.style.display = 'none'
+      idle.after(frame)
+    })
+    const frame = page.getByRole('group', { name: 'Connected voice layout fixture' })
+    for (const width of [320, 360, 390, 800, 1920]) {
+      await page.setViewportSize({ width, height: 844 })
+      const footerBox = (await page.locator('.callbar-overlay').boundingBox())!
+      const frameBox = (await frame.boundingBox())!
+      expect(frameBox.height).toBeLessThanOrEqual(footerBox.height)
+      expect(frameBox.x).toBeGreaterThanOrEqual(footerBox.x)
+      expect(frameBox.x + frameBox.width).toBeLessThanOrEqual(footerBox.x + footerBox.width)
+      const buttons = await frame.getByRole('button').all()
+      let previousRight = frameBox.x
+      for (const button of buttons) {
+        const box = (await button.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(previousRight)
+        expect(box.x + box.width).toBeLessThanOrEqual(frameBox.x + frameBox.width)
+        expect(box.y).toBeGreaterThanOrEqual(footerBox.y)
+        expect(box.y + box.height).toBeLessThanOrEqual(footerBox.y + footerBox.height)
+        previousRight = box.x + box.width
+      }
+      await expect(frame.getByRole('button', { name: 'Mute microphone' })).toHaveCSS('width', width < 1024 ? '44px' : '36px')
+      await expect(frame.getByRole('status')).toHaveAttribute('aria-label', 'Voice ping: 92ms.')
+      if (width <= 360) await expect(frame.locator('.callbar-ping-value')).toBeHidden()
+      else await expect(frame.locator('.callbar-ping-value')).toBeVisible()
+      await frame.screenshot({ path: testInfo.outputPath(`connected-layout-fixture-${width}.png`) })
+    }
+  })
+
   for (const width of [1920, 1100, 390, 320]) {
     test(`keeps the welcome introduction inline and compact at ${width}px`, async ({ page }, testInfo) => {
       const server = buildCoreServer()
@@ -113,6 +253,11 @@ test.describe('mocked core UI smoke', () => {
     await page.keyboard.press('Tab')
     await expect(about).toBeFocused()
     await page.keyboard.press('Enter')
+    await page.keyboard.press('Tab')
+    const voicePreferences = page.getByRole('group', { name: 'Voice preferences' })
+    await expect(voicePreferences.getByRole('button', { name: 'Mute microphone', exact: true })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(voicePreferences.getByRole('button', { name: 'Deafen', exact: true })).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(sponsorLink).toBeFocused()
     await page.keyboard.press('Enter')
@@ -308,7 +453,7 @@ test.describe('mocked core UI smoke', () => {
     })
   }
 
-  test('keeps Friends tabs scrollable and friend actions reachable', async ({ page }) => {
+  test('keeps Friends tabs scrollable and friend actions reachable', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(30),
       incomingRequests: buildRequests(36, 'incoming'),
@@ -342,7 +487,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByText('Request Out 30')).toBeVisible()
   })
 
-  test('opens a DM from a Friends row and sends a message', async ({ page }) => {
+  test('opens a DM from a Friends row and sends a message', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(8) })
     await installMockCoreApi(page, state)
 
@@ -387,7 +532,7 @@ test.describe('mocked core UI smoke', () => {
     expect(hasHorizontalOverflow).toBe(false)
   })
 
-  test('sends a server channel message and keeps channel switching intact', async ({ page }) => {
+  test('sends a server channel message and keeps channel switching intact', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const general = channels.find((channel) => channel.name === 'general')
@@ -589,7 +734,7 @@ test.describe('mocked core UI smoke', () => {
     expect(geometryRange(samples, 'bodyY')).toBeLessThan(0.25)
   })
 
-  test('creates a channel from the sidebar and makes it selectable', async ({ page }) => {
+  test('creates a channel from the sidebar and makes it selectable', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const state = createMockCoreState({
@@ -620,7 +765,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByPlaceholder('Message #raid-notes')).toBeVisible()
   })
 
-  test('keeps quick switcher navigation wired to channels and DMs', async ({ page }) => {
+  test('keeps quick switcher navigation wired to channels and DMs', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const state = createMockCoreState({
@@ -661,7 +806,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.getByPlaceholder('Message @Friend 01')).toBeVisible()
   })
 
-  test('keeps message actions wired for edit, reaction, pin, search, and delete', async ({ page }) => {
+  test('keeps message actions wired for edit, reaction, pin, search, and delete', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const general = channels.find((channel) => channel.name === 'general')
@@ -869,7 +1014,7 @@ test.describe('mocked core UI smoke', () => {
     }
   })
 
-  test('opens Voice & Audio settings without overflowing the settings modal', async ({ page }) => {
+  test('opens Voice & Audio settings without overflowing the settings modal', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)
     await page.setViewportSize({ width: 1366, height: 768 })
@@ -910,7 +1055,7 @@ test.describe('mocked core UI smoke', () => {
     await expect(modal).toBeHidden()
   })
 
-  test('keeps the voice channel view usable when microphone access is unavailable', async ({ page }) => {
+  test('keeps the voice channel view usable when microphone access is unavailable', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const voice = channels.find((channel) => channel.channel_type === 'voice')

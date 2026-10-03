@@ -1783,10 +1783,11 @@ export function useLiveKitVoice() {
   }, [refreshLocalStreams, send, userId])
 
   const setVoiceControls = useCallback(async (muted: boolean, deafened: boolean, screenSharing: boolean, cameraOn?: boolean) => {
-    const store = useAppStore.getState()
-    const camera = cameraOn ?? store.voiceControls[userId ?? '']?.cameraOn ?? false
     selfMutedRef.current = muted
     selfDeafenedRef.current = deafened
+    if (!joinedChannelIdRef.current) return
+    const store = useAppStore.getState()
+    const camera = cameraOn ?? store.voiceControls[userId ?? '']?.cameraOn ?? false
     send('SetVoiceControl', { muted, deafened, screen_sharing: screenSharing, camera_on: camera })
     const control = store.voiceControls[userId ?? '']
     await setLocalMicMuted(muted || deafened || !!control?.serverMuted || !!control?.serverDeafened)

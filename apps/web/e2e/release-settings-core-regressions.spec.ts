@@ -218,18 +218,18 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.getByRole('dialog', { name: 'Quick switcher' })).toHaveCount(0)
   })
 
-  test('uses one compact chat layout below 1024px and keeps composer, photos, and panels usable', async ({ page }, testInfo) => {
-    const server = buildCoreServer()
-    const channels = buildCoreChannels(server.id)
-    const general = channels[0]
-    await installMockCoreApi(page, createMockCoreState({
-      servers: [server], channelsByServerId: { [server.id]: channels }, membersByServerId: { [server.id]: buildCoreMembers() },
-      messagesByChannelId: { [general.id]: [buildServerMessage(general.id, 'Square photo', {
-        id: 'responsive-photo', attachments: [{ url: '/responsive-square.svg', name: 'square.svg', type: 'image/svg+xml' }],
-      })] },
-    }))
-    await page.route('**/responsive-square.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#26b8a6"/></svg>' }))
-    for (const width of [1920, 1024, 1023, 800, 390]) {
+  for (const width of [1920, 1024, 1023, 800, 390]) {
+    test(`uses one compact chat layout and keeps composer, photos, and panels usable at ${width}px`, { tag: [1920, 390].includes(width) ? '@core' : [] }, async ({ page }, testInfo) => {
+      const server = buildCoreServer()
+      const channels = buildCoreChannels(server.id)
+      const general = channels[0]
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server], channelsByServerId: { [server.id]: channels }, membersByServerId: { [server.id]: buildCoreMembers() },
+        messagesByChannelId: { [general.id]: [buildServerMessage(general.id, 'Square photo', {
+          id: 'responsive-photo', attachments: [{ url: '/responsive-square.svg', name: 'square.svg', type: 'image/svg+xml' }],
+        })] },
+      }))
+      await page.route('**/responsive-square.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#26b8a6"/></svg>' }))
       await page.setViewportSize({ width, height: width < 1024 ? 600 : 1080 })
       await page.goto('/servers')
       const compact = width < 1024
@@ -292,8 +292,8 @@ test.describe('mocked release and settings regressions', () => {
       }
       await expect(composer).toHaveValue('A draft that survives layout changes')
       await page.screenshot({ path: testInfo.outputPath(`responsive-chat-${width}.png`) })
-    }
-  })
+    })
+  }
 
   for (const width of [1920, 800]) {
     test(`contains Settings and account-dialog focus at ${width}px`, async ({ page }) => {
@@ -997,7 +997,7 @@ test.describe('mocked release and settings regressions', () => {
           <span class="voice-stage-name">Voice member</span>
           <span class="voice-stage-sub">In voice</span>
         </div>
-        <div class="active-call-bar">
+        <div class="callbar-frame active-call-bar">
           <button class="active-call-title-btn">Voice channel</button>
           <button class="callbar-control-btn">Control</button>
         </div>

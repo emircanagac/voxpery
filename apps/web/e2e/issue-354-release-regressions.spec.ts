@@ -72,7 +72,7 @@ test.describe('attachment and server-switch release regressions', () => {
     })
   }
 
-  test('downloads a ZIP attachment when its chat link is clicked', async ({ page }) => {
+  test('downloads a ZIP attachment when its chat link is clicked', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
     const archive = Buffer.concat([Buffer.from('PK\x05\x06'), Buffer.alloc(18)])
@@ -111,7 +111,7 @@ test.describe('attachment and server-switch release regressions', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Download started' })).toBeVisible()
   })
 
-  test('never paints the previous server categories after a switch', async ({ page }) => {
+  test('never paints the previous server categories after a switch', { tag: '@core' }, async ({ page }) => {
     const first = buildCoreServer({ id: 'server-a', name: 'First Guild' })
     const second = buildCoreServer({ id: 'server-b', name: 'Second Guild' })
     const firstChannels = buildCoreChannels(first.id).map((channel) => ({ ...channel, category: 'ALPHA ONLY' }))

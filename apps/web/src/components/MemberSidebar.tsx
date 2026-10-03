@@ -117,6 +117,7 @@ const MemberItem = memo(function MemberItem({
             </div>
             <span
                 className={nameClass}
+                title={member.username}
                 style={displayColor ? { color: displayColor } : undefined}
             >
                 {member.username}

@@ -16,7 +16,7 @@ const PERM_MANAGE_PINS = 1 << 9
 const PERM_CONNECT_VOICE = 1 << 10
 
 test.describe('mocked channel permission regressions', () => {
-  test('creates and renames hash-named categories and text/voice channels without relaxing invalid-name checks', async ({ page }) => {
+  test('creates and renames hash-named categories and text/voice channels without relaxing invalid-name checks', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const state = createMockCoreState({
       servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
@@ -96,7 +96,7 @@ test.describe('mocked channel permission regressions', () => {
     await expect(page.getByRole('button', { name: 'Create channel in #Renamed', exact: true })).toBeVisible()
   })
 
-  test('locks server and channel controls when the session lacks manage/send permissions', async ({ page }) => {
+  test('locks server and channel controls when the session lacks manage/send permissions', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer({
       owner_id: 'server-owner',
       name: 'Limited Guild',
@@ -151,7 +151,7 @@ test.describe('mocked channel permission regressions', () => {
     await expect(page.locator('.chat-header .channel-title')).toHaveText('general')
   })
 
-  test('keeps allowed message actions while hiding moderator-only controls', async ({ page }) => {
+  test('keeps allowed message actions while hiding moderator-only controls', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer({ owner_id: 'server-owner' })
     const channels = buildCoreChannels(server.id).map((channel) => ({
       ...channel,
@@ -323,7 +323,7 @@ test.describe('mocked channel permission regressions', () => {
     })).toBe(anchorBefore)
   })
 
-  test('exposes moderator controls only when channel permission bits allow them', async ({ page }) => {
+  test('exposes moderator controls only when channel permission bits allow them', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer({ owner_id: 'server-owner' })
     const channels = buildCoreChannels(server.id).map((channel) => ({
       ...channel,

@@ -152,7 +152,7 @@ jobs:
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
 
-      - name: Core UI smoke
+      - name: Basic feature UI smoke
         working-directory: apps/web
         run: npm run test:e2e:ui-smoke
 
