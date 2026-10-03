@@ -78,6 +78,9 @@ This release is in preparation, not published. Further UI acceptance, real two-u
 - Kept member, voice participant, and DM action menus clear of their source rows and inside their panel widths, flipping above or scrolling internally when space is limited.
 - Added Settings/account dialog focus containment and restoration, accessible auth labels, and keyboard-accessible attachment and auth navigation actions.
 
+### Security
+- Updated the development-only `fflate` dependency used by Vitest UI to 0.8.3, fixing GHSA-px8p-9vwx-vf98 without changing runtime dependencies or adding an override.
+
 ## [0.2.16] - 2026-09-27
 
 ### Added

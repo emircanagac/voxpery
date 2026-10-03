@@ -411,6 +411,8 @@ npm audit fix
 
 **Automated**: Dependabot + CI dependency audit workflow.
 
+The web lockfile resolves Vitest UI's development-only `fflate` dependency to 0.8.3, which fixes [GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98). The update stays within the existing compatible dependency range and requires no override. Validate development dependencies with the full `npm audit`, in addition to the production-only audit; this fix does not resolve desktop Rust dependency advisories.
+
 ## Compliance
 
 - **GDPR/KVKK**: Implemented self-service account data export (`GET /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`). Data exports use the `voxpery-user-data-v2` format and intentionally omit internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers.
