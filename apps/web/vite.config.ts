@@ -1,11 +1,13 @@
-import { defineConfig, type Plugin } from 'vite'
+import { readFileSync } from 'node:fs'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-function releaseMetadataPlugin(): Plugin {
+const packageVersion: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+
+function releaseMetadataPlugin(imageTag: string): Plugin {
   return {
     name: 'release-metadata',
     generateBundle() {
-      const imageTag = process.env.VITE_APP_VERSION?.trim() || null
       this.emitFile({
         type: 'asset',
         fileName: 'version.json',
@@ -36,58 +38,66 @@ function rnnoiseProdStripPlugin() {
 // https://vite.dev/config/
 const RNNOISE_WORKLET_URL = `/assets/rnnoise-worklet.js?v=${Date.now().toString(36)}`
 
-export default defineConfig(({ mode }) => ({
-  envDir: '../../',
-  plugins: [react(), releaseMetadataPlugin(), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(
-    Boolean
-  ),
-  define: mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify(RNNOISE_WORKLET_URL) } : {},
-  build: {
-    // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output
-    minify: 'esbuild',
-    esbuild: {
-      drop: mode === 'production' ? ['console', 'debugger'] : [],
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '../../', 'VITE_')
+  const appVersion = process.env.VITE_APP_VERSION?.trim() || env.VITE_APP_VERSION?.trim() || packageVersion
+
+  return {
+    envDir: '../../',
+    plugins: [react(), releaseMetadataPlugin(appVersion), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(
+      Boolean
+    ),
+    define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+      ...(mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify(RNNOISE_WORKLET_URL) } : {}),
     },
-    rollupOptions: {
-      // Worklet as separate entry -> one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
-      input: {
-        main: 'index.html',
-        compare: 'compare.html',
-        worklet: 'src/webrtc/rnnoise-worklet-processor.ts',
+    build: {
+      // Strip console in production to avoid leaking room/user IDs (e.g. from LiveKit SDK) and other debug output
+      minify: 'esbuild',
+      esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : [],
       },
-      output: {
-        entryFileNames: (entryInfo) =>
-          entryInfo.name === 'worklet' ? 'assets/rnnoise-worklet.js' : 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: (assetInfo) => {
-          const name = assetInfo.name ?? ''
-          if (name.endsWith('.ts')) return 'assets/[name]-[hash].js'
-          return 'assets/[name]-[hash][extname]'
+      rollupOptions: {
+        // Worklet as separate entry -> one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
+        input: {
+          main: 'index.html',
+          compare: 'compare.html',
+          worklet: 'src/webrtc/rnnoise-worklet-processor.ts',
         },
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            // Keep in worklet entry chunk (do not split into vendor)
-            if (id.includes('rnnoise-wasm')) return undefined
-            if (id.includes('lucide-react')) return 'lucide'
-            if (id.includes('@tauri-apps')) return 'tauri'
-            // Precise matching for core React libraries to avoid circular dependencies
-            if (
-              id.includes('/node_modules/react/') ||
-              id.includes('/node_modules/react-dom/') ||
-              id.includes('/node_modules/scheduler/') ||
-              id.includes('/node_modules/zustand/')
-            ) {
-              return 'react'
+        output: {
+          entryFileNames: (entryInfo) =>
+            entryInfo.name === 'worklet' ? 'assets/rnnoise-worklet.js' : 'assets/[name]-[hash].js',
+          chunkFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: (assetInfo) => {
+            const name = assetInfo.name ?? ''
+            if (name.endsWith('.ts')) return 'assets/[name]-[hash].js'
+            return 'assets/[name]-[hash][extname]'
+          },
+          manualChunks: (id) => {
+            if (id.includes('node_modules')) {
+              // Keep in worklet entry chunk (do not split into vendor)
+              if (id.includes('rnnoise-wasm')) return undefined
+              if (id.includes('lucide-react')) return 'lucide'
+              if (id.includes('@tauri-apps')) return 'tauri'
+              // Precise matching for core React libraries to avoid circular dependencies
+              if (
+                id.includes('/node_modules/react/') ||
+                id.includes('/node_modules/react-dom/') ||
+                id.includes('/node_modules/scheduler/') ||
+                id.includes('/node_modules/zustand/')
+              ) {
+                return 'react'
+              }
+              if (id.includes('react-router')) return 'router'
+              if (id.includes('livekit-client')) return 'livekit'
+              if (id.includes('@tanstack')) return 'tanstack'
+              return 'vendor'
             }
-            if (id.includes('react-router')) return 'router'
-            if (id.includes('livekit-client')) return 'livekit'
-            if (id.includes('@tanstack')) return 'tanstack'
-            return 'vendor'
-          }
+          },
         },
       },
+      // Worklet chunk embeds rnnoise-wasm (~4.8 MB); warn above 5 MB
+      chunkSizeWarningLimit: 5120,
     },
-    // Worklet chunk embeds rnnoise-wasm (~4.8 MB); warn above 5 MB
-    chunkSizeWarningLimit: 5120,
-  },
-}))
+  }
+})

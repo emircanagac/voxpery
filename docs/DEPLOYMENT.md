@@ -316,6 +316,10 @@ deployed main candidates). For manual image builds, pass
 `--build-arg VITE_APP_VERSION=<tag>` to keep the visible badge aligned with the
 image tag.
 
+Without an explicit `VITE_APP_VERSION`, local web builds use the web package
+version for both the top-bar badge and `/version.json`. Deployment tags take
+precedence over this fallback.
+
 The web container requires release entry points (`/`, `/index.html`, `/sw.js`,
 and `/version.json`) and the stable RNNoise worklet URL to be revalidated on
 every normal reload. Fingerprinted `/assets/` files are cached for one year

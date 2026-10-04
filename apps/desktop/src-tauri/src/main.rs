@@ -414,7 +414,8 @@ mod icon_tests {
         let icon = make_base_tray_icon(false).expect("embedded tray PNG must decode");
         assert_eq!((icon.width(), icon.height()), (64, 64));
         let pixels: Vec<_> = icon.rgba().chunks_exact(4).collect();
-        assert!(pixels.iter().filter(|p| p[3] > 200).count() > 2000);
+        // The original logo has a narrower silhouette than the former small-icon redraw.
+        assert!(pixels.iter().filter(|p| p[3] > 200).count() > pixels.len() / 3);
         assert!(pixels
             .iter()
             .any(|p| p[0] > 240 && p[1] > 240 && p[2] > 240 && p[3] > 200));
