@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <title>Voxpery small desktop icon</title>
-  <path d="M4 2 12 7Q16 5 20 7L28 2Q29 8 26 14L30 21 27 23 29 25 21 29Q16 32 11 29L3 25 5 23 2 21 6 14Q3 8 4 2Z" fill="#ff861f" stroke="#151515" stroke-width="1.2" stroke-linejoin="round"/>
-  <path d="M6 5 10 8 7 11ZM26 5 22 8 25 11Z" fill="#151515"/>
-  <path d="M3 21Q10 16 16 22Q22 16 29 21L25 23 27 25Q20 29 16 29Q12 29 5 25L7 23Z" fill="#fff"/>
-  <path d="M10 16Q11 13 12 16M20 16Q21 13 22 16" fill="none" stroke="#151515" stroke-width="2" stroke-linecap="round"/>
-  <path d="M13 21Q16 20 19 21Q18 24 16 24Q14 24 13 21Z" fill="#151515"/>
-  <path d="M16 24V26M11 24Q16 29 21 24" fill="none" stroke="#151515" stroke-width="1.6" stroke-linecap="round"/>
-</svg>

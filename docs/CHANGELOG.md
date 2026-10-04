@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0] - Unreleased
+## [0.3.1] - Unreleased
 
-This release is in preparation, not published. Further UI acceptance, real two-user voice/stream checks and native/physical-device validation remain release gates. No release date or LTS designation is assigned; the final release date will be recorded only when publishing.
+This patch release is in preparation. Release validation and publication are still pending.
+
+### Fixed
+- Restored the original Voxpery fox logo in small desktop window, Windows taskbar and tray icons, replacing the separate wider redraw while retaining DPI-specific icon sizes.
+- Local web builds now show the package version when no explicit deployment tag is supplied, keeping the version badge and build metadata aligned.
+
+## [0.3.0] - 2026-10-03
 
 ### Added
 - Added an idle voice dock shared by server, Friends and DM views, with microphone/deafen preparation before joining. Preferences apply on explicit join, deafen retains both muted indicators and restores the previous microphone choice, and leaving voice preserves the in-session preferences. Idle controls do not capture media or send voice-state commands; camera/sharing remain connection-only.
