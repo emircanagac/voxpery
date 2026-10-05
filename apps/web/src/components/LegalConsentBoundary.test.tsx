@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { useAuthStore } from '../stores/auth'
 import LegalConsentBoundary from './LegalConsentBoundary'
+import { LEGAL_CONSENT_REQUIRED_EVENT } from '../api'
 
 const authApiMocks = vi.hoisted(() => ({
   getLegalConsent: vi.fn(),
@@ -54,6 +55,7 @@ describe('LegalConsentBoundary', () => {
         status: 'online',
       },
       loggingOut: false,
+      legalConsent: null,
     })
   })
 
@@ -92,6 +94,98 @@ describe('LegalConsentBoundary', () => {
     authApiMocks.getLegalConsent.mockResolvedValue({ ...requiredStatus, required: false })
     renderBoundary()
 
+    expect(await screen.findByText('Protected application')).toBeInTheDocument()
+  })
+
+  it('uses the server session snapshot without another document request, including remounts', () => {
+    useAuthStore.setState({ legalConsent: { ...requiredStatus, required: false } })
+    const view = renderBoundary()
+    expect(screen.getByText('Protected application')).toBeInTheDocument()
+    expect(authApiMocks.getLegalConsent).not.toHaveBeenCalled()
+    view.unmount()
+    renderBoundary()
+    expect(screen.getByText('Protected application')).toBeInTheDocument()
+    expect(authApiMocks.getLegalConsent).not.toHaveBeenCalled()
+  })
+
+  it('still refreshes a session snapshot when the server requires new documents', async () => {
+    useAuthStore.setState({ legalConsent: { ...requiredStatus, required: false } })
+    authApiMocks.getLegalConsent.mockResolvedValue({ ...requiredStatus, current_terms_version: 'new-version' })
+    renderBoundary()
+    act(() => window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT)))
+    await screen.findByRole('heading', { name: /review voxpery/i })
+    expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
+    expect(authApiMocks.getLegalConsent).toHaveBeenCalledTimes(1)
+  })
+
+  it('invalidates the old snapshot before a failed fresh check, including a remount', async () => {
+    useAuthStore.setState({ legalConsent: { ...requiredStatus, required: false } })
+    authApiMocks.getLegalConsent.mockRejectedValueOnce(new Error('Offline'))
+      .mockResolvedValueOnce(requiredStatus)
+    const view = renderBoundary()
+    act(() => window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT)))
+    await screen.findByRole('heading', { name: /could not be checked/i })
+    expect(useAuthStore.getState().legalConsent).toBeNull()
+    view.unmount()
+    renderBoundary()
+    expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
+    await screen.findByRole('heading', { name: /review voxpery/i })
+  })
+
+  it('preserves acknowledgement choices after a failed save and allows an explicit retry', async () => {
+    authApiMocks.getLegalConsent.mockResolvedValue(requiredStatus)
+    authApiMocks.acknowledgeLegalConsent.mockRejectedValueOnce(new Error('Save failed'))
+      .mockResolvedValueOnce({ ...requiredStatus, required: false })
+    const user = userEvent.setup()
+    renderBoundary()
+    await screen.findByRole('heading', { name: /review voxpery/i })
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: 'Accept and continue' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save failed')
+    for (const checkbox of screen.getAllByRole('checkbox')) expect(checkbox).toBeChecked()
+    expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Accept and continue' }))
+    expect(await screen.findByText('Protected application')).toBeInTheDocument()
+    expect(authApiMocks.acknowledgeLegalConsent).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps failed status lookup separate from missing consent and recovers without invented acceptance', async () => {
+    authApiMocks.getLegalConsent.mockRejectedValueOnce(new Error('Status unavailable'))
+      .mockResolvedValueOnce({ ...requiredStatus, required: false })
+    const user = userEvent.setup()
+    renderBoundary()
+    await screen.findByRole('heading', { name: /could not be checked/i })
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Protected application')).toBeInTheDocument()
+    expect(authApiMocks.acknowledgeLegalConsent).not.toHaveBeenCalled()
+  })
+
+  it('does not expose the previous account while a new account status is pending', async () => {
+    authApiMocks.getLegalConsent.mockResolvedValueOnce({ ...requiredStatus, required: false })
+      .mockImplementationOnce(() => new Promise(() => {}))
+    renderBoundary()
+    await screen.findByText('Protected application')
+    act(() => useAuthStore.getState().setAuth('another-token', { ...useAuthStore.getState().user!, id: 'another-user' }))
+    expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
+  })
+
+  it('allows current consent after a refresh invalidates an in-flight save', async () => {
+    let finishOldSave!: (value: typeof requiredStatus) => void
+    authApiMocks.getLegalConsent.mockResolvedValue(requiredStatus)
+    authApiMocks.acknowledgeLegalConsent.mockImplementationOnce(() => new Promise((resolve) => { finishOldSave = resolve }))
+      .mockResolvedValueOnce({ ...requiredStatus, required: false })
+    const user = userEvent.setup()
+    renderBoundary()
+    await screen.findByRole('heading', { name: /review voxpery/i })
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: 'Accept and continue' }))
+    act(() => window.dispatchEvent(new Event(LEGAL_CONSENT_REQUIRED_EVENT)))
+    await screen.findByRole('button', { name: 'Accept and continue' })
+    await act(async () => finishOldSave({ ...requiredStatus, required: false }))
+    expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Accept and continue' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Accept and continue' }))
     expect(await screen.findByText('Protected application')).toBeInTheDocument()
   })
 })

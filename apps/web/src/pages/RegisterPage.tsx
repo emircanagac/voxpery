@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { Turnstile } from '@marsidev/react-turnstile'
-import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
+import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl, type LegalConsentStatus } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
@@ -12,6 +12,7 @@ import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import { currentLegalAcceptance } from '../legal'
+import LegalAcknowledgements from '../components/LegalAcknowledgements'
 
 function GoogleLogoIcon() {
     return (
@@ -39,48 +40,51 @@ export default function RegisterPage() {
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [captchaToken, setCaptchaToken] = useState<string>('')
+    const captchaRef = useRef<TurnstileInstance | undefined>(undefined)
     const [termsAccepted, setTermsAccepted] = useState(false)
     const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false)
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
+    const [documents, setDocuments] = useState<LegalConsentStatus | null>(null)
+    const [documentError, setDocumentError] = useState('')
+    const [documentAttempt, setDocumentAttempt] = useState(0)
+    const [openingGoogle, setOpeningGoogle] = useState(false)
+    useEffect(() => {
+        let cancelled = false
+        authApi.getLegalDocuments().then((status) => {
+            if (!cancelled) { setDocuments(status); setDocumentError('') }
+        }).catch(() => {
+            if (!cancelled) setDocumentError('Legal documents could not be loaded. Please try again.')
+        })
+        return () => { cancelled = true }
+    }, [documentAttempt])
     const setAuth = useAuthStore((s) => s.setAuth)
     const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
     const features = useFeatureStore((s) => s.features)
     const navigate = useNavigate()
     const googleOAuthEnabled = features?.google_oauth_enabled === true
-    const legalReady = termsAccepted && privacyAcknowledged
-    const googleAuthHref = isTauri() || !legalReady
-        ? '#'
-        : getGoogleAuthUrl(redirectTo, {
-            intent: 'register',
-            legal: currentLegalAcceptance(),
-        })
+    const legalReady = !!documents && termsAccepted && privacyAcknowledged
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
-    const handleGoogleLogin = async (e: MouseEvent<HTMLAnchorElement>) => {
-        if (!googleOAuthEnabled) {
-            e.preventDefault()
-            setError('Google sign-in is disabled on this server.')
-            return
-        }
-        if (!legalReady) {
-            e.preventDefault()
-            setError('Accept the Terms of Service and acknowledge the Privacy Notice before continuing.')
-            return
-        }
-        if (isTauri()) {
-            e.preventDefault()
-            setError('')
-            try {
+    const handleGoogleLogin = async () => {
+        if (!googleOAuthEnabled || !legalReady || !documents || loading || openingGoogle) return
+        setOpeningGoogle(true)
+        setError('')
+        try {
+            if (isTauri()) {
                 const url = await getDesktopGoogleAuthUrl(redirectTo, {
                     intent: 'register',
-                    legal: currentLegalAcceptance(),
+                    legal: currentLegalAcceptance(documents),
                 })
                 await openExternalUrl(url)
-            } catch {
-                setError('Could not open Google sign-in in your browser. Try again or use email/password.')
+            } else {
+                window.location.assign(getGoogleAuthUrl(redirectTo, { intent: 'register', legal: currentLegalAcceptance(documents) }))
             }
+        } catch {
+            setError('Could not open Google sign-in in your browser. Try again or use email/password.')
+        } finally {
+            setOpeningGoogle(false)
         }
     }
 
@@ -104,7 +108,7 @@ export default function RegisterPage() {
             setError('Please complete the CAPTCHA verification')
             return
         }
-        if (!legalReady) {
+        if (!legalReady || !documents || loading || openingGoogle) {
             setError('Accept the Terms of Service and acknowledge the Privacy Notice before continuing.')
             return
         }
@@ -115,7 +119,7 @@ export default function RegisterPage() {
                 username,
                 email,
                 password,
-                currentLegalAcceptance(),
+                currentLegalAcceptance(documents),
                 captchaToken || undefined,
             )
             setAuth(res.token, res.user)
@@ -125,6 +129,8 @@ export default function RegisterPage() {
             if (isTauri()) await setSecureToken(res.token)
             navigate(resolvePostAuthRoute(redirectTo))
         } catch (err: unknown) {
+            setCaptchaToken('')
+            captchaRef.current?.reset()
             const { message, code } = getAuthErrorMessage(err)
             setError(code ? `${message} (Error code: ${code})` : message || 'Registration failed')
         } finally {
@@ -134,7 +140,7 @@ export default function RegisterPage() {
 
     return (
         <div className="auth-page">
-            <form className="auth-card" onSubmit={handleSubmit}>
+            <form className="auth-card auth-card-register" onSubmit={handleSubmit}>
                 <Link
                     to={ROUTES.landing}
                     className="auth-landing-link"
@@ -152,6 +158,7 @@ export default function RegisterPage() {
                     </div>
                 )}
 
+                <div className="auth-register-fields">
                 <div className="form-group">
                     <label htmlFor="register-username">Username</label>
                     <input
@@ -224,43 +231,26 @@ export default function RegisterPage() {
                     />
                 </div>
 
+                </div>
                 {turnstileSiteKey && (
                     <div className="form-group auth-turnstile-wrap">
                         <Turnstile
+                            ref={captchaRef}
                             siteKey={turnstileSiteKey}
                             onSuccess={setCaptchaToken}
-                            onError={() => setError('CAPTCHA verification failed')}
+                            onError={() => { setCaptchaToken(''); setError('CAPTCHA verification failed') }}
                             onExpire={() => setCaptchaToken('')}
-                            options={{ theme: 'dark' }}
+                            options={{ theme: 'dark', size: 'flexible' }}
                         />
                     </div>
                 )}
 
-                <div className="auth-legal-confirmations">
-                    <label className="auth-legal-check">
-                        <input
-                            type="checkbox"
-                            checked={termsAccepted}
-                            onChange={(event) => setTermsAccepted(event.target.checked)}
-                        />
-                        <span>
-                            I accept the <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a>.
-                        </span>
-                    </label>
-                    <label className="auth-legal-check">
-                        <input
-                            type="checkbox"
-                            checked={privacyAcknowledged}
-                            onChange={(event) => setPrivacyAcknowledged(event.target.checked)}
-                        />
-                        <span>
-                            I have read the <a href="/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>
-                            {' '}and <a href="/kvkk" target="_blank" rel="noreferrer">KVKK Aydınlatma Metni</a>.
-                        </span>
-                    </label>
-                </div>
+                {documentError && <div className="auth-error" role="alert">{documentError}
+                    <button type="button" className="btn btn-secondary" onClick={() => setDocumentAttempt((attempt) => attempt + 1)}>Try again</button>
+                </div>}
+                <LegalAcknowledgements terms={termsAccepted} privacy={privacyAcknowledged} onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} disabled={!documents || loading || openingGoogle} />
 
-                <button className="auth-btn" type="submit" disabled={loading || !legalReady || (turnstileSiteKey && !captchaToken)}>
+                <button className="auth-btn" type="submit" disabled={loading || openingGoogle || !legalReady || (turnstileSiteKey && !captchaToken)}>
                     {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
 
@@ -272,14 +262,15 @@ export default function RegisterPage() {
                             <span>or</span>
                         </div>
 
-                        <a
-                            href={googleAuthHref}
+                        <button
+                            type="button"
                             className="auth-btn-google"
-                            onClick={handleGoogleLogin}
+                            disabled={!legalReady || loading || openingGoogle}
+                            onClick={() => void handleGoogleLogin()}
                         >
                             <GoogleLogoIcon />
                             <span>Continue with Google</span>
-                        </a>
+                        </button>
                     </>
                 )}
 

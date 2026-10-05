@@ -11,6 +11,64 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('restores each reload with one session snapshot and no separate consent check', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page)
+    const calls: string[] = []
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'GET' && path.startsWith('/api/auth/')) calls.push(path)
+    })
+    await page.goto('/social')
+    for (let reload = 0; reload < 3; reload++) {
+      await expect(page.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+      await expect(page.getByText('Checking legal documents...')).toHaveCount(0)
+      expect(calls.filter(path => path === '/api/auth/session')).toHaveLength(reload + 1)
+      expect(calls.filter(path => ['/api/auth/me', '/api/auth/legal-consent'].includes(path))).toHaveLength(0)
+      if (reload < 2) await page.reload()
+    }
+  })
+
+  test('uses required consent from the session snapshot and saves it only on explicit acceptance', { tag: '@core' }, async ({ page }) => {
+    const state = createMockCoreState({ legalConsentRequired: true })
+    await installMockCoreApi(page, state)
+    await page.goto('/social')
+    await expect(page.getByRole('dialog')).toContainText("Review Voxpery's legal documents")
+    expect(state.legalConsentAcknowledgementCount).toBe(0)
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toHaveCount(0)
+    for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.check()
+    await page.getByRole('button', { name: 'Accept and continue' }).click()
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+    expect(state.legalConsentAcknowledgementCount).toBe(1)
+  })
+
+  test('separates session outages from missing consent and allows explicit retry', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page)
+    let unavailable = true
+    await page.route('**/api/auth/session', route => unavailable
+      ? route.fulfill({ status: 503, json: { error: 'Service temporarily unavailable' } })
+      : route.fallback())
+    await page.goto('/social')
+    await expect(page.getByRole('heading', { name: 'Your session could not be checked' })).toBeVisible()
+    await expect(page.getByRole('checkbox')).toHaveCount(0)
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toHaveCount(0)
+    unavailable = false
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toBeVisible()
+    unavailable = true
+    await page.goto('/terms')
+    await expect(page.getByRole('heading', { name: 'Terms of Service', exact: true })).toBeVisible()
+  })
+
+  test('never trusts stored profile hints when the cookie has expired', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page)
+    await page.route('**/api/auth/session', route => route.fulfill({ status: 401, json: { error: 'Unauthorized' } }))
+    await page.goto('/social')
+    await expect(page.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Voice preferences' })).toHaveCount(0)
+  })
+
   test('associates auth labels, supports keyboard navigation, and preserves redirect targets', { tag: '@core' }, async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
     await page.goto('/login?redirect=%2Fsocial%2Fdm')
@@ -48,6 +106,8 @@ test.describe('mocked auth and account regressions', () => {
       { width: 1366, height: 768 },
       { width: 800, height: 600 },
       { width: 390, height: 667 },
+      { width: 320, height: 568 },
+      { width: 960, height: 600 },
     ]) {
       await page.setViewportSize(viewport)
       for (const path of ['/login', '/register']) {
@@ -66,7 +126,7 @@ test.describe('mocked auth and account regressions', () => {
         await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight })
         await expect(footer).toBeInViewport()
         await expect(submit).toBeInViewport()
-        await expect(card.getByRole('link', { name: 'Continue with Google' })).toBeInViewport()
+        await expect(card.getByRole(path === '/register' ? 'button' : 'link', { name: 'Continue with Google' })).toBeInViewport()
       }
     }
   })
@@ -117,15 +177,18 @@ test.describe('mocked auth and account regressions', () => {
 
     await page.goto('/register')
 
-    const googleLink = page.getByRole('link', { name: 'Continue with Google' })
-    await expect(googleLink).toHaveAttribute('href', '#')
+    const googleButton = page.getByRole('button', { name: 'Continue with Google' })
+    await expect(googleButton).toBeDisabled()
     await expect(page.getByRole('checkbox')).toHaveCount(2)
     await page.getByRole('checkbox').nth(0).check()
     await page.getByRole('checkbox').nth(1).check()
 
-    const href = await googleLink.getAttribute('href')
-    expect(href).toBeTruthy()
-    const oauthUrl = new URL(href!)
+    await expect(googleButton).toBeEnabled()
+    // Google registration must not require the unrelated email/password fields.
+    await page.route('**/api/auth/google?**', async (route) => { await route.fulfill({ contentType: 'text/html', body: '<h1>Google redirect</h1>' }) })
+    const request = page.waitForRequest('**/api/auth/google?**')
+    await googleButton.click()
+    const oauthUrl = new URL((await request).url())
     expect(oauthUrl.searchParams.get('intent')).toBe('register')
     expect(oauthUrl.searchParams.get('terms_accepted')).toBe('true')
     expect(oauthUrl.searchParams.get('privacy_notice_acknowledged')).toBe('true')

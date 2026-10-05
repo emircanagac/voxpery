@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This patch release is in preparation. Release validation and publication are still pending.
 
 ### Fixed
+- New Google users starting from Sign In can complete legal acknowledgements before account creation instead of being redirected to an unusable registration error.
+- Unified session and legal-document restoration into one startup snapshot, removing redundant document checks and their loading screen while preserving server enforcement, outage retry, and account-change guards.
+- Sign Up uses a compact two-column desktop form and a single-column mobile form. Email and Google signup consistently require current server-provided legal acknowledgements.
+- Failed legal acknowledgement saves preserve the form and selections; account changes and stale responses cannot unlock the wrong session.
+- Microphone-denied joins retain an explicit retry path, and failed voice joins release capture and media resources.
+- Screen shares preserve the entire source frame in normal, focused, and fullscreen views without applying screen-share fitting to camera tiles.
 - Restored the original Voxpery fox logo in small desktop window, Windows taskbar and tray icons, replacing the separate wider redraw while retaining DPI-specific icon sizes.
 - Local web builds now show the package version when no explicit deployment tag is supplied, keeping the version badge and build metadata aligned.
 

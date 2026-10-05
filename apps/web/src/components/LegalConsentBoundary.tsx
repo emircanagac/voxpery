@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ExternalLink, LogOut, ShieldCheck } from 'lucide-react'
+import { LogOut, ShieldCheck } from 'lucide-react'
 import { Outlet } from 'react-router'
 import {
   authApi,
@@ -7,38 +7,63 @@ import {
   LEGAL_CONSENT_REQUIRED_EVENT,
   type LegalConsentStatus,
 } from '../api'
-import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 import GlobalLoading from './GlobalLoading'
+import LegalAcknowledgements from './LegalAcknowledgements'
 
 export default function LegalConsentBoundary() {
+  const identity = useAuthStore((state) => `${state.user?.id}:${state.token}`)
+  return <LegalConsentGate key={identity} />
+}
+
+function LegalConsentGate() {
   const token = useAuthStore((state) => state.token)
   const userId = useAuthStore((state) => state.user?.id)
   const logout = useAuthStore((state) => state.logout)
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const [status, setStatus] = useState<LegalConsentStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+  const initialStatus = useRef(useAuthStore.getState().legalConsent).current
+  const [status, setStatus] = useState<LegalConsentStatus | null>(initialStatus)
+  const [loading, setLoading] = useState(!initialStatus)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const requestId = useRef(0)
+  const currentDocuments = useRef('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false)
   const [kvkkAcknowledged, setKvkkAcknowledged] = useState(false)
 
   const loadStatus = useCallback(async () => {
+    const request = ++requestId.current
+    if (userId) useAuthStore.getState().setLegalConsent(null, userId, token)
     setLoading(true)
     setError(null)
+    setSubmitError(null)
+    setSubmitting(false)
     try {
-      setStatus(await authApi.getLegalConsent(token))
+      const next = await authApi.getLegalConsent(token)
+      if (request !== requestId.current) return
+      const versions = `${next.current_terms_version}:${next.current_privacy_notice_version}:${next.current_kvkk_notice_version}`
+      if (versions !== currentDocuments.current) {
+        setTermsAccepted(false)
+        setPrivacyAcknowledged(false)
+        setKvkkAcknowledged(false)
+        currentDocuments.current = versions
+      }
+      setStatus(next)
+      if (userId) useAuthStore.getState().setLegalConsent(next, userId, token)
     } catch (requestError) {
-      setError(getAuthErrorMessage(requestError).message)
+      if (request === requestId.current) setError(getAuthErrorMessage(requestError).message)
     } finally {
-      setLoading(false)
+      if (request === requestId.current) setLoading(false)
     }
-  }, [token])
+  }, [token, userId])
 
   useEffect(() => {
-    void loadStatus()
-  }, [loadStatus, userId])
+    if (!initialStatus) void loadStatus()
+    const requests = requestId
+    return () => { requests.current++ }
+  }, [loadStatus, userId, initialStatus])
 
   useEffect(() => {
     const requireFreshConsent = () => void loadStatus()
@@ -78,9 +103,10 @@ export default function LegalConsentBoundary() {
   if (!status.required) return <Outlet />
 
   const submit = async () => {
-    if (!termsAccepted || !privacyAcknowledged || !kvkkAcknowledged) return
+    if (!termsAccepted || !privacyAcknowledged || !kvkkAcknowledged || submitting) return
+    const request = requestId.current
     setSubmitting(true)
-    setError(null)
+    setSubmitError(null)
     try {
       const nextStatus = await authApi.acknowledgeLegalConsent({
         terms_accepted: true,
@@ -90,11 +116,14 @@ export default function LegalConsentBoundary() {
         kvkk_notice_acknowledged: true,
         kvkk_notice_version: status.current_kvkk_notice_version,
       }, token)
-      setStatus(nextStatus)
+      if (request === requestId.current) {
+        setStatus(nextStatus)
+        if (userId) useAuthStore.getState().setLegalConsent(nextStatus, userId, token)
+      }
     } catch (requestError) {
-      setError(getAuthErrorMessage(requestError).message)
+      if (request === requestId.current) setSubmitError(getAuthErrorMessage(requestError).message)
     } finally {
-      setSubmitting(false)
+      if (request === requestId.current) setSubmitting(false)
     }
   }
 
@@ -116,40 +145,10 @@ export default function LegalConsentBoundary() {
           Please review the current documents before continuing to your account.
         </p>
 
-        <div className="legal-consent-options">
-          <label>
-            <input
-              type="checkbox"
-              checked={termsAccepted}
-              onChange={(event) => setTermsAccepted(event.target.checked)}
-            />
-            <span>
-              I accept the <a href={ROUTES.terms} target="_blank" rel="noreferrer">Terms of Service <ExternalLink size={13} /></a>.
-            </span>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={privacyAcknowledged}
-              onChange={(event) => setPrivacyAcknowledged(event.target.checked)}
-            />
-            <span>
-              I have read the <a href={ROUTES.privacy} target="_blank" rel="noreferrer">Privacy Notice <ExternalLink size={13} /></a>.
-            </span>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={kvkkAcknowledged}
-              onChange={(event) => setKvkkAcknowledged(event.target.checked)}
-            />
-            <span>
-              I have read the <a href={ROUTES.kvkk} target="_blank" rel="noreferrer">KVKK Aydinlatma Metni <ExternalLink size={13} /></a>.
-            </span>
-          </label>
-        </div>
+        <LegalAcknowledgements terms={termsAccepted} privacy={privacyAcknowledged} kvkk={kvkkAcknowledged}
+          onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} onKvkk={setKvkkAcknowledged} disabled={submitting} />
 
-        {error && <div className="pw-hint pw-hint-warn" role="alert">{error}</div>}
+        {submitError && <div className="pw-hint pw-hint-warn" role="alert">{submitError}</div>}
 
         <div className="legal-consent-actions">
           <button

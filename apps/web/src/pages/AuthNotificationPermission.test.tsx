@@ -11,6 +11,7 @@ import RegisterPage from './RegisterPage'
 const authApiMocks = vi.hoisted(() => ({
   login: vi.fn(),
   register: vi.fn(),
+  getLegalDocuments: vi.fn(),
 }))
 
 vi.mock('../api', async () => {
@@ -21,6 +22,7 @@ vi.mock('../api', async () => {
       ...actual.authApi,
       login: authApiMocks.login,
       register: authApiMocks.register,
+      getLegalDocuments: authApiMocks.getLegalDocuments,
     },
   }
 })
@@ -73,6 +75,12 @@ describe('auth notification permission behavior', () => {
     })
     authApiMocks.login.mockResolvedValue({ token: 'login-token', user: authUser })
     authApiMocks.register.mockResolvedValue({ token: 'register-token', user: authUser })
+    authApiMocks.getLegalDocuments.mockResolvedValue({
+      required: false,
+      current_terms_version: '2026-08-23',
+      current_privacy_notice_version: '2026-08-23',
+      current_kvkk_notice_version: '2026-08-23',
+    })
   })
 
   afterEach(() => {

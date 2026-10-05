@@ -83,6 +83,11 @@ export interface LegalConsentStatus {
     current_kvkk_notice_version: string
 }
 
+export interface SessionResponse {
+    user: UserPublic
+    legal_consent: LegalConsentStatus
+}
+
 export interface DeleteAccountPayload {
     confirm: string
     password?: string

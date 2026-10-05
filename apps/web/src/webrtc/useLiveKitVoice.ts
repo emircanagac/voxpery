@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AudioPresets,
+  isBrowserSupported,
   LocalAudioTrack,
   RemoteParticipant,
   Room,
@@ -1083,6 +1084,7 @@ export function useLiveKitVoice() {
     let micPublished = false
 
     try {
+      if (!isBrowserSupported()) throw new Error('WebRTC voice is not supported by this app runtime.')
       if (!preflightStream) {
         preflightStream = await getMicrophoneStream()
       }
@@ -1372,11 +1374,11 @@ export function useLiveKitVoice() {
         autoSubscribe: LIVEKIT_AUTO_SUBSCRIBE,
         rtcConfig: { iceServers },
       })
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('LiveKit connection timeout after 15 seconds')), 15000)
-      )
-
-      await Promise.race([connectPromise, timeoutPromise])
+      let connectionTimer: ReturnType<typeof setTimeout> | undefined
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        connectionTimer = setTimeout(() => reject(new Error('LiveKit connection timeout after 15 seconds')), 15000)
+      })
+      try { await Promise.race([connectPromise, timeoutPromise]) } finally { clearTimeout(connectionTimer) }
       joinTiming.mark('connectionMs')
 
       room.remoteParticipants.forEach((participant) => {
@@ -1452,13 +1454,39 @@ export function useLiveKitVoice() {
       remoteMediaStartCueKeysRef.current.clear()
       remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
       remoteScreenStopCueTimersRef.current.clear()
-      if (!micPublished) cleanupLocalMedia()
+      const failedRoom = roomRef.current
+      roomRef.current = null
+      failedRoom?.removeAllListeners()
+      try { await failedRoom?.disconnect() } catch { /* Continue releasing local capture after a failed disconnect. */ }
+      remoteSubscriptionRetryTimersRef.current.forEach(clearTimeout)
+      remoteSubscriptionRetryTimersRef.current.clear()
+      remoteMonitorCleanupsRef.current.forEach((cleanup) => cleanup())
+      remoteMonitorCleanupsRef.current.clear()
+      remoteStreamsRef.current.clear()
+      bumpRemote()
+      stopLocalSpeakingMonitor()
+      gateCancelRef.current?.()
+      gateCancelRef.current = null
+      destroyRnnoise()
+      localAudioTrackRef.current?.stop()
+      localAudioTrackRef.current = null
+      unpublishedMicTrackRef.current?.stop()
+      unpublishedMicTrackRef.current = null
+      rawMicTrackRef.current?.stop()
+      rawMicTrackRef.current = null
+      vadStreamRef.current = null
+      inputGainNodeRef.current = null
+      cleanupLocalMedia()
+      preflightStream?.getTracks().forEach((track) => track.stop())
+      setLocalStream(null)
+      setRoomState('disconnected')
+      setParticipantCount(0)
       throw e
     } finally {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false

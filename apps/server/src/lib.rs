@@ -309,8 +309,17 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
         .allow_credentials(true);
 
     const BODY_LIMIT: usize = 10 * 1024 * 1024;
+    let mut cookie_write_origins = cors_origins.clone();
+    // The pending Google registration form is served by the API itself.
+    if let Some(origin) = state
+        .public_api_url
+        .as_deref()
+        .and_then(|value| reqwest::Url::parse(value).ok())
+    {
+        cookie_write_origins.push(origin.origin().ascii_serialization());
+    }
     let cookie_csrf =
-        middleware::csrf::CookieCsrfConfig::new(state.cookie_name.clone(), cors_origins.clone());
+        middleware::csrf::CookieCsrfConfig::new(state.cookie_name.clone(), cookie_write_origins);
 
     let app = Router::new()
         .route("/health", get(health_handler))

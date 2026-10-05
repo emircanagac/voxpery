@@ -1,8 +1,10 @@
 import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { isBrowserSupported } from 'livekit-client'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import FloatingScreenShare from './FloatingScreenShare'
+import VoiceMediaPreview from './VoiceMediaPreview'
 import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
@@ -13,6 +15,7 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { applyPreferredAudioOutputDevice, getPreferredMicrophoneStream, VOICE_SETTINGS_CHANGED_EVENT } from '../voiceDevices'
 import {
+  canOpenDesktopMediaPermissionSettings,
   desktopMediaPermissionRecoveryMessage,
   isMediaPermissionDeniedError,
   openDesktopMediaPermissionSettings,
@@ -247,6 +250,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     navigate(ROUTES.servers)
   }
   const pushToast = useToastStore((s) => s.pushToast)
+  const [joinFailure, setJoinFailure] = useState<{ channelId: string; message: string } | null>(null)
+  const [preflightPending, setPreflightPending] = useState(false)
+  const joinPendingRef = useRef(false)
+  const joinGenerationRef = useRef(0)
+  useEffect(() => () => { joinGenerationRef.current++ }, [])
   const mapMicPreflightError = useCallback((err: unknown): string | null => {
     const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : ''
     const errMessage = err && typeof err === 'object' && 'message' in err
@@ -1100,50 +1108,67 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   // Auto-join disabled intentionally:
   // voice join/leave should only happen on explicit user action (sidebar confirm or callbar button).
 
-  // Expose joinVoice to window for ChannelSidebar
-  useEffect(() => {
-    const joinFn = async (channelId: string, preflightStream?: MediaStream) => {
+  const joinWithPreflight = useCallback(async (channelId: string, preflightStream?: MediaStream) => {
       if (!channelId) return
-      if (state.isJoining) throw new Error('Another voice connection is already in progress.')
+      if (state.isJoining || joinPendingRef.current) throw new Error('Another voice connection is already in progress.')
       if (state.joinedChannelId === channelId) return
-      if (state.joinedChannelId && state.joinedChannelId !== channelId) {
-        await moveVoice(channelId)
-        return
-      }
-      if (preflightStream) {
-        await joinVoice(channelId, { preflightStream })
-        return
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        await joinVoice(channelId)
-        return
-      }
-      let micStream: MediaStream | null = null
+      joinPendingRef.current = true
+      setPreflightPending(true)
+      const generation = ++joinGenerationRef.current
+      const accountId = useAuthStore.getState().user?.id
+      const channelContext = useAppStore.getState().activeChannelId
+      const isCurrentAttempt = () => generation === joinGenerationRef.current
+        && accountId === useAuthStore.getState().user?.id
+        && channelContext === useAppStore.getState().activeChannelId
+      let micStream: MediaStream | null = preflightStream ?? null
       try {
-        micStream = await getPreferredMicrophoneStream()
+        if (!isBrowserSupported()) throw new Error('WebRTC voice is not supported by this app runtime. Use a supported browser or update the desktop runtime.')
+        if (state.joinedChannelId) {
+          setJoinFailure(null)
+          await moveVoice(channelId)
+          return
+        }
+        if (!navigator.mediaDevices?.getUserMedia && !micStream) throw new Error('Microphone access is not supported in this browser.')
+        micStream ??= await getPreferredMicrophoneStream()
+        if (!isCurrentAttempt()) {
+          micStream.getTracks().forEach((track) => track.stop())
+          if (generation === joinGenerationRef.current) setJoinFailure(null)
+          return
+        }
+        setJoinFailure(null)
         await joinVoice(channelId, { preflightStream: micStream })
+        if (generation === joinGenerationRef.current) setJoinFailure(null)
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
         const message = mapMicPreflightError(err)
-        if (message) {
-          if (isMediaPermissionDeniedError(err, 'microphone')) {
-            void openDesktopMediaPermissionSettings('microphone')
+        if (isCurrentAttempt() && message) {
+          setJoinFailure({ channelId, message })
+        } else if (isCurrentAttempt()) {
+          setJoinFailure(null)
+          const rawMessage = err instanceof Error ? err.message : 'Failed to join voice'
+          if (lastShownErrorRef.current !== rawMessage) {
+            lastShownErrorRef.current = rawMessage
+            pushToast(classifyVoiceError(rawMessage))
           }
-          pushToast({ level: 'error', title: 'Microphone access required', message })
-          const failure = new Error(message)
-          ;(failure as Error & { cause?: unknown }).cause = err
-          throw failure
+        } else if (generation === joinGenerationRef.current) {
+          setJoinFailure(null)
         }
         throw err // Rethrow LiveKit or connection errors so ChannelSidebar handles them
+      } finally {
+        joinPendingRef.current = false
+        if (generation === joinGenerationRef.current) setPreflightPending(false)
       }
-    }
-    ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice = joinFn
+  }, [joinVoice, mapMicPreflightError, moveVoice, pushToast, state.isJoining, state.joinedChannelId])
+
+  // Both the sidebar and dock use the same permission/retry path.
+  useEffect(() => {
+    ; (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice = joinWithPreflight
     return () => {
-      if ((window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice === joinFn) {
+      if ((window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice === joinWithPreflight) {
         delete (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => Promise<void> }).__voxperyJoinVoice
       }
     }
-  }, [joinVoice, mapMicPreflightError, moveVoice, pushToast, state.isJoining, state.joinedChannelId])
+  }, [joinWithPreflight])
 
   useEffect(() => {
     if (!blockedAutoJoinChannelId) return
@@ -1212,33 +1237,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [toggleMute])
 
-  const joinWithPreflight = async (channelId: string) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      pushToast({
-        level: 'error',
-        title: 'Voice action failed',
-        message: 'Microphone access is not supported in this browser.',
-      })
-      return
-    }
-    let stream: MediaStream | null = null
-    try {
-      stream = await getPreferredMicrophoneStream()
-      await joinVoice(channelId, { preflightStream: stream })
-    } catch (err: unknown) {
-      stream?.getTracks().forEach((t) => t.stop())
-      const message = mapMicPreflightError(err)
-      if (message) {
-        if (isMediaPermissionDeniedError(err, 'microphone')) {
-          void openDesktopMediaPermissionSettings('microphone')
-        }
-        pushToast({ level: 'error', title: 'Microphone access required', message })
-        return
-      }
-      throw err
-    }
-  }
-
   const handleJoinLeave = async () => {
     if (!selectedVoiceChannelId && !state.joinedChannelId) return
     if (!selectedVoiceChannelId) return
@@ -1247,7 +1245,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       leaveVoice()
       setBlockedAutoJoinChannelId(selectedVoiceChannelId)
     } else {
-      await joinWithPreflight(selectedVoiceChannelId)
+      try { await joinWithPreflight(selectedVoiceChannelId) } catch { return }
       micTestAutoDeafenedRef.current = false
       setBlockedAutoJoinChannelId(null)
     }
@@ -1599,6 +1597,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   return (
     <>
+      {joinFailure && <section className="voice-permission-recovery" role="alert" aria-label="Microphone access required">
+        <strong>Microphone access required</strong>
+        <p>{joinFailure.message}</p>
+        <div className="legal-consent-actions">
+          <button type="button" className="btn btn-primary" disabled={preflightPending || state.isJoining}
+            onClick={() => void joinWithPreflight(joinFailure.channelId).catch(() => {})}>Try again</button>
+          {canOpenDesktopMediaPermissionSettings() && <button type="button" className="btn btn-secondary"
+            onClick={() => void openDesktopMediaPermissionSettings('microphone')}>Open settings</button>}
+          <button type="button" className="btn btn-secondary" onClick={() => { joinGenerationRef.current++; setJoinFailure(null); setPreflightPending(false) }}>Cancel</button>
+        </div>
+      </section>}
       {!showActiveCallBar && (
         <div className="callbar-wrap">
           <div className="callbar-frame callbar-idle" role="group" aria-label="Voice preferences">
@@ -1688,7 +1697,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </div>
               )}
               {state.cameraStream && (
-                <div className="screen-share-preview voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview kind="camera" className="voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video ref={attachCameraPreviewElement} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
                   <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Camera · You</span></div>
                   <div className="screen-share-controls-bar">
@@ -1717,10 +1726,10 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       </button>
                     </div>
                   </div>
-                </div>
+                </VoiceMediaPreview>
               )}
               {state.isScreenSharing && state.screenStream && (
-                <div className={`screen-share-preview voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Screen share · You</span></div>
                   {user?.id && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(user.id)} members={members} />}
@@ -1746,7 +1755,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                       </button>
                     </div>
                   </div>
-                </div>
+                </VoiceMediaPreview>
               )}
               {remoteScreenSharePlaceholders.map((peerId) => {
                 const isConnecting = watchedRemoteScreenPeerIds.has(peerId)
@@ -1803,7 +1812,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
                 if (kind === 'camera' && isHidden) return null
                 return (
-                  <div key={tileKey} className={`screen-share-preview remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
                     <div className="screen-share-info-overlay">{mediaOwnerAvatar(peerId, true)}<span className="screen-share-info-text">{label} · {owner}</span></div>
                     {kind === 'screen' && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />}
@@ -1891,7 +1900,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         )}
                       </div>
                     </div>
-                  </div>
+                  </VoiceMediaPreview>
                 )
               })}
             </div>

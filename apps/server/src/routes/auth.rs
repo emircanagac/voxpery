@@ -43,6 +43,9 @@ use crate::{
     AppState,
 };
 
+#[path = "google_registration.rs"]
+mod google_registration;
+
 /// Build Set-Cookie value for auth token (httpOnly, SameSite=Lax; Secure when configured).
 fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
     let max_age = state.jwt_expiration.max(0) as usize;
@@ -371,19 +374,13 @@ async fn consume_desktop_oauth_code(
         .await
     {
         Ok(v) => v,
-        Err(_) => {
-            let fallback: Option<String> = conn
-                .get(&key)
-                .await
-                .map_err(|e| AppError::Internal(format!("Redis get failed: {e}")))?;
-            if fallback.is_some() {
-                let _: i64 = conn
-                    .del(&key)
-                    .await
-                    .map_err(|e| AppError::Internal(format!("Redis delete failed: {e}")))?;
-            }
-            fallback
-        }
+        Err(_) => redis::Script::new(
+            "local v=redis.call('GET',KEYS[1]); if v then redis.call('DEL',KEYS[1]); end; return v",
+        )
+        .key(&key)
+        .invoke_async::<Option<String>>(&mut conn)
+        .await
+        .map_err(|e| AppError::Internal(format!("Redis code consumption failed: {e}")))?,
     };
     Ok(token.map(|raw| {
         serde_json::from_str::<DesktopOAuthCodePayload>(&raw).unwrap_or(DesktopOAuthCodePayload {
@@ -596,7 +593,11 @@ fn validate_username(username: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn validate_profile_text(value: String, field_name: &str, max_chars: usize) -> Result<String, AppError> {
+fn validate_profile_text(
+    value: String,
+    field_name: &str,
+    max_chars: usize,
+) -> Result<String, AppError> {
     let normalized = value.trim().to_string();
     if normalized.chars().count() > max_chars {
         return Err(AppError::Validation(format!(
@@ -942,6 +943,7 @@ fn summarize_export_attachments(attachments: &Option<serde_json::Value>) -> Vec<
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let legal_exempt = Router::new()
         .route("/me", get(get_me))
+        .route("/session", get(get_session))
         .route(
             "/legal-consent",
             get(get_legal_consent).post(acknowledge_legal_consent),
@@ -977,6 +979,11 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             post(google_oauth_desktop_exchange),
         )
         .route("/google/callback", get(google_oauth_callback))
+        .route("/legal-documents", get(public_legal_documents))
+        .route(
+            "/google/registration",
+            get(google_registration::show).post(google_registration::complete),
+        )
         .route("/email/confirm", post(confirm_email_verification))
         .merge(legal_exempt)
         .merge(protected)
@@ -1661,7 +1668,7 @@ struct GoogleOAuthStartQuery {
     origin: Option<String>,
     /// Desktop OAuth PKCE code challenge (S256).
     code_challenge: Option<String>,
-    /// Registration is the only OAuth intent allowed to create a new account.
+    /// Registration can supply acknowledgements; Login may require registration completion.
     intent: Option<String>,
     terms_accepted: Option<bool>,
     terms_version: Option<String>,
@@ -1700,7 +1707,10 @@ async fn google_oauth_start(
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
     let redirect_path = q.redirect.as_deref().unwrap_or("/").trim();
-    let redirect_path = if redirect_path.starts_with('/') {
+    let redirect_path = if redirect_path.starts_with('/')
+        && !redirect_path.starts_with("//")
+        && !redirect_path.contains(['\\', '\n', '\r'])
+    {
         redirect_path
     } else {
         "/"
@@ -2086,7 +2096,7 @@ async fn google_oauth_callback(
         .unwrap_or_else(|| format!("{}@oauth.local", google_id));
     let email = email.trim().to_lowercase();
 
-    if let Some(false) = userinfo.verified_email {
+    if userinfo.verified_email != Some(true) {
         tracing::warn!(
             "Google OAuth login rejected: unverified email ({})",
             redact_email_for_log(&email)
@@ -2134,43 +2144,30 @@ async fn google_oauth_callback(
                 )
                 .is_err()
             {
-                tracing::warn!(
-                    "Google OAuth account creation rejected without current legal acknowledgement"
-                );
-                return oauth_callback_response(
+                return match google_registration::begin(
+                    &state,
+                    &google_id,
+                    &email,
+                    userinfo
+                        .name
+                        .as_deref()
+                        .or(userinfo.given_name.as_deref())
+                        .unwrap_or("user"),
                     &origin,
                     &redirect_path,
-                    Some("registration_terms_required"),
-                );
+                    code_challenge.as_deref(),
+                )
+                .await
+                {
+                    Ok(response) => response,
+                    Err(error) => error.into_response(),
+                };
             }
             let name = userinfo
                 .name
                 .or(userinfo.given_name)
                 .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string())
                 .to_lowercase();
-            let base_username = normalize_oauth_username_seed(&name);
-            let base_username: String = if base_username.len() >= 3 {
-                base_username.chars().take(32).collect()
-            } else {
-                email.split('@').next().unwrap_or("user").to_string()
-            };
-            let mut username = base_username.clone();
-            let mut n = 0u32;
-            while sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1)",
-            )
-            .bind(&username)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(1)
-                != 0
-            {
-                n += 1;
-                username = format!("{}{}", base_username, n);
-                username = username.chars().take(32).collect();
-            }
-            let password_hash = "oauth"; // not a valid Argon2 hash; OAuth-only users cannot password-login
-            let id = Uuid::new_v4();
             let mut tx = match state.db.begin().await {
                 Ok(tx) => tx,
                 Err(e) => {
@@ -2178,56 +2175,19 @@ async fn google_oauth_callback(
                     return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
                 }
             };
-            let insert_result = sqlx::query(
-                r#"INSERT INTO users
-                   (id, username, email, password_hash, status, dm_privacy, google_id,
-                    email_verified, created_at, terms_version, terms_accepted_at,
-                    privacy_notice_version, privacy_notice_acknowledged_at,
-                    kvkk_notice_version, kvkk_notice_acknowledged_at)
-                   VALUES ($1, $2, $3, $4, 'online', 'everyone', $5, TRUE, NOW(),
-                           $6, NOW(), $7, NOW(), $8, NOW())"#,
-            )
-            .bind(id)
-            .bind(&username)
-            .bind(&email)
-            .bind(password_hash)
-            .bind(&google_id)
-            .bind(CURRENT_TERMS_VERSION)
-            .bind(CURRENT_PRIVACY_NOTICE_VERSION)
-            .bind(CURRENT_KVKK_NOTICE_VERSION)
-            .execute(&mut *tx)
-            .await;
-            if let Err(e) = insert_result {
-                tracing::warn!("Google OAuth insert user failed: {}", e);
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
-            }
-            if let Err(e) = record_privacy_event(
-                &mut tx,
-                id,
-                "account_registered",
-                Some(CURRENT_TERMS_VERSION),
-                Some(CURRENT_PRIVACY_NOTICE_VERSION),
-                Some(CURRENT_KVKK_NOTICE_VERSION),
-            )
-            .await
+            let user = match google_registration::create_account(&mut tx, &google_id, &email, &name)
+                .await
             {
-                tracing::warn!("Google OAuth privacy audit failed: {}", e);
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
-            }
+                Ok(user) => user,
+                Err(error) => {
+                    tracing::warn!("Google OAuth account creation failed: {error}");
+                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                }
+            };
             if let Err(e) = tx.commit().await {
                 tracing::warn!("Google OAuth transaction commit failed: {}", e);
                 return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
             }
-            let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE google_id = $1")
-                .bind(&google_id)
-                .fetch_one(&state.db)
-                .await
-            {
-                Ok(u) => u,
-                Err(_) => {
-                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
-                }
-            };
             user
         }
         Err(e) => {
@@ -2290,12 +2250,12 @@ async fn google_oauth_callback(
 
     let clear_oauth_state = clear_oauth_state_cookie_header(&state);
     if let Ok(v) = HeaderValue::from_str(&clear_oauth_state) {
-        response.headers_mut().insert(header::SET_COOKIE, v);
+        response.headers_mut().append(header::SET_COOKIE, v);
     }
 
     for (k, v) in cookie_headers.iter() {
         if let Ok(v) = v.to_str() {
-            response.headers_mut().insert(
+            response.headers_mut().append(
                 k.clone(),
                 HeaderValue::from_str(v).unwrap_or(HeaderValue::from_static("")),
             );
@@ -2324,6 +2284,50 @@ struct LegalConsentStatus {
     current_kvkk_notice_version: &'static str,
 }
 
+#[derive(sqlx::FromRow)]
+struct SessionRow {
+    #[sqlx(flatten)]
+    user: User,
+    legal_current: bool,
+}
+
+#[derive(serde::Serialize)]
+struct SessionResponse {
+    user: UserPublic,
+    legal_consent: LegalConsentStatus,
+}
+
+/// Read user and legal status from one row snapshot; never mutate acknowledgement.
+async fn get_session(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Response, AppError> {
+    let row = sqlx::query_as::<_, SessionRow>(
+        r#"SELECT u.*, COALESCE(
+            terms_version = $3 AND terms_accepted_at IS NOT NULL
+            AND privacy_notice_version = $4 AND privacy_notice_acknowledged_at IS NOT NULL
+            AND kvkk_notice_version = $5 AND kvkk_notice_acknowledged_at IS NOT NULL,
+            FALSE
+        ) AS legal_current FROM users u WHERE id = $1 AND token_version = $2"#,
+    )
+    .bind(claims.sub)
+    .bind(claims.ver)
+    .bind(CURRENT_TERMS_VERSION)
+    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
+    .bind(CURRENT_KVKK_NOTICE_VERSION)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(SessionResponse {
+            user: UserPublic::from(row.user),
+            legal_consent: LegalConsentStatus::new(!row.legal_current),
+        }),
+    )
+        .into_response())
+}
+
 impl LegalConsentStatus {
     fn new(required: bool) -> Self {
         Self {
@@ -2333,6 +2337,10 @@ impl LegalConsentStatus {
             current_kvkk_notice_version: CURRENT_KVKK_NOTICE_VERSION,
         }
     }
+}
+
+async fn public_legal_documents() -> Json<LegalConsentStatus> {
+    Json(LegalConsentStatus::new(false))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -2949,8 +2957,12 @@ fn build_data_export_zip(
         .map_err(|error| AppError::Internal(format!("Failed to serialize data export: {error}")))?;
     let total_uncompressed_bytes = files
         .iter()
-        .try_fold(json.len(), |total, (_, bytes)| total.checked_add(bytes.len()))
-        .ok_or_else(|| AppError::Conflict("The export archive is too large to create safely".into()))?;
+        .try_fold(json.len(), |total, (_, bytes)| {
+            total.checked_add(bytes.len())
+        })
+        .ok_or_else(|| {
+            AppError::Conflict("The export archive is too large to create safely".into())
+        })?;
     if total_uncompressed_bytes > DATA_EXPORT_MAX_ARCHIVE_BYTES as usize {
         return Err(AppError::Conflict(
             "The self-service archive exceeds 256 MB. Use the formal privacy request process for a complete export".into(),

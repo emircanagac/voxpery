@@ -15,6 +15,14 @@ import {
 } from '../globalMuteShortcut'
 import ActiveCallBar from './ActiveCallBar'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
+import * as voiceDevices from '../voiceDevices'
+import { isBrowserSupported } from 'livekit-client'
+
+const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices')
+afterEach(() => {
+  if (originalMediaDevices) Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices)
+  else Reflect.deleteProperty(navigator, 'mediaDevices')
+})
 import {
   markRemoteAudioTrackSource,
   setRemoteMicrophoneStreamsPlaybackMuted,
@@ -28,6 +36,11 @@ import {
 
 vi.mock('../webrtc/useLiveKitVoice', () => ({
   useLiveKitVoice: vi.fn(),
+}))
+
+vi.mock('livekit-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('livekit-client')>(),
+  isBrowserSupported: vi.fn(() => true),
 }))
 
 const localUser: User = {
@@ -236,6 +249,69 @@ function renderActiveCallBar(
 }
 
 describe('ActiveCallBar regressions', () => {
+  it('keeps microphone denial visible and retries the original channel only on user action', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    const stream = new MediaStream([new MediaStreamTrack()])
+    const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream')
+      .mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'))
+      .mockResolvedValueOnce(stream)
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+    await act(async () => { await expect(join('voice-retry-target')).rejects.toThrow('Denied') })
+    expect(screen.getByRole('alert', { name: 'Microphone access required' })).toBeVisible()
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(voice.joinVoice).toHaveBeenCalledWith('voice-retry-target', { preflightStream: stream }))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+    capture.mockRestore()
+  })
+
+  it('blocks duplicate captures and stops a capture that resolves after unmount', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    let grant!: (stream: MediaStream) => void
+    const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream').mockImplementation(() => new Promise((resolve) => { grant = resolve }))
+    const stream = new MediaStream([new MediaStreamTrack()])
+    const stop = vi.spyOn(stream.getAudioTracks()[0], 'stop')
+    const { voice, unmount } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+    let pending!: Promise<void>
+    act(() => { pending = join('voice-1') })
+    await expect(join('voice-2')).rejects.toThrow('already in progress')
+    unmount()
+    await act(async () => { grant(stream); await pending })
+    expect(stop).toHaveBeenCalled()
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    capture.mockRestore()
+  })
+
+  it('reports unsupported WebRTC before asking for microphone permission', async () => {
+    vi.mocked(isBrowserSupported).mockReturnValueOnce(false)
+    const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream')
+    renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+    await act(async () => { await expect(join('voice-1')).rejects.toThrow('WebRTC') })
+    expect(capture).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert', { name: 'Microphone access required' })).not.toBeInTheDocument()
+    capture.mockRestore()
+  })
+
+  it('does not join an obsolete channel when capture resolves after navigation', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    let grant!: (stream: MediaStream) => void
+    const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream').mockImplementation(() => new Promise((resolve) => { grant = resolve }))
+    const stream = new MediaStream([new MediaStreamTrack()])
+    const stop = vi.spyOn(stream.getAudioTracks()[0], 'stop')
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+    const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+    let pending!: Promise<void>
+    act(() => { pending = join(voiceChannel.id) })
+    act(() => useAppStore.getState().setActiveChannel('another-channel'))
+    await act(async () => { grant(stream); await pending })
+    expect(stop).toHaveBeenCalled()
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    capture.mockRestore()
+  })
   it('prepares voice controls without a stream or joining and restores the previous mute choice after deafen', () => {
     const { voice, container } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
     expect(screen.getByRole('group', { name: 'Voice preferences' })).toBeVisible()

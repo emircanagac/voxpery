@@ -13,7 +13,7 @@ REST API for auth, servers, channels/categories, messages/reactions, friends, DM
 - Desktop: `Authorization: Bearer <jwt>`
 
 Cookie-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests must come from an
-origin listed in `CORS_ORIGINS`. The API verifies `Origin` (or same-origin `Referer`
+origin listed in `CORS_ORIGINS` or the configured `PUBLIC_API_URL` origin (for API-hosted registration forms). The API verifies `Origin` (or same-origin `Referer`
 when `Origin` is absent); cross-site cookie mutations return `403`. Bearer-authenticated
 desktop requests are not subject to browser CSRF checks.
 
@@ -48,6 +48,11 @@ Important behavior:
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/auth/session`
+  - Authenticated startup snapshot: `{ user: UserPublic, legal_consent: { required, current_terms_version, current_privacy_notice_version, current_kvkk_notice_version } }`. Supports the web cookie and desktop Bearer token, returns `Cache-Control: no-store`, and never records acknowledgement.
+  - Available even when acknowledgement is missing so the client can display the form. Missing/revoked credentials return `401`; protected application routes retain their independent legal gate. `/me` keeps its existing response for compatibility.
+- `GET /api/auth/legal-documents`
+  - Public current Terms, Privacy Notice, and KVKK version metadata; no account status or invented acceptance.
 - `GET /api/auth/legal-consent`
   - Returns whether the authenticated account must acknowledge newer legal documents and the current Terms, Privacy Notice, and KVKK versions.
 - `POST /api/auth/legal-consent`
@@ -67,6 +72,11 @@ Important behavior:
 - `POST /api/auth/email/confirm`
 - `GET /api/auth/google`
 - `GET /api/auth/google/callback`
+- `GET /api/auth/google/registration`
+  - A verified new Google identity without current signup acknowledgements is redirected here, including when OAuth was started from Login. The browser receives a short-lived, HttpOnly pending-registration cookie, not a full session.
+- `POST /api/auth/google/registration`
+  - Form-encoded current document versions, three explicit acknowledgements, and a pending-context CSRF token. Account creation, privacy audit, and pending consumption are atomic. Invalid acknowledgements retain the form; stale versions reset its selections. Expired or replayed context cannot create an account.
+  - Success sets the web auth cookie or returns a single-use, PKCE-bound desktop exchange code. Verified Google identity, JWTs, and pending handles are not placed in redirect URLs.
 - `POST /api/auth/data-export`
   - Password accounts must submit `{ "password": "..." }`; Google-only accounts require a Google-authenticated session issued within the last 10 minutes.
   - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files.

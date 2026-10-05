@@ -28,6 +28,10 @@ Microphone -> getUserMedia -> AudioContext pipeline -> LiveKit Room -> SFU -> Re
 
 ### Connection Flow
 
+Before capture, both the sidebar and call dock check the LiveKit runtime capability. Microphone denial keeps the intended channel in a persistent recovery panel. Retry is an explicit user action, never an automatic permission loop. Browser-denied permission may require site/OS settings; supported native platforms also expose an explicit settings action. Cancel/unmount invalidates outstanding capture and stops late-returning tracks. Once capture succeeds, recovery is dismissed and connection proceeds. Failed joins release capture, processing, room listeners, subscription retries, and remote playback state before another attempt.
+
+Screen-share tiles carry an explicit `screen` media kind and use `object-fit: contain` in normal, focused, floating, and container-fullscreen views. Letterboxing preserves the full source frame; camera cover behavior remains separate. Chromium regressions use a moving canvas stream and four colored source edges across landscape/portrait ratios. Native fullscreen and real two-user media remain manual release gates; this layout fix does not claim to fix the separately reported shared-audio volume dips.
+
 1. User clicks voice channel
 2. Frontend requests LiveKit token: `GET /api/webrtc/livekit-token?channel_id=...`
 3. Backend mints JWT with `room`, `identity`, `canPublish`, `canSubscribe`

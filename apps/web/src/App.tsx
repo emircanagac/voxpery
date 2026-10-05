@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router'
 import { useAppStore } from './stores/app'
-import { useAuthStore, restoreSecureSession } from './stores/auth'
-import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, isAuthError, setAuthFailureHandler } from './api'
+import { useAuthStore } from './stores/auth'
+import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, setAuthFailureHandler } from './api'
 import { isTauri, setSecureToken } from './secureStorage'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -70,23 +70,33 @@ function ConnectedAppShell() {
 }
 
 function App() {
-  const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
   const loggingOut = useAuthStore((s) => s.loggingOut)
-  const setUser = useAuthStore((s) => s.setUser)
   const logout = useAuthStore((s) => s.logout)
+  const restoreSession = useAuthStore((s) => s.restoreSession)
+  const sessionState = useAuthStore((s) => s.sessionState)
+  const sessionError = useAuthStore((s) => s.sessionError)
   const loadFeatures = useFeatureStore((s) => s.loadFeatures)
   const features = useFeatureStore((s) => s.features)
   const featureError = useFeatureStore((s) => s.error)
-  const [restoring, setRestoring] = useState(true)
-  const validatedSessionRef = useRef(false)
+  const restoring = sessionState === 'idle' || sessionState === 'loading'
   const authFailureHandledRef = useRef(false)
   const isDesktopApp = isTauri()
   const navigate = useNavigate()
+  const location = useLocation()
+  const publicRoute = [
+    ROUTES.landing, ROUTES.about, ROUTES.compare, ROUTES.login, ROUTES.register,
+    ROUTES.forgotPassword, ROUTES.resetPassword, ROUTES.verifyEmail,
+    ROUTES.terms, ROUTES.privacy, ROUTES.kvkk,
+  ].some(path => path === location.pathname)
 
   useEffect(() => {
     void loadFeatures()
   }, [loadFeatures])
+
+  useEffect(() => {
+    if (sessionState === 'idle' && !loggingOut) void restoreSession()
+  }, [sessionState, loggingOut, restoreSession])
 
   useEffect(() => {
     if (features) configureObservability(features.observability_enabled)
@@ -144,7 +154,9 @@ function App() {
       })
 
       const bootstrapDesktopSession = async () => {
-        await restoreSecureSession()
+        const phase = useAuthStore.getState().sessionState
+        if (phase === 'idle' || phase === 'loading') await restoreSession()
+        if (disposed) return
         const [deepLink, event, core] = await Promise.all([
           import('@tauri-apps/plugin-deep-link'),
           import('@tauri-apps/api/event'),
@@ -175,79 +187,34 @@ function App() {
           reportObservabilityEvent('desktop_oauth_setup_failed')
           console.error('Desktop session bootstrap failed:', error)
         })
-        .finally(() => {
-          if (!disposed) setRestoring(false)
-        })
 
       return () => {
         disposed = true
         disposeDeepLinks?.()
       }
-    } else {
-      // Web: wait for zustand persist to rehydrate, then mark as ready
-      queueMicrotask(() => setRestoring(false))
     }
-  }, [isDesktopApp, navigate])
+  }, [isDesktopApp, navigate, restoreSession])
 
-  // Web: cookie-based session restore/validation.
-  useEffect(() => {
-    if (restoring || isTauri()) return
-    // Always validate web cookie session on startup, even when user is restored from localStorage.
-    // Otherwise stale user state can show "logged in" while all protected data requests fail.
-    if (validatedSessionRef.current) return
-    if (loggingOut) return
-    validatedSessionRef.current = true
-    authApi
-      .getMe(null)
-      .then((freshUser) => {
-        useAuthStore.getState().setUser(freshUser)
-      })
-      .catch((err) => {
-        // Expired/invalid cookie: clear stale persisted user so UI returns to login.
-        if (isAuthError(err)) {
-          authFailureHandledRef.current = false
-          logout()
-        } else {
-          // transient network/server issue: allow a later retry
-          validatedSessionRef.current = false
-        }
-      })
-  }, [restoring, loggingOut, logout])
-
-  // Validate session once on mount (both desktop and web)
-  useEffect(() => {
-    if (restoring) return
-    if (!user || !token) {
-      if (!isTauri()) return
-      if (user && !token) {
-        authFailureHandledRef.current = false
-        logout()
-      }
-      validatedSessionRef.current = false
-      return
-    }
-    if (validatedSessionRef.current) return
-    validatedSessionRef.current = true
-
-    authApi
-      .getMe(token)
-      .then((freshUser) => {
-        setUser(freshUser)
-      })
-      .catch((err) => {
-        if (isAuthError(err)) {
-          // Token is invalid, clear session
-          authFailureHandledRef.current = false
-          logout()
-        }
-      })
-  }, [restoring, user, token, setUser, logout])
-
-  if (restoring) {
+  if (restoring && !publicRoute) {
     return <GlobalLoading label="Loading…" description="Please wait." />
   }
 
-  if (!user) {
+  if (sessionState === 'error' && !publicRoute) {
+    return (
+      <main className="legal-consent-page">
+        <section className="legal-consent-panel" aria-labelledby="session-error-title">
+          <h1 id="session-error-title">Your session could not be checked</h1>
+          <p>{sessionError}</p>
+          <div className="legal-consent-actions">
+            <button type="button" className="pw-button pw-button-primary" onClick={() => void restoreSession()}>Try again</button>
+            <button type="button" className="pw-button pw-button-ghost" onClick={logout}>Log out</button>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (!user || sessionState !== 'ready') {
     return (
       <Suspense fallback={<GlobalLoading label="Loading…" description="Please wait." />}>
         <Routes>

@@ -7121,6 +7121,52 @@ body {
   border: var(--border-subtle);
 }
 
+.auth-card.auth-card-register {
+  max-width: 580px;
+  padding: 24px;
+}
+
+.auth-card-register .auth-logo {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+}
+
+.auth-card-register > p { margin-bottom: 16px; }
+.auth-register-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.auth-register-fields .form-group { margin-bottom: 0; min-width: 0; }
+.auth-register-fields input { width: 100%; min-width: 0; }
+.auth-card-register .auth-divider { margin: 12px 0; }
+.auth-btn-google:disabled { opacity: 0.5; cursor: not-allowed; }
+.voice-permission-recovery {
+  position: fixed;
+  z-index: 1000;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 24px));
+  padding: 16px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-high);
+}
+.voice-permission-recovery p { margin: 8px 0 12px; font-size: 14px; line-height: 1.5; }
+.voice-permission-recovery .legal-consent-actions { flex-wrap: wrap; }
+.auth-card-register .auth-turnstile-wrap { overflow: visible; }
+.auth-card-register .auth-turnstile-wrap > div { width: 100%; min-width: 0; transform: none; }
+
+@media (max-width: 540px) {
+  .auth-card.auth-card-register { padding: 20px 16px; max-width: 400px; }
+  .auth-register-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 360px) {
+  .auth-page:has(.auth-card-register) { padding: 12px 4px; }
+  .auth-card.auth-card-register { padding: 16px 4px; }
+}
+
 .auth-turnstile-wrap {
   display: flex;
   justify-content: center;
@@ -10537,7 +10583,7 @@ button.message-author {
   transform: none;
 }
 
-.screen-share-stage--theater .screen-share-preview.is-theater-focused video {
+.screen-share-stage--theater .screen-share-preview.is-theater-focused[data-media-kind="camera"] video {
   object-fit: cover;
 }
 
@@ -10563,18 +10609,19 @@ button.message-author {
 .screen-share-preview video {
   width: 100%;
   height: 100%;
-  /* Fill regular and focus tiles; browser fullscreen retains the complete source below. */
-  object-fit: cover;
+  object-fit: contain;
   display: block;
   background: #000;
 }
 
-.screen-share-preview camera-preview video {
+.screen-share-preview.camera-preview video,
+.screen-share-preview[data-media-kind="camera"] video {
   object-fit: cover;
 }
 
 /* Fullscreen: fill screen, black bars for aspect ratio */
-.screen-share-preview video:fullscreen {
+.screen-share-preview:fullscreen video,
+.screen-share-preview[data-media-kind="screen"] video:fullscreen {
   object-fit: contain;
   background: #000;
   width: 100vw;
