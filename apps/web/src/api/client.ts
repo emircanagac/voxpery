@@ -93,7 +93,9 @@ export function setAuthFailureHandler(handler: (() => void) | null) {
 }
 
 function shouldBroadcastAuthFailure(path: string): boolean {
+    // Bootstrap owns its request generation; a late 401 must not clear a newer login.
     return !(
+        path === '/api/auth/session' ||
         path === '/api/auth/logout' ||
         path === '/api/auth/login' ||
         path === '/api/auth/register' ||

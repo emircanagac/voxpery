@@ -502,7 +502,24 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
-  if (pathname === '/api/auth/legal-consent' && method === 'GET') {
+  if (pathname === '/api/auth/session' && method === 'GET') {
+    if (!state.authenticated) {
+      await json(route, { error: 'Authentication required' }, 401)
+      return
+    }
+    await json(route, {
+      user: state.user,
+      legal_consent: {
+        required: state.legalConsentRequired,
+        current_terms_version: '2026-08-23',
+        current_privacy_notice_version: '2026-08-23',
+        current_kvkk_notice_version: '2026-08-23',
+      },
+    })
+    return
+  }
+
+  if ((pathname === '/api/auth/legal-consent' || pathname === '/api/auth/legal-documents') && method === 'GET') {
     await json(route, {
       required: state.legalConsentRequired,
       current_terms_version: '2026-08-23',

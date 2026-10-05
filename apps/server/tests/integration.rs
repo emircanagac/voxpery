@@ -1009,6 +1009,133 @@ async fn stale_legal_consent_blocks_protected_routes_until_atomic_acknowledgemen
 }
 
 #[tokio::test]
+async fn session_snapshot_supports_cookie_and_bearer_without_acknowledging_documents() {
+    let Some(_) = test_db_url() else {
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("session-{uid}@example.com"),
+        &format!("session_{}", uid.as_u128() % 1_000_000),
+        test_credential("session"),
+    )
+    .await;
+    for header_name in ["authorization", "cookie"] {
+        let value = if header_name == "cookie" {
+            format!("{}={token}", state.cookie_name)
+        } else {
+            format!("Bearer {token}")
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/auth/session")
+                    .header(header_name, value)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["user"]["id"], user_id.to_string());
+        assert_eq!(body["legal_consent"]["required"], false);
+        assert_eq!(
+            body["legal_consent"]["current_terms_version"],
+            CURRENT_TERMS_VERSION
+        );
+        assert!(body["user"].get("password_hash").is_none());
+        assert!(body["user"].get("google_id").is_none());
+        assert!(body.get("token").is_none());
+    }
+    sqlx::query("UPDATE users SET privacy_notice_acknowledged_at = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let (status, body) = oneshot(
+            &mut app,
+            Request::builder()
+                .uri("/api/auth/session")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["legal_consent"]["required"], true);
+    }
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder()
+            .uri("/api/friends")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    let writes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM privacy_audit_log WHERE user_id = $1 AND event_type = 'legal_documents_acknowledged'")
+        .bind(user_id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(writes, 0);
+}
+
+#[tokio::test]
+async fn session_snapshot_rejects_missing_and_revoked_credentials() {
+    let Some(_) = test_db_url() else {
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder()
+            .uri("/api/auth/session")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let uid = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("revoked-session-{uid}@example.com"),
+        &format!("rev_session_{}", uid.as_u128() % 1_000_000),
+        test_credential("revoked-session"),
+    )
+    .await;
+    sqlx::query("UPDATE users SET token_version = token_version + 1 WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    for header_name in ["authorization", "cookie"] {
+        let value = if header_name == "cookie" {
+            format!("{}={token}", state.cookie_name)
+        } else {
+            format!("Bearer {token}")
+        };
+        let (status, _) = oneshot(
+            &mut app,
+            Request::builder()
+                .uri("/api/auth/session")
+                .header(header_name, value)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
 async fn cookie_authenticated_writes_require_a_trusted_origin() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
@@ -2317,13 +2444,9 @@ async fn server_message_jump_loads_old_target_and_rejects_unavailable_or_private
         "Pinned Jump Server",
     )
     .await;
-    let (_, other_channel_id, _) = create_server_with_default_text_channel(
-        &mut app,
-        &state,
-        &owner_auth,
-        "Other Jump Server",
-    )
-    .await;
+    let (_, other_channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Other Jump Server")
+            .await;
     let mut tied_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
     tied_ids.sort();
     let target_id = tied_ids[0];
@@ -2356,10 +2479,14 @@ async fn server_message_jump_loads_old_target_and_rejects_unavailable_or_private
     let (status, body) = oneshot(&mut app, request).await;
     assert_eq!(status, StatusCode::OK);
     let latest: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-    assert!(!latest.iter().any(|message| message["id"] == target_id.to_string()));
+    assert!(!latest
+        .iter()
+        .any(|message| message["id"] == target_id.to_string()));
 
     let request = Request::builder()
-        .uri(format!("/api/messages/{channel_id}?around={target_id}&limit=5"))
+        .uri(format!(
+            "/api/messages/{channel_id}?around={target_id}&limit=5"
+        ))
         .header("Authorization", &owner_auth)
         .body(Body::empty())
         .unwrap();
@@ -2370,7 +2497,10 @@ async fn server_message_jump_loads_old_target_and_rejects_unavailable_or_private
     assert_eq!(page[0]["id"], target_id.to_string());
 
     let request = Request::builder()
-        .uri(format!("/api/messages/{channel_id}?before={}&limit=5", tied_ids[2]))
+        .uri(format!(
+            "/api/messages/{channel_id}?before={}&limit=5",
+            tied_ids[2]
+        ))
         .header("Authorization", &owner_auth)
         .body(Body::empty())
         .unwrap();
@@ -4950,13 +5080,15 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
         ))
         .await
         .unwrap();
-    sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2 AND role_id = $3")
-        .bind(server_id)
-        .bind(target_user_id)
-        .bind(target_admin_role_id)
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2 AND role_id = $3",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .bind(target_admin_role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
     target_ws
         .send(WsMessage::Text(
             json!({ "type": "SetVoiceControl", "data": {
@@ -6997,4 +7129,158 @@ async fn concurrent_friend_requests_create_one_pending_pair() {
     .await
     .unwrap();
     assert_eq!(pending_count, 1);
+}
+
+async fn pending_google_fixture(
+    state: &Arc<AppState>,
+    desktop: bool,
+) -> (String, String, String, String) {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let cookie = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(cookie.as_bytes()));
+    let csrf = Uuid::new_v4().simple().to_string();
+    let google_id = Uuid::new_v4().to_string();
+    let verifier = "a".repeat(64);
+    let challenge = desktop.then(|| URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())));
+    sqlx::query("INSERT INTO pending_google_registrations (cookie_hash,csrf_token,google_id,email,username_seed,return_origin,redirect_path,code_challenge) VALUES ($1,$2,$3,$4,'pending_user',$5,'/social',$6)")
+        .bind(&hash).bind(&csrf).bind(&google_id).bind(format!("{google_id}@example.test"))
+        .bind(if desktop { "voxpery://auth" } else { "http://localhost:5173" }).bind(challenge)
+        .execute(&state.db).await.unwrap();
+    (cookie, csrf, google_id, verifier)
+}
+
+fn pending_google_request(cookie: &str, csrf: &str) -> Request<Body> {
+    Request::builder().method("POST").uri("/api/auth/google/registration")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("origin", "http://localhost:5173")
+        .header("cookie", format!("voxpery_google_registration={cookie}"))
+        .body(Body::from(format!("csrf_token={csrf}&terms_accepted=true&terms_version={CURRENT_TERMS_VERSION}&privacy_notice_acknowledged=true&privacy_notice_version={CURRENT_PRIVACY_NOTICE_VERSION}&kvkk_notice_acknowledged=true&kvkk_notice_version={CURRENT_KVKK_NOTICE_VERSION}"))).unwrap()
+}
+
+#[tokio::test]
+async fn pending_google_registration_requires_cookie_csrf_and_current_documents() {
+    let (mut app, state) = setup_app_with_features(false, false, false, true).await;
+    let (cookie, csrf, google_id, _) = pending_google_fixture(&state, false).await;
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder()
+            .uri("/api/auth/legal-documents")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut request = pending_google_request(&cookie, &csrf);
+    request.headers_mut().remove("cookie");
+    assert_eq!(oneshot(&mut app, request).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        oneshot(&mut app, pending_google_request(&cookie, "wrong-csrf"))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let request = Request::builder()
+        .uri("/api/auth/google/registration")
+        .header("cookie", format!("voxpery_google_registration={cookie}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, html) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let html = String::from_utf8(html.to_vec()).unwrap();
+    assert!(html.contains("Complete your Voxpery account"));
+    assert!(!html.contains(&google_id));
+    assert!(!html.contains("checked"));
+
+    for form in [
+        format!("csrf_token={csrf}&terms_version={CURRENT_TERMS_VERSION}&privacy_notice_version={CURRENT_PRIVACY_NOTICE_VERSION}&kvkk_notice_version={CURRENT_KVKK_NOTICE_VERSION}"),
+        format!("csrf_token={csrf}&terms_accepted=true&terms_version=old&privacy_notice_acknowledged=true&privacy_notice_version=old&kvkk_notice_acknowledged=true&kvkk_notice_version=old"),
+    ] {
+        let mut request = pending_google_request(&cookie, &csrf);
+        *request.body_mut() = Body::from(form);
+        let (status, html) = oneshot(&mut app, request).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!String::from_utf8(html.to_vec()).unwrap().contains("checked"));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE google_id=$1")
+        .bind(&google_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("UPDATE pending_google_registrations SET expires_at=NOW()-INTERVAL '1 second' WHERE google_id=$1").bind(google_id).execute(&state.db).await.unwrap();
+    assert_eq!(
+        oneshot(&mut app, pending_google_request(&cookie, &csrf))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn pending_google_registration_finalizes_atomically_and_rejects_concurrent_replay() {
+    let (app, state) = setup_app_with_features(false, false, false, true).await;
+    let (cookie, csrf, google_id, _) = pending_google_fixture(&state, false).await;
+    let (first, second) = tokio::join!(
+        app.clone().oneshot(pending_google_request(&cookie, &csrf)),
+        app.clone().oneshot(pending_google_request(&cookie, &csrf))
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert!([first.status(), second.status()].contains(&StatusCode::SEE_OTHER));
+    assert!([first.status(), second.status()].contains(&StatusCode::BAD_REQUEST));
+    let success = if first.status() == StatusCode::SEE_OTHER {
+        first
+    } else {
+        second
+    };
+    assert_eq!(
+        success.headers()["location"],
+        "http://localhost:5173/social"
+    );
+    assert_eq!(success.headers().get_all("set-cookie").iter().count(), 2);
+    let user: voxpery_server::models::User =
+        sqlx::query_as("SELECT * FROM users WHERE google_id=$1")
+            .bind(&google_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert!(
+        voxpery_server::services::privacy::has_current_legal_consent(&state.db, user.id)
+            .await
+            .unwrap()
+    );
+    let audit: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM privacy_audit_log WHERE user_id=$1 AND event_type='account_registered'").bind(user.id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(audit, 1);
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pending_google_registrations WHERE google_id=$1")
+            .bind(google_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(pending, 0);
+}
+
+#[tokio::test]
+async fn pending_google_registration_keeps_desktop_pkce_handoff_single_use() {
+    let (mut app, state) = setup_app_with_features(false, false, false, true).await;
+    let (cookie, csrf, _, verifier) = pending_google_fixture(&state, true).await;
+    let (status, html) = oneshot(&mut app, pending_google_request(&cookie, &csrf)).await;
+    assert_eq!(status, StatusCode::OK);
+    let html = String::from_utf8(html.to_vec()).unwrap();
+    let offset = html.find("code=").expect("short-lived code in deep link") + 5;
+    let code = &html[offset..offset + 32];
+    assert!(code.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert!(!html.contains("token="));
+    assert!(!html.contains("eyJ"));
+    for expected in [StatusCode::OK, StatusCode::UNAUTHORIZED] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/auth/google/desktop-exchange")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "code": code, "code_verifier": verifier }).to_string(),
+            ))
+            .unwrap();
+        assert_eq!(oneshot(&mut app, request).await.0, expected);
+    }
 }

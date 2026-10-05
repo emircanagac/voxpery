@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import type { ReactElement } from 'react'
@@ -7,7 +7,7 @@ import RegisterPage from './RegisterPage'
 import ForgotPasswordPage from './ForgotPasswordPage'
 import ResetPasswordPage from './ResetPasswordPage'
 import { useFeatureStore } from '../stores/features'
-import type { SystemFeatures } from '../api'
+import { authApi, type SystemFeatures } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
 
 vi.mock('../openExternalUrl', () => ({
@@ -34,6 +34,7 @@ function renderWithFeatures(ui: ReactElement, features: SystemFeatures = disable
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   useFeatureStore.setState({ features: null, loading: false, error: null })
   window.localStorage.clear()
   delete (window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__
@@ -41,6 +42,10 @@ afterEach(() => {
 })
 
 describe('auth feature gating', () => {
+  beforeEach(() => {
+    vi.spyOn(authApi, 'getLegalDocuments').mockResolvedValue({ required: false,
+      current_terms_version: '2026-08-23', current_privacy_notice_version: '2026-08-23', current_kvkk_notice_version: '2026-08-23' })
+  })
   it('hides Google and password reset actions on login when integrations are disabled', () => {
     renderWithFeatures(<LoginPage />)
 
@@ -80,8 +85,11 @@ describe('auth feature gating', () => {
     ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
     renderWithFeatures(<RegisterPage />, enabledGoogleFeatures)
 
-    const googleLink = screen.getByRole('link', { name: /continue with google/i })
-    expect(googleLink).toHaveAttribute('href', '#')
+    const googleLink = screen.getByRole('button', { name: /continue with google/i })
+    expect(googleLink).toBeDisabled()
+    fireEvent.click(googleLink)
+    expect(openExternalUrl).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeEnabled())
 
     const legalCheckboxes = screen.getAllByRole('checkbox')
     fireEvent.click(legalCheckboxes[0])

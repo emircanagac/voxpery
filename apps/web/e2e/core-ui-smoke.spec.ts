@@ -1076,7 +1076,13 @@ test.describe('mocked core UI smoke', () => {
     await expect(page.locator('.chat-header .channel-title')).toHaveText(voice.name)
     await expect(page.locator('.voice-focus-panel-stage')).toBeVisible()
     await expect(page.locator('.channel-item.active', { hasText: voice.name })).toBeVisible()
-    await expect(page.locator('.toast-item', { hasText: 'Microphone access required' })).toBeVisible()
+    const recovery = page.getByRole('alert', { name: 'Microphone access required' })
+    await expect(recovery).toBeVisible()
+    await expect(recovery.getByRole('button', { name: 'Try again' })).toBeEnabled()
+    await recovery.getByRole('button', { name: 'Try again' }).click()
+    await expect(recovery).toBeVisible()
+    await recovery.getByRole('button', { name: 'Cancel' }).click()
+    await expect(recovery).toBeHidden()
 
     const hasHorizontalOverflow = await page.locator('.app-layout').evaluate((element) => {
       return element.scrollWidth > element.clientWidth + 1

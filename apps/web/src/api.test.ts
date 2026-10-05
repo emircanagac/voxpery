@@ -1,10 +1,12 @@
-import { beforeEach, describe, it, expect, afterEach } from 'vitest'
+import { beforeEach, describe, it, expect, afterEach, vi } from 'vitest'
 import {
   createWebSocket,
+  setAuthFailureHandler,
   getAuthErrorMessage,
   isAuthError,
   shouldUseTauriHttpPluginForApiBase,
 } from './api'
+import { apiFetch } from './api/client'
 
 class MockWebSocket {
   url: string
@@ -23,10 +25,21 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
+  setAuthFailureHandler(null)
   globalThis.WebSocket = OriginalWebSocket
 })
 
 describe('API Error Handling', () => {
+  it('lets the bootstrap own its 401 while other protected API failures still clear auth', async () => {
+    const onExpired = vi.fn()
+    setAuthFailureHandler(onExpired)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })))
+    await expect(apiFetch('/api/auth/session')).rejects.toThrow('Unauthorized')
+    expect(onExpired).not.toHaveBeenCalled()
+    await expect(apiFetch('/api/friends')).rejects.toThrow('Unauthorized')
+    expect(onExpired).toHaveBeenCalledTimes(1)
+  })
   describe('getAuthErrorMessage', () => {
     it('should parse error with code prefix', () => {
       const err = new Error('INVALID_CREDENTIALS:Wrong password')

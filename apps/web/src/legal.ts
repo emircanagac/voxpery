@@ -1,6 +1,4 @@
-export const CURRENT_TERMS_VERSION = '2026-08-23'
-export const CURRENT_PRIVACY_NOTICE_VERSION = '2026-08-23'
-export const CURRENT_KVKK_NOTICE_VERSION = '2026-08-23'
+import type { LegalConsentStatus } from './api/contracts'
 
 export interface RegistrationLegalAcceptance {
   terms_accepted: boolean
@@ -11,13 +9,13 @@ export interface RegistrationLegalAcceptance {
   kvkk_notice_version: string
 }
 
-export function currentLegalAcceptance(): RegistrationLegalAcceptance {
+export function currentLegalAcceptance(documents: LegalConsentStatus): RegistrationLegalAcceptance {
   return {
     terms_accepted: true,
-    terms_version: CURRENT_TERMS_VERSION,
+    terms_version: documents.current_terms_version,
     privacy_notice_acknowledged: true,
-    privacy_notice_version: CURRENT_PRIVACY_NOTICE_VERSION,
+    privacy_notice_version: documents.current_privacy_notice_version,
     kvkk_notice_acknowledged: true,
-    kvkk_notice_version: CURRENT_KVKK_NOTICE_VERSION,
+    kvkk_notice_version: documents.current_kvkk_notice_version,
   }
 }

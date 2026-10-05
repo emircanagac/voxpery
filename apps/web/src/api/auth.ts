@@ -5,6 +5,7 @@ import type {
     DeleteAccountPayload,
     EmailVerificationConfirmResponse,
     LegalConsentStatus,
+    SessionResponse,
     UserPublic,
 } from './contracts'
 import type { RegistrationLegalAcceptance } from '../legal'
@@ -92,6 +93,7 @@ export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAut
 }
 
 export const authApi = {
+    getLegalDocuments: () => apiFetch<LegalConsentStatus>('/api/auth/legal-documents'),
     register: (
         username: string,
         email: string,
@@ -127,6 +129,9 @@ export const authApi = {
 
     getMe: (token: string | null) =>
         apiFetch<UserPublic>('/api/auth/me', { token: token ?? undefined }),
+
+    getSession: (token: string | null) =>
+        apiFetch<SessionResponse>('/api/auth/session', { token: token ?? undefined }),
 
     getLegalConsent: (token: string | null) =>
         apiFetch<LegalConsentStatus>('/api/auth/legal-consent', {

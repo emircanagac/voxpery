@@ -49,6 +49,13 @@ Key columns:
 - `kvkk_notice_version`, `kvkk_notice_acknowledged_at`
 - `created_at`
 
+### `pending_google_registrations`
+
+- Migration `051` stores short-lived context for a verified Google identity awaiting explicit signup acknowledgements.
+- Columns: hashed opaque cookie secret, CSRF token, verified Google ID/email, normalized username seed, allowlisted return origin/path, optional desktop PKCE challenge, and expiry.
+- No Google access/refresh token is stored. Context expires after 10 minutes, is checked on every read, and expired rows are cleaned every minute and before creating another context.
+- Finalization locks the pending row and creates the user, privacy audit, and pending deletion in one transaction. Unique identity constraints and row locking reject concurrent/replayed completion.
+
 ### `servers`
 
 - `id`, `name`, `icon_url`, `description`, `owner_id`, `invite_code`, `created_at`

@@ -2,6 +2,16 @@
 
 Voxpery is a real-time communication stack: Rust backend + React frontend + LiveKit SFU.
 
+## Google Registration And Legal Acknowledgements
+
+Application startup restores identity and legal-document status through one authenticated `GET /api/auth/session` snapshot. The auth store coalesces concurrent bootstrap requests, holds the status only in memory, and ignores late success/error responses after logout or account changes. Persisted profiles are display hints, not proof of authentication or acceptance. App routes wait for this snapshot; public auth/legal pages remain available during outages. Session failures have explicit retry/logout actions rather than implying missing acknowledgement.
+
+The legal boundary consumes the startup snapshot without another request or a separate document loader. A server `428`/WebSocket consent signal invalidates the in-memory snapshot and refreshes the status; explicit acceptance updates the same session. Backend API/WS gates remain authoritative, including after document-version changes. Each hard refresh still validates the session once; caching acceptance across reloads is intentionally avoided.
+
+The server supplies current legal-document versions through public metadata. Sign Up and the authenticated consent boundary share the same acknowledgement component; load failure is separate from missing consent, and failed saves preserve valid selections. Gate state is keyed to the authenticated identity and ignores stale requests.
+
+Google callbacks require a verified provider email. Existing accounts keep the normal sign-in path and acknowledge only missing/stale versions. New accounts arriving with valid Sign Up metadata use the fast path; otherwise a cookie-bound pending context leads to a server-rendered completion form. Both paths use the same transaction-level account/audit creation service. Pending completion additionally locks and consumes its short-lived context atomically. No account or full session is issued before actual acknowledgement. Desktop results remain PKCE-bound single-use exchange codes; the browser completion page has no native IPC access.
+
 ## Stack
 
 | Layer | Technology |

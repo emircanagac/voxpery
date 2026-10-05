@@ -26,6 +26,8 @@ These notes are written for users who want a short answer before reading the ful
 - **Web**: httpOnly cookie (`Secure` flag in production)
 - **Desktop**: Secure keyring (OS-native credential store via Tauri)
 
+Startup uses the authenticated, non-cacheable `/api/auth/session` snapshot. User identity and current legal acknowledgement come from the same database row; the endpoint is read-only and exposes only `UserPublic` plus current document status. Persisted browser profile hints cannot unlock app routes, and legal status is never persisted. Request-generation guards prevent a late bootstrap result or `401` from affecting a newer login. Other protected API failures retain normal session-expiry handling. API/WS legal gates are unchanged; missing consent never becomes implicit acceptance.
+
 ### Desktop Capabilities
 
 - Production desktop HTTP access is scoped to the official API origin.
@@ -117,7 +119,7 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **Secure**: Only sent over HTTPS (enforced for non-local origins)
 - **SameSite**: `Lax` (defense in depth; not the sole CSRF control)
 - **State-changing requests**: Cookie-authenticated non-safe methods require an exact
-  `Origin` match against `CORS_ORIGINS`, with same-origin `Referer` as a fallback.
+  `Origin` match against `CORS_ORIGINS` or the configured `PUBLIC_API_URL` origin, with same-origin `Referer` as a fallback. The API origin supports its server-rendered Google registration form; it does not broaden CORS response access.
 - **Desktop exception**: Bearer-authenticated desktop requests do not require browser
   origin proof. OAuth callbacks retain their separate state-cookie validation.
 - **Opaque origins**: `Origin: null` is never accepted as proof for a cookie-authenticated
@@ -337,6 +339,10 @@ CI validates the nginx and Tauri policy files statically. Release smoke validate
 - `User` debug output is redacted for sensitive fields (`password_hash`, email, OAuth linkage detail).
 - OAuth failure paths avoid logging raw state/cookie nonce values, PKCE challenges, full email addresses, and third-party token bodies.
 - Third-party service failures log status and safe metadata instead of raw response bodies.
+
+### Pending Google Registration
+
+A verified new identity without current signup acknowledgements receives a 10-minute pending context, not an authenticated session. Only the hash of its random browser-cookie secret is stored. The cookie is HttpOnly, SameSite=Lax, Secure when configured, and scoped to the registration path. Finalization requires a constant-time checked CSRF token, rate limiting, explicit current document versions, and a locked database transaction containing user creation, privacy audit, and context consumption. Expired records are cleaned periodically. The server-rendered form uses a nonce-only style policy, no script, same-origin form submission, no framing, no-referrer, and no-store. Desktop completion retains the single-use PKCE exchange; the Redis fallback consumes the exchange code atomically through Lua rather than separate GET/DEL operations.
 
 ## Vulnerability Disclosure
 

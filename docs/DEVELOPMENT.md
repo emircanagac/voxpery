@@ -51,7 +51,41 @@ npm run dev
 
 ## Environment
 
-Use root `.env` as single source of truth.
+### Local QA (Windows + WSL)
+
+Use the ignored root `.env` as the single configuration source. `node scripts/local-qa.mjs init` checks it without printing credentials or creating another environment file. Use development credentials and, for automated CAPTCHA tests, official Turnstile test keys; never use test keys in production. The launcher rejects production mode.
+
+In a running WSL distribution with Docker Engine/Compose installed, start only supporting services:
+
+```bash
+cd /mnt/d/project_codes/voxpery
+docker compose --env-file .env -p voxpery-qa up -d postgres redis livekit
+```
+
+The fixed container names/ports in Compose must be free. PostgreSQL and Redis bind to loopback; LiveKit also exposes media ports. Keep WSL running while testing native Windows clients so localhost forwarding remains available. The Compose project isolates volumes from other project names.
+
+In separate Windows terminals at the repository root:
+
+```powershell
+node scripts/local-qa.mjs backend
+node scripts/local-qa.mjs frontend
+```
+
+Open `http://localhost:5173/register`. Backend health is `http://localhost:3001/health`. This is Docker infrastructure plus native development servers, not production containers. The launcher maps Compose database/Redis hostnames to localhost and derives a native database URL from `POSTGRES_USER/PASSWORD/DB` when `DATABASE_URL` is absent. Existing PostgreSQL volumes retain their initialized password; changing `.env` alone does not change the database role. Register disposable local accounts. Email delivery follows the root SMTP configuration.
+
+Backend tests default to a separate database named `<POSTGRES_DB>_tests` (create it before `node scripts/local-qa.mjs backend-test -- --test-threads=1`) and Redis database 1; explicit `TEST_DATABASE_URL/TEST_REDIS_URL` override these defaults. Never point tests at the application or production database. The Compose PostgreSQL bootstrap role is development-only; use separately provisioned, least-privilege database roles for deployment.
+
+For real Google testing, configure development `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in root `.env`, authorize `http://localhost:3001/api/auth/google/callback` in Google Console, and restart the backend. Google remains disabled without credentials. Integration fixtures validate the pending-registration transaction and PKCE exchange without pretending to validate Google's upstream flow.
+
+For desktop QA, keep the frontend running and use `node scripts/local-qa.mjs desktop` from the repository root with the Tauri CLI installed. This loads root `.env` and runs `cargo tauri dev --config tauri.dev.conf.json` in `apps/desktop/src-tauri`. Use only the development config; never broaden release CSP/capabilities for local testing. A packaged production desktop app does not automatically connect to this local backend.
+
+After auth/media changes, run the normal lint/unit/build checks, the CI core and mobile smoke scripts with `--workers=1`, and:
+
+```bash
+npx playwright test e2e/auth-core-regressions.spec.ts e2e/voice-media-regressions.spec.ts e2e/floating-stream-regressions.spec.ts --project=chromium --workers=1
+```
+
+Keep root `.env` local and untracked.
 
 Important keys:
 

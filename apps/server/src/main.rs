@@ -141,6 +141,16 @@ async fn main() {
         latest_release_cache: tokio::sync::RwLock::new(None),
     });
     ws::bus::spawn_redis_event_bridge(state.clone());
+    let registration_db = state.db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            if let Err(error) = voxpery_server::services::privacy::cleanup_expired_google_registrations(&registration_db).await {
+                tracing::warn!("Expired Google registration cleanup failed: {error}");
+            }
+        }
+    });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (
         &config.admin_email,

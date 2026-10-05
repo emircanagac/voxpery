@@ -1,5 +1,14 @@
 # Release Smoke Test Checklist
 
+## v0.3.1 Auth And Media Fixes
+
+- [ ] At 320x568, 390x844, 960x600, and desktop sizes, Sign Up fields, CAPTCHA, both legal acknowledgements, and actions remain reachable without horizontal overflow. Both signup buttons stay disabled until acknowledgements load and are checked; Google does not require email/password fields or an email-signup CAPTCHA token.
+- [ ] Start Google from Login and Sign Up with new and existing accounts on web and desktop. A new account without current acknowledgements reaches registration completion, records actual acceptance once, and returns to its intended route. Verify expired/replayed completion and PKCE code rejection; do not put secrets in screenshots/logs.
+- [ ] Simulate metadata/save failure and a document/account change during a pending request. Retry retains valid selections but never unlocks stale account state; current accounts are not asked again.
+- [ ] Hard-refresh an accepted account three times: each startup sends one `/api/auth/session` request, no separate `/me` or `/legal-consent` check, and no document-check loading screen. Missing/stale consent still blocks app data; a later server consent signal refreshes it. Test expired cookie, session outage/retry, stored profile hints, and late bootstrap success/401 after logout/account switch. Repeat secure-token startup and navigation in desktop.
+- [ ] Deny microphone capture, change permission, and explicitly retry the same channel from sidebar and dock. Cancel/unmount during capture stops late tracks. Repeat on a real desktop runtime; the UI must not promise it can force a browser-blocked permission prompt.
+- [ ] Two users share 16:9, 4:3, 21:9, and portrait content. Inspect all four edges in normal, focus, floating, and native fullscreen; camera behavior and video playback remain intact. Shared-audio volume dips are a separate unresolved gate.
+
 Use this checklist for every production release candidate before tag/publish.
 
 For releases that touch voice, WebRTC, LiveKit, service workers, build output, or audio settings, also complete `docs/VOICE_RELEASE_SMOKE_TEST.md`. If the release touches noise suppression, CSP, service workers, build output, or production deployment config, also complete `docs/VOICE_SUPPRESSION_SMOKE_TEST.md`.
