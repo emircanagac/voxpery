@@ -98,7 +98,8 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16.15-alpine3.24
+        # Use Docker Official Images on ECR Public to avoid Docker Hub pull limits.
+        image: public.ecr.aws/docker/library/postgres:16.15-alpine3.24
         env:
           POSTGRES_USER: voxpery_test
           POSTGRES_PASSWORD: postgres
@@ -111,7 +112,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: redis:7.4.11-alpine
+        image: public.ecr.aws/docker/library/redis:7.4.11-alpine
         ports:
           - 6379:6379
         options: >-
