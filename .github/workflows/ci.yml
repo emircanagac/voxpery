@@ -262,7 +262,8 @@ jobs:
         run: cargo test --locked
 
   docker_publish:
-    name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
+    # GitHub appends the matrix value, e.g. "Publish / Docker (backend)"; a static name stays readable when skipped.
+    name: Publish / Docker
     needs:
       - security
       - release_metadata
