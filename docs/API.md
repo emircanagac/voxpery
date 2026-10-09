@@ -78,7 +78,7 @@ Important behavior:
   - A verified new Google identity without current signup acknowledgements is redirected here, including when OAuth was started from Login. The browser receives a short-lived, HttpOnly pending-registration cookie, not a full session.
 - `POST /api/auth/google/registration`
   - Form-encoded current document versions, three explicit acknowledgements, and a pending-context CSRF token. Account creation, privacy audit, and pending consumption are atomic. Invalid acknowledgements retain the form; stale versions reset its selections. Expired or replayed context cannot create an account.
-  - Success sets the web auth cookie or returns a single-use, PKCE-bound desktop exchange code. Verified Google identity, JWTs, and pending handles are not placed in redirect URLs.
+  - Web completion sets the web auth cookie; desktop completion returns only a single-use, PKCE-bound exchange code and never signs in the system browser (the same applies to desktop Google sign-in). Verified Google identity, JWTs, and pending handles are not placed in redirect URLs.
 - `GET /api/auth/desktop-registration`
 - `POST /api/auth/desktop-registration`
   - Desktop email registration is hosted in the browser because Linux `tauri://localhost` is not a supported Turnstile origin. The form binds a short-lived HttpOnly cookie, CSRF token, and PKCE challenge; after legal/CAPTCHA validation it returns only a one-time `voxpery://auth` code. JWT and CAPTCHA tokens are never placed in the URL.

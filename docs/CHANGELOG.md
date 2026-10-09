@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Profile photo selection opens a local square crop preview with drag, slider, keyboard, and mouse-wheel zoom. Centered actions keep editing accessible; invalid-file errors appear inside Profile without dismissing Settings. Only Save uploads the edited image; Cancel keeps the current photo, and failed saves can be retried.
 - Legal pages set their own title, description and canonical URL, offer Terms/Privacy/KVKK switching, mark the KVKK text as Turkish for assistive technology, link the Terms to the Privacy Notice, and print as complete documents. A regression test keeps the displayed version aligned with the server-enforced version.
 - Web logout ends the browser session even when server-side token revocation fails, and desktop sign-in/sign-out no longer wait for a failed revocation; such tokens are retried from the OS keyring on later starts.
+- Desktop Google sign-in and registration no longer leave a signed-in Voxpery session in the system browser; the desktop app receives its session only through the PKCE exchange.
+- Google and desktop registration pages share one implementation, so their Terms/Privacy/KVKK links point to the same web origin. Desktop registration start is rate-limited even without a trusted client IP, and expired pending registrations are cleaned up every minute.
 - Newly created servers start with a disabled welcome guide for administrators to configure explicitly. Existing guide preferences are preserved. Profile photo selection errors use reserved space below the photo controls without shifting the profile.
 
 ### Changed

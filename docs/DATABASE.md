@@ -60,7 +60,7 @@ Key columns:
 
 - Migration `052` stores short-lived context for desktop email registration completed in the browser.
 - Columns: hashed opaque cookie secret (primary key), CSRF token, allowlisted return origin (`voxpery://auth`), sanitized redirect path, desktop PKCE challenge, and expiry (10 minutes).
-- No account data, password or CAPTCHA token is stored. Expired rows are removed before a new context is created and are ignored on every read.
+- No account data, password or CAPTCHA token is stored. Expired rows are ignored on every read and removed every minute and before a new context is created. Starting a context is rate-limited per client IP, with a shared wider limit when the IP is unknown.
 - Finalization locks the row, creates the user and privacy audit, and deletes the context in one transaction. Fixable validation errors keep the context so the form can be resubmitted; the single-use desktop code is issued only after commit.
 
 ### `servers`
