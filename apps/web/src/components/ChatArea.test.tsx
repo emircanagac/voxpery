@@ -794,10 +794,16 @@ describe('ChatArea regressions', () => {
     const attachment = { id: 'stable-photo', sha256: 'immutable-content', url: 'http://localhost:3001/api/attachments/content/stable-photo?exp=1&sig=old', type: 'image/png', name: 'stable.png' }
     const row = { ...message('stable-reaction-photo', 'Photo', 0), attachments: [attachment] }
     const { rerender } = renderChatArea({ messages: [row] })
-    const image = (await screen.findByRole('button', { name: 'Preview stable.png' })).querySelector('img')!
+    // Capture the node only after the first resolution settles; the raw signed URL may render briefly before it.
+    const image = await waitFor(() => {
+      const node = screen.getByRole('button', { name: 'Preview stable.png' }).querySelector('img')!
+      expect(node).toHaveAttribute('src', 'https://cdn.example.test/stable-preview.png')
+      return node
+    })
     rerender(<ChatArea activeChannel={channel('general', 'general')} messages={[{ ...row, attachments: [{ ...attachment, url: attachment.url.replace('exp=1&sig=old', 'exp=2&sig=new') }], reactions: [{ emoji: '👍', count: 1, reacted: true }] }]} messageInput="" draftAttachments={[]} onMessageInputChange={vi.fn()} onRemoveAttachment={vi.fn()} onSendMessage={vi.fn()} onPickAttachments={vi.fn()} onRetryMessage={vi.fn()} />)
     await screen.findByRole('button', { name: /reaction, 1 total/ })
     expect(screen.getByRole('button', { name: 'Preview stable.png' }).querySelector('img')).toBe(image)
+    expect(image).toHaveAttribute('src', 'https://cdn.example.test/stable-preview.png')
     expect(resolve).toHaveBeenCalledTimes(1)
   })
 

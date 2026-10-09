@@ -194,10 +194,13 @@ in [NETWORK_USAGE_BENCHMARK.md](NETWORK_USAGE_BENCHMARK.md).
 
 Runs on `push` and `pull_request`:
 
-- `Secret Scan (gitleaks)` (containerized CLI)
+- `Secret Scan (gitleaks)` (containerized CLI), on every run
+- `Detect Changes` decides which build checks a change needs (`.github/scripts/ci-changes.mjs`, covered by `ci-changes.test.mjs`)
 - `Backend` (`cargo check`, then unit and integration tests against isolated PostgreSQL and Redis services)
-- `Frontend` (`npm ci`, lint, tests, `scripts/tests` regressions, Playwright smoke coverage, production build, and the initial JavaScript budget check)
-- `Desktop` (Ubuntu 22.04: Linux launcher validation, then `cargo check --locked` and `cargo test --locked` for the Tauri app against a placeholder frontend). It always reports a result, but builds only when `apps/desktop/`, `ci.yml` or the launcher/QA-config scripts change, and always for tags and manual runs, so desktop compile errors fail the PR instead of the release build.
+- `Frontend` (`npm ci`, lint, tests, `scripts/tests` and `.github/scripts` regressions, Playwright smoke coverage, production build, and the initial JavaScript budget check)
+- `Desktop` (Ubuntu 22.04: Linux launcher validation, then `cargo check --locked` and `cargo test --locked` for the Tauri app against a placeholder frontend), so desktop compile errors fail the PR instead of the release build
+
+Backend runs for `apps/server/` changes, Desktop for `apps/desktop/` and its launcher/QA-config scripts, and Frontend for everything else that is not documentation, plus the server and desktop files its validators read. Documentation-only changes (`*.md`, `docs/`, `LICENSE`, issue templates) skip all three. Changes to `ci.yml`, tags, manual runs and pushes without a known base run everything, and a failed detection also runs everything. Skipped jobs report success, so required checks never block on an unaffected area.
 
 ### `.github/workflows/dependency-security.yml`
 

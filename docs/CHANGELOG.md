@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] - Unreleased
-
-This patch release is in preparation. Release validation and publication are still pending.
+## [0.3.1] - 2026-10-09
 
 ### Fixed
 - Refresh the current user's server list when another session joins a server, and reconcile membership and profile data after reconnect. Apply own-profile WebSocket updates immediately and show the account creation date in the own-profile preview.
@@ -36,7 +34,7 @@ This patch release is in preparation. Release validation and publication are sti
 ### Changed
 - Desktop email registration can complete in a server-hosted browser form with Siteverify, explicit legal proof, CSRF and single-use PKCE return. Its exchange (`/api/auth/desktop-exchange`) no longer depends on the Google feature flag; desktop v0.3.1 therefore requires a v0.3.1 server for Google and email sign-in handoff. Fixable form errors re-render the form with entered values instead of a raw JSON error. Live CAPTCHA and installed browser-to-app return remain acceptance gates.
 - Linux Tauri configures media settings/permissions before the first app document, aligns GTK app ID and URL-aware package launchers, selects Ayatana for Linux builds, and preserves taskbar recovery when backgrounding. Installed-package voice, CAPTCHA and tray acceptance remain pending; this does not claim missing WebRTC support restored.
-- CI adds a `Checks / Desktop` job that compiles and tests the Tauri app on Linux when desktop sources change (and on every release tag), and runs repository regression scripts in the frontend job.
+- CI adds a `Checks / Desktop` job that compiles and tests the Tauri app on Linux when desktop sources change (and on every release tag), and runs repository regression scripts in the frontend job. Docker publish jobs use static names, so skipped PR checks no longer show raw matrix expressions. A change-detection step skips Backend, Frontend and Desktop when a change cannot affect them, so documentation-only PRs finish in seconds while required checks still report.
 - Screen audio requests unprocessed music/game capture and adds bounded, opt-in, source-matched interval energy/playback diagnostics. Real two-user volume-dip acceptance remains pending.
 
 ## [0.3.0] - 2026-10-03

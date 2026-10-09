@@ -136,7 +136,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   publish_candidate:
-    name: ${{ matrix.component == 'backend' && 'Publish Candidate / Docker Backend' || 'Publish Candidate / Docker Frontend' }}
+    # GitHub appends the matrix value, e.g. "Publish Candidate / Docker (backend)".
+    name: Publish Candidate / Docker
     needs: prepare
     if: needs.prepare.outputs.build_candidate == 'true'
     runs-on: ubuntu-latest
