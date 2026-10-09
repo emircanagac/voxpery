@@ -54,6 +54,7 @@ fn redact_email_for_debug(email: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPublic {
     pub id: Uuid,
+    pub created_at: DateTime<Utc>,
     pub username: String,
     pub email: String,
     pub email_verified: bool,
@@ -82,6 +83,7 @@ impl From<User> for UserPublic {
     fn from(u: User) -> Self {
         Self {
             id: u.id,
+            created_at: u.created_at,
             username: u.username,
             email: u.email,
             email_verified: u.email_verified,

@@ -63,6 +63,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: node .github/scripts/validate-desktop-release.mjs
 
+      - name: Test Linux launchers and local QA URL normalization
+        run: node --test .github/scripts/validate-linux-launchers.test.mjs scripts/dev/local-qa-config.test.mjs
+
       - name: Verify smoke checklist confirmation (manual runs)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.smoke_checklist_confirmed != 'yes'
         run: |
@@ -88,7 +91,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -150,6 +153,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_LINUX_AYATANA_APPINDICATOR: '1'
         with:
           projectPath: apps/desktop
           tagName: v__VERSION__

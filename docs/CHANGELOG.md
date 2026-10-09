@@ -12,14 +12,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This patch release is in preparation. Release validation and publication are still pending.
 
 ### Fixed
+- Refresh the current user's server list when another session joins a server, and reconcile membership and profile data after reconnect. Apply own-profile WebSocket updates immediately and show the account creation date in the own-profile preview.
+- Registration shows CAPTCHA script/widget failures and provides bounded retry instead of a blank verification area; retries do not bypass provider success or server Siteverify.
 - New Google users starting from Sign In can complete legal acknowledgements before account creation instead of being redirected to an unusable registration error.
 - Unified session and legal-document restoration into one startup snapshot, removing redundant document checks and their loading screen while preserving server enforcement, outage retry, and account-change guards.
 - Sign Up uses a compact two-column desktop form and a single-column mobile form. Email and Google signup consistently require current server-provided legal acknowledgements.
 - Failed legal acknowledgement saves preserve the form and selections; account changes and stale responses cannot unlock the wrong session.
 - Microphone-denied joins retain an explicit retry path, and failed voice joins release capture and media resources.
+- Explicit voice join retries report repeated connection failures instead of silently suppressing an error whose previous notification was dismissed.
+- Voice preparation HTTP failures no longer masquerade as a disconnected application WebSocket.
+- Voice joins recheck current application connectivity after permission waits and can restart an exhausted active-session socket retry without bypassing offline, logout or authentication-expiry guards.
+- Voice participant cues ignore initial and reconnect snapshots; short remote network interruptions no longer sound like a leave and rejoin, while explicit departures still sound immediately.
 - Screen shares preserve the entire source frame in normal, focused, and fullscreen views without applying screen-share fitting to camera tiles.
 - Restored the original Voxpery fox logo in small desktop window, Windows taskbar and tray icons, replacing the separate wider redraw while retaining DPI-specific icon sizes.
 - Local web builds now show the package version when no explicit deployment tag is supplied, keeping the version badge and build metadata aligned.
+- Native Windows/WSL QA database and Redis clients use IPv4 loopback to avoid connection fallback delays in voice integration tests without increasing WebSocket deadlines.
+- The welcome guide offers direct text navigation and voice joining without duplicate default task or project-link actions, while preserving custom starter tasks.
+- Long usernames truncate cleanly in the account dock without squeezing status or settings; the full name remains available on hover.
+- Profile photo selection opens a local square crop preview with drag, slider, keyboard, and mouse-wheel zoom. Centered actions keep editing accessible; invalid-file errors appear inside Profile without dismissing Settings. Only Save uploads the edited image; Cancel keeps the current photo, and failed saves can be retried.
+- Legal pages set their own title, description and canonical URL, offer Terms/Privacy/KVKK switching, mark the KVKK text as Turkish for assistive technology, link the Terms to the Privacy Notice, and print as complete documents. A regression test keeps the displayed version aligned with the server-enforced version.
+- Newly created servers start with a disabled welcome guide for administrators to configure explicitly. Existing guide preferences are preserved. Profile photo selection errors use reserved space below the photo controls without shifting the profile.
+
+### Changed
+- Desktop email registration can complete in a server-hosted browser form with Siteverify, explicit legal proof, CSRF and single-use PKCE return. Its exchange (`/api/auth/desktop-exchange`) no longer depends on the Google feature flag; desktop v0.3.1 therefore requires a v0.3.1 server for Google and email sign-in handoff. Fixable form errors re-render the form with entered values instead of a raw JSON error. Live CAPTCHA and installed browser-to-app return remain acceptance gates.
+- Linux Tauri configures media settings/permissions before the first app document, aligns GTK app ID and URL-aware package launchers, selects Ayatana for Linux builds, and preserves taskbar recovery when backgrounding. Installed-package voice, CAPTCHA and tray acceptance remain pending; this does not claim missing WebRTC support restored.
+- CI adds a `Checks / Desktop` job that compiles and tests the Tauri app on Linux when desktop sources change (and on every release tag), and runs repository regression scripts in the frontend job.
+- Screen audio requests unprocessed music/game capture and adds bounded, opt-in, source-matched interval energy/playback diagnostics. Real two-user volume-dip acceptance remains pending.
 
 ## [0.3.0] - 2026-10-03
 

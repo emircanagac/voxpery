@@ -11,7 +11,7 @@ import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitch
 import UserBar from '../components/UserBar'
 import { ProjectSupportLink } from '../components/SocialInfoPanel'
 import { useToastStore } from '../stores/toast'
-import { dmApi, friendApi, type DmChannel, type Friend, type User } from '../api'
+import { authApi, dmApi, friendApi, serverApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import {
@@ -329,6 +329,35 @@ export default function AppShell() {
   }, [dmChannelIds, isConnected, send])
 
   useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    let running = false
+    let queued = false
+    const refresh = async () => {
+      if (running) { queued = true; return }
+      running = true
+      do {
+        queued = false
+        try {
+          const [list, profile] = await Promise.allSettled([serverApi.list(token), authApi.getMe(token)])
+          if (!cancelled && !queued && useAuthStore.getState().user?.id === userId) {
+            if (list.status === 'fulfilled') useAppStore.getState().setServers(list.value)
+            if (profile.status === 'fulfilled') useAuthStore.getState().setUser(profile.value)
+          }
+        } catch { /* A reconnect retries a failed membership refresh. */ }
+      } while (queued && !cancelled)
+      running = false
+    }
+    const unsubscribe = subscribe((event: unknown) => {
+      const e = event as { type?: string; data?: { user_id?: string; user?: { id?: string } } }
+      if ((e.type === 'MemberJoined' || e.type === 'MemberLeft') && e.data?.user_id === userId) void refresh()
+      if (e.type === 'UserUpdated' && e.data?.user?.id === userId) void refresh()
+    })
+    const unsubscribeReconnect = onReconnect(() => { void refresh() })
+    return () => { cancelled = true; unsubscribe(); unsubscribeReconnect() }
+  }, [onReconnect, subscribe, token, userId])
+
+  useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
       try {
         const e = evt as { type?: string; data?: { user?: User; user_id?: string; channel_id?: string | null; server_id?: string | null; channel_active_since_ms?: number | null; status?: string; muted?: boolean; deafened?: boolean; server_muted?: boolean; server_deafened?: boolean; screen_sharing?: boolean; camera_on?: boolean; viewer_id?: string; publisher_id?: string; watching?: boolean; message?: { author?: { user_id?: string } } } }
@@ -400,6 +429,16 @@ export default function AppShell() {
         if (e?.type === 'UserUpdated') {
           const updatedUser = e.data?.user
           if (!updatedUser || !updatedUser.id) return
+
+          const currentUser = useAuthStore.getState().user
+          if (currentUser?.id === updatedUser.id) {
+            useAuthStore.getState().setUser({
+              ...currentUser,
+              username: updatedUser.username ?? currentUser.username,
+              avatar_url: updatedUser.avatar_url ?? undefined,
+              status: updatedUser.status ?? currentUser.status,
+            })
+          }
 
           const store = useAppStore.getState()
           const members = store.members ?? []

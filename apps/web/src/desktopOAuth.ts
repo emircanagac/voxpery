@@ -17,8 +17,7 @@ interface DesktopOAuthHandlerDependencies {
   getCodeVerifier: () => string | null
   clearCodeVerifier: () => void
   exchangeCode: (code: string, codeVerifier: string) => Promise<{ token: string; user: UserPublic }>
-  setAuth: (token: string, user: UserPublic) => void
-  persistToken: (token: string) => Promise<void>
+  setAuth: (token: string, user: UserPublic) => Promise<void>
   navigate: (path: string) => void
   onError?: (error: unknown) => void
   onObservabilityEvent?: (event: ObservabilityEventCode) => void
@@ -110,8 +109,7 @@ export function createDesktopOAuthDeepLinkHandler(deps: DesktopOAuthHandlerDepen
 
     try {
       const auth = await deps.exchangeCode(deepLink.code, codeVerifier)
-      deps.setAuth(auth.token, auth.user)
-      await deps.persistToken(auth.token)
+      await deps.setAuth(auth.token, auth.user)
       deps.clearCodeVerifier()
       deps.onObservabilityEvent?.('desktop_oauth_return_succeeded')
       deps.navigate(deepLink.redirectTo)

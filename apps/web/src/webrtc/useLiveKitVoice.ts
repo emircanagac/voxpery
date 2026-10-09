@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AudioPresets,
+  DisconnectReason,
   isBrowserSupported,
   LocalAudioTrack,
   RemoteParticipant,
@@ -59,6 +60,7 @@ type RemoteMediaStartCueKind = 'camera' | 'screen'
 type RemoteMediaCuePhase = 'start' | 'stop'
 
 export const LIVEKIT_AUTO_SUBSCRIBE = true
+export const REMOTE_PARTICIPANT_LEAVE_GRACE_MS = 3_000
 
 type VoiceControlState = {
   muted?: boolean
@@ -415,6 +417,7 @@ export function useLiveKitVoice() {
   const remoteMediaStartCueKeysRef = useRef<Set<string>>(new Set())
   const remoteMediaStartCueReadyRef = useRef(false)
   const remoteScreenStopCueTimersRef = useRef<Map<PeerId, ReturnType<typeof setTimeout>>>(new Map())
+  const participantCueCleanupRef = useRef<(() => void) | null>(null)
   const remoteSubscriptionRetryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const userHiddenRemoteMediaKeysRef = useRef<Set<string>>(new Set())
   const watchedRemoteScreenPeerIdsRef = useRef<Set<PeerId>>(new Set())
@@ -1065,7 +1068,13 @@ export function useLiveKitVoice() {
   }, [cancelRemoteScreenStopCue, playVoiceCue])
 
   const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
-    if (!isConnected) throw new Error('WebSocket is not connected')
+    // A native permission prompt can outlive the render that started the join.
+    const currentSocket = useSocketStore.getState()
+    if (!currentSocket.isConnected) {
+      currentSocket.resumeConnection()
+      const error = new Error('WebSocket is not connected')
+      throw error
+    }
     if (!userId) throw new Error('Not authenticated')
     if (joinedChannelIdRef.current === channelId) return
     if (isJoiningRef.current) {
@@ -1165,6 +1174,68 @@ export function useLiveKitVoice() {
         },
       })
       roomRef.current = room
+      participantCueCleanupRef.current?.()
+      const cueParticipantIds = new Set<string>()
+      const pendingLeaveCueTimers = new Map<string, ReturnType<typeof setTimeout>>()
+      let participantCuesReady = false
+      let participantCueGeneration = 0
+      const clearPendingLeaveCue = (identity: string) => {
+        const timer = pendingLeaveCueTimers.get(identity)
+        if (timer !== undefined) clearTimeout(timer)
+        pendingLeaveCueTimers.delete(identity)
+      }
+      const clearPendingLeaveCues = () => {
+        pendingLeaveCueTimers.forEach(clearTimeout)
+        pendingLeaveCueTimers.clear()
+      }
+      const suspendParticipantCues = () => {
+        participantCuesReady = false
+        participantCueGeneration++
+        clearPendingLeaveCues()
+      }
+      const hydrateParticipantCues = () => {
+        participantCueGeneration++
+        clearPendingLeaveCues()
+        cueParticipantIds.clear()
+        room.remoteParticipants.forEach((participant) => cueParticipantIds.add(participant.identity))
+        participantCuesReady = true
+      }
+      participantCueCleanupRef.current = () => {
+        suspendParticipantCues()
+        cueParticipantIds.clear()
+      }
+      const queueParticipantCue = (identity: string, present: boolean, disconnectReason?: DisconnectReason) => {
+        const generation = participantCueGeneration
+        // The SDK tears down peers before emitting Reconnecting. Wait until that
+        // synchronous event batch finishes, then reject snapshots and stale rooms.
+        queueMicrotask(() => {
+          if (roomRef.current !== room || !participantCuesReady
+            || generation !== participantCueGeneration || room.state !== 'connected') return
+          if (present) {
+            clearPendingLeaveCue(identity)
+            if (!cueParticipantIds.has(identity)) {
+              cueParticipantIds.add(identity)
+              playVoiceCue('join')
+            }
+            return
+          }
+          if (!cueParticipantIds.has(identity) || pendingLeaveCueTimers.has(identity)) return
+          if (disconnectReason === DisconnectReason.CLIENT_INITIATED
+            || disconnectReason === DisconnectReason.PARTICIPANT_REMOVED) {
+            cueParticipantIds.delete(identity)
+            playVoiceCue('leave')
+            return
+          }
+          const timer = setTimeout(() => {
+            pendingLeaveCueTimers.delete(identity)
+            if (roomRef.current !== room || !participantCuesReady
+              || generation !== participantCueGeneration || room.state !== 'connected'
+              || room.remoteParticipants.has(identity)) return
+            if (cueParticipantIds.delete(identity)) playVoiceCue('leave')
+          }, REMOTE_PARTICIPANT_LEAVE_GRACE_MS)
+          pendingLeaveCueTimers.set(identity, timer)
+        })
+      }
       remoteMediaStartCueKeysRef.current.clear()
       remoteMediaStartCueReadyRef.current = false
       remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
@@ -1306,7 +1377,8 @@ export function useLiveKitVoice() {
           const publication = participant.trackPublications.get(trackSid)
           if (publication) retryRemotePublicationSubscription(publication, participant.identity)
         })
-        .on(RoomEvent.ParticipantDisconnected, (participant) => {
+        .on(RoomEvent.ParticipantDisconnected, (participant, reason) => {
+          queueParticipantCue(participant.identity, false, reason)
           reconcileLiveKitVoicePresence(participant.identity, channelId, false)
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'camera'))
           userHiddenRemoteMediaKeysRef.current.delete(remoteMediaSubscriptionKey(participant.identity, 'screen'))
@@ -1314,24 +1386,26 @@ export function useLiveKitVoice() {
           setWatchedRemoteScreenPeerIds(new Set(watchedRemoteScreenPeerIdsRef.current))
           closePeer(participant.identity)
           updateRoomStats()
-          playVoiceCue('leave')
         })
         .on(RoomEvent.ParticipantConnected, (participant) => {
+          queueParticipantCue(participant.identity, true)
           reconcileLiveKitVoicePresence(participant.identity, channelId, true)
           participant.trackPublications.forEach((publication) => {
             syncRemotePublicationSubscription(publication, participant.identity)
           })
           syncParticipantMediaState(participant)
           updateRoomStats()
-          playVoiceCue('join')
         })
+        .on(RoomEvent.SignalReconnecting, suspendParticipantCues)
         .on(RoomEvent.Reconnecting, () => {
+          suspendParticipantCues()
           reportObservabilityEvent('livekit_reconnect_started')
           console.warn('[useLiveKitVoice] LiveKit Room reconnecting...')
           updateRoomStats()
         })
         .on(RoomEvent.Reconnected, () => {
           if (roomRef.current !== room) return
+          hydrateParticipantCues()
           reportObservabilityEvent('livekit_reconnect_succeeded')
           updateRoomStats()
           refreshLocalStreams()
@@ -1357,6 +1431,7 @@ export function useLiveKitVoice() {
           }
         })
         .on(RoomEvent.Disconnected, (reason) => {
+          suspendParticipantCues()
           if (roomRef.current === room) {
             reportObservabilityEvent('livekit_disconnected')
           }
@@ -1380,6 +1455,7 @@ export function useLiveKitVoice() {
       })
       try { await Promise.race([connectPromise, timeoutPromise]) } finally { clearTimeout(connectionTimer) }
       joinTiming.mark('connectionMs')
+      hydrateParticipantCues()
 
       room.remoteParticipants.forEach((participant) => {
         reconcileLiveKitVoicePresence(participant.identity, channelId, true)
@@ -1455,6 +1531,8 @@ export function useLiveKitVoice() {
       remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
       remoteScreenStopCueTimersRef.current.clear()
       const failedRoom = roomRef.current
+      participantCueCleanupRef.current?.()
+      participantCueCleanupRef.current = null
       roomRef.current = null
       failedRoom?.removeAllListeners()
       try { await failedRoom?.disconnect() } catch { /* Continue releasing local capture after a failed disconnect. */ }
@@ -1486,10 +1564,12 @@ export function useLiveKitVoice() {
       isJoiningRef.current = false
       setIsJoining(false)
     }
-    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, isConnected, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
+    }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
     isJoiningRef.current = false
+    participantCueCleanupRef.current?.()
+    participantCueCleanupRef.current = null
     const departingChannelId = joinedChannelIdRef.current
     if (departingChannelId && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
@@ -1899,6 +1979,8 @@ export function useLiveKitVoice() {
 
   useEffect(() => {
     return () => {
+      participantCueCleanupRef.current?.()
+      participantCueCleanupRef.current = null
       destroyRnnoise()
       disconnectAudioContext()
     }

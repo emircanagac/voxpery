@@ -11,6 +11,8 @@ const apiMocks = vi.hoisted(() => ({
   createWebSocket: vi.fn(),
   listDmChannels: vi.fn(),
   listFriends: vi.fn(),
+  listServers: vi.fn(),
+  getMe: vi.fn(),
 }))
 
 const pushMocks = vi.hoisted(() => ({
@@ -20,6 +22,8 @@ const pushMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../api', () => ({
+  serverApi: { list: apiMocks.listServers },
+  authApi: { getMe: apiMocks.getMe },
   createWebSocket: apiMocks.createWebSocket,
   dmApi: {
     listChannels: apiMocks.listDmChannels,
@@ -131,6 +135,8 @@ describe('AppShell social refresh', () => {
     })
     apiMocks.listDmChannels.mockResolvedValue([dmChannel('dm-1')])
     apiMocks.listFriends.mockResolvedValue([friend('friend-1', 'friend')])
+    apiMocks.listServers.mockResolvedValue([])
+    apiMocks.getMe.mockResolvedValue(localUser)
     pushMocks.isAppBackgrounded.mockReturnValue(false)
     pushMocks.shouldShowPushNotification.mockReturnValue(false)
 
@@ -157,6 +163,22 @@ describe('AppShell social refresh', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('refreshes membership immediately for another session joining and reconciles on reconnect', async () => {
+    renderAppShell('/social')
+    act(() => useSocketStore.getState().listeners.forEach(listener => listener({ type: 'MemberJoined', data: { user_id: localUser.id } })))
+    await waitFor(() => expect(apiMocks.listServers).toHaveBeenCalledTimes(1))
+    act(() => useSocketStore.getState().reconnectListeners.forEach(listener => listener()))
+    await waitFor(() => expect(apiMocks.listServers).toHaveBeenCalledTimes(2))
+  })
+
+  it('updates the current profile from another session without losing private account fields', () => {
+    renderAppShell()
+    act(() => useSocketStore.getState().listeners.forEach(listener => listener({
+      type: 'UserUpdated', data: { user: { id: localUser.id, username: 'renamed', avatar_url: '/new.png', status: 'online' } },
+    })))
+    expect(useAuthStore.getState().user).toMatchObject({ username: 'renamed', avatar_url: '/new.png', email: localUser.email })
   })
 
   it.each(['/social', '/social/dm', '/servers'])('shows only project support in the footer on %s', (path) => {

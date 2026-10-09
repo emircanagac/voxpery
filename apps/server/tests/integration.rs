@@ -156,6 +156,7 @@ async fn setup_app_with_features_and_livekit(
     let (tx, _rx) = broadcast::channel(256);
     let release_http_client = reqwest::Client::builder()
         .user_agent("voxpery-server-tests/releases")
+        .no_proxy()
         .build()
         .expect("Failed to build release metadata HTTP client");
     let state = Arc::new(AppState {
@@ -199,6 +200,7 @@ async fn setup_app_with_features_and_livekit(
         frontend_url: None,
         public_api_url: None,
         turnstile_secret_key: None,
+        turnstile_site_key: None,
         smtp_host: None,
         smtp_password: None,
         smtp_user: None,
@@ -255,10 +257,11 @@ async fn receive_ws_event<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
+    let mut observed_types = Vec::new();
     for _ in 0..30 {
         let message = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
             .await
-            .expect("timed out waiting for websocket event")
+            .unwrap_or_else(|_| panic!("timed out waiting for websocket event {expected_type}; observed types: {observed_types:?}"))
             .expect("websocket closed before expected event")
             .expect("websocket read failed");
         let WsMessage::Text(text) = message else {
@@ -269,6 +272,7 @@ where
         if event["type"] == expected_type {
             return event;
         }
+        observed_types.push(event["type"].as_str().unwrap_or("unknown").to_string());
     }
     panic!("did not receive websocket event {expected_type}");
 }
@@ -754,6 +758,48 @@ async fn email_verification_request_returns_feature_disabled_when_email_delivery
     let (status, body) = oneshot(&mut app, req).await;
 
     assert_feature_disabled(status, &body);
+}
+
+#[tokio::test]
+async fn logout_revokes_the_bearer_token_and_reports_revocation_failure() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, state) = setup_app().await;
+    let token = generate_token(Uuid::new_v4(), "logout-test", 0, &state.jwt_secret, 3600).unwrap();
+    let request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/logout")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let response = app.clone().oneshot(request()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().contains_key("set-cookie"));
+    assert!(
+        voxpery_server::services::jwt_blacklist::is_blacklisted(&state.redis, &token)
+            .await
+            .unwrap()
+    );
+
+    drop(app);
+    let mut state = Arc::try_unwrap(state)
+        .ok()
+        .expect("test router must release state");
+    // Use a reserved, closed local port; never stop the shared QA Redis service.
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    state.redis = redis::Client::open(format!("redis://127.0.0.1:{port}")).unwrap();
+    drop(reservation);
+    let app = build_app(Arc::new(state), vec!["http://localhost:5173".to_string()]);
+    let response = app.oneshot(request()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!response.headers().contains_key("set-cookie"));
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(!String::from_utf8_lossy(&body).contains(&token));
 }
 
 #[tokio::test]
@@ -1723,6 +1769,16 @@ async fn server_onboarding_guide_update_and_member_read_permissions() {
     let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let server_id = Uuid::parse_str(server["id"].as_str().unwrap()).unwrap();
     let invite_code = server["invite_code"].as_str().unwrap();
+
+    let initial_guide = sqlx::query_as::<_, (bool, Vec<Uuid>)>(
+        "SELECT enabled, recommended_channel_ids FROM server_onboarding_guides WHERE server_id = $1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("new servers should have a welcome guide");
+    assert!(!initial_guide.0);
+    assert!(initial_guide.1.is_empty());
 
     let channel_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'text' ORDER BY position ASC LIMIT 1",
@@ -4025,6 +4081,7 @@ async fn data_export_returns_user_profile_and_messages() {
     assert_eq!(profile_status, StatusCode::OK);
     let profile: serde_json::Value = serde_json::from_slice(&profile_body).unwrap();
     assert_eq!(profile["about_me"], "Building a thoughtful community.");
+    assert!(chrono::DateTime::parse_from_rfc3339(profile["created_at"].as_str().unwrap()).is_ok());
 
     let req = Request::builder()
         .method("POST")
@@ -7283,4 +7340,373 @@ async fn pending_google_registration_keeps_desktop_pkce_handoff_single_use() {
             .unwrap();
         assert_eq!(oneshot(&mut app, request).await.0, expected);
     }
+}
+
+async fn desktop_registration_fixture(
+    app: &axum::Router,
+    state: &Arc<AppState>,
+    origin: &str,
+) -> (String, String, String, String) {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let verifier = Uuid::new_v4().simple().to_string().repeat(2);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let response = app.clone().oneshot(Request::builder()
+        .uri(format!("/api/auth/desktop-registration?origin={}&code_challenge={challenge}&redirect=%2Fsocial", urlencoding::encode(origin)))
+        .body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .contains("HttpOnly"));
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert!(response.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .contains("form-action 'self'"));
+    let secret = cookie.split_once('=').unwrap().1;
+    let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(secret.as_bytes()));
+    let csrf: String = sqlx::query_scalar(
+        "SELECT csrf_token FROM pending_desktop_registrations WHERE cookie_hash=$1",
+    )
+    .bind(&hash)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    (cookie, csrf, hash, verifier)
+}
+
+fn desktop_registration_request(cookie: &str, csrf: &str, email: &str) -> Request<Body> {
+    Request::builder().method("POST").uri("/api/auth/desktop-registration")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("cookie", cookie)
+        .body(Body::from(format!("csrf_token={csrf}&username=qa_{}&email={}&password=registration-test-password&confirm_password=registration-test-password&terms_accepted=true&terms_version={CURRENT_TERMS_VERSION}&privacy_notice_acknowledged=true&privacy_notice_version={CURRENT_PRIVACY_NOTICE_VERSION}&kvkk_notice_acknowledged=true&kvkk_notice_version={CURRENT_KVKK_NOTICE_VERSION}",
+            &Uuid::new_v4().simple().to_string()[..20], urlencoding::encode(email)))).unwrap()
+}
+
+fn desktop_exchange_request(code: &str, verifier: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/api/auth/desktop-exchange")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"code": code, "code_verifier": verifier}).to_string(),
+        ))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn desktop_registration_rejects_unapproved_origins_and_missing_pkce() {
+    let (mut app, _) = setup_app().await;
+    for origin in [
+        "voxpery-dev://auth",
+        "https://evil.example",
+        "voxpery://other",
+    ] {
+        let request = Request::builder()
+            .uri(format!(
+                "/api/auth/desktop-registration?origin={}&code_challenge={}",
+                urlencoding::encode(origin),
+                "a".repeat(43)
+            ))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(oneshot(&mut app, request).await.0, StatusCode::FORBIDDEN);
+    }
+    let request = Request::builder()
+        .uri("/api/auth/desktop-registration?origin=voxpery%3A%2F%2Fauth")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(oneshot(&mut app, request).await.0, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn desktop_registration_requires_cookie_csrf_current_legal_proof_and_live_context() {
+    let (mut app, state) = setup_app().await;
+    let (cookie, csrf, hash, _) =
+        desktop_registration_fixture(&app, &state, "voxpery://auth").await;
+    let email = format!("{}@example.test", Uuid::new_v4());
+    let mut request = desktop_registration_request(&cookie, &csrf, &email);
+    request.headers_mut().remove("cookie");
+    assert_eq!(oneshot(&mut app, request).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        oneshot(
+            &mut app,
+            desktop_registration_request(&cookie, "wrong", &email)
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    for body in [
+        format!("csrf_token={csrf}&username=legal_test&email={email}&password=test-password&confirm_password=test-password&terms_version={CURRENT_TERMS_VERSION}&privacy_notice_version={CURRENT_PRIVACY_NOTICE_VERSION}&kvkk_notice_version={CURRENT_KVKK_NOTICE_VERSION}"),
+        format!("csrf_token={csrf}&username=legal_test&email={email}&password=test-password&confirm_password=test-password&terms_accepted=true&terms_version=old&privacy_notice_acknowledged=true&privacy_notice_version=old&kvkk_notice_acknowledged=true&kvkk_notice_version=old"),
+    ] {
+        let mut request = desktop_registration_request(&cookie, &csrf, &email);
+        *request.body_mut() = Body::from(body);
+        let (status, html) = oneshot(&mut app, request).await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(html.to_vec()).unwrap();
+        assert!(!html.contains("checked"));
+        assert!(!html.contains("code="));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email=$1")
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("UPDATE pending_desktop_registrations SET expires_at=NOW()-INTERVAL '1 second' WHERE cookie_hash=$1")
+        .bind(hash).execute(&state.db).await.unwrap();
+    assert_eq!(
+        oneshot(
+            &mut app,
+            desktop_registration_request(&cookie, &csrf, &email)
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn desktop_registration_finalizes_once_without_google_and_exchanges_once() {
+    let (mut app, state) = setup_app().await;
+    let (cookie, csrf, hash, verifier) =
+        desktop_registration_fixture(&app, &state, "voxpery://auth").await;
+    let email = format!("{}@example.test", Uuid::new_v4());
+    let (first, second) = tokio::join!(
+        app.clone()
+            .oneshot(desktop_registration_request(&cookie, &csrf, &email)),
+        app.clone()
+            .oneshot(desktop_registration_request(&cookie, &csrf, &email)),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert!([first.status(), second.status()].contains(&StatusCode::OK));
+    assert!([first.status(), second.status()].contains(&StatusCode::BAD_REQUEST));
+    let success = if first.status() == StatusCode::OK {
+        first
+    } else {
+        second
+    };
+    assert_eq!(success.headers().get_all("set-cookie").iter().count(), 1);
+    let html = String::from_utf8(
+        success
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("voxpery://auth/social?code="));
+    assert!(!html.contains("eyJ"));
+    let offset = html.find("code=").unwrap() + 5;
+    let code = &html[offset..offset + 32];
+    assert_eq!(
+        oneshot(&mut app, desktop_exchange_request(code, &verifier))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        oneshot(&mut app, desktop_exchange_request(code, &verifier))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email=$1")
+        .bind(email)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert!(
+        voxpery_server::services::privacy::has_current_legal_consent(&state.db, user_id)
+            .await
+            .unwrap()
+    );
+    let audit: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM privacy_audit_log WHERE user_id=$1 AND event_type='account_registered'")
+        .bind(user_id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(audit, 1);
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pending_desktop_registrations WHERE cookie_hash=$1",
+    )
+    .bind(hash)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(pending, 0);
+}
+
+#[tokio::test]
+async fn desktop_registration_rerenders_fixable_errors_without_echoing_passwords() {
+    let (mut app, state) = setup_app().await;
+    let taken_email = format!("{}@example.test", Uuid::new_v4());
+    let taken_username = format!("taken_{}", &Uuid::new_v4().simple().to_string()[..20]);
+    register_user(&mut app, &taken_email, &taken_username, test_credential("taken")).await;
+    let (cookie, csrf, hash, _) =
+        desktop_registration_fixture(&app, &state, "voxpery://auth").await;
+    let email = format!("{}@example.test", Uuid::new_v4());
+    let legal = format!("terms_accepted=true&terms_version={CURRENT_TERMS_VERSION}&privacy_notice_acknowledged=true&privacy_notice_version={CURRENT_PRIVACY_NOTICE_VERSION}&kvkk_notice_acknowledged=true&kvkk_notice_version={CURRENT_KVKK_NOTICE_VERSION}");
+    for (body, expected_status, expected_message) in [
+        (
+            format!("csrf_token={csrf}&username={taken_username}&email={}&password=distinct-secret-value&confirm_password=distinct-secret-value&{legal}", urlencoding::encode(&email)),
+            StatusCode::CONFLICT,
+            "already exists",
+        ),
+        (
+            format!("csrf_token={csrf}&username=fresh_name&email=not-an-email&password=distinct-secret-value&confirm_password=distinct-secret-value&{legal}"),
+            StatusCode::BAD_REQUEST,
+            "valid format",
+        ),
+        (
+            format!("csrf_token={csrf}&username=fresh_name&email={}&password=distinct-secret-value&confirm_password=other-secret-value&{legal}", urlencoding::encode(&email)),
+            StatusCode::BAD_REQUEST,
+            "Passwords do not match",
+        ),
+    ] {
+        let mut request = desktop_registration_request(&cookie, &csrf, &email);
+        *request.body_mut() = Body::from(body);
+        let (status, html) = oneshot(&mut app, request).await;
+        assert_eq!(status, expected_status);
+        let html = String::from_utf8(html.to_vec()).unwrap();
+        assert!(html.contains(expected_message), "{expected_message}");
+        assert!(html.contains("<form method=\"post\""));
+        assert!(html.contains("checked"));
+        assert!(!html.contains("distinct-secret-value"));
+        assert!(!html.contains("code="));
+    }
+    // The pending context survives so the corrected form can still be submitted.
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pending_desktop_registrations WHERE cookie_hash=$1",
+    )
+    .bind(&hash)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(pending, 1);
+    let (status, html) = oneshot(
+        &mut app,
+        desktop_registration_request(&cookie, &csrf, &email),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8(html.to_vec())
+        .unwrap()
+        .contains("voxpery://auth/social?code="));
+}
+
+#[tokio::test]
+async fn desktop_registration_enforces_captcha_and_shared_registration_limits() {
+    let (app, mut state) = setup_app().await;
+    drop(app);
+    let config = Arc::get_mut(&mut state).unwrap();
+    config.turnstile_secret_key = Some(test_credential("turnstile").into());
+    config.turnstile_site_key = Some("test-public-site-key".into());
+    let mut app = build_app(state.clone(), state.cors_origins.clone());
+    let (cookie, csrf, _, _) = desktop_registration_fixture(&app, &state, "voxpery://auth").await;
+    let email = format!("{}@example.test", Uuid::new_v4());
+    let (status, html) = oneshot(
+        &mut app,
+        desktop_registration_request(&cookie, &csrf, &email),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let html = String::from_utf8(html.to_vec()).unwrap();
+    assert!(html.contains("CAPTCHA token is required"));
+    assert!(html.contains(&format!("value=\"{email}\"")));
+    assert!(html.contains("<button type=submit disabled>"));
+    assert!(html.contains("registration-captcha-retry"));
+    assert!(html.contains("CAPTCHA loading timed out"));
+    assert!(html.contains("<script nonce=\""));
+    for _ in 1..state.auth_rate_limit_max {
+        voxpery_server::services::rate_limit::enforce_rate_limit(
+            &state.redis,
+            format!("auth:register:{email}"),
+            state.auth_rate_limit_max,
+            std::time::Duration::from_secs(state.auth_rate_limit_window_secs),
+            "Test registration limit",
+        ).await.unwrap();
+    }
+    let (status, html) = oneshot(
+        &mut app,
+        desktop_registration_request(&cookie, &csrf, &email),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    // Rate limits keep the user on the same form instead of a raw JSON error.
+    let html = String::from_utf8(html.to_vec()).unwrap();
+    assert!(html.contains("Too many register attempts"));
+    assert!(html.contains("name=\"csrf_token\""));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email=$1")
+        .bind(email)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn desktop_exchange_rejects_wrong_pkce_and_expired_codes() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let (mut app, state) = setup_app().await;
+    let email = format!("{}@example.test", Uuid::new_v4());
+    let username = format!("exchange_{}", &Uuid::new_v4().simple().to_string()[..20]);
+    let (token, _) = register_user(&mut app, &email, &username, test_credential("exchange")).await;
+    let verifier = "a".repeat(64);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let code = Uuid::new_v4().simple().to_string();
+    let mut redis = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    redis::cmd("SET")
+        .arg(format!("auth:oauth:desktop_code:{code}"))
+        .arg(json!({"token": token, "code_challenge": challenge}).to_string())
+        .arg("EX")
+        .arg(90)
+        .query_async::<()>(&mut redis)
+        .await
+        .unwrap();
+    assert_eq!(
+        oneshot(&mut app, desktop_exchange_request(&code, &"b".repeat(64)))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        oneshot(&mut app, desktop_exchange_request(&code, &verifier))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let expired = Uuid::new_v4().simple().to_string();
+    let key = format!("auth:oauth:desktop_code:{expired}");
+    redis::cmd("SET")
+        .arg(&key)
+        .arg(json!({"token": token, "code_challenge": challenge}).to_string())
+        .query_async::<()>(&mut redis)
+        .await
+        .unwrap();
+    redis::cmd("EXPIREAT")
+        .arg(&key)
+        .arg(1)
+        .query_async::<()>(&mut redis)
+        .await
+        .unwrap();
+    assert_eq!(
+        oneshot(&mut app, desktop_exchange_request(&expired, &verifier))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
 }

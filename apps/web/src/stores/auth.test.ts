@@ -129,6 +129,57 @@ describe('auth store persistence', () => {
     expect(useAuthStore.getState()).toMatchObject({ user: null, sessionState: 'ready' })
   })
 
+  it('surfaces a locked keyring and retries without treating it as signed out', async () => {
+    mocks.desktop.mockReturnValue(true)
+    mocks.getToken.mockRejectedValueOnce(new Error('SECURE_STORAGE_ERROR:Unlock the system keyring.'))
+      .mockResolvedValueOnce('secure-token')
+    mocks.session.mockResolvedValueOnce({ user, legal_consent: consent })
+    await useAuthStore.getState().restoreSession()
+    expect(useAuthStore.getState()).toMatchObject({ sessionState: 'error', sessionError: 'Unlock the system keyring.' })
+    expect(mocks.session).not.toHaveBeenCalled()
+    await useAuthStore.getState().restoreSession()
+    expect(useAuthStore.getState()).toMatchObject({ sessionState: 'ready', user })
+  })
+
+  it('does not commit a desktop login whose credential could not be stored', async () => {
+    mocks.desktop.mockReturnValue(true)
+    mocks.setToken.mockRejectedValueOnce(new Error('SECURE_STORAGE_ERROR:Unlock the system keyring.'))
+    await expect(useAuthStore.getState().setAuth('secret', user)).rejects.toThrow('SECURE_STORAGE_ERROR')
+    expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'error' })
+    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBe('1')
+  })
+
+  it('does not restore an undeleted token after a failed logout and restart', async () => {
+    mocks.desktop.mockReturnValue(true)
+    localStorage.setItem('voxpery-desktop-logout-pending', '1')
+    mocks.getToken.mockResolvedValueOnce('old-token').mockResolvedValueOnce('old-token')
+    mocks.removeToken.mockRejectedValueOnce(new Error('SECURE_STORAGE_ERROR:Unlock the system keyring.'))
+    await useAuthStore.getState().restoreSession()
+    expect(mocks.session).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().sessionState).toBe('error')
+    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBe('1')
+    await useAuthStore.getState().restoreSession()
+    expect(mocks.logout).toHaveBeenCalledWith('old-token')
+    expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'ready' })
+    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBeNull()
+  })
+
+  it('queues logout after an unfinished credential write and prevents late login', async () => {
+    mocks.desktop.mockReturnValue(true)
+    let finish!: () => void
+    mocks.setToken.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    mocks.getToken.mockResolvedValueOnce('old-token')
+    const login = useAuthStore.getState().setAuth('old-token', user)
+    const cancelled = expect(login).rejects.toThrow('cancelled')
+    await vi.waitFor(() => expect(mocks.setToken).toHaveBeenCalled())
+    useAuthStore.getState().logout()
+    finish()
+    await cancelled
+    await vi.waitFor(() => expect(useAuthStore.getState().loggingOut).toBe(false))
+    expect(mocks.removeToken).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'ready' })
+  })
+
   it('ignores secure-storage reads that finish after logout', async () => {
     mocks.desktop.mockReturnValue(true)
     let finish!: (token: string) => void

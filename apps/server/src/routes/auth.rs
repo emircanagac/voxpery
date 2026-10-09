@@ -43,6 +43,8 @@ use crate::{
     AppState,
 };
 
+#[path = "desktop_registration.rs"]
+mod desktop_registration;
 #[path = "google_registration.rs"]
 mod google_registration;
 
@@ -978,15 +980,97 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/google/desktop-exchange",
             post(google_oauth_desktop_exchange),
         )
+        .route("/desktop-exchange", post(desktop_auth_exchange))
         .route("/google/callback", get(google_oauth_callback))
         .route("/legal-documents", get(public_legal_documents))
         .route(
             "/google/registration",
             get(google_registration::show).post(google_registration::complete),
         )
+        .route(
+            "/desktop-registration",
+            get(desktop_registration::show).post(desktop_registration::complete),
+        )
         .route("/email/confirm", post(confirm_email_verification))
         .merge(legal_exempt)
         .merge(protected)
+}
+
+async fn validate_registration_captcha(
+    state: &AppState,
+    token: Option<&str>,
+    client_ip: Option<&str>,
+) -> Result<(), AppError> {
+    if let Some(secret_key) = &state.turnstile_secret_key {
+        let token = token.unwrap_or("");
+        if token.is_empty() {
+            return Err(AppError::Validation("CAPTCHA token is required".into()));
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| AppError::Internal("Could not initialize CAPTCHA verification".into()))?;
+        let mut verify_form = vec![
+            ("secret", secret_key.to_string()),
+            ("response", token.to_string()),
+        ];
+        if let Some(ip) = client_ip {
+            verify_form.push(("remoteip", ip.to_string()));
+        }
+        let res = client
+            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+            .form(&verify_form)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("Turnstile verify request failed: {}", e);
+                AppError::Validation(
+                    "CAPTCHA verification service is temporarily unavailable. Please try again."
+                        .into(),
+                )
+            })?;
+
+        #[derive(serde::Deserialize)]
+        struct TurnstileResponse {
+            success: bool,
+            #[serde(default)]
+            error_codes: Vec<String>,
+        }
+
+        let status = res.status();
+        let raw = res.text().await.map_err(|e| {
+            tracing::warn!("Turnstile verify response read failed: {}", e);
+            AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            )
+        })?;
+
+        if !status.is_success() {
+            tracing::warn!("Turnstile verify non-success status: {}", status);
+            return Err(AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            ));
+        }
+
+        let verify_result = serde_json::from_str::<TurnstileResponse>(&raw).map_err(|e| {
+            tracing::warn!("Turnstile verify JSON parse failed: {}", e);
+            AppError::Validation(
+                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
+            )
+        })?;
+
+        if !verify_result.success {
+            tracing::warn!(
+                "Turnstile verification failed for register request: {:?}",
+                verify_result.error_codes
+            );
+            return Err(AppError::Validation(
+                "CAPTCHA verification failed. Please retry the challenge.".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// POST /api/auth/register
@@ -1045,73 +1129,8 @@ async fn register(
         .await?;
     }
 
-    // 3) CAPTCHA validation (if configured)
-    if let Some(secret_key) = &state.turnstile_secret_key {
-        let token = body.captcha_token.as_deref().unwrap_or("");
-        if token.is_empty() {
-            return Err(AppError::Validation("CAPTCHA token is required".into()));
-        }
-
-        let client = reqwest::Client::new();
-        let mut verify_form = vec![
-            ("secret", secret_key.to_string()),
-            ("response", token.to_string()),
-        ];
-        if let Some(ip) = client_ip.as_deref() {
-            verify_form.push(("remoteip", ip.to_string()));
-        }
-        let res = client
-            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-            .form(&verify_form)
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::warn!("Turnstile verify request failed: {}", e);
-                AppError::Validation(
-                    "CAPTCHA verification service is temporarily unavailable. Please try again."
-                        .into(),
-                )
-            })?;
-
-        #[derive(serde::Deserialize)]
-        struct TurnstileResponse {
-            success: bool,
-            #[serde(default)]
-            error_codes: Vec<String>,
-        }
-
-        let status = res.status();
-        let raw = res.text().await.map_err(|e| {
-            tracing::warn!("Turnstile verify response read failed: {}", e);
-            AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            )
-        })?;
-
-        if !status.is_success() {
-            tracing::warn!("Turnstile verify non-success status: {}", status);
-            return Err(AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            ));
-        }
-
-        let verify_result = serde_json::from_str::<TurnstileResponse>(&raw).map_err(|e| {
-            tracing::warn!("Turnstile verify JSON parse failed: {}", e);
-            AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            )
-        })?;
-
-        if !verify_result.success {
-            tracing::warn!(
-                "Turnstile verification failed for register request: {:?}",
-                verify_result.error_codes
-            );
-            return Err(AppError::Validation(
-                "CAPTCHA verification failed. Please retry the challenge.".into(),
-            ));
-        }
-    }
+    validate_registration_captcha(&state, body.captcha_token.as_deref(), client_ip.as_deref())
+        .await?;
 
     // Validate input
     let username = body.username.trim();
@@ -1646,17 +1665,26 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
             &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
             &jsonwebtoken::Validation::default(),
         ) {
-            let _ = crate::services::jwt_blacklist::blacklist_until_exp(
+            if crate::services::jwt_blacklist::blacklist_until_exp(
                 &state.redis,
                 &token,
                 data.claims.exp,
             )
-            .await;
+            .await
+            .is_err()
+            {
+                // Do not claim logout succeeded while the bearer token remains valid.
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({ "error": "Could not revoke the session. Please try again." })),
+                )
+                    .into_response();
+            }
         }
     }
 
     let headers = clear_auth_cookie_header(&state);
-    (StatusCode::OK, headers, Json(serde_json::json!({})))
+    (StatusCode::OK, headers, Json(serde_json::json!({}))).into_response()
 }
 
 /// Query for GET /api/auth/google
@@ -1822,6 +1850,14 @@ async fn google_oauth_desktop_exchange(
         ));
     }
 
+    desktop_auth_exchange(State(state), Json(body)).await
+}
+
+/// Exchange any PKCE-bound desktop handoff, independently of OAuth configuration.
+async fn desktop_auth_exchange(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<GoogleOAuthDesktopExchangeRequest>,
+) -> Result<Json<AuthResponse>, AppError> {
     let code = body.code.trim();
     if code.len() != 32 || !code.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::Validation("Invalid desktop OAuth code".into()));

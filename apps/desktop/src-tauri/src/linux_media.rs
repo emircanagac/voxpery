@@ -6,22 +6,33 @@ fn is_trusted_media_origin(uri: &str) -> bool {
     let Ok(url) = tauri::Url::parse(uri) else {
         return false;
     };
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
 
-    (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-        || (url.scheme() == "https" && url.host_str() == Some("tauri.localhost"))
+    (url.scheme() == "tauri" && url.host_str() == Some("localhost") && url.port().is_none())
+        || (url.scheme() == "https"
+            && url.host_str() == Some("tauri.localhost")
+            && url.port().is_none())
         || (cfg!(debug_assertions)
             && url.scheme() == "http"
             && url.host_str() == Some("localhost")
             && url.port() == Some(5173))
 }
 
-pub fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
-    window.with_webview(|platform_webview| {
+pub fn configure(window: &tauri::WebviewWindow, initial_uri: String) -> tauri::Result<()> {
+    window.with_webview(move |platform_webview| {
         let webview = platform_webview.inner();
 
         if let Some(settings) = WebViewExt::settings(&webview) {
             settings.set_enable_webrtc(true);
             settings.set_enable_media_stream(true);
+        }
+        if let Some(parent) = webview
+            .toplevel()
+            .and_then(|widget| widget.downcast::<gtk::Window>().ok())
+        {
+            parent.set_icon_name(Some("voxpery-desktop"));
         }
 
         let microphone_approved = Rc::new(Cell::new(false));
@@ -79,6 +90,9 @@ pub fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
             dialog.show_all();
             true
         });
+        // Both settings and permission handling must exist before the first app document.
+        // A build without WebRTC still cannot be repaired by runtime settings.
+        webview.load_uri(&initial_uri);
     })
 }
 
@@ -93,5 +107,8 @@ mod tests {
         assert!(!is_trusted_media_origin("https://example.com/"));
         assert!(!is_trusted_media_origin("tauri://localhost.evil.test/"));
         assert!(!is_trusted_media_origin("invalid"));
+        assert!(!is_trusted_media_origin("tauri://user@localhost/"));
+        assert!(!is_trusted_media_origin("tauri://localhost:4444/"));
+        assert!(!is_trusted_media_origin("https://tauri.localhost:4444/"));
     }
 }

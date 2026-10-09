@@ -1146,10 +1146,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         } else if (isCurrentAttempt()) {
           setJoinFailure(null)
           const rawMessage = err instanceof Error ? err.message : 'Failed to join voice'
-          if (lastShownErrorRef.current !== rawMessage) {
-            lastShownErrorRef.current = rawMessage
-            pushToast(classifyVoiceError(rawMessage))
-          }
+          // Explicit retries must report failure again; the toast store merges visible duplicates.
+          lastShownErrorRef.current = rawMessage
+          pushToast(classifyVoiceError(rawMessage))
         } else if (generation === joinGenerationRef.current) {
           setJoinFailure(null)
         }
@@ -1602,7 +1601,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         <p>{joinFailure.message}</p>
         <div className="legal-consent-actions">
           <button type="button" className="btn btn-primary" disabled={preflightPending || state.isJoining}
-            onClick={() => void joinWithPreflight(joinFailure.channelId).catch(() => {})}>Try again</button>
+            onClick={() => { void joinWithPreflight(joinFailure.channelId).catch(() => {}) }}>Try again</button>
           {canOpenDesktopMediaPermissionSettings() && <button type="button" className="btn btn-secondary"
             onClick={() => void openDesktopMediaPermissionSettings('microphone')}>Open settings</button>}
           <button type="button" className="btn btn-secondary" onClick={() => { joinGenerationRef.current++; setJoinFailure(null); setPreflightPending(false) }}>Cancel</button>

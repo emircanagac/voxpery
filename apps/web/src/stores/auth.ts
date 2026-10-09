@@ -18,7 +18,7 @@ interface AuthState {
     legalConsent: LegalConsentStatus | null
     restoreSession: () => Promise<void>
     setLegalConsent: (status: LegalConsentStatus | null, userId: string, token: string | null) => void
-    setAuth: (token: string, user: UserPublic) => void
+    setAuth: (token: string, user: UserPublic) => Promise<void>
     setUser: (user: UserPublic) => void
     setUserStatus: (status: UserPublic['status']) => void
     clearSession: () => void
@@ -26,6 +26,8 @@ interface AuthState {
 }
 
 const AUTH_STORAGE_KEY = 'voxpery-auth'
+// A non-secret logout tombstone prevents restoring an undeleted credential after restart.
+const DESKTOP_LOGOUT_PENDING = 'voxpery-desktop-logout-pending'
 
 type SetState = (partial: Partial<AuthState> | ((s: AuthState) => Partial<AuthState>)) => void
 type GetState = () => AuthState
@@ -33,7 +35,18 @@ type GetState = () => AuthState
 const authSlice = (set: SetState, get: GetState): AuthState => {
     let generation = 0
     let pending: { generation: number; task: Promise<void> } | null = null
+    let desktopTask: Promise<void> = Promise.resolve()
     const invalidate = () => { generation++; pending = null }
+    const onDesktopQueue = (operation: () => Promise<void>) => {
+        const task = desktopTask.then(operation)
+        desktopTask = task.catch(() => {})
+        return task
+    }
+    const cleanupDesktopSession = async (revoke = true) => {
+        const storedToken = await getSecureToken()
+        if (revoke && storedToken) await authApi.logout(storedToken)
+        await removeSecureToken()
+    }
     return {
         token: null,
         user: null,
@@ -49,6 +62,14 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             const task = (async () => {
                 try {
                     const desktop = isTauri()
+                    if (desktop && localStorage.getItem(DESKTOP_LOGOUT_PENDING)) {
+                        await onDesktopQueue(cleanupDesktopSession)
+                        if (request === generation) {
+                            localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                            set({ token: null, user: null, sessionState: 'ready', sessionError: null })
+                        }
+                        return
+                    }
                     const token = desktop ? get().token ?? await getSecureToken() : null
                     if (request !== generation) return
                     if (desktop && !token) {
@@ -79,16 +100,28 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
         setLegalConsent: (status, userId, token) => {
             if (get().user?.id === userId && get().token === token) set({ legalConsent: status })
         },
-        setAuth: (token: string, user: UserPublic) => {
+        setAuth: async (token: string, user: UserPublic) => {
             invalidate()
-            set({ legalConsent: null, sessionState: 'idle', sessionError: null, loggingOut: false })
+            const request = generation
             if (isTauri()) {
-                set({ token, user })
-                setSecureToken(token).catch(() => { })
-            } else {
-                // Web: keep token only in memory; persistence relies on httpOnly cookie session.
-                set({ token, user })
+                set({ sessionState: 'loading', sessionError: null, legalConsent: null })
+                try {
+                    await onDesktopQueue(async () => {
+                        if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
+                        if (localStorage.getItem(DESKTOP_LOGOUT_PENDING)) await cleanupDesktopSession()
+                        localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                        await setSecureToken(token)
+                        if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
+                        localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                    })
+                    if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
+                } catch (error) {
+                    if (request === generation) set({ token: null, user: null, sessionState: 'error', sessionError: getAuthErrorMessage(error).message })
+                    throw error
+                }
             }
+            // Web tokens remain in memory; desktop commits only after the keyring write succeeds.
+            set({ token, user, legalConsent: null, sessionState: 'idle', sessionError: null, loggingOut: false })
         },
         setUser: (user: UserPublic) => {
             if (get().user?.id !== user.id) {
@@ -103,8 +136,14 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             })),
         clearSession: () => {
             invalidate()
+            const request = generation
             if (isTauri()) {
-                removeSecureToken().catch(() => { })
+                localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                void onDesktopQueue(removeSecureToken).then(() => {
+                    if (request === generation) localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                }).catch(error => {
+                    if (request === generation) set({ sessionState: 'error', sessionError: getAuthErrorMessage(error).message })
+                })
             }
             set({ loggingOut: false, token: null, user: null, legalConsent: null, sessionState: 'ready', sessionError: null })
         },
@@ -114,9 +153,19 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             const request = generation
             set({ legalConsent: null, sessionState: 'ready', sessionError: null })
             if (isTauri()) {
-                removeSecureToken().catch(() => { })
-                set({ token: null, user: null })
-                authApi.logout(currentToken).catch(() => { })
+                localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                set({ token: null, user: null, loggingOut: true })
+                void onDesktopQueue(async () => {
+                    if (currentToken) await authApi.logout(currentToken)
+                    await cleanupDesktopSession(false)
+                }).then(() => {
+                    if (request === generation) {
+                        localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                        set({ loggingOut: false })
+                    }
+                }).catch(error => {
+                    if (request === generation) set({ loggingOut: false, sessionState: 'error', sessionError: getAuthErrorMessage(error).message })
+                })
             } else {
                 // Clear state immediately so UI shows login without delay. Set loggingOut so App
                 // skips restoring session from cookie. Clear cookie in background.

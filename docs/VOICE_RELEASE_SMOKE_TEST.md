@@ -40,6 +40,7 @@ The goal is to verify the real user path, not every implementation detail. Run t
 - [ ] On web and desktop, voice ping starts in the measuring state, uses a real backend WebSocket RTT while RTC settles, and switches to the selected ICE path only after stable samples; joining another channel or reconnecting never flashes a stale or implausible `1 ms` value.
 - [ ] With opt-in voice diagnostics enabled, record repeated cold and warm join timings on real web and desktop clients. Compare microphone, processing, token, TURN, connection, and publication stages; do not claim a speedup from diagnostic-only changes.
 - [ ] User B leaves and User A hears a leave cue that is clearly different from the join cue.
+- [ ] With both users in voice, briefly interrupt B's network and restore it within three seconds: A hears no leave/rejoin cue. Keep B disconnected longer than three seconds: A hears one delayed leave cue and one join cue when B returns. An explicit leave still sounds immediately. Repeat while A's own room reconnects; snapshot rebuilds must remain silent.
 - [ ] Rejoining the same channel does not leave duplicate participants or stale voice controls.
 - [ ] With 3-5 members in one channel, every member can hear every other microphone; reconnecting one member restores all expected subscriptions without duplicate or missing audio.
 - [ ] If Web Audio processing is unavailable for one remote source, that participant remains audible through direct `MediaStream` playback and the other participants remain unaffected.

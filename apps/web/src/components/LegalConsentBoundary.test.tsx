@@ -166,7 +166,9 @@ describe('LegalConsentBoundary', () => {
       .mockImplementationOnce(() => new Promise(() => {}))
     renderBoundary()
     await screen.findByText('Protected application')
-    act(() => useAuthStore.getState().setAuth('another-token', { ...useAuthStore.getState().user!, id: 'another-user' }))
+    await act(async () => {
+      await useAuthStore.getState().setAuth('another-token', { ...useAuthStore.getState().user!, id: 'another-user' })
+    })
     expect(screen.queryByText('Protected application')).not.toBeInTheDocument()
   })
 

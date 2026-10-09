@@ -27,7 +27,6 @@ export default function VerifyEmailPage() {
   const navigate = useNavigate()
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
-  const setAuth = useAuthStore((s) => s.setAuth)
   const setUser = useAuthStore((s) => s.setUser)
   const verifyToken = useMemo(() => new URLSearchParams(location.search).get('token')?.trim() ?? '', [location.search])
   const authRef = useRef({ token, user })
@@ -61,8 +60,7 @@ export default function VerifyEmailPage() {
           try {
             const freshUser = await authApi.getMe(currentToken ?? null)
             if (cancelled) return
-            if (currentToken) setAuth(currentToken, freshUser)
-            else setUser(freshUser)
+            setUser(freshUser)
           } catch {
             // Keep success UX even if session refresh fails transiently.
           }
@@ -82,8 +80,7 @@ export default function VerifyEmailPage() {
           authApi.getMe(currentToken ?? null)
             .then((freshUser) => {
               if (cancelled) return
-            if (currentToken) setAuth(currentToken, freshUser)
-            else setUser(freshUser)
+            setUser(freshUser)
 
             if (freshUser.email_verified) {
                 setVerificationState({
@@ -125,7 +122,7 @@ export default function VerifyEmailPage() {
       cancelled = true
       if (redirectTimeout != null) window.clearTimeout(redirectTimeout)
     }
-  }, [navigate, setAuth, setUser, verifyToken])
+  }, [navigate, setUser, verifyToken])
 
   return (
     <main className="auth-page">

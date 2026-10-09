@@ -4,7 +4,7 @@ import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
-import { isTauri, setSecureToken } from '../secureStorage'
+import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
@@ -82,11 +82,9 @@ export default function LoginPage() {
 
         try {
             const res = await authApi.login(identifier, password)
-            setAuth(res.token, res.user)
+            await setAuth(res.token, res.user)
             setActiveDmChannelId(null)
             setPersistedSocialView('friends')
-            // Desktop: also save to secure storage
-            if (isTauri()) await setSecureToken(res.token)
             navigate(resolvePostAuthRoute(redirectTo))
         } catch (err: unknown) {
             const { message, code } = getAuthErrorMessage(err)

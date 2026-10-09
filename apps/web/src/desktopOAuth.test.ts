@@ -26,8 +26,7 @@ describe('desktop OAuth deep links', () => {
 
   it('exchanges a valid startup code once and navigates to the requested app route', async () => {
     const exchangeCode = vi.fn().mockResolvedValue({ token: 'desktop-token', user })
-    const setAuth = vi.fn()
-    const persistToken = vi.fn().mockResolvedValue(undefined)
+    const setAuth = vi.fn().mockResolvedValue(undefined)
     const clearCodeVerifier = vi.fn()
     const navigate = vi.fn()
     const onObservabilityEvent = vi.fn()
@@ -36,7 +35,6 @@ describe('desktop OAuth deep links', () => {
       clearCodeVerifier,
       exchangeCode,
       setAuth,
-      persistToken,
       navigate,
       onObservabilityEvent,
     })
@@ -48,7 +46,6 @@ describe('desktop OAuth deep links', () => {
     expect(exchangeCode).toHaveBeenCalledTimes(1)
     expect(exchangeCode).toHaveBeenCalledWith(code, 'pkce-verifier')
     expect(setAuth).toHaveBeenCalledWith('desktop-token', user)
-    expect(persistToken).toHaveBeenCalledWith('desktop-token')
     expect(clearCodeVerifier).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledWith('/servers')
     expect(onObservabilityEvent.mock.calls).toEqual([
@@ -66,7 +63,6 @@ describe('desktop OAuth deep links', () => {
       clearCodeVerifier: vi.fn(),
       exchangeCode: vi.fn(),
       setAuth: vi.fn(),
-      persistToken: vi.fn(),
       navigate,
       onError,
       onObservabilityEvent,
@@ -80,6 +76,20 @@ describe('desktop OAuth deep links', () => {
       ['desktop_oauth_return_received'],
       ['desktop_oauth_return_failed'],
     ])
+  })
+
+  it('does not report success or navigate into the app before secure persistence', async () => {
+    const navigate = vi.fn()
+    const events = vi.fn()
+    const handler = createDesktopOAuthDeepLinkHandler({
+      getCodeVerifier: () => 'pkce-verifier', clearCodeVerifier: vi.fn(),
+      exchangeCode: vi.fn().mockResolvedValue({ token: 'desktop-token', user }),
+      setAuth: vi.fn().mockRejectedValue(new Error('SECURE_STORAGE_ERROR:Unlock the keyring.')),
+      navigate, onObservabilityEvent: events,
+    })
+    await handler(`voxpery://auth/servers?code=${code}`)
+    expect(navigate).toHaveBeenCalledWith('/login?error=oauth_failed&redirect=%2Fservers')
+    expect(events).not.toHaveBeenCalledWith('desktop_oauth_return_succeeded')
   })
 
   it('registers runtime listeners and processes the cold-start URL from getCurrent', async () => {

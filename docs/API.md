@@ -47,7 +47,9 @@ Important behavior:
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
+  - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it expires; if revocation cannot be stored the endpoint returns `503` and keeps the session cookie, so clients never report a logout while the token remains valid. Desktop clients retry the revocation on the next start before restoring a session.
 - `GET /api/auth/me`
+  - The authenticated user includes `created_at` for the own-profile membership date. This field is not added to the WebSocket broadcast profile.
 - `GET /api/auth/session`
   - Authenticated startup snapshot: `{ user: UserPublic, legal_consent: { required, current_terms_version, current_privacy_notice_version, current_kvkk_notice_version } }`. Supports the web cookie and desktop Bearer token, returns `Cache-Control: no-store`, and never records acknowledgement.
   - Available even when acknowledgement is missing so the client can display the form. Missing/revoked credentials return `401`; protected application routes retain their independent legal gate. `/me` keeps its existing response for compatibility.
@@ -77,6 +79,12 @@ Important behavior:
 - `POST /api/auth/google/registration`
   - Form-encoded current document versions, three explicit acknowledgements, and a pending-context CSRF token. Account creation, privacy audit, and pending consumption are atomic. Invalid acknowledgements retain the form; stale versions reset its selections. Expired or replayed context cannot create an account.
   - Success sets the web auth cookie or returns a single-use, PKCE-bound desktop exchange code. Verified Google identity, JWTs, and pending handles are not placed in redirect URLs.
+- `GET /api/auth/desktop-registration`
+- `POST /api/auth/desktop-registration`
+  - Desktop email registration is hosted in the browser because Linux `tauri://localhost` is not a supported Turnstile origin. The form binds a short-lived HttpOnly cookie, CSRF token, and PKCE challenge; after legal/CAPTCHA validation it returns only a one-time `voxpery://auth` code. JWT and CAPTCHA tokens are never placed in the URL.
+  - No web auth cookie is issued by email desktop registration. It uses the normal email/IP registration limits and Siteverify validation. Fixable submission errors (taken username/email, invalid fields, password mismatch, CAPTCHA, rate limits) re-render the same form with an error and the entered username/email; passwords are never echoed. Only `voxpery://auth` is an accepted return origin.
+- `POST /api/auth/desktop-exchange`
+  - Provider-independent `{ "code": "...", "code_verifier": "..." }` exchange for desktop email/Google handoffs. Codes expire after 90 seconds and are consumed atomically; wrong PKCE, replay, expired/revoked JWTs and obsolete token versions fail closed. This endpoint does not require Google OAuth to be enabled. The older Google-specific exchange route remains feature-gated for compatibility.
 - `POST /api/auth/data-export`
   - Password accounts must submit `{ "password": "..." }`; Google-only accounts require a Google-authenticated session issued within the last 10 minutes.
   - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files.
@@ -127,6 +135,8 @@ Notes:
 
 ### Onboarding
 
+- New servers start with a disabled, empty welcome guide. Administrators select recommended channels and enable it explicitly; members can dismiss it locally. Recommendations follow channel IDs: renaming is reflected, deleted or inaccessible channels are omitted, and newly created channels are not added automatically. Existing guide preferences are unchanged.
+
 - `GET /api/servers/:server_id/onboarding` (requires `VIEW_SERVER`)
   - Returns the server welcome guide, including enabled state, intro copy, starter tasks, and recommended channel IDs.
   - The web client displays a compact, wrapping guide. An `Introduce yourself` task is combined with the first available recommended text-channel action; other tasks and custom copy are preserved. This presentation does not change the API payload.
@@ -134,6 +144,7 @@ Notes:
   - Body: `{ "enabled": true, "title": "Welcome", "body": "Start here", "recommended_channel_ids": ["uuid"], "starter_tasks": ["Read the rules"] }`
   - Limits: title 80 chars, body 1000 chars, up to 6 recommended channels, up to 6 starter tasks of 120 chars each.
   - Recommended channels must belong to the same server.
+  - The welcome guide editor supports both text and voice channels, with distinct type icons even when their names match.
 
 ### Roles
 

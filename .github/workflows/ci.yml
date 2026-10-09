@@ -148,6 +148,9 @@ jobs:
         working-directory: apps/web
         run: npm run test:run
 
+      - name: Repository regression scripts
+        run: node --test scripts/tests/*.test.mjs
+
       - name: Install Playwright browsers
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
@@ -177,6 +180,87 @@ jobs:
         working-directory: apps/web
         run: npm run check:initial-bundle
 
+  desktop:
+    name: Checks / Desktop
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Always reports a result so the check can stay required; the build only runs when
+      # desktop-relevant files change, and always for tags and manual runs.
+      - name: Detect desktop changes
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE"
+          elif [ "$EVENT_NAME" = "push" ] && [[ "$GIT_REF" != refs/tags/* ]]; then
+            base="$PUSH_BEFORE"
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "$base" HEAD | grep -E '^(apps/desktop/|\.github/workflows/ci\.yml$|\.github/scripts/validate-linux-launchers|scripts/dev/local-qa-config)'; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Desktop sources are unchanged; skipping desktop build checks."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Linux dependencies
+        if: steps.changes.outputs.desktop == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node
+        if: steps.changes.outputs.desktop == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Test Linux launchers
+        if: steps.changes.outputs.desktop == 'true'
+        run: node --test .github/scripts/validate-linux-launchers.test.mjs scripts/dev/local-qa-config.test.mjs
+
+      - name: Setup Rust
+        if: steps.changes.outputs.desktop == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        if: steps.changes.outputs.desktop == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      # Tauri embeds frontendDist at compile time; a placeholder keeps this job independent of the web build.
+      - name: Prepare placeholder frontend
+        if: steps.changes.outputs.desktop == 'true'
+        run: |
+          mkdir -p apps/web/dist
+          echo '<!doctype html><title>Voxpery</title>' > apps/web/dist/index.html
+
+      - name: Check
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop/src-tauri
+        run: cargo check --locked
+
+      - name: Test
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --locked
+
   docker_publish:
     name: ${{ matrix.component == 'backend' && 'Publish / Docker Backend' || 'Publish / Docker Frontend' }}
     needs:
@@ -184,6 +268,7 @@ jobs:
       - release_metadata
       - backend
       - frontend
+      - desktop
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))

@@ -60,9 +60,9 @@ Screen-share tiles carry an explicit `screen` media kind and use `object-fit: co
 
 - `TrackSubscribed`: Remote peer published audio/video -> add to `remoteStreams`
 - `TrackUnsubscribed`: Remote peer unpublished -> remove from `remoteStreams`
-- `ParticipantConnected`: New user joined -> play a distinct rising join cue
-- `ParticipantDisconnected`: User left -> play a distinct descending leave cue, cleanup
-- `Reconnecting`/`Reconnected`: Network blip -> re-subscribe tracks, refresh stats
+- `ParticipantConnected`: A new participant identity plays a rising join cue; the initial room snapshot and reconnect snapshot stay silent.
+- `ParticipantDisconnected`: An explicit leave or removal plays a descending leave cue immediately. A network-related or unknown departure waits three seconds; returning with the same identity cancels both transition cues. Media and presence cleanup still happen immediately.
+- `Reconnecting`/`Reconnected`: Suspend pending participant cues, re-subscribe tracks, refresh stats, and silently hydrate the current membership snapshot.
 - `Disconnected`: Final media disconnect -> clear local voice state; rejoining requires an explicit user action (never automatically bypass revocation).
 
 ### Mobile Browser Lifecycle
@@ -295,6 +295,10 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 - Display capture requests selected-window audio for window shares, excludes Voxpery's own call playback and browser surface where supported, and lets the native picker expose broader system-audio capture only for surfaces where the runtime supports it. Voxpery never substitutes whole-system audio when selected-window audio is unavailable.
 - Publishing is rollback-safe: if any selected screen track fails to publish, already-published tracks from that attempt are unpublished and the local capture is stopped.
 - Opt-in voice diagnostics record requested and actual capture resolution/FPS, constraint application, screen-audio sample rate/channel count/content hint/publish profile, codec/scalability mode, simulcast state, outbound video resolution/FPS/bitrate/packet/quality-limitation samples, and actual screen-audio Opus bitrate/channel/packet samples without device identifiers.
+- Screen audio requests echo cancellation, noise suppression, and automatic gain control off, keeping the music/game source separate from microphone speech enhancement. Actual `getSettings()` values (including own-audio restriction/local playback) are recorded; unsupported settings remain unknown. This capture contract is not proof that it caused or resolved a reported volume dip.
+- With diagnostics enabled, an active screen-audio publication/subscription is sampled every 500 ms instead of the normal steady 2.5 seconds. `screenAudioHistory` keeps at most 240 samples from the last 60 seconds in memory: capture-source energy, source-matched receiver energy/loss/jitter/concealment, and interval RMS derived from energy deltas, not lifetime averages. Missing/reset counters remain unknown. `screenAudioPlayback` records only element volume/mute/pause/readiness and track enable/mute flags. Stream slots are anonymous and may change when publications change; track/participant identifiers, media, tokens and SDP are not exported or uploaded.
+- When diagnostics are enabled, the same history also includes short-lived `capture-pcm` and `receive-pcm` Web Audio RMS/minimum-level samples with a stream epoch and context state. The analyzer is connected through a zero-gain node, never records PCM, never replaces the track, and never creates an audible second output. Suspended/ended tracks remain unknown rather than being reported as silence.
+- Compare sender and viewer samples from the same steady music/game source with synchronized clocks, mic on/off and speaking/silent, system/tab capture, and browser/desktop pairs. A sender's normal local playback does not prove normal captured energy. Source-matching may be unavailable on some runtimes; missing diagnostics are not zero loss or silence. Two-user acceptance remains necessary before claiming shared-audio dips fixed.
 
 ### Remote Viewing Controls
 
@@ -349,7 +353,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 1. Check browser permissions (allow microphone)
 2. Verify device in OS settings
 3. Try another browser (Firefox, Chrome, Edge)
-4. Linux desktop: Voxpery enables WebRTC in WebKitGTK and asks for microphone access through a native dialog. Allow the request, then retry voice. If capture still fails, compare `getUserMedia({ audio: true })` in a browser on the same host and collect WebKitGTK/PipeWire logs; running portal services alone does not prove microphone capture is available.
+4. Linux desktop: Voxpery enables WebRTC/media-stream before the first app document and asks for microphone access through a native dialog. If LiveKit reports unsupported WebRTC, first inspect the installed app's `RTCPeerConnection` and track APIs and loaded WebKitGTK build; microphone permission cannot restore missing APIs. If APIs exist but capture fails, compare `getUserMedia({ audio: true })` in a browser on the same host and collect WebKitGTK/PipeWire logs. A working browser or portal services alone do not prove desktop voice works. See `DESKTOP_RELEASE_HARDENING.md` for pending runtime and package acceptance.
 
 ### Mic, camera, or screen-recording permission denied on desktop
 
@@ -373,6 +377,9 @@ The active call bar shows a compact voice quality indicator while connected. The
 - Reconnecting state shows a short warning and keeps the user in the channel while LiveKit/WebSocket state resyncs.
 - Poor internal quality does not show a proactive toast on its own; the compact indicator should stay calm unless the room is reconnecting.
 - Missing LiveKit configuration returns `FEATURE_DISABLED` from the token endpoint so the client can show a clear "voice service unavailable" message instead of a generic join failure.
+- Each explicit failed join retry reports its connection error again, even if an earlier identical toast was dismissed. The toast store merges identical notifications that are still visible; passive hook updates do not duplicate the same attempt's error. Repeated notification delivery does not imply that the underlying connection has recovered.
+- A disconnected application WebSocket shows `Voice service reconnecting`. An HTTP transport failure while preparing voice shows `Voice server unreachable`; these are distinct from LiveKit room signaling and media failures.
+- The join guard reads the current socket store after microphone preflight, not a render snapshot captured before a native permission wait. A disconnected active session can resume one connection attempt on explicit join; CONNECTING sockets are not duplicated and offline joins still fail. Logout and authentication-expired sockets cannot restart through this path.
 
 When debugging a production voice report, capture:
 

@@ -1,11 +1,14 @@
 import { Link, useLocation } from 'react-router'
+import { PUBLISHED_LEGAL_VERSION } from '../legal'
+import { ROUTES } from '../routes'
+import { usePublicPageMetadata } from './publicPageMetadata'
 
 const UPDATED_AT = '23 August 2026'
 
 function EnglishPrivacyNotice() {
   return <>
     <h1>Privacy Notice</h1>
-    <p><strong>Version:</strong> 2026-08-23 · <strong>Last updated:</strong> {UPDATED_AT}</p>
+    <p><strong>Version:</strong> {PUBLISHED_LEGAL_VERSION} · <strong>Last updated:</strong> {UPDATED_AT}</p>
     <p>This notice applies only to the official hosted service at voxpery.com. Self-hosted Voxpery operators are separate controllers and must publish their own notice.</p>
     <h2>Controller and contact</h2>
     <p>The hosted service is operated by Emircan Agac as an individual open-source project operator in Türkiye. Privacy requests can be sent to <a href="mailto:voxpery@gmail.com">voxpery@gmail.com</a>.</p>
@@ -34,7 +37,7 @@ function EnglishPrivacyNotice() {
 function TermsOfService() {
   return <>
     <h1>Terms of Service</h1>
-    <p><strong>Version:</strong> 2026-08-23 · <strong>Last updated:</strong> {UPDATED_AT}</p>
+    <p><strong>Version:</strong> {PUBLISHED_LEGAL_VERSION} · <strong>Last updated:</strong> {UPDATED_AT}</p>
     <p>These Terms govern the official hosted Voxpery service. The source code remains licensed separately under AGPL-3.0-only.</p>
     <h2>Eligibility and accounts</h2>
     <p>You must be legally able to accept these Terms and provide accurate account information. You are responsible for your credentials and activity. Do not use the service if local law requires parental or guardian approval that you do not have.</p>
@@ -45,7 +48,7 @@ function TermsOfService() {
     <h2>Moderation and availability</h2>
     <p>Content or accounts may be restricted when necessary for safety, law, security or service integrity. Voxpery is an early-stage volunteer-operated service provided without guaranteed uptime. Features may change, and the service may be suspended with reasonable notice where practical.</p>
     <h2>Privacy, termination and liability</h2>
-    <p>The Privacy Notice explains data processing. You may delete your account through Settings. To the maximum extent permitted by law, the service is provided as-is without warranties and the operator is not liable for indirect or consequential losses. Mandatory consumer rights remain unaffected.</p>
+    <p>The <Link to={ROUTES.privacy}>Privacy Notice</Link> explains data processing. You may delete your account through Settings. To the maximum extent permitted by law, the service is provided as-is without warranties and the operator is not liable for indirect or consequential losses. Mandatory consumer rights remain unaffected.</p>
     <h2>Contact</h2>
     <p>Questions about these Terms: <a href="mailto:voxpery@gmail.com">voxpery@gmail.com</a>.</p>
   </>
@@ -54,7 +57,7 @@ function TermsOfService() {
 function KvkkNotice() {
   return <>
     <h1>KVKK Aydınlatma Metni</h1>
-    <p><strong>Sürüm:</strong> 2026-08-23 · <strong>Son güncelleme:</strong> 23 Ağustos 2026</p>
+    <p><strong>Sürüm:</strong> {PUBLISHED_LEGAL_VERSION} · <strong>Son güncelleme:</strong> 23 Ağustos 2026</p>
     <p>Bu metin yalnız voxpery.com adresindeki resmî barındırılan hizmet için geçerlidir. Self-host kurulumların işletmecileri kendi veri işleme faaliyetlerinden sorumludur.</p>
     <h2>Veri sorumlusu ve iletişim</h2>
     <p>Barındırılan hizmetin veri sorumlusu, Türkiye'de bireysel açık kaynak proje işletmecisi olarak Emircan Agac'tır. İlgili kişi başvuruları <a href="mailto:voxpery@gmail.com">voxpery@gmail.com</a> adresine gönderilebilir.</p>
@@ -69,19 +72,54 @@ function KvkkNotice() {
   </>
 }
 
+const DOCUMENTS = [
+  {
+    path: ROUTES.terms,
+    label: 'Terms',
+    lang: 'en',
+    title: 'Terms of Service | Voxpery',
+    description: 'Terms of Service for the official hosted Voxpery service.',
+    Content: TermsOfService,
+  },
+  {
+    path: ROUTES.privacy,
+    label: 'Privacy',
+    lang: 'en',
+    title: 'Privacy Notice | Voxpery',
+    description: 'How the official hosted Voxpery service processes personal data.',
+    Content: EnglishPrivacyNotice,
+  },
+  {
+    path: ROUTES.kvkk,
+    label: 'KVKK',
+    lang: 'tr',
+    title: 'KVKK Aydınlatma Metni | Voxpery',
+    description: 'Voxpery barındırılan hizmeti için KVKK aydınlatma metni.',
+    Content: KvkkNotice,
+  },
+] as const
+
 export default function LegalPage() {
   const { pathname } = useLocation()
-  const content = pathname === '/terms'
-    ? <TermsOfService />
-    : pathname === '/kvkk'
-      ? <KvkkNotice />
-      : <EnglishPrivacyNotice />
+  const active = DOCUMENTS.find(doc => doc.path === pathname) ?? DOCUMENTS[1]
+  usePublicPageMetadata(active.path, active.title, active.description)
   return <main
     className="legal-page"
     tabIndex={0}
     aria-label="Hosted service legal information"
   >
-    <div className="legal-page-nav"><Link to="/">Voxpery</Link><span>Hosted service legal information</span></div>
-    <article className="legal-document">{content}</article>
+    <header className="legal-page-nav">
+      <Link to="/" className="legal-page-home">Voxpery</Link>
+      <nav className="legal-page-tabs" aria-label="Legal documents">
+        {DOCUMENTS.map(doc => (
+          <Link
+            key={doc.path}
+            to={doc.path}
+            aria-current={doc.path === active.path ? 'page' : undefined}
+          >{doc.label}</Link>
+        ))}
+      </nav>
+    </header>
+    <article className="legal-document" lang={active.lang}><active.Content /></article>
   </main>
 }

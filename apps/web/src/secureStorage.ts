@@ -4,6 +4,16 @@
  */
 
 const AUTH_TOKEN_KEY = 'voxpery-auth-token'
+let storageQueue: Promise<unknown> = Promise.resolve()
+
+function withSecureStorage<T>(operation: () => Promise<T>): Promise<T> {
+  // Preserve write/delete order even when a login finishes while logout is pending.
+  const task = storageQueue.then(operation).catch(() => {
+    throw new Error('SECURE_STORAGE_ERROR:Could not access the system keyring. Unlock it and try again.')
+  })
+  storageQueue = task.catch(() => {})
+  return task
+}
 
 declare global {
   interface Window {
@@ -38,7 +48,7 @@ async function getInvoke(): Promise<(cmd: string, args?: object) => Promise<unkn
 
 export async function getSecureToken(): Promise<string | null> {
   if (!isTauri()) return null
-  try {
+  return withSecureStorage(async () => {
     const invoke = await getInvoke()
     const out = await invoke('plugin:secure-storage|get_item', {
       payload: { prefixedKey: AUTH_TOKEN_KEY },
@@ -46,31 +56,25 @@ export async function getSecureToken(): Promise<string | null> {
     if (typeof out === 'string') return out || null
     const obj = out as { data?: string | null } | null
     return obj?.data ?? null
-  } catch {
-    return null
-  }
+  })
 }
 
 export async function setSecureToken(token: string): Promise<void> {
   if (!isTauri()) return
-  try {
+  return withSecureStorage(async () => {
     const invoke = await getInvoke()
     await invoke('plugin:secure-storage|set_item', {
       payload: { prefixedKey: AUTH_TOKEN_KEY, data: token },
     })
-  } catch {
-    // best-effort
-  }
+  })
 }
 
 export async function removeSecureToken(): Promise<void> {
   if (!isTauri()) return
-  try {
+  return withSecureStorage(async () => {
     const invoke = await getInvoke()
     await invoke('plugin:secure-storage|remove_item', {
       payload: { prefixedKey: AUTH_TOKEN_KEY },
     })
-  } catch {
-    // best-effort
-  }
+  })
 }

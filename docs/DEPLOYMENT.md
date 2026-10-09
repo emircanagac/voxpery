@@ -68,6 +68,7 @@ Attachments note:
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
+- Cloudflare Turnstile: set `TURNSTILE_SECRET_KEY` on the server and the public site key for the web build (`VITE_TURNSTILE_SITE_KEY`, passed as `TURNSTILE_SITE_KEY_PUBLIC` to the web image). Desktop email registration renders its CAPTCHA from the API, so the server environment must also contain the public site key as `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`). Prebuilt web images do not provide it to the server. With a secret key but no server-side site key, `/api/auth/desktop-registration` refuses to start registration.
 - Privacy-safe operational observability is disabled by default. Set `OBSERVABILITY_ENABLED=true`
   only when the deployment needs aggregate reliability counters; see
   [OBSERVABILITY.md](OBSERVABILITY.md) for the fixed event schema and retention policy.

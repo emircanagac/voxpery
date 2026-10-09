@@ -20,6 +20,7 @@ const channels: Channel[] = [
     channel_type: 'voice',
     category: 'General',
     position: 1,
+    my_permissions: 1 << 10,
   },
 ]
 
@@ -42,9 +43,9 @@ describe('ServerWelcomeGuide', () => {
     const onSelectChannel = vi.fn()
     const onDismiss = vi.fn()
     render(<ServerWelcomeGuide guide={{ ...guide, starter_tasks: ['Introduce yourself'], recommended_channel_ids: ['text-1'] }}
-      channels={channels} serverName="Voxpery" onSelectChannel={onSelectChannel} onDismiss={onDismiss} />)
+      channels={channels} serverName="Voxpery" onSelectChannel={onSelectChannel} onJoinVoice={vi.fn()} onDismiss={onDismiss} />)
     const action = screen.getByRole('button', { name: 'Open channel general' })
-    expect(action).toHaveTextContent('Introduce yourself in #general')
+    expect(action).toHaveTextContent('Introduce yourself in general')
     expect(screen.queryByText('Introduce yourself', { exact: true })).not.toBeInTheDocument()
     fireEvent.click(action)
     expect(onSelectChannel).toHaveBeenCalledWith('text-1')
@@ -54,7 +55,7 @@ describe('ServerWelcomeGuide', () => {
 
   it('keeps the introduction task if its recommended text channel is unavailable', () => {
     render(<ServerWelcomeGuide guide={{ ...guide, starter_tasks: ['Introduce yourself'], recommended_channel_ids: ['missing'] }}
-      channels={channels} serverName="Voxpery" onSelectChannel={vi.fn()} onDismiss={vi.fn()} />)
+      channels={channels} serverName="Voxpery" onSelectChannel={vi.fn()} onJoinVoice={vi.fn()} onDismiss={vi.fn()} />)
     expect(screen.getByText('Introduce yourself')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Open channel/ })).not.toBeInTheDocument()
   })
@@ -88,6 +89,7 @@ describe('ServerWelcomeGuide', () => {
 
   it('renders official community starter tasks and text/voice channel CTAs', () => {
     const onSelectChannel = vi.fn()
+    const onJoinVoice = vi.fn()
 
     render(
       <ServerWelcomeGuide
@@ -95,19 +97,34 @@ describe('ServerWelcomeGuide', () => {
         channels={channels}
         serverName="Voxpery"
         onSelectChannel={onSelectChannel}
+        onJoinVoice={onJoinVoice}
         onDismiss={vi.fn()}
       />,
     )
 
     expect(screen.getByRole('heading', { name: 'Welcome to the Voxpery Community' })).toBeInTheDocument()
-    expect(screen.getByText('Send your first message in #general')).toBeInTheDocument()
-    expect(screen.getByText('Join the General voice channel')).toBeInTheDocument()
-    expect(screen.getByText('Explore the open-source project on GitHub')).toBeInTheDocument()
+    expect(screen.getAllByText('Message general')).toHaveLength(1)
+    expect(screen.getAllByText('Join General')).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'View on GitHub' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Explore the open-source project on GitHub')).not.toBeInTheDocument()
+    expect(document.querySelectorAll('.server-welcome-guide__task')).toHaveLength(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open channel general' }))
     fireEvent.click(screen.getByRole('button', { name: 'Join voice channel General' }))
 
-    expect(onSelectChannel).toHaveBeenNthCalledWith(1, 'text-1')
-    expect(onSelectChannel).toHaveBeenNthCalledWith(2, 'voice-1')
+    expect(onSelectChannel).toHaveBeenCalledExactlyOnceWith('text-1')
+    expect(onJoinVoice).toHaveBeenCalledExactlyOnceWith('voice-1')
+  })
+
+  it('does not offer a voice join without connect permission', () => {
+    const onJoinVoice = vi.fn()
+    const lockedChannels = channels.map((channel) => channel.channel_type === 'voice'
+      ? { ...channel, my_permissions: 0 } : channel)
+    render(<ServerWelcomeGuide guide={guide} channels={lockedChannels} serverName="Voxpery"
+      onSelectChannel={vi.fn()} onJoinVoice={onJoinVoice} onDismiss={vi.fn()} />)
+    const voiceAction = screen.getByRole('button', { name: 'Join voice channel General' })
+    expect(voiceAction).toBeDisabled()
+    fireEvent.click(voiceAction)
+    expect(onJoinVoice).not.toHaveBeenCalled()
   })
 })

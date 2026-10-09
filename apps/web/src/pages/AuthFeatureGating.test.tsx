@@ -35,6 +35,7 @@ function renderWithFeatures(ui: ReactElement, features: SystemFeatures = disable
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   useFeatureStore.setState({ features: null, loading: false, error: null })
   window.localStorage.clear()
   delete (window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__
@@ -108,6 +109,24 @@ describe('auth feature gating', () => {
     expect(openedUrl).toContain('privacy_notice_acknowledged=true')
     expect(openedUrl).toContain('kvkk_notice_acknowledged=true')
     expect(openedUrl).toContain('kvkk_notice_version=2026-08-23')
+  })
+
+  it('hands desktop email registration to the browser-hosted form', async () => {
+    vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '0x-test-site-key')
+    ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    renderWithFeatures(<RegisterPage />)
+
+    await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeEnabled())
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    for (const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue in browser' }))
+
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledTimes(1))
+    const openedUrl = vi.mocked(openExternalUrl).mock.calls[0]?.[0] ?? ''
+    expect(openedUrl).toContain('/api/auth/desktop-registration?')
+    expect(openedUrl).toContain('origin=voxpery%3A%2F%2Fauth')
+    expect(openedUrl).toContain('code_challenge=')
+    expect(screen.queryByText('Turnstile')).not.toBeInTheDocument()
   })
 
   it('shows a disabled password reset message instead of the request form', () => {

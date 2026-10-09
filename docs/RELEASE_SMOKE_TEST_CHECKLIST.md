@@ -2,6 +2,16 @@
 
 ## v0.3.1 Auth And Media Fixes
 
+- [ ] Test browser, installed Ubuntu and installed CachyOS client pairs against the same candidate revision. Verify restored sessions, bidirectional audible voice, screen/system audio and reconnect. Repeat input/single-instance and keyring/error recovery on the final package; earlier candidate results are not release sign-off.
+- [ ] Confirm the production server `.env` contains the public `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`) alongside `TURNSTILE_SECRET_KEY`; otherwise desktop browser registration refuses to start.
+- [ ] Block the Cloudflare script: registration must show an error and Retry, not a blank area or enabled submit. Restore the connection and retry, then verify challenge expiry clears the token and Siteverify rejects absent/invalid responses.
+
+- [ ] Install actual .deb/.rpm on clean GNOME/KDE Wayland/X11 targets. Inspect package runtime dependencies and both launchers; verify `com.voxpery` GTK ID, menu/taskbar/tray icons, scheme registration and Google callback to closed/running apps. Extracted-binary tests do not count as installation acceptance. Run `node --test .github/scripts/validate-linux-launchers.test.mjs` as a supplementary preflight regression.
+- [ ] In the installed Linux app, verify WebRTC settings precede the first app document and required RTC APIs exist; two users must join and exchange microphone/screen media after permission approval. Test tray Show/Quit and close/autostart recovery through the taskbar with/without a tray host. A successful native compile does not close unsupported runtime or blank-menu reports.
+- [ ] Complete production-key CAPTCHA on the packaged Linux browser handoff, including retry/expiry. The app must open `/api/auth/desktop-registration`, return through `voxpery://auth` with a one-time PKCE code, and never put a JWT or CAPTCHA token in the URL. `tauri://localhost` remains unsuitable for rendering Turnstile directly.
+- [ ] In the browser registration form, submit a taken username, an invalid email and mismatched passwords: each must re-render the same form with an error, keep the username/email and legal selections, never echo a password, and still complete with corrected values.
+- [ ] Reproduce shared game/music audio with diagnostics enabled on sender/viewer. Compare 500 ms interval energy, screen-only receiver loss/jitter/concealment, actual capture processing, and playback state across mic on/off and speaking/silent system/tab cases. Record whether dips persist; diagnostics/capture constraints alone are not a fix acceptance.
+
 - [ ] At 320x568, 390x844, 960x600, and desktop sizes, Sign Up fields, CAPTCHA, both legal acknowledgements, and actions remain reachable without horizontal overflow. Both signup buttons stay disabled until acknowledgements load and are checked; Google does not require email/password fields or an email-signup CAPTCHA token.
 - [ ] Start Google from Login and Sign Up with new and existing accounts on web and desktop. A new account without current acknowledgements reaches registration completion, records actual acceptance once, and returns to its intended route. Verify expired/replayed completion and PKCE code rejection; do not put secrets in screenshots/logs.
 - [ ] Simulate metadata/save failure and a document/account change during a pending request. Retry retains valid selections but never unlocks stale account state; current accounts are not asked again.
@@ -36,7 +46,9 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.3.1` an
 - [ ] Scroll a long Quick Search list at 1920x1080 and a compact width. The dimmed background has no full-screen blur, pointer hover does not move the list, and keyboard selection remains visible. Compare production-build frame times on the test device; do not infer native/GPU performance from headless samples alone.
 - [ ] Switch photo-heavy channels repeatedly and add/remove a reaction on an image: cached previews do not flash or resolve again solely because signed URL parameters renew. Wide/portrait/square image frames have no empty right-hand box, preserve their aspect ratio, and do not move a history reader.
 - [ ] Create and rename a category, text channel, and voice channel containing `#`. Category URL paths remain encoded; invalid characters, consecutive spaces, overlong names, uniqueness, and authorization rules still apply.
+- [ ] In the default community welcome guide, Message opens text chat and Join voice starts the normal microphone/LiveKit join flow; the project link and duplicate default task pills are absent. A voice channel without Connect permission cannot be joined. Custom starter tasks and recommended channels still appear. Check dismissal and wrapping at 1100px and 390px.
 - [ ] In the account dock, clicking the avatar opens the profile; clicking either the username or status line opens one status menu. Keyboard activation and narrow/mobile profile access remain usable.
+- [ ] With a long account name in the desktop dock, the name truncates without overlapping Online, the status control, avatar, or Settings; hover shows the full name. The compact mobile dock stays aligned.
 
 - [ ] Download a ZIP in channel chat and DM: inline progress/start feedback appears; rapid repeated clicks do not create duplicate downloads. Simulate a failed request and retry. Confirm the actual file in the browser/desktop downloads folder (start feedback is not completion confirmation).
 - [ ] Switch all Settings tabs at desktop and small-window sizes: the outer dialog height remains stable and content can scroll when necessary.
@@ -87,6 +99,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.3.1` an
 - [ ] `Checks / Secret Scan`
 - [ ] `Checks / Backend`
 - [ ] `Checks / Frontend` (lint, unit tests, core UI smoke, build)
+- [ ] `Checks / Desktop` (Linux launcher validation, desktop `cargo check`/`cargo test`)
 
 ## 2) Security and Release Gates (mandatory)
 
@@ -108,7 +121,12 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.3.1` an
 
 ## 3) Focused Interaction Regression Pass (when affected)
 
+- [ ] With the same account in two sessions, join a server and edit the profile in one session. The other updates its server list and own profile without reloading. Disconnect/reconnect the second session and verify reconciliation. Open the own profile: About me and Member since appear when available.
+
 - [ ] Open a profile from a message author, member row, and bottom-left own avatar/name. The separate status control still changes status; Edit profile opens settings.
+- [ ] In Profile settings, select landscape, portrait and square photos. Drag and use the Zoom slider, mouse wheel, and arrow keys; the round preview matches the saved square image. Centered editing actions remain reachable. Changing files replaces the draft, Cancel/closing Settings keeps the old avatar without a profile request, and Save updates it once. Retry after a failed save; unsupported or oversized files show an inline Profile error. Clicking the error does not close Settings; a valid selection clears it. Repeat at 320px and on desktop.
+- [ ] Create a server: its welcome guide starts disabled with no selected channels. Configure multiple text/voice channels and enable it. Text opens chat and voice uses the normal join flow. Renaming updates labels; deleted channels disappear and replacements are not selected automatically. Dismiss and reload; disable in server settings and reload. Existing preferences remain unchanged.
+- [ ] Select an oversized profile image: the error appears below photo controls without moving the profile card or About me field. Clicking it keeps Settings open; a valid selection clears it.
 - [ ] Edit a multiline message: Enter saves, Shift+Enter adds a line, Escape cancels, and IME composition does not submit. Save and Cancel remain reachable in narrow chat panes.
 - [ ] Desktop channel/member panels keep their default widths with no resize handles. Previously stored widths have no effect after reload; narrow windows use the compact drawer/sheet layout.
 - [ ] Switch Custom theme between Light and Dark, set an accent color, and reload: palette, control contrast, and selection persist without unreadable links.

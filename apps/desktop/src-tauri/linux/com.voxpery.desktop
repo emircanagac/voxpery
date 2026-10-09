@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Voxpery
+Comment=Voxpery Desktop
+Exec=voxpery-desktop %U
+Icon=voxpery-desktop
+StartupWMClass=voxpery-desktop
+Terminal=false
+Categories=Network;Chat;
+MimeType=x-scheme-handler/voxpery;
+StartupNotify=true

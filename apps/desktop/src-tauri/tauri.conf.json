@@ -9,6 +9,7 @@
     "beforeBuildCommand": ""
   },
   "app": {
+    "enableGTKAppId": true,
     "windows": [
       {
         "label": "main",
@@ -60,6 +61,20 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/legacy.desktop.hbs",
+        "files": {
+          "/usr/share/applications/com.voxpery.desktop": "linux/com.voxpery.desktop"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "linux/legacy.desktop.hbs",
+        "files": {
+          "/usr/share/applications/com.voxpery.desktop": "linux/com.voxpery.desktop"
+        }
+      }
+    },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico"

@@ -19,6 +19,7 @@ import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
 import ServerSettingsSafety, { type SafetySettingsTab } from '../components/ServerSettingsSafety'
 import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
+import { joinVoiceChannelFromNavigation } from '../components/voiceChannelNavigation'
 import { shouldShowServerWelcomeGuide } from '../serverWelcomeGuideVisibility'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
@@ -2871,6 +2872,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 setActiveChannel(channelId)
                 if (isMobileViewport) setMobileSidebarPanel('none')
             }}
+            onJoinVoice={(channelId) => { void joinVoiceChannelFromNavigation(channelId) }}
             onDismiss={() => {
                 dismissWelcomeGuide(activeServer.id)
                 setWelcomeGuideDismissed(true)

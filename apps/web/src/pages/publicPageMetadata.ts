@@ -14,7 +14,11 @@ const DEFAULT_TAG_VALUES = [
   DEFAULT_PROMO_DESCRIPTION,
 ]
 
-export function usePublicPageMetadata(path: '/' | '/compare', title: string, description: string) {
+export function usePublicPageMetadata(
+  path: '/' | '/compare' | '/terms' | '/privacy' | '/kvkk',
+  title: string,
+  description: string,
+) {
   useEffect(() => {
     const tags: Array<[Element | null, string]> = [
       [document.querySelector('meta[name="description"]'), description],

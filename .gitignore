@@ -13,17 +13,32 @@ dist/
 .vite/
 **/.vite/
 .npm-cache/
+coverage/
 
-# Environment
+# Test artifacts
+playwright-report/
+test-results/
+
+# Environment (only .env.example is tracked)
 .env
 .env.local
 .env.*.local
 
-# IDE / Editor
-.rules/
-.codex/
+# Local runtime data (uploads, backups)
+apps/server/storage/
+/backups/
+
+# Local agent instructions, task inbox and scratch space
 AGENTS.md
+CLAUDE.md
+TODO.md
 graphify-out/
+.local/
+.claude/
+.codex/
+.rules/
+
+# IDE / Editor
 .vscode/
 .idea/
 *.swp
@@ -39,3 +54,4 @@ logs/
 
 # Database
 *.sql.bak
+*.sql.gz

@@ -3,20 +3,12 @@ import { parseEnv } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
+import { nativeUrl } from './local-qa-config.mjs'
 
-const root = fileURLToPath(new URL('../', import.meta.url))
+const root = fileURLToPath(new URL('../../', import.meta.url))
 const env = { ...process.env, ...parseEnv(readFileSync(join(root, '.env'), 'utf8')) }
 if (env.APP_ENV !== 'development') throw new Error('Local QA requires APP_ENV=development.')
 env.SERVER_HOST = '127.0.0.1'
-
-function nativeUrl(value) {
-  const url = new URL(value)
-  if (['postgres', 'redis'].includes(url.hostname)) url.hostname = 'localhost'
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
-    throw new Error('Local QA requires loopback database and Redis URLs.')
-  }
-  return url.toString()
-}
 
 const database = env.DATABASE_URL || `postgresql://${encodeURIComponent(env.POSTGRES_USER || 'voxpery')}:${encodeURIComponent(env.POSTGRES_PASSWORD || '')}@localhost:5432/${encodeURIComponent(env.POSTGRES_DB || 'voxpery')}`
 env.DATABASE_URL = nativeUrl(database)

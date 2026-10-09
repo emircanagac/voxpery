@@ -129,6 +129,7 @@ async fn main() {
         frontend_url: config.frontend_url.clone(),
         public_api_url: config.public_api_url.clone(),
         turnstile_secret_key: config.turnstile_secret_key.clone(),
+        turnstile_site_key: config.turnstile_site_key.clone(),
         smtp_host: config.smtp_host.clone(),
         smtp_user: config.smtp_user.clone(),
         smtp_password: config.smtp_password.clone(),
@@ -146,7 +147,12 @@ async fn main() {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            if let Err(error) = voxpery_server::services::privacy::cleanup_expired_google_registrations(&registration_db).await {
+            if let Err(error) =
+                voxpery_server::services::privacy::cleanup_expired_google_registrations(
+                    &registration_db,
+                )
+                .await
+            {
                 tracing::warn!("Expired Google registration cleanup failed: {error}");
             }
         }
