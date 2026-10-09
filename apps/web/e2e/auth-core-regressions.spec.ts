@@ -1,3 +1,4 @@
+import { verifyGoogleLoginReturns } from './google-auth-redirects-fixture'
 import { expect, test } from '@playwright/test'
 import { createMockCoreState, installMockCoreApi } from './mock-core-api'
 
@@ -321,4 +322,8 @@ test.describe('mocked auth and account regressions', () => {
     await expect(page.getByText('Password reset successful. You can now sign in.')).toBeVisible()
     expect(state.resetPasswordRequestCount).toBe(1)
   })
+})
+
+test('Google callback errors preserve retry routes and the default destination', { tag: '@core' }, async ({ page }) => {
+  await verifyGoogleLoginReturns(page)
 })

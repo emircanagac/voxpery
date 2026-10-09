@@ -598,6 +598,151 @@ async fn api_security_headers_cover_normal_error_and_preflight_responses() {
 }
 
 #[tokio::test]
+async fn google_oauth_callback_failures_return_to_the_originating_client() {
+    assert!(
+        test_db_url().is_some(),
+        "This regression requires a test database"
+    );
+    let (app, _) = setup_app_with_features(false, false, false, true).await;
+    let redirect = "/social/dm?room=1#latest";
+    for origin in ["http://localhost:5173", "voxpery://auth"] {
+        for (query, valid_cookie, expected_error) in [
+            ("error=access_denied", true, "oauth_cancelled"),
+            ("error=provider_unavailable", true, "oauth_failed"),
+            ("", true, "oauth_failed"),
+            ("code=", true, "oauth_failed"),
+            ("error=access_denied", false, "oauth_failed_csrf"),
+        ] {
+            // Start through the real endpoint, including its state cookie and PKCE binding.
+            let start_uri = format!(
+                "/api/auth/google?origin={}&redirect={}&code_challenge={}",
+                urlencoding::encode(origin),
+                urlencoding::encode(redirect),
+                "A".repeat(43),
+            );
+            let start = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(start_uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(start.status(), StatusCode::TEMPORARY_REDIRECT);
+            let google_url =
+                reqwest::Url::parse(start.headers()["location"].to_str().unwrap()).unwrap();
+            let state = google_url
+                .query_pairs()
+                .find(|(name, _)| name == "state")
+                .unwrap()
+                .1
+                .into_owned();
+            let cookie = start.headers()["set-cookie"]
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap();
+            let callback_uri = format!(
+                "/api/auth/google/callback?state={}&{query}",
+                urlencoding::encode(&state)
+            );
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(callback_uri)
+                        .header(
+                            "cookie",
+                            if valid_cookie {
+                                cookie
+                            } else {
+                                "oauth_state=wrong"
+                            },
+                        )
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let cookies: Vec<_> = response
+                .headers()
+                .get_all("set-cookie")
+                .iter()
+                .map(|v| v.to_str().unwrap())
+                .collect();
+            assert!(cookies
+                .iter()
+                .any(|v| v.starts_with("oauth_state=;") && v.contains("Max-Age=0")));
+            assert!(!cookies.iter().any(|v| v.starts_with("voxpery_token=")));
+            if origin == "voxpery://auth" {
+                assert_eq!(response.status(), StatusCode::OK);
+                assert_eq!(response.headers()["cache-control"], "no-store");
+                let html = String::from_utf8(
+                    response
+                        .into_body()
+                        .collect()
+                        .await
+                        .unwrap()
+                        .to_bytes()
+                        .to_vec(),
+                )
+                .unwrap();
+                assert!(html.contains(&format!(
+                    "href=\"voxpery://auth/social/dm?room=1&amp;error={expected_error}#latest\""
+                )));
+                assert!(html.contains("Sign-in could not be completed"));
+                assert!(!html.contains("code="));
+            } else {
+                assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+                let url =
+                    reqwest::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
+                assert_eq!(url.origin().ascii_serialization(), origin);
+                assert_eq!(url.path(), "/login");
+                let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
+                assert_eq!(params.get("error").unwrap(), expected_error);
+                assert_eq!(params.get("redirect").unwrap(), redirect);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn google_oauth_start_defaults_to_servers_for_both_clients() {
+    assert!(
+        test_db_url().is_some(),
+        "This regression requires a test database"
+    );
+    let (app, _) = setup_app_with_features(false, false, false, true).await;
+    for origin in ["http://localhost:5173", "voxpery://auth"] {
+        let uri = format!(
+            "/api/auth/google?origin={}&code_challenge={}",
+            urlencoding::encode(origin),
+            "A".repeat(43)
+        );
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        let google_url =
+            reqwest::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
+        let state = google_url
+            .query_pairs()
+            .find(|(name, _)| name == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        let decoded = String::from_utf8(BASE64.decode(state).unwrap()).unwrap();
+        assert_eq!(decoded.lines().nth(1), Some(origin));
+        assert_eq!(decoded.lines().nth(2), Some("/servers"));
+    }
+}
+
+#[tokio::test]
 async fn desktop_oauth_handoff_runs_under_the_full_api_security_middleware() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

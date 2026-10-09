@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Google sign-in cancellation and callback failures return to web or desktop login with visible errors and preserve the retry destination. Both clients now default to the server list after Google sign-in.
+
 ## [0.3.1] - 2026-10-09
 
 ### Fixed
