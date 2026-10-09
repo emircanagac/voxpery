@@ -2275,10 +2275,11 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                           Remove
                         </button>
                       )}
+                      {/* Sits under the photo actions on desktop so errors never move the profile. */}
+                      <div className="profile-avatar-selection-feedback profile-avatar-selection-feedback--inline" aria-live="polite">
+                        {avatarSelectionError && <p role="alert">{avatarSelectionError}</p>}
+                      </div>
                     </div>
-                  </div>
-                  <div className="profile-avatar-selection-feedback" aria-live="polite">
-                    {avatarSelectionError && <p role="alert">{avatarSelectionError}</p>}
                   </div>
                   <div className="user-profile-fields">
                     <div className="user-profile-field">

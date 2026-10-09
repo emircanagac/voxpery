@@ -12608,12 +12608,24 @@ button.message-author {
 }
 
 .user-profile-preview-actions {
+  position: relative;
   margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+/* Desktop: overlay the free space under the photo actions instead of reserving a row. */
+.profile-avatar-selection-feedback--inline {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 240px;
+  height: auto;
+  max-height: 36px;
+  text-align: right;
 }
 
 .user-profile-preview-actions .account-action-btn {
@@ -17340,6 +17352,17 @@ textarea {
     width: 100%;
     margin-left: 0;
     justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  /* Compact layouts scroll anyway; keep a reserved row so errors do not shift content. */
+  .profile-avatar-selection-feedback--inline {
+    position: static;
+    flex: 1 0 100%;
+    width: 100%;
+    height: 36px;
+    max-height: none;
+    text-align: left;
   }
 
   .user-profile-preview-actions .account-action-btn {

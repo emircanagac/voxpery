@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop Google sign-in and registration no longer leave a signed-in Voxpery session in the system browser; the desktop app receives its session only through the PKCE exchange.
 - Google and desktop registration pages share one implementation, so their Terms/Privacy/KVKK links point to the same web origin. Desktop registration start is rate-limited even without a trusted client IP, and expired pending registrations are cleaned up every minute.
 - Image attachments appear once their resolved URL is ready instead of briefly rendering the raw signed URL and then re-rendering.
-- Newly created servers start with a disabled welcome guide for administrators to configure explicitly. Existing guide preferences are preserved. Profile photo selection errors use reserved space below the photo controls without shifting the profile.
+- Newly created servers start with a disabled welcome guide for administrators to configure explicitly. Existing guide preferences are preserved. Profile photo selection errors appear under the photo actions without shifting the profile, and Settings > Profile fits a 1366x768 window again without scrolling.
 
 ### Changed
 - Desktop email registration can complete in a server-hosted browser form with Siteverify, explicit legal proof, CSRF and single-use PKCE return. Its exchange (`/api/auth/desktop-exchange`) no longer depends on the Google feature flag; desktop v0.3.1 therefore requires a v0.3.1 server for Google and email sign-in handoff. Fixable form errors re-render the form with entered values instead of a raw JSON error. Live CAPTCHA and installed browser-to-app return remain acceptance gates.
