@@ -1,3 +1,4 @@
+import { verifyGoogleLoginReturns } from './google-auth-redirects-fixture'
 import { expect, test, type Locator } from '@playwright/test'
 import { enableNotificationsFromSettings, installMockNotificationPermission } from './notification-prompt-fixture'
 import {
@@ -473,3 +474,7 @@ async function expectNoHorizontalOverflow(locator: Locator) {
     return locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
   }).toBe(true)
 }
+
+test('Google callback errors preserve retry routes and the default destination', async ({ page }) => {
+  await verifyGoogleLoginReturns(page)
+})

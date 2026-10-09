@@ -1,4 +1,5 @@
 import { isTauri } from '../secureStorage'
+import { resolvePostAuthRoute } from '../authRedirect'
 import { apiDownload, apiFetch, effectiveApiBase } from './client'
 import type {
     AuthResponse,
@@ -55,7 +56,7 @@ export function clearStoredDesktopOAuthVerifier(): void {
 }
 
 export async function getDesktopGoogleAuthUrl(
-    redirectPath: string = '/',
+    redirectPath: string = resolvePostAuthRoute(),
     options?: Pick<GoogleAuthUrlOptions, 'intent' | 'legal'>,
 ): Promise<string> {
     const { verifier, challenge } = await createDesktopPkcePair()
@@ -85,7 +86,7 @@ export async function getDesktopRegistrationUrl(redirectPath: string = '/'): Pro
 }
 
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
-export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAuthUrlOptions): string {
+export function getGoogleAuthUrl(redirectPath: string = resolvePostAuthRoute(), options?: GoogleAuthUrlOptions): string {
     const origin = options?.origin ?? (isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'))
     const params = new URLSearchParams({
         redirect: redirectPath,

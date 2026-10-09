@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useNavigate } from 'react-router'
 import type { ReactElement } from 'react'
 import LoginPage from './LoginPage'
 import RegisterPage from './RegisterPage'
 import ForgotPasswordPage from './ForgotPasswordPage'
 import ResetPasswordPage from './ResetPasswordPage'
 import { useFeatureStore } from '../stores/features'
-import { authApi, type SystemFeatures } from '../api'
+import { authApi, getGoogleAuthUrl, getDesktopGoogleAuthUrl, type SystemFeatures } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
 
 vi.mock('../openExternalUrl', () => ({
@@ -62,6 +62,44 @@ describe('auth feature gating', () => {
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign Up' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to Voxpery' })).toHaveAttribute('href', '/')
+  })
+
+  it.each([
+    ['oauth_cancelled', 'Google sign-in was cancelled.'],
+    ['oauth_failed_csrf', 'could not be verified'],
+    ['oauth_unverified_email', 'Google did not verify your email'],
+    ['oauth_failed', 'Sign in with Google failed.'],
+  ])('shows %s and preserves the retry destination', (error, message) => {
+    useFeatureStore.setState({ features: enabledGoogleFeatures, loading: false, error: null })
+    render(<MemoryRouter initialEntries={[`/login?error=${error}&redirect=%2Fsocial%2Fdm%3Froom%3D1%23latest`]}><LoginPage /></MemoryRouter>)
+    expect(screen.getByRole('alert')).toHaveTextContent(message)
+    const href = screen.getByRole('link', { name: /continue with google/i }).getAttribute('href')!
+    expect(new URL(href).searchParams.get('redirect')).toBe('/social/dm?room=1#latest')
+  })
+
+  it('shows repeated desktop callback errors when the login page is already mounted', async () => {
+    ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    function CallbackReturn() {
+      const navigate = useNavigate()
+      return <button onClick={() => navigate('/login?error=oauth_cancelled&redirect=%2Fservers')}>Receive callback</button>
+    }
+    renderWithFeatures(<><LoginPage /><CallbackReturn /></>, enabledGoogleFeatures)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Receive callback' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Google sign-in was cancelled.'))
+    fireEvent.click(screen.getByRole('link', { name: /continue with google/i }))
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Receive callback' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Google sign-in was cancelled.'))
+  })
+
+  it('uses the same default Google destination on web and desktop and keeps explicit destinations', async () => {
+    expect(new URL(getGoogleAuthUrl()).searchParams.get('redirect')).toBe('/servers')
+    expect(new URL(await getDesktopGoogleAuthUrl()).searchParams.get('redirect')).toBe('/servers')
+    const redirect = '/invite/test?from=google#join'
+    expect(new URL(getGoogleAuthUrl(redirect)).searchParams.get('redirect')).toBe(redirect)
+    expect(new URL(await getDesktopGoogleAuthUrl(redirect)).searchParams.get('redirect')).toBe(redirect)
   })
 
   it('does not expose a PKCE-less desktop Google OAuth URL on login', async () => {

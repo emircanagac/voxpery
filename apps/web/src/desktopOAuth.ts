@@ -1,5 +1,5 @@
 import type { UserPublic } from './api'
-import { resolvePostAuthRoute } from './authRedirect'
+import { googleOAuthErrorMessage, resolvePostAuthRoute } from './authRedirect'
 import { ROUTES } from './routes'
 import type { ObservabilityEventCode } from './observability'
 
@@ -73,9 +73,9 @@ export function parseDesktopOAuthDeepLink(url: string): DesktopOAuthDeepLink | n
   }
 }
 
-function oauthFailureRoute(redirectTo: string): string {
+function oauthFailureRoute(redirectTo: string, error: string | null = null): string {
   const search = new URLSearchParams({
-    error: 'oauth_failed',
+    error: googleOAuthErrorMessage(error) ? error! : 'oauth_failed',
     redirect: redirectTo,
   })
   return `${ROUTES.login}?${search.toString()}`
@@ -91,7 +91,7 @@ export function createDesktopOAuthDeepLinkHandler(deps: DesktopOAuthHandlerDepen
     if (deepLink.error || !deepLink.code) {
       deps.onObservabilityEvent?.('desktop_oauth_return_received')
       deps.onObservabilityEvent?.('desktop_oauth_return_failed')
-      deps.navigate(oauthFailureRoute(deepLink.redirectTo))
+      deps.navigate(oauthFailureRoute(deepLink.redirectTo, deepLink.error))
       return true
     }
 

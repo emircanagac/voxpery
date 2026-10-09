@@ -78,6 +78,23 @@ describe('desktop OAuth deep links', () => {
     ])
   })
 
+  it.each(['oauth_cancelled', 'oauth_failed_csrf', 'oauth_unverified_email', 'untrusted_error'])(
+    'preserves recognized callback errors and the destination: %s', async (error) => {
+      const navigate = vi.fn()
+      const exchangeCode = vi.fn()
+      const handler = createDesktopOAuthDeepLinkHandler({
+        getCodeVerifier: () => 'pkce-verifier', clearCodeVerifier: vi.fn(),
+        exchangeCode, setAuth: vi.fn(), navigate,
+      })
+      await handler(`voxpery://auth/social/dm?room=1&error=${error}#latest`)
+      const destination = new URL(navigate.mock.calls[0][0], 'https://voxpery.test')
+      expect(destination.pathname).toBe('/login')
+      expect(destination.searchParams.get('error')).toBe(error === 'untrusted_error' ? 'oauth_failed' : error)
+      expect(destination.searchParams.get('redirect')).toBe('/social/dm?room=1#latest')
+      expect(exchangeCode).not.toHaveBeenCalled()
+    },
+  )
+
   it('does not report success or navigate into the app before secure persistence', async () => {
     const navigate = vi.fn()
     const events = vi.fn()

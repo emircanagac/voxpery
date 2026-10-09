@@ -1,5 +1,5 @@
-import { useState, type FormEvent, type MouseEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
@@ -8,7 +8,7 @@ import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
-import { resolvePostAuthRoute } from '../authRedirect'
+import { googleOAuthErrorMessage, resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 
 function GoogleLogoIcon() {
@@ -42,12 +42,14 @@ function safeRedirectPath(redirect: string | null): string | undefined {
 }
 
 export default function LoginPage() {
+    const location = useLocation()
     const [searchParams] = useSearchParams()
     const redirectTo = safeRedirectPath(searchParams.get('redirect'))
-    const oauthError = searchParams.get('error') === 'oauth_failed'
+    const oauthError = googleOAuthErrorMessage(searchParams.get('error'))
     const [identifier, setIdentifier] = useState('')
     const [password, setPassword] = useState('')
-    const [error, setError] = useState(oauthError ? 'Sign in with Google failed. Try again or use email/password.' : '')
+    const [error, setError] = useState(oauthError)
+    useEffect(() => { setError(oauthError) }, [oauthError, location.key])
     const [loading, setLoading] = useState(false)
     const setAuth = useAuthStore((s) => s.setAuth)
     const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)

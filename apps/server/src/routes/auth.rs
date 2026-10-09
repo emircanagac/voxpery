@@ -299,9 +299,14 @@ fn desktop_oauth_handoff_response(redirect_url: &str, succeeded: bool) -> Respon
 }
 
 fn oauth_callback_response(origin: &str, redirect_path: &str, error: Option<&str>) -> Response {
-    let path = error
-        .map(|code| append_query_param(redirect_path, "error", code))
-        .unwrap_or_else(|| redirect_path.to_string());
+    let path = match error {
+        Some(code) if !is_desktop_oauth_origin(origin) => {
+            let login = append_query_param("/login", "error", code);
+            append_query_param(&login, "redirect", redirect_path)
+        }
+        Some(code) => append_query_param(redirect_path, "error", code),
+        None => redirect_path.to_string(),
+    };
     let redirect_url = format!("{}{}", origin, path);
     if is_desktop_oauth_origin(origin) {
         desktop_oauth_handoff_response(&redirect_url, error.is_none())
@@ -1738,7 +1743,7 @@ async fn google_oauth_start(
         .unwrap_or("http://localhost:3001")
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
-    let redirect_path = q.redirect.as_deref().unwrap_or("/").trim();
+    let redirect_path = q.redirect.as_deref().unwrap_or("/servers").trim();
     let redirect_path = if redirect_path.starts_with('/')
         && !redirect_path.starts_with("//")
         && !redirect_path.contains(['\\', '\n', '\r'])
@@ -1833,7 +1838,8 @@ async fn google_oauth_start(
 /// Query for GET /api/auth/google/callback
 #[derive(Debug, serde::Deserialize)]
 struct GoogleOAuthCallbackQuery {
-    code: String,
+    code: Option<String>,
+    error: Option<String>,
     state: Option<String>,
 }
 
@@ -1994,7 +2000,12 @@ async fn google_oauth_callback(
             let intent = parts.next().unwrap_or("login").trim().to_string();
             let legal_parts = parts.collect::<Vec<_>>();
             let (terms, privacy, kvkk, acknowledged) = parse_oauth_legal_metadata(&legal_parts);
-            if n.is_empty() || o.is_empty() || !r.starts_with('/') {
+            if n.is_empty()
+                || o.is_empty()
+                || !r.starts_with('/')
+                || r.starts_with("//")
+                || r.contains(['\\', '\n', '\r'])
+            {
                 tracing::warn!(
                     "OAuth state parsing failed. nonce_present={}, origin_len={}, redirect_len={}, pkce_challenge_present={}",
                     !n.is_empty(),
@@ -2005,7 +2016,7 @@ async fn google_oauth_callback(
                 (
                     "".to_string(),
                     "http://localhost:5173".to_string(),
-                    "/app/friends".to_string(),
+                    "/servers".to_string(),
                     None,
                     "login".to_string(),
                     String::new(),
@@ -2032,7 +2043,7 @@ async fn google_oauth_callback(
             (
                 "".to_string(),
                 "http://localhost:5173".to_string(),
-                "/app/friends".to_string(),
+                "/servers".to_string(),
                 None,
                 "login".to_string(),
                 String::new(),
@@ -2043,6 +2054,13 @@ async fn google_oauth_callback(
         }
     };
     let origin = normalize_oauth_origin(&state, &origin);
+    let failure = |error: &str| {
+        let mut response = oauth_callback_response(&origin, &redirect_path, Some(error));
+        if let Ok(value) = HeaderValue::from_str(&clear_oauth_state_cookie_header(&state)) {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+        response
+    };
 
     let mut is_csrf_valid = false;
     let mut found_oauth_state = None;
@@ -2067,18 +2085,31 @@ async fn google_oauth_callback(
             "OAuth CSRF check failed (state mismatch or missing cookie). has_cookie_state={}",
             found_oauth_state.is_some()
         );
-        let clear_cookie = clear_oauth_state_cookie_header(&state);
-        let mut response =
-            oauth_callback_response(&origin, &redirect_path, Some("oauth_failed_csrf"));
-        if let Ok(v) = HeaderValue::from_str(&clear_cookie) {
-            response.headers_mut().insert(header::SET_COOKIE, v);
-        }
-        return response;
+        return failure("oauth_failed_csrf");
     }
+
+    // Google returns an error without a code when consent is denied. Validate
+    // the state first, then return to the originating client without a token request.
+    if let Some(error) = q.error.as_deref() {
+        return failure(if error == "access_denied" {
+            "oauth_cancelled"
+        } else {
+            "oauth_failed"
+        });
+    }
+    let code = match q
+        .code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+    {
+        Some(code) => code,
+        None => return failure("oauth_failed"),
+    };
 
     let token_url = "https://oauth2.googleapis.com/token";
     let body = [
-        ("code", q.code.as_str()),
+        ("code", code),
         ("client_id", &client_id),
         ("client_secret", &client_secret),
         ("redirect_uri", &redirect_uri),
@@ -2089,7 +2120,7 @@ async fn google_oauth_callback(
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("Google token exchange failed: {}", e);
-            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            return failure("oauth_failed");
         }
     };
     if !token_res.status().is_success() {
@@ -2100,13 +2131,13 @@ async fn google_oauth_callback(
             status,
             body_len
         );
-        return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+        return failure("oauth_failed");
     }
     let token_data: GoogleTokenResponse = match token_res.json().await {
         Ok(d) => d,
         Err(e) => {
             tracing::warn!("Google token parse failed: {}", e);
-            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            return failure("oauth_failed");
         }
     };
 
@@ -2120,12 +2151,12 @@ async fn google_oauth_callback(
             Ok(u) => u,
             Err(e) => {
                 tracing::warn!("Google userinfo parse failed: {}", e);
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                return failure("oauth_failed");
             }
         },
         _ => {
             tracing::warn!("Google userinfo request failed");
-            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            return failure("oauth_failed");
         }
     };
 
@@ -2141,7 +2172,7 @@ async fn google_oauth_callback(
             "Google OAuth login rejected: unverified email ({})",
             redact_email_for_log(&email)
         );
-        return oauth_callback_response(&origin, &redirect_path, Some("oauth_unverified_email"));
+        return failure("oauth_unverified_email");
     }
 
     let user = sqlx::query_as::<_, User>(
@@ -2162,7 +2193,7 @@ async fn google_oauth_callback(
                     .await
                 {
                     tracing::warn!("Google OAuth account link failed: {}", error);
-                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                    return failure("oauth_failed");
                 }
                 u.google_id = Some(google_id.clone());
                 u.email_verified = true;
@@ -2212,7 +2243,7 @@ async fn google_oauth_callback(
                 Ok(tx) => tx,
                 Err(e) => {
                     tracing::warn!("Google OAuth transaction start failed: {}", e);
-                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                    return failure("oauth_failed");
                 }
             };
             let user = match google_registration::create_account(&mut tx, &google_id, &email, &name)
@@ -2221,24 +2252,24 @@ async fn google_oauth_callback(
                 Ok(user) => user,
                 Err(error) => {
                     tracing::warn!("Google OAuth account creation failed: {error}");
-                    return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                    return failure("oauth_failed");
                 }
             };
             if let Err(e) = tx.commit().await {
                 tracing::warn!("Google OAuth transaction commit failed: {}", e);
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                return failure("oauth_failed");
             }
             user
         }
         Err(e) => {
             tracing::warn!("Google OAuth db lookup failed: {}", e);
-            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            return failure("oauth_failed");
         }
     };
 
     if let Err(e) = ensure_default_server_join(&state.db, user.id).await {
         tracing::warn!("Default server join failed for OAuth user: {}", e);
-        return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+        return failure("oauth_failed");
     }
 
     let token = match generate_token(
@@ -2251,7 +2282,7 @@ async fn google_oauth_callback(
         Ok(t) => t,
         Err(e) => {
             tracing::warn!("JWT generate failed: {}", e);
-            return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+            return failure("oauth_failed");
         }
     };
 
@@ -2266,14 +2297,14 @@ async fn google_oauth_callback(
             Some(value) => value,
             None => {
                 tracing::warn!("Desktop OAuth callback missing PKCE challenge in state");
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                return failure("oauth_failed");
             }
         };
         let exchange_code = match issue_desktop_oauth_code(&state, &token, challenge).await {
             Ok(code) => code,
             Err(e) => {
                 tracing::warn!("Failed to issue desktop OAuth code: {}", e);
-                return oauth_callback_response(&origin, &redirect_path, Some("oauth_failed"));
+                return failure("oauth_failed");
             }
         };
         let path_with_code = append_query_param(&redirect_path, "code", &exchange_code);
