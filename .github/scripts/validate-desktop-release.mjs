@@ -1,9 +1,15 @@
 import { readFileSync, existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { validateLinuxLaunchers } from './validate-linux-launchers.mjs'
 
 const repoRoot = process.cwd()
 
 const failures = []
+try {
+  validateLinuxLaunchers(repoRoot)
+} catch (error) {
+  failures.push(error.message)
+}
 
 function fail(message) {
   failures.push(message)

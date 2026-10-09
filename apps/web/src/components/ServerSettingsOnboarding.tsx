@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Hash } from 'lucide-react'
+import { Check, Hash, Mic } from 'lucide-react'
 import type { Channel, ServerOnboardingGuide, UpdateServerOnboardingGuideRequest } from '../api'
 
 const MAX_RECOMMENDED_CHANNELS = 6
@@ -37,7 +37,7 @@ export default function ServerSettingsOnboarding({
     }, [guide])
 
     const selectableChannels = useMemo(
-        () => channels.filter((channel) => channel.channel_type === 'text'),
+        () => channels.filter((channel) => channel.channel_type === 'text' || channel.channel_type === 'voice'),
         [channels],
     )
     const trimmedTasks = starterTasks.map((task) => task.trim()).filter(Boolean)
@@ -116,7 +116,7 @@ export default function ServerSettingsOnboarding({
                         </div>
                         <div className="onboarding-channel-picker">
                             {selectableChannels.length === 0 && (
-                                <div className="server-settings-empty-state">Create a text channel before recommending one.</div>
+                                <div className="server-settings-empty-state">Create a text or voice channel before recommending one.</div>
                             )}
                             {selectableChannels.map((channel) => {
                                 const selected = selectedChannelIds.includes(channel.id)
@@ -124,11 +124,14 @@ export default function ServerSettingsOnboarding({
                                     <button
                                         key={channel.id}
                                         type="button"
+                                        aria-label={`${channel.channel_type === 'voice' ? 'Voice' : 'Text'} channel ${channel.name}`}
+                                        aria-pressed={selected}
                                         className={`onboarding-channel-option ${selected ? 'onboarding-channel-option--selected' : ''}`}
                                         onClick={() => toggleChannel(channel.id)}
                                     >
-                                        {selected ? <Check size={14} /> : <Hash size={14} />}
+                                        {channel.channel_type === 'voice' ? <Mic size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
                                         <span>{channel.name}</span>
+                                        {selected && <Check size={14} aria-hidden="true" />}
                                     </button>
                                 )
                             })}

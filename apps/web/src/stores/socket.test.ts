@@ -3,7 +3,7 @@ import { useSocketStore, websocketReconnectDelayMs } from './socket'
 import { act } from '@testing-library/react'
 
 const { reportObservabilityEvent } = vi.hoisted(() => ({
-  reportObservabilityEvent: vi.fn(),
+    reportObservabilityEvent: vi.fn(),
 }))
 
 vi.mock('../observability', () => ({ reportObservabilityEvent }))
@@ -84,6 +84,7 @@ describe('WebSocket Store', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
     vi.useRealTimers()
   })

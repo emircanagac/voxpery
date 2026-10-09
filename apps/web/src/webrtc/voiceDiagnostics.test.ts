@@ -9,6 +9,7 @@ import {
   getVoicePingLevel,
   isVoiceDiagnosticsEnabled,
   linearToDbDiagnostic,
+  recordScreenAudioDiagnostics,
   toVoiceProcessingConstraintsDiagnostics,
   toVoiceTrackSettingsDiagnostics,
   updateVoiceDiagnostics,
@@ -19,6 +20,26 @@ describe('voiceDiagnostics', () => {
   beforeEach(() => {
     window.localStorage.removeItem(VOICE_DIAGNOSTICS_STORAGE_KEY)
     delete window.__VOXPERY_VOICE_DIAGNOSTICS__
+    document.body.replaceChildren()
+  })
+
+  it('records bounded opt-in screen audio history and playback without peer identifiers', () => {
+    const samples = Array.from({ length: 250 }, () => ({
+      direction: 'receive' as const, slot: 0, sampledAt: Date.now(), rmsDb: -20,
+    }))
+    recordScreenAudioDiagnostics(samples)
+    expect(getVoiceDiagnosticsSnapshot()).toBeNull()
+    window.localStorage.setItem(VOICE_DIAGNOSTICS_STORAGE_KEY, '1')
+    const audio = document.createElement('audio')
+    audio.dataset.remoteAudioKind = 'screen'
+    audio.dataset.peerId = 'private-peer'
+    audio.volume = 0.6
+    document.body.append(audio)
+    recordScreenAudioDiagnostics([{ direction: 'capture', slot: 0, sampledAt: Date.now() - 61_000 }, ...samples])
+    const snapshot = getVoiceDiagnosticsSnapshot()!
+    expect(snapshot.screenAudioHistory).toHaveLength(240)
+    expect(snapshot.screenAudioPlayback).toEqual([expect.objectContaining({ volume: 0.6, muted: false })])
+    expect(JSON.stringify(snapshot)).not.toContain('private-peer')
   })
 
   it('classifies healthy, fair, and poor network quality', () => {
@@ -65,6 +86,15 @@ describe('voiceDiagnostics', () => {
     expect(classifyVoiceError(new Error('Microphone permission denied')).title).toBe('Microphone access required')
     expect(classifyVoiceError(new Error('No microphone device detected')).title).toBe('No microphone detected')
     expect(classifyVoiceError(new Error('Microphone is in use by another app')).title).toBe('Microphone is busy')
+  })
+
+  it('distinguishes voice HTTP transport failures from a disconnected application socket', () => {
+    const transport = classifyVoiceError(new Error('CONNECTION_ERROR:Cannot connect to the server. private transport detail'))
+    expect(transport.title).toBe('Voice server unreachable')
+    expect(transport.message).not.toContain('private transport detail')
+    expect(transport.message).not.toContain('reconnecting')
+    const socket = classifyVoiceError(new Error('WebSocket is not connected'))
+    expect(socket.title).toBe('Voice service reconnecting')
   })
 
   it('returns concise labels and advice', () => {

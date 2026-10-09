@@ -1,5 +1,6 @@
 export interface User {
     id: string;
+    created_at?: string;
     username: string;
     email: string;
     email_verified: boolean;

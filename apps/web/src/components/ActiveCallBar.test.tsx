@@ -249,6 +249,42 @@ function renderActiveCallBar(
 }
 
 describe('ActiveCallBar regressions', () => {
+  it.each([
+    { message: 'WebSocket is not connected', title: 'Voice service reconnecting' },
+    { message: 'CONNECTION_ERROR: token request failed', title: 'Voice server unreachable' },
+  ])(
+    'reports each explicit retry of the same connection failure: $message',
+    async ({ message, title }) => {
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+      const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream')
+        .mockImplementation(async () => new MediaStream([new MediaStreamTrack()]))
+      try {
+        const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
+        voice.joinVoice.mockRejectedValue(new Error(message))
+        const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+        await act(async () => { await expect(join(voiceChannel.id)).rejects.toThrow(message) })
+        const firstToast = useToastStore.getState().toasts[0]
+        expect(firstToast.title).toBe(title)
+        act(() => useToastStore.getState().dismissToast(firstToast.id))
+        expect(useToastStore.getState().toasts).toHaveLength(0)
+
+        await act(async () => { await expect(join(voiceChannel.id)).rejects.toThrow(message) })
+        expect(voice.joinVoice).toHaveBeenCalledTimes(2)
+        expect(useToastStore.getState().toasts).toHaveLength(1)
+        const retryToast = useToastStore.getState().toasts[0]
+        expect(retryToast.title).toBe(title)
+        expect(retryToast.id).not.toBe(firstToast.id)
+
+        await act(async () => { await expect(join(voiceChannel.id)).rejects.toThrow(message) })
+        expect(voice.joinVoice).toHaveBeenCalledTimes(3)
+        expect(useToastStore.getState().toasts).toHaveLength(1)
+        expect(useToastStore.getState().toasts[0].id).toBe(retryToast.id)
+      } finally {
+        capture.mockRestore()
+      }
+    },
+  )
+
   it('keeps microphone denial visible and retries the original channel only on user action', async () => {
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
     const stream = new MediaStream([new MediaStreamTrack()])

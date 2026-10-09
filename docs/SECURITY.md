@@ -182,7 +182,7 @@ This keeps enforcement consistent across instances and avoids per-process counte
 
 ## JWT Blacklist
 
-Invalidated tokens (logout, password change) stored in Redis:
+Invalidated tokens (logout, password change) stored in Redis. Logout fails closed with `503` when the blacklist write fails instead of reporting success for a still-valid token:
 
 ```rust
 pub async fn blacklist_token(redis: &redis::Client, token: &str, ttl_secs: i64) -> Result<(), AppError> {
@@ -343,6 +343,8 @@ CI validates the nginx and Tauri policy files statically. Release smoke validate
 ### Pending Google Registration
 
 A verified new identity without current signup acknowledgements receives a 10-minute pending context, not an authenticated session. Only the hash of its random browser-cookie secret is stored. The cookie is HttpOnly, SameSite=Lax, Secure when configured, and scoped to the registration path. Finalization requires a constant-time checked CSRF token, rate limiting, explicit current document versions, and a locked database transaction containing user creation, privacy audit, and context consumption. Expired records are cleaned periodically. The server-rendered form uses a nonce-only style policy, no script, same-origin form submission, no framing, no-referrer, and no-store. Desktop completion retains the single-use PKCE exchange; the Redis fallback consumes the exchange code atomically through Lua rather than separate GET/DEL operations.
+
+Desktop email registration uses the same pattern in the browser (`/api/auth/desktop-registration`): a hashed, path-scoped HttpOnly cookie, constant-time CSRF check, current legal versions, server-side Turnstile Siteverify, email/IP rate limits and a locked transaction. Its page CSP allows scripts and frames only with a per-response nonce and the Cloudflare challenge origin. Only `voxpery://auth` is accepted as a return origin, re-rendered errors never echo passwords, and the app receives a 90-second PKCE-bound code exchanged at `/api/auth/desktop-exchange`, never a JWT in a URL.
 
 ## Vulnerability Disclosure
 

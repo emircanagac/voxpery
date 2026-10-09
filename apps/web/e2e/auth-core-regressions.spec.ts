@@ -11,6 +11,24 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('makes unavailable CAPTCHA visible and retries without enabling registration', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
+    let requests = 0
+    await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js*', async route => {
+      requests += 1
+      await route.abort('failed')
+    })
+    await page.goto('/register')
+    for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.check()
+    await expect(page.getByRole('alert')).toContainText('CAPTCHA')
+    await expect(page.getByRole('button', { name: 'Sign Up', exact: true })).toBeDisabled()
+    const previous = requests
+    await page.getByRole('button', { name: 'Retry CAPTCHA' }).click()
+    await expect.poll(() => requests).toBeGreaterThan(previous)
+    await expect(page.getByRole('alert')).toContainText('CAPTCHA')
+    await expect(page.getByRole('button', { name: 'Sign Up', exact: true })).toBeDisabled()
+  })
+
   test('restores each reload with one session snapshot and no separate consent check', { tag: '@core' }, async ({ page }) => {
     await installMockCoreApi(page)
     const calls: string[] = []

@@ -57,6 +57,8 @@ pub struct Config {
     pub public_api_url: Option<String>,
     /// Cloudflare Turnstile Secret Key for CAPTCHA validation
     pub turnstile_secret_key: Option<String>,
+    /// Cloudflare Turnstile public site key for browser-hosted registration forms.
+    pub turnstile_site_key: Option<String>,
     /// SMTP Host for sending emails (e.g. smtp.gmail.com)
     pub smtp_host: Option<String>,
     /// SMTP User
@@ -249,6 +251,10 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             turnstile_secret_key: std::env::var("TURNSTILE_SECRET_KEY")
                 .ok()
+                .filter(|s| !s.is_empty()),
+            turnstile_site_key: std::env::var("TURNSTILE_SITE_KEY")
+                .ok()
+                .or_else(|| std::env::var("VITE_TURNSTILE_SITE_KEY").ok())
                 .filter(|s| !s.is_empty()),
             smtp_host: std::env::var("SMTP_HOST").ok().filter(|s| !s.is_empty()),
             smtp_user: std::env::var("SMTP_USER").ok().filter(|s| !s.is_empty()),

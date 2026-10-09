@@ -208,6 +208,36 @@ test.describe('mocked mobile web smoke', () => {
     await expect(page.locator('.support-dock')).not.toBeVisible()
   })
 
+  test('keeps profile photo editing usable at phone width without uploading on cancel', async ({ page }, testInfo) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.setViewportSize({ width: 320, height: 700 })
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'View my profile', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+    const profile = page.locator('.user-settings-section--profile')
+    const image = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 80
+      canvas.height = 120
+      canvas.getContext('2d')!.fillRect(0, 0, 80, 120)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    await profile.locator('input[type="file"]').setInputFiles({
+      name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64'),
+    })
+    const editor = profile.locator('.profile-avatar-editor')
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await expectNoHorizontalOverflow(page.locator('.user-settings-modal'))
+    const stage = (await editor.locator('.profile-avatar-editor__stage').boundingBox())!
+    const modal = (await page.locator('.user-settings-modal').boundingBox())!
+    expect(stage.x).toBeGreaterThanOrEqual(modal.x)
+    expect(stage.x + stage.width).toBeLessThanOrEqual(modal.x + modal.width)
+    await editor.screenshot({ path: testInfo.outputPath('profile-photo-editor-mobile.png') })
+    await editor.getByRole('button', { name: 'Cancel' }).click()
+    await expect(editor).toHaveCount(0)
+    await expect(profile.getByRole('button', { name: 'Upload' })).toBeVisible()
+  })
+
   test('keeps Social friends, requests, and DM entry usable on a phone viewport', async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(24),

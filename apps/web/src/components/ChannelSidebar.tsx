@@ -22,9 +22,9 @@ import {
     writeRemotePlaybackVolumes,
 } from '../webrtc/remotePlaybackVolume'
 import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
+import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
 const PERM_CONNECT_VOICE = 1 << 10
-type ManualJoinWindow = Window & { __voxperyManualJoinActive?: boolean }
 
 interface ChannelSidebarProps {
     onOpenServerSettings?: () => void
@@ -327,26 +327,6 @@ export default function ChannelSidebar({
         return () => window.removeEventListener(REMOTE_PLAYBACK_VOLUME_CHANGED_EVENT, syncPeerVolumes)
     }, [])
 
-    const handleJoinVoice = async (id: string) => {
-        closeMobileSidebar()
-        const manualJoinWindow = window as ManualJoinWindow
-        manualJoinWindow.__voxperyManualJoinActive = true
-        setActiveChannel(id)
-        const joinFn = (window as Window & { __voxperyJoinVoice?: (channelId: string, preflightStream?: MediaStream) => void }).__voxperyJoinVoice
-
-        try {
-            if (!joinFn) {
-                pushToast({ level: 'error', title: 'Voice Error', message: 'Voice service is not ready. Please refresh.' })
-                return
-            }
-            await joinFn(id)
-        } catch (e) {
-            console.error("Voice join failed:", e)
-        } finally {
-            manualJoinWindow.__voxperyManualJoinActive = false
-        }
-    }
-
     return (
         <div className="channel-sidebar" ref={sidebarRef}>
             <div className="channel-header">
@@ -575,7 +555,7 @@ export default function ChannelSidebar({
                                                     closeMobileSidebar()
                                                     return
                                                 }
-                                                void handleJoinVoice(ch.id)
+                                                void joinVoiceChannelFromNavigation(ch.id)
                                                 return
                                             }
                                             setActiveChannel(ch.id)

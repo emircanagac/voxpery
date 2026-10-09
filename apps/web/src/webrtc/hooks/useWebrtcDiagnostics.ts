@@ -1,15 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
+import { createScreenAudioPcmMonitor } from '../screenAudioPcmMonitor'
 import { Room, Track } from 'livekit-client'
 import {
+    isVoiceDiagnosticsEnabled,
+    recordScreenAudioDiagnostics,
     updateVoiceDiagnostics,
+    type ScreenAudioDiagnosticSample,
     type ScreenShareAudioOutboundDiagnostics,
     type ScreenShareOutboundDiagnostics,
 } from '../voiceDiagnostics'
+import {
+    extractScreenAudioInboundSample,
+    finiteStat,
+    screenAudioIntervalRmsDb,
+    type ScreenAudioRtpSample,
+} from '../screenAudioDiagnostics'
 
 const PING_WINDOW_SIZE = 7
 const RTC_BURST_SAMPLE_COUNT = 6
 const RTC_BURST_INTERVAL_MS = 700
 const RTC_STEADY_INTERVAL_MS = 2500
+const SCREEN_AUDIO_DIAGNOSTIC_INTERVAL_MS = 500
 const WS_PING_INTERVAL_MS = 2500
 const PING_STALE_AFTER_MS = 7500
 const MIN_RTC_SAMPLES_FOR_DISPLAY = 3
@@ -27,8 +38,7 @@ export interface ScreenShareAudioOutboundSample extends ScreenShareAudioOutbound
 }
 
 function finiteNumber(value: unknown): number | undefined {
-    const numeric = Number(value)
-    return Number.isFinite(numeric) ? numeric : undefined
+    return finiteStat(value)
 }
 
 export function extractScreenShareOutboundSample(
@@ -135,6 +145,7 @@ export function extractScreenShareAudioOutboundSample(
             && (candidate as RTCStats & { localId?: string }).localId === outbound.id
         )) as (RTCStats & { packetsLost?: number }) | undefined
 
+        const energy = source as (RTCStats & ScreenAudioRtpSample) | undefined
         return {
             packetsSent: finiteNumber(outbound.packetsSent),
             packetsLost: finiteNumber(remoteInbound?.packetsLost),
@@ -142,6 +153,9 @@ export function extractScreenShareAudioOutboundSample(
             channels: finiteNumber((codec as (RTCStats & { channels?: number }) | undefined)?.channels),
             bytesSent: finiteNumber(outbound.bytesSent),
             timestamp: finiteNumber(outbound.timestamp),
+            audioLevel: finiteNumber(energy?.audioLevel),
+            totalAudioEnergy: finiteNumber(energy?.totalAudioEnergy),
+            totalSamplesDuration: finiteNumber(energy?.totalSamplesDuration),
         }
     }
     return null
@@ -366,6 +380,8 @@ export function useWebrtcDiagnostics(options: {
             rtcLastSampleAtRef.current = 0
             prevInboundTotalsRef.current = null
             previousScreenShareOutboundRef.current = null
+            previousScreenShareAudioOutboundRef.current = null
+            updateVoiceDiagnostics({ screenAudioHistory: undefined, screenAudioPlayback: undefined })
             setRtcPingMs(null)
             return
         }
@@ -373,6 +389,20 @@ export function useWebrtcDiagnostics(options: {
         let cancelled = false
         let timer: ReturnType<typeof window.setTimeout> | undefined
         let sampleCount = 0
+        let previousAudioSamples = new Map<string, ScreenAudioRtpSample>()
+        let hasScreenAudio = false
+        let pcmContext: AudioContext | null = null
+        let pcmEpoch = 0
+        const pcmMonitors = new Map<MediaStreamTrack, {
+            monitor: ReturnType<typeof createScreenAudioPcmMonitor>
+            epoch: number
+        }>()
+        const disposePcm = () => {
+            for (const { monitor } of pcmMonitors.values()) monitor.dispose()
+            pcmMonitors.clear()
+            if (pcmContext && pcmContext.state !== 'closed') void pcmContext.close().catch(() => {})
+            pcmContext = null
+        }
 
         const readRttAndQuality = async (
             room: Room,
@@ -398,6 +428,41 @@ export function useWebrtcDiagnostics(options: {
             const rttSamples: number[] = []
             const inboundJitterSamples: number[] = []
             const inboundTotals: InboundTotals = { lost: 0, received: 0 }
+            const diagnosticSamples: ScreenAudioDiagnosticSample[] = []
+            const nextAudioSamples = new Map<string, ScreenAudioRtpSample>()
+            const diagnosticsEnabled = isVoiceDiagnosticsEnabled()
+            hasScreenAudio = false
+            const pcmTracks: { track: MediaStreamTrack; direction: 'capture-pcm' | 'receive-pcm'; slot: number }[] = []
+            const captureAudio = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack
+            if (captureAudio) pcmTracks.push({ track: captureAudio, direction: 'capture-pcm', slot: 0 })
+            let pcmSlot = 0
+            for (const participant of room.remoteParticipants.values()) {
+                const track = participant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack
+                if (track) pcmTracks.push({ track, direction: 'receive-pcm', slot: pcmSlot++ })
+            }
+            if (!diagnosticsEnabled || pcmTracks.length === 0) disposePcm()
+            else {
+                const activeTracks = new Set(pcmTracks.map(({ track }) => track))
+                for (const [track, { monitor }] of pcmMonitors) {
+                    if (!activeTracks.has(track)) { monitor.dispose(); pcmMonitors.delete(track) }
+                }
+                for (const { track, direction, slot } of pcmTracks) {
+                    try {
+                        pcmContext ??= new AudioContext()
+                        let entry = pcmMonitors.get(track)
+                        if (!entry) {
+                            entry = { monitor: createScreenAudioPcmMonitor(track, pcmContext), epoch: ++pcmEpoch }
+                            pcmMonitors.set(track, entry)
+                        }
+                        diagnosticSamples.push({
+                            ...entry.monitor.sample(), direction, slot,
+                            streamEpoch: entry.epoch, sampledAt: Date.now(),
+                        })
+                    } catch {
+                        // Missing/suspended Web Audio is unknown, never a silent source measurement.
+                    }
+                }
+            }
 
             for (const pc of candidatePcs) {
                 try {
@@ -445,6 +510,7 @@ export function useWebrtcDiagnostics(options: {
 
                     const screenAudioPublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)
                     const screenAudioTrackIdentifier = screenAudioPublication?.track?.mediaStreamTrack.id
+                    if (screenAudioTrackIdentifier) hasScreenAudio = true
                     if (screenAudioTrackIdentifier) {
                         const sample = extractScreenShareAudioOutboundSample(
                             Array.from(stats.values()),
@@ -474,12 +540,46 @@ export function useWebrtcDiagnostics(options: {
                                     packetsLost: sample.packetsLost,
                                     codec: sample.codec,
                                     channels: sample.channels,
+                                    audioLevel: sample.audioLevel,
+                                    totalAudioEnergy: sample.totalAudioEnergy,
+                                    totalSamplesDuration: sample.totalSamplesDuration,
                                 },
                             })
+                            if (diagnosticsEnabled && pc === publisherPc) {
+                                const key = `capture:${screenAudioTrackIdentifier}`
+                                diagnosticSamples.push({
+                                    direction: 'capture', slot: 0, sampledAt: Date.now(),
+                                    rmsDb: screenAudioIntervalRmsDb(previousAudioSamples.get(key), sample),
+                                    audioLevel: sample.audioLevel,
+                                    totalAudioEnergy: sample.totalAudioEnergy,
+                                    totalSamplesDuration: sample.totalSamplesDuration,
+                                    packetsLost: sample.packetsLost,
+                                })
+                                nextAudioSamples.set(key, sample)
+                            }
                         }
                     } else {
                         previousScreenShareAudioOutboundRef.current = null
                         updateVoiceDiagnostics({ screenShareAudioOutbound: undefined })
+                    }
+
+                    if (pc === subscriberPc) {
+                        let slot = 0
+                        for (const participant of room.remoteParticipants.values()) {
+                            const track = participant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack
+                            if (!track) continue
+                            hasScreenAudio = true
+                            const currentSlot = slot++
+                            if (!diagnosticsEnabled) continue
+                            const audioSample = extractScreenAudioInboundSample(Array.from(stats.values()), track.id)
+                            if (!audioSample) continue
+                            const key = `receive:${track.id}`
+                            diagnosticSamples.push({
+                                ...audioSample, direction: 'receive', slot: currentSlot, sampledAt: Date.now(),
+                                rmsDb: screenAudioIntervalRmsDb(previousAudioSamples.get(key), audioSample),
+                            })
+                            nextAudioSamples.set(key, audioSample)
+                        }
                     }
 
                     const peerConnectionRtt = extractPeerConnectionRttMs(Array.from(stats.values()))
@@ -511,6 +611,8 @@ export function useWebrtcDiagnostics(options: {
                 }
             }
 
+            previousAudioSamples = nextAudioSamples
+            if (!cancelled && diagnosticsEnabled) recordScreenAudioDiagnostics(diagnosticSamples)
             return { rttSamples, inboundJitterSamples, inboundTotals }
         }
 
@@ -605,6 +707,7 @@ export function useWebrtcDiagnostics(options: {
             if (cancelled) return
             const room = roomRef.current
             if (!room) {
+                disposePcm()
                 if (roomState !== 'connected') {
                     setRtcPingMs(null)
                     setPacketLossPct(null)
@@ -619,7 +722,9 @@ export function useWebrtcDiagnostics(options: {
 
             sampleCount += 1
             const interval =
-                sampleCount < RTC_BURST_SAMPLE_COUNT ? RTC_BURST_INTERVAL_MS : RTC_STEADY_INTERVAL_MS
+                isVoiceDiagnosticsEnabled() && hasScreenAudio
+                    ? SCREEN_AUDIO_DIAGNOSTIC_INTERVAL_MS
+                    : sampleCount < RTC_BURST_SAMPLE_COUNT ? RTC_BURST_INTERVAL_MS : RTC_STEADY_INTERVAL_MS
             timer = window.setTimeout(() => {
                 void sample()
             }, interval)
@@ -629,6 +734,7 @@ export function useWebrtcDiagnostics(options: {
         return () => {
             cancelled = true
             if (timer) window.clearTimeout(timer)
+            disposePcm()
         }
     }, [joinedChannelId, roomRef, roomState, remoteStreamsVersion])
 

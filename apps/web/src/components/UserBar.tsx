@@ -23,6 +23,7 @@ import {
 import SensitivityBar from './SensitivityBar'
 import ThemeSettings from './ThemeSettings'
 import MemberProfileDialog from './MemberProfileDialog'
+import ProfileAvatarEditor from './ProfileAvatarEditor'
 import { ROUTES } from '../routes'
 import {
   DEFAULT_VOICE_INPUT_PROFILE,
@@ -248,6 +249,10 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   )
   const [aboutMe, setAboutMe] = useState(user?.about_me ?? '')
   const [profileDetailsSaving, setProfileDetailsSaving] = useState(false)
+  const [avatarDraft, setAvatarDraft] = useState<{ file: File; key: number } | null>(null)
+  const [avatarSelectionError, setAvatarSelectionError] = useState<string | null>(null)
+  const avatarDraftKeyRef = useRef(0)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const [speakingThreshold, setSpeakingThreshold] = useState(() => thresholdByPreset(DEFAULT_SPEAKING_PRESET))
   const [speakingPreset, setSpeakingPreset] = useState<SpeakingPreset>(DEFAULT_SPEAKING_PRESET)
   const [pwOld, setPwOld] = useState('')
@@ -538,8 +543,17 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   }, [mobileSidebarPanel, pendingStatusMenuOpen])
 
   const closeSettingsPanel = useCallback(() => {
+    setAvatarDraft(null)
+    setAvatarSelectionError(null)
     setShowSettingsPanel(false)
   }, [])
+
+  useEffect(() => {
+    if (activeSettingsSection !== 'profile') {
+      setAvatarDraft(null)
+      setAvatarSelectionError(null)
+    }
+  }, [activeSettingsSection])
 
   const handleLogout = useCallback(() => {
     closeSettingsPanel()
@@ -1050,8 +1064,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     }
   }
 
-  const updateProfileAvatar = async (avatarUrl: string | null) => {
-    if (isTauri() && !token) return
+  const updateProfileAvatar = async (avatarUrl: string | null): Promise<boolean> => {
+    if (isTauri() && !token) return false
     try {
       const updated = await authApi.updateProfile(
         avatarUrl ? { avatar_url: avatarUrl } : { clear_avatar: true },
@@ -1119,6 +1133,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
           ),
         )
       }
+      return true
     } catch (err) {
       console.error('Failed to update profile avatar:', err)
       pushToast({
@@ -1126,6 +1141,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
         title: avatarUrl ? 'Profile photo update failed' : 'Profile photo removal failed',
         message: err instanceof Error ? err.message : 'Could not update your profile photo.',
       })
+      return false
     }
   }
 
@@ -1183,33 +1199,21 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     }
   }
 
-  const onPickProfileAvatar = async (files: FileList | null) => {
+  const onPickProfileAvatar = (files: FileList | null) => {
     if (!files || files.length === 0) return
     const file = files[0]
-    if (!file.type.startsWith('image/')) {
-      pushToast({
-        level: 'error',
-        title: 'Invalid file type',
-        message: 'Only image files are supported for profile photo uploads.',
-      })
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'].includes(file.type)) {
+      setAvatarSelectionError('Choose a JPEG, PNG, WebP, GIF, or AVIF image.')
       return
     }
     if (file.size > MAX_PROFILE_IMAGE_BYTES) {
       const maxMb = Math.round(MAX_PROFILE_IMAGE_BYTES / (1024 * 1024))
-      pushToast({
-        level: 'error',
-        title: 'Image too large',
-        message: `Profile photo must be ${maxMb} MB or smaller.`,
-      })
+      setAvatarSelectionError(`Profile photo must be ${maxMb} MB or smaller.`)
       return
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
-    })
-    await updateProfileAvatar(dataUrl)
+    setAvatarSelectionError(null)
+    avatarDraftKeyRef.current += 1
+    setAvatarDraft({ file, key: avatarDraftKeyRef.current })
   }
 
   const exportMyData = async () => {
@@ -1386,8 +1390,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     setShowPwModal(true)
     try {
       const freshUser = await authApi.getMe(token ?? null)
-      if (token) setAuth(token, freshUser)
-      else setUser(freshUser)
+      setUser(freshUser)
     } catch {
       // Modal can still open with current in-memory user state.
     }
@@ -1399,8 +1402,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       throw new Error('FEATURE_DISABLED:Email verification is disabled on this server.')
     }
     const updated = await authApi.requestEmailVerification(token ?? null, nextEmail)
-    if (token) setAuth(token, updated)
-    else setUser(updated)
+    setUser(updated)
     return updated
   }
 
@@ -1591,7 +1593,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
           )}
         </button>
         <button type="button" className="user-info user-info-btn user-status-button" onClick={toggleStatusMenu} title="Set status" aria-label="Set status" aria-haspopup="dialog" aria-expanded={showStatusMenu}>
-          <span className="user-name">
+          <span className="user-name" title={user?.username || 'User'}>
             {user?.username || 'User'}
           </span>
           <span className="user-status-row">
@@ -1625,7 +1627,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       {voiceDeviceMenu}
       {showOwnProfile && user && createPortal(
         <MemberProfileDialog
-          member={{ user_id: user.id, username: user.username, avatar_url: user.avatar_url, about_me: user.about_me, status: user.status, role: '' }}
+          member={{ user_id: user.id, username: user.username, avatar_url: user.avatar_url, about_me: user.about_me, status: user.status, account_created_at: user.created_at, role: '' }}
           isServerOwner={false}
           onClose={() => setShowOwnProfile(false)}
           onEditProfile={() => { setShowOwnProfile(false); openSettingsPanel() }}
@@ -2209,7 +2211,24 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
               )}
               {activeSettingsSection === 'profile' && (
               <section className="user-settings-section user-settings-section--profile">
-                <h3 className="user-settings-section-title">Profile</h3>
+                <h3 className="user-settings-section-title">{avatarDraft ? 'Edit profile photo' : 'Profile'}</h3>
+                {avatarDraft && <div className="profile-avatar-selection-feedback" aria-live="polite">
+                  {avatarSelectionError && <p role="alert">{avatarSelectionError}</p>}
+                </div>}
+                <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden
+                  onChange={(event) => {
+                    onPickProfileAvatar(event.currentTarget.files)
+                    event.currentTarget.value = ''
+                  }} />
+                {avatarDraft && <ProfileAvatarEditor key={avatarDraft.key} file={avatarDraft.file}
+                  onChooseAnother={() => avatarInputRef.current?.click()}
+                  onCancel={() => { setAvatarDraft(null); setAvatarSelectionError(null) }}
+                  onSave={async (dataUrl) => {
+                    const saved = await updateProfileAvatar(dataUrl)
+                    if (saved) { setAvatarDraft(null); setAvatarSelectionError(null) }
+                    return saved
+                  }} />}
+                {!avatarDraft && <>
                 <div className="user-profile-preview-card">
                   <div className="user-profile-preview-header">
                     <div className={`user-profile-preview-avatar avatar-status-${(user?.status ?? 'online') as StatusValue}`} aria-hidden>
@@ -2243,18 +2262,10 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                       </div>
                     </div>
                     <div className="user-profile-preview-actions">
-                      <label className="user-toggle account-action-btn">
+                      <button type="button" className="user-toggle account-action-btn"
+                        onClick={() => avatarInputRef.current?.click()}>
                         Upload
-                        <input
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            void onPickProfileAvatar(e.target.files)
-                            e.currentTarget.value = ''
-                          }}
-                        />
-                      </label>
+                      </button>
                       {user?.avatar_url && (
                         <button
                           type="button"
@@ -2265,6 +2276,9 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                         </button>
                       )}
                     </div>
+                  </div>
+                  <div className="profile-avatar-selection-feedback" aria-live="polite">
+                    {avatarSelectionError && <p role="alert">{avatarSelectionError}</p>}
                   </div>
                   <div className="user-profile-fields">
                     <div className="user-profile-field">
@@ -2385,6 +2399,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                     Log out
                   </button>
                 </div>
+                </>}
               </section>
               )}
               {activeSettingsSection === 'privacy' && (
@@ -2751,11 +2766,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                       clearTimeout(usernameCheckTimeoutRef.current)
                       usernameCheckTimeoutRef.current = null
                     }
-                    if (token) {
-                      setAuth(token, updated)
-                    } else {
-                      setUser(updated)
-                    }
+                    setUser(updated)
                     closeUsernameModal()
                   } catch (err: unknown) {
                     const msg = getAuthErrorMessage(err).message || 'Could not update username'
@@ -2872,7 +2883,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                   try {
                     if (isGoogleOnlyAccount) {
                       const auth = await authApi.setPassword(pwNew, token ?? null)
-                      if (token) setAuth(auth.token, auth.user)
+                      if (token) await setAuth(auth.token, auth.user)
                       else setUser(auth.user)
                       setPwSuccess(true)
                       setPwOld(''); setPwNew(''); setPwConfirm('')

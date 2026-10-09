@@ -56,6 +56,13 @@ Key columns:
 - No Google access/refresh token is stored. Context expires after 10 minutes, is checked on every read, and expired rows are cleaned every minute and before creating another context.
 - Finalization locks the pending row and creates the user, privacy audit, and pending deletion in one transaction. Unique identity constraints and row locking reject concurrent/replayed completion.
 
+### `pending_desktop_registrations`
+
+- Migration `052` stores short-lived context for desktop email registration completed in the browser.
+- Columns: hashed opaque cookie secret (primary key), CSRF token, allowlisted return origin (`voxpery://auth`), sanitized redirect path, desktop PKCE challenge, and expiry (10 minutes).
+- No account data, password or CAPTCHA token is stored. Expired rows are removed before a new context is created and are ignored on every read.
+- Finalization locks the row, creates the user and privacy audit, and deletes the context in one transaction. Fixable validation errors keep the context so the form can be resubmitted; the single-use desktop code is issued only after commit.
+
 ### `servers`
 
 - `id`, `name`, `icon_url`, `description`, `owner_id`, `invite_code`, `created_at`

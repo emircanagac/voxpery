@@ -3,6 +3,7 @@ import { enableNotificationsFromSettings, installMockNotificationPermission } fr
 import {
   buildCoreChannels,
   buildCoreMembers,
+  buildCoreOnboardingGuide,
   buildCoreServer,
   buildFriends,
   buildRequests,
@@ -162,11 +163,13 @@ test.describe('mocked core UI smoke', () => {
       await page.goto('/servers')
       const guide = page.locator('.server-welcome-guide')
       const action = guide.getByRole('button', { name: 'Open channel general' })
-      await expect(action).toHaveText('Introduce yourself in #general')
+      await expect(action).toHaveText('Introduce yourself in general')
       await expect(guide.locator('.server-welcome-guide__task')).toHaveCount(0)
       await expect(guide.locator('.server-welcome-guide__eyebrow')).toHaveCount(0)
       expect(await guide.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
       const bounds = (await guide.boundingBox())!
+      const dismissBounds = (await guide.getByRole('button', { name: 'Dismiss welcome guide' }).boundingBox())!
+      expect(Math.abs(dismissBounds.y + dismissBounds.height / 2 - bounds.y - bounds.height / 2)).toBeLessThan(1)
       expect(bounds.height).toBeLessThan(160)
       if (width === 1920) {
         expect(bounds.height).toBeLessThan(60)
@@ -182,6 +185,49 @@ test.describe('mocked core UI smoke', () => {
       await expect(guide).toBeHidden()
       await page.reload()
       await expect(guide).toBeHidden()
+    })
+  }
+
+  for (const width of [1100, 390]) {
+    test(`opens text and joins voice from the welcome guide at ${width}px`, async ({ page }, testInfo) => {
+      const server = buildCoreServer()
+      const channels = buildCoreChannels(server.id)
+      const textChannel = channels.find(channel => channel.channel_type === 'text')!
+      const voiceChannel = channels.find(channel => channel.channel_type === 'voice')!
+      const guide = buildCoreOnboardingGuide(server.id)
+      guide.recommended_channel_ids = [textChannel.id, voiceChannel.id]
+      guide.starter_tasks = [
+        `Send your first message in #${textChannel.name}`,
+        `Join the ${voiceChannel.name} voice channel`,
+        'Explore the open-source project on GitHub',
+      ]
+      await installMockCoreApi(page, createMockCoreState({
+        servers: [server], channelsByServerId: { [server.id]: channels },
+        onboardingGuideByServerId: { [server.id]: guide },
+      }))
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto('/servers')
+      const card = page.locator('.server-welcome-guide')
+      await expect(card.getByRole('button', { name: `Open channel ${textChannel.name}` })).toHaveCount(1)
+      await expect(card.getByRole('button', { name: `Join voice channel ${voiceChannel.name}` })).toHaveCount(1)
+      await expect(card.getByRole('link', { name: 'View on GitHub' })).toHaveCount(0)
+      await expect(card.locator('.server-welcome-guide__task')).toHaveCount(0)
+      expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      await card.screenshot({ path: testInfo.outputPath(`welcome-actions-${width}.png`) })
+      await card.getByRole('button', { name: `Open channel ${textChannel.name}` }).click()
+      await expect(page.locator('.chat-header .channel-title')).toHaveText(textChannel.name)
+      await expect(page.getByRole('textbox', { name: /^Message/ })).toBeVisible()
+      await page.evaluate(() => {
+        const voiceWindow = window as Window & {
+          __voxperyJoinVoice?: (channelId: string) => Promise<void>
+          __welcomeJoinCalls?: string[]
+        }
+        voiceWindow.__welcomeJoinCalls = []
+        voiceWindow.__voxperyJoinVoice = async (channelId) => { voiceWindow.__welcomeJoinCalls?.push(channelId) }
+      })
+      await card.getByRole('button', { name: `Join voice channel ${voiceChannel.name}` }).click()
+      await expect.poll(() => page.evaluate(() => (window as Window & { __welcomeJoinCalls?: string[] }).__welcomeJoinCalls))
+        .toEqual([voiceChannel.id])
     })
   }
 

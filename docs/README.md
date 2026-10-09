@@ -30,6 +30,15 @@ This folder is the source of truth for architecture, development, deployment, ro
 - **[SECURITY.md](SECURITY.md)** - Security model and hardening checklist
 - **[../SECURITY.md](../SECURITY.md)** - Private vulnerability reporting policy
 
+## Release And Operations
+
+- **[RELEASE_SMOKE_TEST_CHECKLIST.md](RELEASE_SMOKE_TEST_CHECKLIST.md)** - Release candidate checklist and required gates
+- **[VOICE_RELEASE_SMOKE_TEST.md](VOICE_RELEASE_SMOKE_TEST.md)** - Voice release smoke test
+- **[DESKTOP_RELEASE_HARDENING.md](DESKTOP_RELEASE_HARDENING.md)** - Desktop packaging, signing, updater and Linux gates
+- **[OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)** - Production operations and incident procedures
+- **[VOICE_QUALITY_BENCHMARK.md](VOICE_QUALITY_BENCHMARK.md)** - Voice quality measurement procedure
+- **[NETWORK_USAGE_BENCHMARK.md](NETWORK_USAGE_BENCHMARK.md)** - Desktop bandwidth investigation scenarios
+
 ## Open Source Project Docs
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution process and standards

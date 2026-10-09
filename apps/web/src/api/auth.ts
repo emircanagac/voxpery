@@ -70,6 +70,20 @@ export async function getDesktopGoogleAuthUrl(
     })
 }
 
+/** Start the browser-hosted desktop email registration flow. */
+export async function getDesktopRegistrationUrl(redirectPath: string = '/'): Promise<string> {
+    const { verifier, challenge } = await createDesktopPkcePair()
+    if (typeof window !== 'undefined') {
+        window.localStorage.setItem(DESKTOP_OAUTH_VERIFIER_KEY, verifier)
+    }
+    const params = new URLSearchParams({
+        origin: 'voxpery://auth',
+        redirect: redirectPath,
+        code_challenge: challenge,
+    })
+    return `${effectiveApiBase()}/api/auth/desktop-registration?${params.toString()}`
+}
+
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */
 export function getGoogleAuthUrl(redirectPath: string = '/', options?: GoogleAuthUrlOptions): string {
     const origin = options?.origin ?? (isTauri() ? 'voxpery://auth' : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'))
@@ -114,7 +128,7 @@ export const authApi = {
 
     /** Desktop-only: exchange short-lived OAuth code from deep-link into JWT + user payload. */
     exchangeDesktopOAuthCode: (code: string, codeVerifier: string) =>
-        apiFetch<AuthResponse>('/api/auth/google/desktop-exchange', {
+        apiFetch<AuthResponse>('/api/auth/desktop-exchange', {
             method: 'POST',
             body: { code, code_verifier: codeVerifier },
         }),

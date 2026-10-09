@@ -154,4 +154,4 @@ configs:
       webhook:
         api_key: "${LIVEKIT_API_KEY:-devkey}"
         urls:
-          - "http://server:3001/api/webrtc/livekit-webhook"
+          - "${LIVEKIT_WEBHOOK_URL:-http://server:3001/api/webrtc/livekit-webhook}"

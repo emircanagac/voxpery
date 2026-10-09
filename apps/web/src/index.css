@@ -1873,6 +1873,8 @@ body {
   background: transparent;
   display: flex;
   align-items: center;
+  min-width: 0;
+  flex: 1 1 0;
   padding: 0 6px;
   gap: 8px;
 }
@@ -1883,6 +1885,7 @@ body {
   gap: 8px;
   min-width: 0;
   flex: 1 1 auto;
+  width: 100%;
 }
 
 .user-panel .user-avatar {
@@ -1908,7 +1911,8 @@ body {
 }
 
 .user-panel .user-info {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -1925,6 +1929,9 @@ body {
 }
 
 .user-panel .user-name {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
@@ -1970,8 +1977,7 @@ body {
 }
 
 .user-status-cue-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: none;
 }
 
 .user-panel-icon-btn {
@@ -2976,6 +2982,90 @@ body {
   border: var(--border-subtle);
   border-radius: 12px;
   background: var(--bg-elevated);
+}
+
+.profile-avatar-editor {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.profile-avatar-editor__stage {
+  position: relative;
+  width: min(100%, 240px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 2px solid var(--accent-border-strong);
+  border-radius: 50%;
+  background: var(--bg-primary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.profile-avatar-editor__stage:active {
+  cursor: grabbing;
+}
+
+.profile-avatar-editor__stage:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 3px;
+}
+
+.profile-avatar-editor__stage img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.profile-avatar-editor__controls {
+  width: min(100%, 360px);
+  display: grid;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.profile-avatar-editor__controls input {
+  width: 100%;
+  accent-color: var(--accent-primary);
+}
+
+.profile-avatar-editor__error {
+  margin: 0;
+  color: var(--text-danger);
+  font-size: 12px;
+}
+
+.profile-avatar-selection-feedback {
+  height: 36px;
+  overflow-y: auto;
+  color: var(--text-danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.profile-avatar-selection-feedback p {
+  margin: 0;
+}
+
+.profile-avatar-editor__actions {
+  width: min(100%, 360px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.profile-avatar-editor__actions .user-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
 }
 
 .user-profile-preview-avatar {
@@ -7928,6 +8018,9 @@ body {
 }
 
 .legal-page-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   min-height: 54px;
   display: flex;
   align-items: center;
@@ -7938,15 +8031,43 @@ body {
   background: var(--bg-secondary);
 }
 
-.legal-page-nav a {
+.legal-page-home {
   color: var(--text-primary);
   font-weight: 800;
   text-decoration: none;
 }
 
-.legal-page-nav span {
-  color: var(--text-muted);
-  font-size: 12px;
+.legal-page-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.legal-page-tabs a {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.legal-page-tabs a:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.legal-page-tabs a[aria-current='page'] {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.legal-page-tabs a:focus-visible,
+.legal-page-home:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .legal-document {
@@ -7986,10 +8107,13 @@ body {
 
   .legal-page-nav {
     min-height: 50px;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
+    gap: 8px;
     padding: 8px 16px;
+  }
+
+  .legal-page-tabs a {
+    min-height: 36px;
+    padding: 0 10px;
   }
 
   .legal-document {
@@ -8003,6 +8127,32 @@ body {
 
   .legal-document h2 {
     margin-top: 26px;
+  }
+}
+
+/* Legal documents print as plain, complete text instead of a clipped scroll region. */
+@media print {
+  .legal-page {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    background: #fff;
+    color: #000;
+  }
+
+  .legal-page-nav {
+    display: none;
+  }
+
+  .legal-document {
+    width: 100%;
+    padding: 0;
+  }
+
+  .legal-document p,
+  .legal-document li,
+  .legal-document a {
+    color: #000;
   }
 }
 
@@ -10388,6 +10538,7 @@ button.message-author {
   display: flex;
   align-items: center;
   justify-content: space-between; /* This pushes the settings icon to the far right */
+  gap: 8px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -14755,7 +14906,8 @@ button.message-author {
 
 .server-welcome-guide__dismiss {
   position: absolute;
-  top: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   right: 10px;
   width: 30px;
   height: 30px;
@@ -14841,6 +14993,17 @@ button.message-author {
 .server-welcome-guide__channel:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(124, 167, 236, 0.34);
+}
+
+.server-welcome-guide__channel:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.server-welcome-guide__channel span,
+.server-welcome-guide__task span {
+  min-width: 0;
+  text-align: left;
 }
 
 .onboarding-settings-layout {
@@ -15038,6 +15201,12 @@ button.message-author {
 @media (max-width: 700px) {
   .server-welcome-guide {
     margin: 10px 10px 0;
+  }
+
+  .server-welcome-guide__actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .server-welcome-guide__copy h2 {
@@ -17139,6 +17308,20 @@ textarea {
   .profile-status-actions {
     gap: 4px;
     width: 100%;
+  }
+
+  .profile-avatar-editor__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-avatar-editor__actions .user-toggle {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .profile-avatar-editor__actions .user-toggle:first-child {
+    grid-column: 1 / -1;
   }
 
   .profile-status-btn {

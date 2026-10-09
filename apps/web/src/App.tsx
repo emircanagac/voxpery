@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 're
 import { useAppStore } from './stores/app'
 import { useAuthStore } from './stores/auth'
 import { authApi, clearStoredDesktopOAuthVerifier, getStoredDesktopOAuthVerifier, setAuthFailureHandler } from './api'
-import { isTauri, setSecureToken } from './secureStorage'
+import { isTauri } from './secureStorage'
 import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
@@ -147,7 +147,6 @@ function App() {
         clearCodeVerifier: clearStoredDesktopOAuthVerifier,
         exchangeCode: authApi.exchangeDesktopOAuthCode,
         setAuth: (authToken, authUser) => useAuthStore.getState().setAuth(authToken, authUser),
-        persistToken: setSecureToken,
         navigate: (path) => navigate(path, { replace: true }),
         onError: (error) => console.error('Desktop OAuth return failed:', error),
         onObservabilityEvent: reportObservabilityEvent,
@@ -199,7 +198,7 @@ function App() {
     return <GlobalLoading label="Loading…" description="Please wait." />
   }
 
-  if (sessionState === 'error' && !publicRoute) {
+  if (sessionState === 'error' && (!publicRoute || isDesktopApp)) {
     return (
       <main className="legal-consent-page">
         <section className="legal-consent-panel" aria-labelledby="session-error-title">

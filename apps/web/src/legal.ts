@@ -1,5 +1,8 @@
 import type { LegalConsentStatus } from './api/contracts'
 
+/** Published hosted-service document version; must match the server's CURRENT_*_VERSION. */
+export const PUBLISHED_LEGAL_VERSION = '2026-08-23'
+
 export interface RegistrationLegalAcceptance {
   terms_accepted: boolean
   terms_version: string

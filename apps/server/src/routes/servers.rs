@@ -651,11 +651,13 @@ async fn create_server(
     .await?;
 
     // Create default "general" text channel in a shared category.
+    let text_channel_id = Uuid::new_v4();
+    let voice_channel_id = Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
            VALUES ($1, $2, 'general', 'text', 'General', 0, NOW())"#,
     )
-    .bind(Uuid::new_v4())
+    .bind(text_channel_id)
     .bind(server_id)
     .execute(&mut *tx)
     .await?;
@@ -665,7 +667,16 @@ async fn create_server(
         r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
            VALUES ($1, $2, 'General', 'voice', 'General', 1, NOW())"#,
     )
-    .bind(Uuid::new_v4())
+    .bind(voice_channel_id)
+    .bind(server_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO server_onboarding_guides
+           (server_id, enabled, title, body, recommended_channel_ids, starter_tasks, updated_at)
+           VALUES ($1, FALSE, '', '', ARRAY[]::UUID[], ARRAY[]::TEXT[], NOW())"#,
+    )
     .bind(server_id)
     .execute(&mut *tx)
     .await?;

@@ -343,6 +343,8 @@ test.describe('mocked release and settings regressions', () => {
 
   test('opens profiles independently from messages and status', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(2) })
+    state.user.created_at = '2025-01-03T12:00:00.000Z'
+    state.user.about_me = 'Building a community.'
     await installMockCoreApi(page, state)
     await page.goto('/social')
     await page.getByRole('button', { name: 'View profile for Friend 01', exact: true }).click()
@@ -351,6 +353,8 @@ test.describe('mocked release and settings regressions', () => {
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'View my profile', exact: true }).click()
     await expect(page.getByRole('dialog', { name: state.user.username })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: state.user.username })).toContainText('Member since')
+    await expect(page.getByRole('dialog', { name: state.user.username })).toContainText('Building a community.')
     await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
     await expect(page.locator('.user-settings-modal')).toBeVisible()
     await page.getByRole('button', { name: 'Done', exact: true }).click()
@@ -365,6 +369,150 @@ test.describe('mocked release and settings regressions', () => {
     await statusButton.focus()
     await page.keyboard.press('Enter')
     await expect(page.locator('.user-status-popover')).toBeVisible()
+  })
+
+  test('keeps a long account name readable without crowding status or settings', async ({ page }) => {
+    const state = createMockCoreState()
+    state.user.username = 'accountwithaverylongusernameforqa'
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.goto('/social')
+    const bar = page.locator('.user-bar-wrap')
+    const name = bar.locator('.user-name')
+    await expect(name).toHaveAttribute('title', state.user.username)
+    const layout = await bar.evaluate((element) => {
+      const rect = (selector: string) => element.querySelector(selector)!.getBoundingClientRect()
+      const nameElement = element.querySelector<HTMLElement>('.user-name')!
+      return {
+        bar: element.getBoundingClientRect(),
+        avatar: rect('.user-avatar'),
+        name: rect('.user-name'),
+        status: rect('.user-status-row'),
+        settings: rect('.user-panel-icon-btn'),
+        truncated: nameElement.scrollWidth > nameElement.clientWidth,
+      }
+    })
+    expect(layout.truncated).toBe(true)
+    expect(layout.avatar.right).toBeLessThan(layout.name.left)
+    expect(layout.name.right).toBeLessThanOrEqual(layout.settings.left)
+    expect(layout.status.right).toBeLessThanOrEqual(layout.settings.left)
+    expect(layout.settings.right).toBeLessThanOrEqual(layout.bar.right)
+    await expect(bar.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(bar.getByRole('button', { name: 'Set status' })).toBeVisible()
+  })
+
+  test('edits a profile photo locally before an explicit save and allows retry', async ({ page }, testInfo) => {
+    const state = createMockCoreState()
+    await installMockCoreApi(page, state)
+    let uploads = 0
+    let submittedDataUrl = ''
+    await page.route('**/api/auth/profile', async (route) => {
+      uploads += 1
+      const body = route.request().postDataJSON() as { avatar_url: string }
+      submittedDataUrl = body.avatar_url
+      if (uploads === 1) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Temporarily unavailable' }) })
+        return
+      }
+      state.user.avatar_url = body.avatar_url
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.user) })
+    })
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const profile = page.locator('.user-settings-section--profile')
+    const profileLayout = () => profile.evaluate(element => {
+      const root = element.getBoundingClientRect()
+      return ['.user-profile-preview-card', '#profile-about-me'].map(selector => {
+        const box = element.querySelector(selector)!.getBoundingClientRect()
+        return { top: Math.round(box.top - root.top), width: box.width, height: box.height }
+      })
+    })
+    const layoutBeforeError = await profileLayout()
+    await profile.locator('input[type="file"]').setInputFiles({
+      name: 'oversized.png', mimeType: 'image/png', buffer: Buffer.alloc(2 * 1024 * 1024 + 1),
+    })
+    const sizeError = profile.getByRole('alert')
+    await expect(sizeError).toContainText('Profile photo must be 2 MB or smaller')
+    await sizeError.click()
+    expect(await profileLayout()).toEqual(layoutBeforeError)
+    await expect(page.locator('.user-settings-modal')).toBeVisible()
+    await expect(page.locator('.toast-item.error')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('profile-photo-too-large-inline.png') })
+    const source = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 120
+      canvas.height = 80
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#e64040'
+      context.fillRect(0, 0, 60, 80)
+      context.fillStyle = '#347ae8'
+      context.fillRect(60, 0, 60, 80)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    const file = { name: 'landscape.png', mimeType: 'image/png', buffer: Buffer.from(source, 'base64') }
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    const editor = profile.locator('.profile-avatar-editor')
+    await expect(sizeError).toHaveCount(0)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    expect(uploads).toBe(0)
+    await editor.getByRole('button', { name: 'Cancel' }).click()
+    await expect(editor).toHaveCount(0)
+    expect(uploads).toBe(0)
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    const firstDraftUrl = await editor.locator('img').getAttribute('src')
+    await profile.locator('input[type="file"]').setInputFiles({ ...file, name: 'another.png' })
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await expect(editor.locator('img')).not.toHaveAttribute('src', firstDraftUrl!)
+    expect(uploads).toBe(0)
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    const zoom = editor.getByRole('slider', { name: 'Zoom' })
+    await zoom.focus()
+    await zoom.press('ArrowRight')
+    expect(Number(await zoom.inputValue())).toBeGreaterThan(1)
+    const stage = editor.getByRole('group', { name: 'Move photo crop with arrow keys' })
+    await stage.hover()
+    const zoomBeforeWheel = Number(await zoom.inputValue())
+    await page.mouse.wheel(0, -120)
+    await expect.poll(async () => Number(await zoom.inputValue())).toBeGreaterThan(zoomBeforeWheel)
+    await page.mouse.wheel(0, 120)
+    await expect.poll(async () => Number(await zoom.inputValue())).toBe(zoomBeforeWheel)
+    const controlsBox = (await editor.locator('.profile-avatar-editor__controls').boundingBox())!
+    const actionsBox = (await editor.locator('.profile-avatar-editor__actions').boundingBox())!
+    expect(Math.abs(controlsBox.x + controlsBox.width / 2 - actionsBox.x - actionsBox.width / 2)).toBeLessThan(2)
+    const stageBox = (await stage.boundingBox())!
+    const image = editor.locator('.profile-avatar-editor__stage img')
+    const leftBeforeDrag = await image.evaluate(element => Number.parseFloat(element.style.left))
+    await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(stageBox.x + stageBox.width / 2 + 16, stageBox.y + stageBox.height / 2)
+    await page.mouse.up()
+    expect(await image.evaluate(element => Number.parseFloat(element.style.left))).toBeGreaterThan(leftBeforeDrag)
+    await stage.focus()
+    await stage.press('Shift+ArrowRight')
+    await editor.screenshot({ path: testInfo.outputPath('profile-photo-editor-desktop.png') })
+    await editor.getByRole('button', { name: 'Save photo' }).click()
+    await expect(editor.getByRole('alert')).toContainText('Photo was not saved')
+    expect(uploads).toBe(1)
+    await editor.getByRole('button', { name: 'Save photo' }).click()
+    await expect(editor).toHaveCount(0)
+    expect(uploads).toBe(2)
+    expect(submittedDataUrl).toMatch(/^data:image\/jpeg;base64,/)
+    const savedAvatar = profile.locator('.user-profile-preview-avatar img')
+    await expect(savedAvatar).toBeVisible()
+    await expect(savedAvatar).toHaveAttribute('src', submittedDataUrl)
+    const dimensions = await savedAvatar.evaluate((image: HTMLImageElement) => [image.naturalWidth, image.naturalHeight])
+    expect(dimensions).toEqual([512, 512])
+    const center = await savedAvatar.evaluate((image: HTMLImageElement) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 512
+      canvas.height = 512
+      const context = canvas.getContext('2d')!
+      context.drawImage(image, 0, 0)
+      return Array.from(context.getImageData(256, 256, 1, 1).data)
+    })
+    expect(center[0]).toBeGreaterThan(center[2])
   })
 
   test('keeps default panels and responsive visibility despite old saved widths', async ({ page }) => {

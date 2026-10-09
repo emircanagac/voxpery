@@ -118,6 +118,9 @@ describe('screen share quality profiles', () => {
       selfBrowserSurface: 'exclude',
       surfaceSwitching: 'include',
       audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
         restrictOwnAudio: true,
         suppressLocalAudioPlayback: false,
       },
@@ -134,6 +137,10 @@ describe('screen share quality profiles', () => {
       getSettings: () => ({
         sampleRate: 48000,
         channelCount: 2,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        restrictOwnAudio: true,
         deviceId: 'private-audio-id',
       }),
     } as unknown as MediaStreamTrack
@@ -149,6 +156,13 @@ describe('screen share quality profiles', () => {
       audioSampleRate: 48000,
       audioChannelCount: 2,
       audioContentHint: 'music',
+      audioProcessing: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        restrictOwnAudio: true,
+        suppressLocalAudioPlayback: undefined,
+      },
     })
   })
 

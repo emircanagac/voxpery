@@ -113,6 +113,10 @@ export function toScreenShareDisplayMediaOptions(
         selfBrowserSurface: 'exclude',
         surfaceSwitching: 'include',
         audio: {
+            // Shared game/music audio is not speech: never request voice enhancement.
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
             // Do not feed Voxpery's own remote call playback back into the
             // shared-audio track when the browser supports this constraint.
             restrictOwnAudio: true,
@@ -153,6 +157,13 @@ export function toScreenShareCaptureDiagnostics(
             audioSampleRate: finiteSetting(audioSettings.sampleRate),
             audioChannelCount: finiteSetting(audioSettings.channelCount),
             audioContentHint: audioTrack.contentHint === 'music' ? 'music' as const : undefined,
+            audioProcessing: {
+                echoCancellation: audioSettings.echoCancellation,
+                noiseSuppression: audioSettings.noiseSuppression,
+                autoGainControl: audioSettings.autoGainControl,
+                restrictOwnAudio: (audioSettings as MediaTrackSettings & { restrictOwnAudio?: boolean }).restrictOwnAudio,
+                suppressLocalAudioPlayback: (audioSettings as MediaTrackSettings & { suppressLocalAudioPlayback?: boolean }).suppressLocalAudioPlayback,
+            },
         } : {}),
         videoPublished: false,
         audioPublished: false,

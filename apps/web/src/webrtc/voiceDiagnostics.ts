@@ -79,6 +79,10 @@ export interface ScreenShareCaptureDiagnostics {
   audioSampleRate?: number
   audioChannelCount?: number
   audioContentHint?: 'music'
+  audioProcessing?: VoiceProcessingConstraintsDiagnostics & {
+    restrictOwnAudio?: boolean
+    suppressLocalAudioPlayback?: boolean
+  }
   videoPublished?: boolean
   audioPublished?: boolean
   audioPreset?: 'musicHighQualityStereo'
@@ -107,6 +111,28 @@ export interface ScreenShareAudioOutboundDiagnostics {
   packetsLost?: number
   codec?: string
   channels?: number
+  audioLevel?: number
+  totalAudioEnergy?: number
+  totalSamplesDuration?: number
+}
+
+export interface ScreenAudioDiagnosticSample {
+  direction: 'capture' | 'receive' | 'capture-pcm' | 'receive-pcm'
+  slot: number
+  sampledAt: number
+  rmsDb?: number
+  minimumRmsDb?: number
+  contextState?: AudioContextState
+  samples?: number
+  streamEpoch?: number
+  audioLevel?: number
+  packetsLost?: number
+  packetsReceived?: number
+  jitterMs?: number
+  concealedSamples?: number
+  silentConcealedSamples?: number
+  totalAudioEnergy?: number
+  totalSamplesDuration?: number
 }
 
 export interface VoiceRuntimeDiagnostics {
@@ -137,6 +163,8 @@ export interface VoiceRuntimeDiagnostics {
   screenShare?: ScreenShareCaptureDiagnostics
   screenShareOutbound?: ScreenShareOutboundDiagnostics
   screenShareAudioOutbound?: ScreenShareAudioOutboundDiagnostics
+  screenAudioHistory?: ScreenAudioDiagnosticSample[]
+  screenAudioPlayback?: { volume: number; muted: boolean; paused: boolean; readyState: number; trackEnabled?: boolean; trackMuted?: boolean }[]
   updatedAt?: string
 }
 
@@ -176,6 +204,23 @@ export function getVoiceDiagnosticsSnapshot(): VoiceRuntimeDiagnostics | null {
   if (typeof window === 'undefined') return null
   const snapshot = window.__VOXPERY_VOICE_DIAGNOSTICS__
   return snapshot ? { ...snapshot } : null
+}
+
+export function recordScreenAudioDiagnostics(samples: ScreenAudioDiagnosticSample[]): void {
+  if (!isVoiceDiagnosticsEnabled()) return
+  const previous = window.__VOXPERY_VOICE_DIAGNOSTICS__?.screenAudioHistory ?? []
+  const cutoff = Date.now() - 60_000
+  const history = [...previous, ...samples].filter(sample => sample.sampledAt >= cutoff).slice(-240)
+  updateVoiceDiagnostics({
+    screenAudioHistory: history,
+    screenAudioPlayback: Array.from(document.querySelectorAll<HTMLAudioElement>('audio[data-remote-audio-kind="screen"]')).map(element => {
+      const track = (element.srcObject as MediaStream | null)?.getAudioTracks?.()[0]
+      return {
+        volume: element.volume, muted: element.muted, paused: element.paused, readyState: element.readyState,
+        trackEnabled: track?.enabled, trackMuted: track?.muted,
+      }
+    }),
+  })
 }
 
 export function formatVoiceDiagnosticsSnapshot(snapshot: VoiceRuntimeDiagnostics): string {
@@ -350,11 +395,19 @@ export function classifyVoiceError(err: unknown): VoiceErrorInfo {
     }
   }
 
-  if (lower.includes('connection_error') || lower.includes('websocket is not connected')) {
+  if (lower.includes('websocket is not connected')) {
     return {
       level: 'error',
       title: 'Voice service reconnecting',
       message: 'The app is reconnecting to the server. Wait a few seconds and try joining voice again.',
+    }
+  }
+
+  if (lower.includes('connection_error')) {
+    return {
+      level: 'error',
+      title: 'Voice server unreachable',
+      message: 'Voxpery could not reach the server while preparing voice. Check the connection and retry.',
     }
   }
 

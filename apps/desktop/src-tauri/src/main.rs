@@ -170,9 +170,7 @@ fn desktop_prepare_for_update_install(state: tauri::State<'_, DesktopRuntimeStat
 }
 
 #[tauri::command]
-fn desktop_take_pending_deep_links(
-    state: tauri::State<'_, DesktopRuntimeState>,
-) -> Vec<String> {
+fn desktop_take_pending_deep_links(state: tauri::State<'_, DesktopRuntimeState>) -> Vec<String> {
     state
         .pending_deep_links
         .lock()
@@ -299,10 +297,8 @@ fn main() {
                 }
 
                 if let Some(url) = deep_link {
-                    if let Ok(mut pending) = app
-                        .state::<DesktopRuntimeState>()
-                        .pending_deep_links
-                        .lock()
+                    if let Ok(mut pending) =
+                        app.state::<DesktopRuntimeState>().pending_deep_links.lock()
                     {
                         if !pending.contains(&url) {
                             pending.push(url.clone());
@@ -326,6 +322,32 @@ fn main() {
                     .build(),
             )
             .setup(|app| {
+                #[cfg(target_os = "linux")]
+                {
+                    let mut config = app
+                        .config()
+                        .app
+                        .windows
+                        .iter()
+                        .find(|window| window.label == "main")
+                        .ok_or("main window configuration is missing")?
+                        .clone();
+                    config.url = tauri::WebviewUrl::External(tauri::Url::parse("about:blank")?);
+                    let main_win =
+                        tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+                    let initial_uri = if tauri::is_dev() {
+                        app.config()
+                            .build
+                            .dev_url
+                            .as_ref()
+                            .ok_or("desktop development URL is missing")?
+                            .to_string()
+                    } else {
+                        "tauri://localhost/".to_string()
+                    };
+                    linux_media::configure(&main_win, initial_uri)?;
+                }
+
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                     Some(vec!["--autostart"]),
@@ -335,7 +357,7 @@ fn main() {
                 let show_i = MenuItem::with_id(app, "show", "Show Voxpery", true, None::<&str>)?;
                 let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
-                let _tray = TrayIconBuilder::with_id("main-tray")
+                let tray = TrayIconBuilder::with_id("main-tray")
                     .icon(
                         make_base_tray_icon(false)
                             .unwrap_or_else(|| app.default_window_icon().unwrap().clone()),
@@ -363,17 +385,25 @@ fn main() {
                             show_main_window(app);
                         }
                     })
-                    .build(app)?;
+                    .build(app);
+                #[cfg(target_os = "linux")]
+                if tray.is_err() {
+                    eprintln!("Voxpery tray is unavailable; the window remains accessible from the taskbar");
+                }
+                #[cfg(not(target_os = "linux"))]
+                let _tray = tray?;
 
                 // Close behavior is user-controlled. Default matches typical chat apps and keeps
                 // the app in the tray until the user disables it from settings.
                 if let Some(main_win) = app.get_webview_window("main") {
-                    #[cfg(target_os = "linux")]
-                    linux_media::configure(&main_win)?;
-
                     if is_autostart_launch() {
-                        let _ = main_win.set_skip_taskbar(true);
-                        let _ = main_win.hide();
+                        #[cfg(target_os = "linux")]
+                        let _ = main_win.minimize();
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let _ = main_win.set_skip_taskbar(true);
+                            let _ = main_win.hide();
+                        }
                     }
 
                     let main_win_clone = main_win.clone();
@@ -390,6 +420,11 @@ fn main() {
                             }
 
                             api.prevent_close();
+                            // A tray object does not prove that the desktop has a tray host.
+                            // Keep a taskbar recovery path on Linux, including GNOME without extensions.
+                            #[cfg(target_os = "linux")]
+                            let _ = main_win_clone.minimize();
+                            #[cfg(not(target_os = "linux"))]
                             let _ = main_win_clone.hide();
                         }
                         _ => {}
@@ -400,9 +435,18 @@ fn main() {
             });
     }
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running Voxpery");
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "linux")]
+    let context = {
+        let mut context = context;
+        for window in &mut context.config_mut().app.windows {
+            if window.label == "main" {
+                window.create = false;
+            }
+        }
+        context
+    };
+    builder.run(context).expect("error while running Voxpery");
 }
 
 #[cfg(test)]
