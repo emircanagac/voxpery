@@ -3040,6 +3040,12 @@ body {
   font-size: 12px;
 }
 
+.profile-avatar-editor__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .profile-avatar-selection-feedback {
   height: 36px;
   overflow-y: auto;
