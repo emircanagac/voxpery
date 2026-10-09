@@ -797,7 +797,9 @@ async fn logout_revokes_the_bearer_token_and_reports_revocation_failure() {
     let app = build_app(Arc::new(state), vec!["http://localhost:5173".to_string()]);
     let response = app.oneshot(request()).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(!response.headers().contains_key("set-cookie"));
+    // The browser session still ends so a reload cannot restore it; only revocation failed.
+    let cleared = response.headers()["set-cookie"].to_str().unwrap();
+    assert!(cleared.contains("Max-Age=0"));
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert!(!String::from_utf8_lossy(&body).contains(&token));
 }

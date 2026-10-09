@@ -47,7 +47,7 @@ Important behavior:
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
-  - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it expires; if revocation cannot be stored the endpoint returns `503` and keeps the session cookie, so clients never report a logout while the token remains valid. Desktop clients retry the revocation on the next start before restoring a session.
+  - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it expires; if revocation cannot be stored the endpoint returns `503` but still clears the session cookie, so a reload cannot restore the browser session. Desktop clients complete sign-out and sign-in regardless; a token whose revocation failed is kept only in the OS keyring revocation list and retried on later starts.
 - `GET /api/auth/me`
   - The authenticated user includes `created_at` for the own-profile membership date. This field is not added to the WebSocket broadcast profile.
 - `GET /api/auth/session`

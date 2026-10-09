@@ -1673,9 +1673,11 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
             .await
             .is_err()
             {
-                // Do not claim logout succeeded while the bearer token remains valid.
+                // Do not claim logout succeeded while the bearer token remains valid, but
+                // still end the browser session so a reload cannot silently restore it.
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
+                    clear_auth_cookie_header(&state),
                     Json(serde_json::json!({ "error": "Could not revoke the session. Please try again." })),
                 )
                     .into_response();

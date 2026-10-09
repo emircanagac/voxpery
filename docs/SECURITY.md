@@ -182,7 +182,7 @@ This keeps enforcement consistent across instances and avoids per-process counte
 
 ## JWT Blacklist
 
-Invalidated tokens (logout, password change) stored in Redis. Logout fails closed with `503` when the blacklist write fails instead of reporting success for a still-valid token:
+Invalidated tokens (logout, password change) stored in Redis. Logout reports `503` when the blacklist write fails instead of reporting success for a still-valid token, while still clearing the web session cookie; desktop keeps such tokens in a bounded keyring revocation list and retries them on later starts:
 
 ```rust
 pub async fn blacklist_token(redis: &redis::Client, token: &str, ttl_secs: i64) -> Result<(), AppError> {

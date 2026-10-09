@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { isTauri, getSecureToken, setSecureToken, removeSecureToken } from './secureStorage'
+import { isTauri, getSecureToken, setSecureToken, removeSecureToken, getPendingRevocations, setPendingRevocations } from './secureStorage'
 
 const invoke = vi.hoisted(() => vi.fn())
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
@@ -36,6 +36,23 @@ describe('secureStorage', () => {
       'plugin:secure-storage|set_item', 'plugin:secure-storage|remove_item', 'plugin:secure-storage|get_item',
     ])
   })
+  it('stores a bounded, de-duplicated revocation list and ignores corrupt entries', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValue(null)
+    await setPendingRevocations(['a', 'b', 'a', 'c', 'd', 'e', 'f'])
+    expect(invoke).toHaveBeenLastCalledWith('plugin:secure-storage|set_item', {
+      payload: { prefixedKey: 'voxpery-pending-revocations', data: JSON.stringify(['b', 'c', 'd', 'e', 'f']) },
+    })
+    await setPendingRevocations([])
+    expect(invoke).toHaveBeenLastCalledWith('plugin:secure-storage|remove_item', {
+      payload: { prefixedKey: 'voxpery-pending-revocations' },
+    })
+    invoke.mockResolvedValueOnce('not json')
+    expect(await getPendingRevocations()).toEqual([])
+    invoke.mockResolvedValueOnce(JSON.stringify(['kept', 42]))
+    expect(await getPendingRevocations()).toEqual(['kept'])
+  })
+
   describe('isTauri', () => {
     it('should return false in test environment', () => {
       expect(isTauri()).toBe(false)
