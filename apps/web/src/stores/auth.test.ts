@@ -5,10 +5,12 @@ import type { UserPublic } from '../api'
 const mocks = vi.hoisted(() => ({
   session: vi.fn(), logout: vi.fn(async () => {}), desktop: vi.fn(() => false),
   getToken: vi.fn(), setToken: vi.fn(async () => {}), removeToken: vi.fn(async () => {}),
+  getPending: vi.fn(async (): Promise<string[]> => []), setPending: vi.fn<(tokens: string[]) => Promise<void>>(async () => {}),
 }))
 vi.mock('../secureStorage', () => ({
   isTauri: mocks.desktop, getSecureToken: mocks.getToken,
   setSecureToken: mocks.setToken, removeSecureToken: mocks.removeToken,
+  getPendingRevocations: mocks.getPending, setPendingRevocations: mocks.setPending,
 }))
 vi.mock('../api', async (original) => {
   const actual = await original<typeof import('../api')>()
@@ -162,6 +164,44 @@ describe('auth store persistence', () => {
     expect(mocks.logout).toHaveBeenCalledWith('old-token')
     expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'ready' })
     expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBeNull()
+  })
+
+  it('completes desktop logout when the server cannot revoke and parks the token', async () => {
+    mocks.desktop.mockReturnValue(true)
+    useAuthStore.setState({ token: 'live-token', user, sessionState: 'ready' })
+    mocks.logout.mockRejectedValueOnce(new Error('Could not revoke the session. Please try again.'))
+    useAuthStore.getState().logout()
+    await vi.waitFor(() => expect(useAuthStore.getState().loggingOut).toBe(false))
+    expect(mocks.setPending).toHaveBeenCalledWith(['live-token'])
+    expect(mocks.removeToken).toHaveBeenCalled()
+    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBeNull()
+    expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'ready', sessionError: null })
+  })
+
+  it('signs in after an unfinished logout even while revocation keeps failing', async () => {
+    mocks.desktop.mockReturnValue(true)
+    localStorage.setItem('voxpery-desktop-logout-pending', '1')
+    mocks.getToken.mockResolvedValueOnce('old-token')
+    mocks.logout.mockRejectedValueOnce(new Error('Could not revoke the session. Please try again.'))
+    await useAuthStore.getState().setAuth('new-token', user)
+    expect(mocks.setPending).toHaveBeenCalledWith(['old-token'])
+    expect(mocks.setToken).toHaveBeenCalledWith('new-token')
+    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBeNull()
+    expect(useAuthStore.getState()).toMatchObject({ token: 'new-token', user })
+  })
+
+  it('retries parked revocations on desktop startup and keeps only failures', async () => {
+    mocks.desktop.mockReturnValue(true)
+    mocks.getToken.mockResolvedValue(null)
+    mocks.getPending.mockResolvedValueOnce(['revoked-now', 'still-failing'])
+    mocks.logout.mockImplementation(async (token?: string | null) => {
+      if (token === 'still-failing') throw new Error('unavailable')
+    })
+    await useAuthStore.getState().restoreSession()
+    await vi.waitFor(() => expect(mocks.setPending).toHaveBeenCalledWith(['still-failing']))
+    expect(mocks.logout).toHaveBeenCalledWith('revoked-now')
+    mocks.logout.mockReset()
+    mocks.logout.mockImplementation(async () => {})
   })
 
   it('queues logout after an unfinished credential write and prevents late login', async () => {

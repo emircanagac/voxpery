@@ -4,6 +4,9 @@
 //! keeps CAPTCHA in the trusted web/API origin and returns only a short-lived
 //! PKCE-bound desktop code to the application.
 
+use super::registration_pages::{
+    legal_acknowledgement_inputs, new_pending_secret, pending_cookie, pending_cookie_hash,
+};
 use super::*;
 use axum::extract::Form;
 
@@ -42,29 +45,11 @@ pub(super) struct RegistrationForm {
 }
 
 fn cookie(state: &AppState, value: &str, max_age: u32) -> String {
-    format!(
-        "{COOKIE}={value}; HttpOnly; Path={PATH}; SameSite=Lax; Max-Age={max_age}{}",
-        if state.cookie_secure { "; Secure" } else { "" }
-    )
+    pending_cookie(state, COOKIE, PATH, value, max_age)
 }
 
 fn cookie_hash(headers: &HeaderMap) -> Result<String, AppError> {
-    let prefix = format!("{COOKIE}=");
-    let secret = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|cookies| {
-            cookies
-                .split(';')
-                .find_map(|part| part.trim().strip_prefix(&prefix))
-        })
-        .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or_else(|| {
-            AppError::Validation(
-                "Registration expired. Return to Voxpery and sign in again.".into(),
-            )
-        })?;
-    Ok(BASE64URL.encode(Sha256::digest(secret.as_bytes())))
+    pending_cookie_hash(headers, COOKIE)
 }
 
 fn safe_redirect_path(value: Option<&str>) -> String {
@@ -105,53 +90,7 @@ fn page(
     prefill: Prefill<'_>,
 ) -> Response {
     let nonce = Uuid::new_v4().simple().to_string();
-    let legal_origin = state
-        .frontend_url
-        .as_deref()
-        .or_else(|| {
-            state
-                .cors_origins
-                .iter()
-                .find(|origin| origin.starts_with("http"))
-                .map(String::as_str)
-        })
-        .unwrap_or("http://localhost:5173");
-    let labels = [
-        (
-            "terms_accepted",
-            "terms_version",
-            "terms",
-            "I accept the Terms of Service",
-            CURRENT_TERMS_VERSION,
-        ),
-        (
-            "privacy_notice_acknowledged",
-            "privacy_notice_version",
-            "privacy",
-            "I have read the Privacy Notice",
-            CURRENT_PRIVACY_NOTICE_VERSION,
-        ),
-        (
-            "kvkk_notice_acknowledged",
-            "kvkk_notice_version",
-            "kvkk",
-            "I have read the KVKK Notice",
-            CURRENT_KVKK_NOTICE_VERSION,
-        ),
-    ];
-    let options = labels
-        .iter()
-        .enumerate()
-        .map(|(index, (name, version_name, path, label, version))| {
-            format!(
-                "<label class=check><input type=checkbox name={name} value=true required {}><a href=\"{}/{}\" target=_blank rel=noreferrer>{label}</a></label><input type=hidden name={version_name} value=\"{}\">",
-                if accepted[index] { "checked" } else { "" },
-                escape_html_attribute(legal_origin),
-                path,
-                escape_html_attribute(version),
-            )
-        })
-        .collect::<String>();
+    let options = legal_acknowledgement_inputs(state, accepted);
     let error = error
         .map(|message| {
             format!(
@@ -247,23 +186,23 @@ pub(super) async fn show(
         &headers,
         connect_info.as_ref().map(|Extension(info)| info),
     );
-    if let Some(ip) = client_ip {
-        enforce_rate_limit(
-            &state.redis,
-            format!("auth:desktop_registration_start:{ip}"),
-            20,
-            Duration::from_secs(3600),
-            "Too many registration attempts",
-        )
-        .await?;
-    }
+    // Without a trusted client IP, share one wider bucket instead of skipping the limit.
+    let (bucket, limit) = match client_ip.as_deref() {
+        Some(ip) => (ip, 20),
+        None => ("unknown", 200),
+    };
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:desktop_registration_start:{bucket}"),
+        limit,
+        Duration::from_secs(3600),
+        "Too many registration attempts",
+    )
+    .await?;
     let redirect_path = safe_redirect_path(query.redirect.as_deref());
-    let secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let hash = BASE64URL.encode(Sha256::digest(secret.as_bytes()));
+    let (secret, hash) = new_pending_secret();
     let csrf = Uuid::new_v4().simple().to_string();
-    sqlx::query("DELETE FROM pending_desktop_registrations WHERE expires_at <= NOW()")
-        .execute(&state.db)
-        .await?;
+    crate::services::privacy::cleanup_expired_desktop_registrations(&state.db).await?;
     sqlx::query("INSERT INTO pending_desktop_registrations (cookie_hash, csrf_token, return_origin, redirect_path, code_challenge) VALUES ($1,$2,$3,$4,$5)")
         .bind(hash)
         .bind(&csrf)

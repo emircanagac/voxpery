@@ -4,6 +4,9 @@
  */
 
 const AUTH_TOKEN_KEY = 'voxpery-auth-token'
+// Tokens whose server-side revocation failed; retried later, never restored as a session.
+const PENDING_REVOCATIONS_KEY = 'voxpery-pending-revocations'
+const MAX_PENDING_REVOCATIONS = 5
 let storageQueue: Promise<unknown> = Promise.resolve()
 
 function withSecureStorage<T>(operation: () => Promise<T>): Promise<T> {
@@ -46,12 +49,12 @@ async function getInvoke(): Promise<(cmd: string, args?: object) => Promise<unkn
   return () => Promise.reject(new Error('Tauri not available'))
 }
 
-export async function getSecureToken(): Promise<string | null> {
+async function getItem(key: string): Promise<string | null> {
   if (!isTauri()) return null
   return withSecureStorage(async () => {
     const invoke = await getInvoke()
     const out = await invoke('plugin:secure-storage|get_item', {
-      payload: { prefixedKey: AUTH_TOKEN_KEY },
+      payload: { prefixedKey: key },
     })
     if (typeof out === 'string') return out || null
     const obj = out as { data?: string | null } | null
@@ -59,22 +62,44 @@ export async function getSecureToken(): Promise<string | null> {
   })
 }
 
-export async function setSecureToken(token: string): Promise<void> {
+async function setItem(key: string, data: string): Promise<void> {
   if (!isTauri()) return
   return withSecureStorage(async () => {
     const invoke = await getInvoke()
     await invoke('plugin:secure-storage|set_item', {
-      payload: { prefixedKey: AUTH_TOKEN_KEY, data: token },
+      payload: { prefixedKey: key, data },
     })
   })
 }
 
-export async function removeSecureToken(): Promise<void> {
+async function removeItem(key: string): Promise<void> {
   if (!isTauri()) return
   return withSecureStorage(async () => {
     const invoke = await getInvoke()
     await invoke('plugin:secure-storage|remove_item', {
-      payload: { prefixedKey: AUTH_TOKEN_KEY },
+      payload: { prefixedKey: key },
     })
   })
+}
+
+export const getSecureToken = (): Promise<string | null> => getItem(AUTH_TOKEN_KEY)
+export const setSecureToken = (token: string): Promise<void> => setItem(AUTH_TOKEN_KEY, token)
+export const removeSecureToken = (): Promise<void> => removeItem(AUTH_TOKEN_KEY)
+
+export async function getPendingRevocations(): Promise<string[]> {
+  const raw = await getItem(PENDING_REVOCATIONS_KEY)
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** Keeps the newest few tokens; older ones still expire on the server. */
+export async function setPendingRevocations(tokens: string[]): Promise<void> {
+  const unique = [...new Set(tokens)].slice(-MAX_PENDING_REVOCATIONS)
+  if (unique.length === 0) return removeItem(PENDING_REVOCATIONS_KEY)
+  return setItem(PENDING_REVOCATIONS_KEY, JSON.stringify(unique))
 }

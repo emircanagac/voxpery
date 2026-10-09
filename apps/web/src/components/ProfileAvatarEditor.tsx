@@ -92,7 +92,7 @@ export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, o
     setSaving(true)
     setError(null)
     try {
-      const dataUrl = renderAvatarCrop(imageRef.current, zoom, offset, previewSize)
+      const dataUrl = renderAvatarCrop(imageRef.current, zoom, offset, previewSize, file.type)
       if (!await onSave(dataUrl)) setError('Photo was not saved. Try again.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not edit this photo')
@@ -131,6 +131,7 @@ export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, o
             }
           }} disabled={saving || !geometry} />
       </div>
+      {file.type === 'image/gif' && <p className="profile-avatar-editor__note">Animated GIFs are saved as a still image.</p>}
       {error && <p className="profile-avatar-editor__error" role="alert">{error}</p>}
       <div className="profile-avatar-editor__actions">
         <button type="button" className="user-toggle" onClick={onChooseAnother} disabled={saving}>

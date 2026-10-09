@@ -498,7 +498,8 @@ test.describe('mocked release and settings regressions', () => {
     await editor.getByRole('button', { name: 'Save photo' }).click()
     await expect(editor).toHaveCount(0)
     expect(uploads).toBe(2)
-    expect(submittedDataUrl).toMatch(/^data:image\/jpeg;base64,/)
+    // PNG sources keep transparency, so Chromium saves the crop as WebP rather than JPEG.
+    expect(submittedDataUrl).toMatch(/^data:image\/webp;base64,/)
     const savedAvatar = profile.locator('.user-profile-preview-avatar img')
     await expect(savedAvatar).toBeVisible()
     await expect(savedAvatar).toHaveAttribute('src', submittedDataUrl)

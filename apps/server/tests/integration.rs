@@ -797,7 +797,9 @@ async fn logout_revokes_the_bearer_token_and_reports_revocation_failure() {
     let app = build_app(Arc::new(state), vec!["http://localhost:5173".to_string()]);
     let response = app.oneshot(request()).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(!response.headers().contains_key("set-cookie"));
+    // The browser session still ends so a reload cannot restore it; only revocation failed.
+    let cleared = response.headers()["set-cookie"].to_str().unwrap();
+    assert!(cleared.contains("Max-Age=0"));
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert!(!String::from_utf8_lossy(&body).contains(&token));
 }
@@ -7321,9 +7323,29 @@ async fn pending_google_registration_finalizes_atomically_and_rejects_concurrent
 async fn pending_google_registration_keeps_desktop_pkce_handoff_single_use() {
     let (mut app, state) = setup_app_with_features(false, false, false, true).await;
     let (cookie, csrf, _, verifier) = pending_google_fixture(&state, true).await;
-    let (status, html) = oneshot(&mut app, pending_google_request(&cookie, &csrf)).await;
-    assert_eq!(status, StatusCode::OK);
-    let html = String::from_utf8(html.to_vec()).unwrap();
+    let response = app
+        .clone()
+        .oneshot(pending_google_request(&cookie, &csrf))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // Desktop gets its session from the PKCE exchange only; the browser stays signed out.
+    let session_cookie = format!("{}=", state.cookie_name);
+    assert!(response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .all(|value| !value.to_str().unwrap().starts_with(&session_cookie)));
+    let html = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
     let offset = html.find("code=").expect("short-lived code in deep link") + 5;
     let code = &html[offset..offset + 32];
     assert!(code.bytes().all(|b| b.is_ascii_hexdigit()));

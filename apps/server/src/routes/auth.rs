@@ -45,6 +45,8 @@ use crate::{
 
 #[path = "desktop_registration.rs"]
 mod desktop_registration;
+#[path = "registration_pages.rs"]
+mod registration_pages;
 #[path = "google_registration.rs"]
 mod google_registration;
 
@@ -1673,9 +1675,11 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
             .await
             .is_err()
             {
-                // Do not claim logout succeeded while the bearer token remains valid.
+                // Do not claim logout succeeded while the bearer token remains valid, but
+                // still end the browser session so a reload cannot silently restore it.
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
+                    clear_auth_cookie_header(&state),
                     Json(serde_json::json!({ "error": "Could not revoke the session. Please try again." })),
                 )
                     .into_response();
@@ -2289,12 +2293,16 @@ async fn google_oauth_callback(
         response.headers_mut().append(header::SET_COOKIE, v);
     }
 
-    for (k, v) in cookie_headers.iter() {
-        if let Ok(v) = v.to_str() {
-            response.headers_mut().append(
-                k.clone(),
-                HeaderValue::from_str(v).unwrap_or(HeaderValue::from_static("")),
-            );
+    // Desktop receives its session only through the PKCE exchange; do not also sign in the
+    // system browser that completed the OAuth flow.
+    if !is_desktop {
+        for (k, v) in cookie_headers.iter() {
+            if let Ok(v) = v.to_str() {
+                response.headers_mut().append(
+                    k.clone(),
+                    HeaderValue::from_str(v).unwrap_or(HeaderValue::from_static("")),
+                );
+            }
         }
     }
     response

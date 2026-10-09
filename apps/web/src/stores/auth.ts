@@ -6,6 +6,8 @@ import {
     getSecureToken,
     setSecureToken,
     removeSecureToken,
+    getPendingRevocations,
+    setPendingRevocations,
 } from '../secureStorage'
 
 interface AuthState {
@@ -42,9 +44,31 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
         desktopTask = task.catch(() => {})
         return task
     }
+    // A server or network failure must not block sign-in or sign-out: park the token for a
+    // later revocation retry. Keyring failures still throw and keep the logout tombstone.
+    const revokeOrPark = async (token: string) => {
+        try {
+            await authApi.logout(token)
+        } catch {
+            await setPendingRevocations([...await getPendingRevocations(), token])
+        }
+    }
+    const retryPendingRevocations = async () => {
+        const pendingTokens = await getPendingRevocations()
+        if (pendingTokens.length === 0) return
+        const remaining: string[] = []
+        for (const pendingToken of pendingTokens) {
+            try {
+                await authApi.logout(pendingToken)
+            } catch {
+                remaining.push(pendingToken)
+            }
+        }
+        await setPendingRevocations(remaining)
+    }
     const cleanupDesktopSession = async (revoke = true) => {
         const storedToken = await getSecureToken()
-        if (revoke && storedToken) await authApi.logout(storedToken)
+        if (revoke && storedToken) await revokeOrPark(storedToken)
         await removeSecureToken()
     }
     return {
@@ -62,6 +86,7 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             const task = (async () => {
                 try {
                     const desktop = isTauri()
+                    if (desktop) void onDesktopQueue(retryPendingRevocations).catch(() => {})
                     if (desktop && localStorage.getItem(DESKTOP_LOGOUT_PENDING)) {
                         await onDesktopQueue(cleanupDesktopSession)
                         if (request === generation) {
@@ -156,7 +181,7 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                 localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
                 set({ token: null, user: null, loggingOut: true })
                 void onDesktopQueue(async () => {
-                    if (currentToken) await authApi.logout(currentToken)
+                    if (currentToken) await revokeOrPark(currentToken)
                     await cleanupDesktopSession(false)
                 }).then(() => {
                     if (request === generation) {

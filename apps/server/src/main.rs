@@ -155,6 +155,14 @@ async fn main() {
             {
                 tracing::warn!("Expired Google registration cleanup failed: {error}");
             }
+            if let Err(error) =
+                voxpery_server::services::privacy::cleanup_expired_desktop_registrations(
+                    &registration_db,
+                )
+                .await
+            {
+                tracing::warn!("Expired desktop registration cleanup failed: {error}");
+            }
         }
     });
 
