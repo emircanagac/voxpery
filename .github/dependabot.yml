@@ -38,6 +38,8 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/apps/web"
+    # Dependencies are pinned to exact versions; keep updates exact as well.
+    versioning-strategy: increase
     schedule:
       interval: "weekly"
       day: "monday"
