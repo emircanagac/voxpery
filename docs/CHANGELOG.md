@@ -7,12 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-10
+
 ### Fixed
 - Google sign-in cancellation and callback failures return to web or desktop login with visible errors and preserve the retry destination. Both clients now default to the server list after Google sign-in.
-
-## [0.3.1] - 2026-10-09
-
-### Fixed
 - Refresh the current user's server list when another session joins a server, and reconcile membership and profile data after reconnect. Apply own-profile WebSocket updates immediately and show the account creation date in the own-profile preview.
 - Registration shows CAPTCHA script/widget failures and provides bounded retry instead of a blank verification area; retries do not bypass provider success or server Siteverify.
 - New Google users starting from Sign In can complete legal acknowledgements before account creation instead of being redirected to an unusable registration error.
