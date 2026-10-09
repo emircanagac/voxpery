@@ -788,6 +788,20 @@ describe('ChatArea regressions', () => {
     expect(link).not.toHaveAttribute('target')
   })
 
+  it('never displays the raw signed URL before an attachment resolves', async () => {
+    mockDecodedImages()
+    let finish!: (url: string) => void
+    vi.spyOn(api, 'resolveAttachmentUrl').mockImplementation(() => new Promise<string>(resolve => { finish = resolve }))
+    const attachment = { id: 'pending-photo', sha256: 'pending-content', url: 'http://localhost:3001/api/attachments/content/pending-photo?exp=1&sig=raw', type: 'image/png', name: 'pending.png' }
+    renderChatArea({ messages: [{ ...message('pending-attachment', 'Photo', 0), attachments: [attachment] }] })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByRole('button', { name: 'Preview pending.png' })).not.toBeInTheDocument()
+    expect(document.querySelector('img[src*="sig=raw"]')).toBeNull()
+    await act(async () => { finish('https://cdn.example.test/pending-resolved.png') })
+    const image = (await screen.findByRole('button', { name: 'Preview pending.png' })).querySelector('img')!
+    expect(image).toHaveAttribute('src', 'https://cdn.example.test/pending-resolved.png')
+  })
+
   it('keeps a decoded attachment and its image node when reaction responses renew its signature', async () => {
     mockDecodedImages()
     const resolve = vi.spyOn(api, 'resolveAttachmentUrl').mockResolvedValue('https://cdn.example.test/stable-preview.png')
@@ -830,7 +844,8 @@ describe('ChatArea regressions', () => {
     rerender(<ChatArea activeChannel={channel('general', 'general')} messages={[{ ...row, attachments: [{ ...attachment, url: nextUrl }] }]} messageInput="" draftAttachments={[]} onMessageInputChange={vi.fn()} onRemoveAttachment={vi.fn()} onSendMessage={vi.fn()} onPickAttachments={vi.fn()} onRetryMessage={vi.fn()} />)
     await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2))
     expect(resolve).toHaveBeenLastCalledWith(nextUrl, null, expect.any(Object))
-    expect(screen.getByRole('button', { name: 'Preview external-signed.png' }).querySelector('img')).toHaveAttribute('src', nextUrl)
+    // Images appear only after their resolved URL decodes, so wait for the renewed source.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview external-signed.png' }).querySelector('img')).toHaveAttribute('src', nextUrl))
   })
 
   it('keeps the download filename when desktop resolves an attachment to a blob URL', async () => {

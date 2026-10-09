@@ -332,6 +332,8 @@ type AttachmentResolutionState = {
     resolvedUrl: string
     loadFailed: boolean
     triedDirectFallback: boolean
+    /** False until resolveAttachmentUrl settles; unresolved signed URLs are never displayed. */
+    resolved: boolean
 }
 
 const MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES = 160
@@ -345,6 +347,7 @@ function defaultAttachmentResolution(sourceUrl: string, cacheKey: string): Attac
         resolvedUrl: sourceUrl,
         loadFailed: false,
         triedDirectFallback: false,
+        resolved: false,
     }
 }
 
@@ -489,7 +492,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         ? resolution
         : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url, cacheKey)
     const [imageDecoded, setImageDecoded] = useState(() => (
-        !isImage || decodedAttachmentImageCache.has(currentResolution.resolvedUrl)
+        !isImage || (currentResolution.resolved && decodedAttachmentImageCache.has(currentResolution.resolvedUrl))
     ))
 
     useEffect(() => {
@@ -514,6 +517,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                 const nextResolution = {
                     cacheKey,
                     sourceUrl: attachment.url,
+                    resolved: true,
                     resolvedUrl: nextUrl,
                     loadFailed: false,
                     triedDirectFallback: false,
@@ -526,6 +530,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                     const nextResolution = {
                         cacheKey,
                         sourceUrl: attachment.url,
+                        resolved: true,
                         resolvedUrl: attachment.url,
                         loadFailed: isImage,
                         triedDirectFallback: true,
@@ -575,7 +580,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
     }, [attachment.url])
 
     useEffect(() => {
-        if (!isImage || currentResolution.loadFailed) {
+        if (!isImage || currentResolution.loadFailed || !currentResolution.resolved) {
             setImageDecoded(false)
             return
         }
@@ -596,7 +601,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
         return () => {
             cancelled = true
         }
-    }, [currentResolution.loadFailed, currentResolution.resolvedUrl, isImage])
+    }, [currentResolution.loadFailed, currentResolution.resolved, currentResolution.resolvedUrl, isImage])
 
     if (isImage) {
         const alt = attachment.name || `Attachment ${index + 1}`
@@ -628,6 +633,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                             const nextResolution = {
                                 cacheKey,
                                 sourceUrl: attachment.url,
+                                resolved: true,
                                 resolvedUrl: nextUrl,
                                 loadFailed: false,
                                 triedDirectFallback: true,

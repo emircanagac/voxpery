@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web logout ends the browser session even when server-side token revocation fails, and desktop sign-in/sign-out no longer wait for a failed revocation; such tokens are retried from the OS keyring on later starts.
 - Desktop Google sign-in and registration no longer leave a signed-in Voxpery session in the system browser; the desktop app receives its session only through the PKCE exchange.
 - Google and desktop registration pages share one implementation, so their Terms/Privacy/KVKK links point to the same web origin. Desktop registration start is rate-limited even without a trusted client IP, and expired pending registrations are cleaned up every minute.
+- Image attachments appear once their resolved URL is ready instead of briefly rendering the raw signed URL and then re-rendering.
 - Newly created servers start with a disabled welcome guide for administrators to configure explicitly. Existing guide preferences are preserved. Profile photo selection errors use reserved space below the photo controls without shifting the profile.
 
 ### Changed
