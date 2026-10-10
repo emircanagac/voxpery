@@ -90,12 +90,10 @@ async function getStoredDesktopAutostartPreference(): Promise<boolean | null> {
   return localValue
 }
 
+/** Launch on startup defaults to on for every desktop platform until the user records a choice. */
 export async function shouldEnableDesktopAutostartByDefault() {
   if (!isTauri()) return false
-  if ((await getStoredDesktopAutostartPreference()) != null) return false
-  if (typeof navigator === 'undefined') return false
-  const platformSignal = `${navigator.userAgent ?? ''} ${navigator.platform ?? ''}`.toLowerCase()
-  return platformSignal.includes('windows') || platformSignal.includes('win32') || platformSignal.includes('win64')
+  return (await getStoredDesktopAutostartPreference()) == null
 }
 
 export async function bootstrapDesktopAutostartDefault(): Promise<boolean | null> {
