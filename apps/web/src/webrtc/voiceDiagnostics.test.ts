@@ -88,6 +88,19 @@ describe('voiceDiagnostics', () => {
     expect(classifyVoiceError(new Error('Microphone is in use by another app')).title).toBe('Microphone is busy')
   })
 
+  it('explains an app runtime without WebRTC instead of reporting a network failure', () => {
+    for (const message of [
+      'WebRTC voice is not supported by this app runtime.',
+      'WebRTC voice is not supported by this app runtime. Use a supported browser or update the desktop runtime.',
+    ]) {
+      const result = classifyVoiceError(new Error(message))
+      expect(result.title).toBe('Voice not supported here')
+      expect(result.message).toContain('browser')
+    }
+    expect(classifyVoiceError(new Error('Voice device setup failed')).title).toBe('Voice action failed')
+    expect(classifyVoiceError(new Error('ICE connection failed')).title).toBe('Voice connection failed')
+  })
+
   it('distinguishes voice HTTP transport failures from a disconnected application socket', () => {
     const transport = classifyVoiceError(new Error('CONNECTION_ERROR:Cannot connect to the server. private transport detail'))
     expect(transport.title).toBe('Voice server unreachable')

@@ -443,8 +443,17 @@ export function classifyVoiceError(err: unknown): VoiceErrorInfo {
     }
   }
 
+  if (lower.includes('not supported by this app runtime')) {
+    return {
+      level: 'error',
+      title: 'Voice not supported here',
+      message: 'This app cannot make voice calls on this system. Open Voxpery in a browser such as Chrome or Firefox to join voice.',
+    }
+  }
+
   if (
-    lower.includes('ice') ||
+    // Match ICE at a word start so "voice", "device" or "service" are not mistaken for network failures.
+    /\bice/.test(lower) ||
     lower.includes('failed to connect') ||
     lower.includes('network') ||
     lower.includes('disconnected')
