@@ -80,6 +80,9 @@ function presenceLabel(status?: string | null): string {
 
 type UiDmMessage = CachedDmMessage
 
+/** Older pages (50 messages each) loaded at most when jumping to a direct message search result. */
+const DM_SEARCH_JUMP_MAX_PAGES = 20
+
 type SocialContextMenu = {
   kind: 'friend' | 'dm'
   userId: string
@@ -1161,10 +1164,56 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     [token, activeDmChannelId, dmMessages, user, clearDmUnread, rememberDmMessages]
   )
 
+  // Search results open in their own panel; the conversation stays visible.
   const displayedDmMessages = useMemo(() => (
-    (dmSearch.trim() ? (dmSearchResults ?? []) : dmMessages)
-      .filter((message) => message.channel_id === activeDmChannelId)
-  ), [activeDmChannelId, dmMessages, dmSearch, dmSearchResults])
+    dmMessages.filter((message) => message.channel_id === activeDmChannelId)
+  ), [activeDmChannelId, dmMessages])
+
+  const [dmSearchJump, setDmSearchJump] = useState<{ channelId: string; messageId: string } | null>(null)
+  const [dmSearchJumpLoadingId, setDmSearchJumpLoadingId] = useState<string | null>(null)
+  const goToDmSearchResult = useCallback(async (messageId: string) => {
+    const channelId = activeDmChannelId
+    if (!channelId || dmSearchJumpLoadingId) return
+    if (dmMessages.some((message) => message.id === messageId)) {
+      setDmSearchJump({ channelId, messageId })
+      return
+    }
+    // Direct messages have no "around" endpoint: page back through history (bounded) until found.
+    const generation = dmMessagesRequestRef.current
+    setDmSearchJumpLoadingId(messageId)
+    try {
+      let loaded = dmMessages.filter((message) => message.channel_id === channelId)
+      let hasMore = dmHasMoreOlder
+      for (let page = 0; page < DM_SEARCH_JUMP_MAX_PAGES && hasMore; page += 1) {
+        const before = loaded.find((message) => !message.clientStatus)?.id
+        if (!before) break
+        const rows = await dmApi.listMessages(channelId, token, before)
+        if (generation !== dmMessagesRequestRef.current || activeDmChannelIdRef.current !== channelId) return
+        const ids = new Set(loaded.map((message) => message.id))
+        loaded = [...rows.filter((message) => !ids.has(message.id)), ...loaded]
+        hasMore = rows.length === 50
+        if (rows.some((message) => message.id === messageId)) break
+      }
+      setDmMessages((current) => {
+        const ids = new Set(current.map((message) => message.id))
+        const next = [...loaded.filter((message) => !ids.has(message.id)), ...current]
+        rememberDmMessages(channelId, next)
+        return next
+      })
+      setDmHasMoreOlder(hasMore)
+      if (loaded.some((message) => message.id === messageId)) {
+        setDmSearchJump({ channelId, messageId })
+      } else {
+        pushToast({ level: 'error', title: 'Message is further back', message: 'Scroll up to load older messages and find it.' })
+      }
+    } catch {
+      if (generation === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
+        pushToast({ level: 'error', title: 'Message unavailable', message: 'Could not load this message. Try again.' })
+      }
+    } finally {
+      setDmSearchJumpLoadingId(null)
+    }
+  }, [activeDmChannelId, dmHasMoreOlder, dmMessages, dmSearchJumpLoadingId, pushToast, rememberDmMessages, token])
 
   const notificationJumpMessageId = useMemo(() => {
     const anchor = pendingDmNotificationAnchor ?? routeDmNotificationAnchor
@@ -1695,13 +1744,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               <ChatArea
                 activeChannel={syntheticChannel}
                 messages={displayedDmMessages}
-                hasMoreOlder={!dmSearch.trim() && dmHasMoreOlder}
+                hasMoreOlder={dmHasMoreOlder}
                 loadingOlder={dmLoadingOlder}
                 onLoadOlder={loadOlderDmMessages}
-                loading={dmSearch.trim()
-                  ? dmSearchResults === null
-                  : (!dmConversationReady || isNotificationHistoryPending)
-                    && (displayedDmMessages.length === 0 || isNotificationHistoryPending)}
+                loading={(!dmConversationReady || isNotificationHistoryPending)
+                  && (displayedDmMessages.length === 0 || isNotificationHistoryPending)}
                 unreadDividerCount={dmUnreadDividerCount}
                 draftAttachments={dmDraftAttachments}
                 messageInput={dmInput}
@@ -1742,8 +1789,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onToggleReaction={handleToggleDmReaction}
                 emptyStateTitle={`Start your conversation with ${dmChannel.peer_username}`}
                 emptyStateDescription="This is the beginning of your direct message history."
-                jumpToMessageId={notificationJumpMessageId}
-                onJumpToMessageHandled={handleDmNotificationAnchorVisible}
+                jumpToMessageId={notificationJumpMessageId
+                  ?? (dmSearchJump?.channelId === activeDmChannelId ? dmSearchJump.messageId : null)}
+                onJumpToMessageHandled={notificationJumpMessageId ? handleDmNotificationAnchorVisible : () => setDmSearchJump(null)}
+                searchResults={dmSearch.trim() ? dmSearchResults : null}
+                searchScopeLabel="this conversation"
+                onGoToSearchResult={(messageId) => { void goToDmSearchResult(messageId) }}
+                searchJumpingMessageId={dmSearchJumpLoadingId}
               />
             )
           })()}

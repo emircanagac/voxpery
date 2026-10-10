@@ -7,6 +7,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment, MessageReaction } from '../types'
 import type { GifOption } from '../emoji'
 import { getApiBase, resolveAttachmentUrl, resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
+import MessageSearchPanel from './MessageSearchPanel'
+import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { hasPendingDraftAttachments } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
@@ -792,6 +794,11 @@ interface ChatAreaProps {
     onScrollRefReady?: (el: HTMLDivElement | null) => void
     /** When set, show search in header and filter/search is handled by parent (e.g. displayedMessages) */
     searchQuery?: string
+    /** When set, search results open in a separate panel and the conversation stays visible. `null` = loading. */
+    searchResults?: MessageWithAuthor[] | null
+    searchScopeLabel?: string
+    onGoToSearchResult?: (messageId: string) => void
+    searchJumpingMessageId?: string | null
     onSearchChange?: (value: string) => void
     /** Pinned messages for this channel; shown in header dropdown */
     pinnedMessages?: MessageWithAuthor[]
@@ -853,6 +860,10 @@ export default function ChatArea({
     onLoadOlder,
     onScrollRefReady,
     searchQuery = '',
+    searchResults,
+    searchScopeLabel = 'this conversation',
+    onGoToSearchResult,
+    searchJumpingMessageId = null,
     onSearchChange,
     pinnedMessages = [],
     onGoToPinnedMessage,
@@ -1126,7 +1137,10 @@ export default function ChatArea({
 
     // Messages from others that arrive while the user reads history get their own divider and
     // a count on the jump control instead of moving the conversation.
-    const isSearching = !!searchQuery?.trim()
+    const usesSearchPanel = searchResults !== undefined
+    const showSearchPanel = usesSearchPanel && !!searchQuery.trim()
+    // Without a results panel, the parent replaces the conversation with search results.
+    const isSearching = !usesSearchPanel && !!searchQuery?.trim()
     const isHistoricalView = !!onReturnToLatest
     const [liveUnreadDivider, setLiveUnreadDivider] = useState<{ channelId: string; messageId: string } | null>(null)
     const [newWhileReadingCount, setNewWhileReadingCount] = useState(0)
@@ -2442,7 +2456,7 @@ export default function ChatArea({
     }
 
     return (
-        <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}`} ref={chatAreaRef}>
+        <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}${showSearchPanel ? ' chat-area--search-panel' : ''}`} ref={chatAreaRef}>
             <div className={`chat-header${searchOpen ? ' chat-header--searching' : ''}`}>
                 {onOpenChannelList && (
                     <button
@@ -2642,6 +2656,21 @@ export default function ChatArea({
 
             {topContent}
 
+            {showSearchPanel && (
+                <MessageSearchPanel
+                    query={searchQuery}
+                    results={searchResults ?? null}
+                    scopeLabel={searchScopeLabel}
+                    jumpingMessageId={searchJumpingMessageId}
+                    onClose={closeSearch}
+                    onGoToMessage={(messageId) => {
+                        if (window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY).matches) closeSearch()
+                        if (onGoToSearchResult) onGoToSearchResult(messageId)
+                        else scrollToMessageId(messageId)
+                    }}
+                />
+            )}
+
             <div
                 className="chat-messages chat-messages-virtual"
                 ref={setMessagesScrollRef}
@@ -2665,7 +2694,7 @@ export default function ChatArea({
                         <div className="chat-loading-bubble short" />
                         <div className="chat-loading-bubble" />
                     </div>
-                ) : messages.length === 0 && searchQuery.trim() ? (
+                ) : messages.length === 0 && isSearching ? (
                     <div className="welcome-screen" role="status">
                         <Search size={32} aria-hidden />
                         <h2>No messages found</h2>

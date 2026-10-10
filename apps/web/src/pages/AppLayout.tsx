@@ -1038,7 +1038,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         }
     }, [activeChannelId, isLoggedIn, token, loadingOlder, hasMoreOlder])
 
-    const handleJumpToPinnedMessage = useCallback(async (messageId: string) => {
+    const handleJumpToPinnedMessage = useCallback(async (messageId: string, source: 'pin' | 'search' = 'pin') => {
         if (!activeChannelId || !isLoggedIn || pinnedJumpLoadingId) return
         const channelId = activeChannelId
         if (messages.some((message) => message.id === messageId)) {
@@ -1067,10 +1067,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 level: 'error',
                 title: 'Message unavailable',
                 message: error instanceof Error && error.message.includes('Message not found')
-                    ? 'This pinned message is no longer available.'
-                    : 'Could not load this pinned message. Try again.',
+                    ? `This ${source === 'pin' ? 'pinned ' : ''}message is no longer available.`
+                    : `Could not load this ${source === 'pin' ? 'pinned ' : ''}message. Try again.`,
             })
-            refreshChannelPins()
+            if (source === 'pin') refreshChannelPins()
         } finally {
             if (requestId === channelMessagesRequestRef.current) setPinnedJumpLoadingId(null)
         }
@@ -2872,10 +2872,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     ])
 
     const activeChannel = channels.find((c) => c.id === activeChannelId)
+    // Search results open in their own panel; the conversation stays visible.
     const displayedChannelMessages = useMemo(() => (
-        (channelSearch.trim() ? (channelSearchResults ?? []) : messages)
-            .filter((message) => message.channel_id === activeChannelId)
-    ), [activeChannelId, channelSearch, channelSearchResults, messages])
+        messages.filter((message) => message.channel_id === activeChannelId)
+    ), [activeChannelId, messages])
     const channelCategorySuggestions = useMemo(
         () =>
             Array.from(
@@ -3345,9 +3345,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             )}
             <ChatArea
                 activeChannel={activeChannel}
-                loading={serverRouteLoading || (!activeServerId && serversLoading) || (channelSearch.trim() ? channelSearchResults === null : !olderMessagesReady && displayedChannelMessages.length === 0)}
+                loading={serverRouteLoading || (!activeServerId && serversLoading) || (!olderMessagesReady && displayedChannelMessages.length === 0)}
                 messages={displayedChannelMessages}
-                unreadDividerCount={channelSearch.trim() ? 0 : channelUnreadDividerCount}
+                unreadDividerCount={channelUnreadDividerCount}
                 draftAttachments={draftAttachments}
                 messageInput={messageInput}
                 topContent={welcomeGuideNode}
@@ -3381,13 +3381,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     status: member.status,
                 }))}
                 isViewActive={isViewActive}
-                hasMoreOlder={!channelSearch.trim() && olderMessagesReady && hasMoreOlder}
+                hasMoreOlder={olderMessagesReady && hasMoreOlder}
                 loadingOlder={loadingOlder}
                 onLoadOlder={loadOlderMessages}
                 searchQuery={channelSearch}
                 onSearchChange={setChannelSearch}
                 pinnedMessages={channelPins}
                 onGoToPinnedMessage={handleJumpToPinnedMessage}
+                searchResults={channelSearch.trim() ? channelSearchResults : null}
+                searchScopeLabel={activeChannel ? `#${activeChannel.name}` : 'this channel'}
+                onGoToSearchResult={(messageId) => { void handleJumpToPinnedMessage(messageId, 'search') }}
+                searchJumpingMessageId={pinnedJumpLoadingId}
                 pinnedJumpLoadingId={pinnedJumpLoadingId}
                 onReturnToLatest={historicalChannelId === activeChannelId ? handleReturnToLatest : undefined}
                 returningToLatest={returningToLatest}
