@@ -25,13 +25,13 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.3.1 preparation (not release sign-off)
+### v0.4.0 preparation (not release sign-off)
 
-Version metadata is prepared for `0.3.1`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.3.1` and `voxpery/voxpery-web:v0.3.1`, the embedded web badge/build tag, desktop version `0.3.1`, and the release-generated updater `latest.json` version all agree. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.0` and `voxpery/voxpery-web:v0.4.0`, the embedded web badge/build tag, desktop version `0.4.0`, and the release-generated updater `latest.json` version all agree. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
 
 ### Chat state regression checks (#361)
 
