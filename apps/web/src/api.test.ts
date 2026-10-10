@@ -52,6 +52,27 @@ describe('API Error Handling', () => {
     expect(onExpired).not.toHaveBeenCalled()
   })
 
+  it('sends a new login only after the previous logout response has arrived', async () => {
+    const calls: string[] = []
+    let finishLogout!: () => void
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      calls.push(new URL(url).pathname)
+      if (url.endsWith('/api/auth/logout')) {
+        return new Promise<Response>(resolve => { finishLogout = () => resolve(new Response('{}', { status: 200 })) })
+      }
+      return Promise.resolve(new Response(JSON.stringify({ token: 't', user: { id: 'u' } }), { status: 200 }))
+    }))
+    const { authApi } = await import('./api')
+    const logout = authApi.logout(null)
+    const login = authApi.login('user', 'secret')
+    await Promise.resolve()
+    expect(calls).toEqual(['/api/auth/logout'])
+    finishLogout()
+    await logout
+    await login
+    expect(calls).toEqual(['/api/auth/logout', '/api/auth/login'])
+  })
+
   it('aborts a request that never responds and reports a connection timeout', async () => {
     vi.useFakeTimers()
     try {
