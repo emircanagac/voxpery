@@ -2,7 +2,7 @@
 
 ## v0.3.1 Auth And Media Fixes
 
-- [ ] Test browser, installed Ubuntu and installed CachyOS client pairs against the same candidate revision. Verify restored sessions, bidirectional audible voice, screen/system audio and reconnect. Repeat input/single-instance and keyring/error recovery on the final package; earlier candidate results are not release sign-off.
+- [ ] Test browser and installed desktop client pairs against the same candidate revision. Verify restored sessions, bidirectional audible voice, screen/system audio and reconnect. Repeat input/single-instance and keyring/error recovery on the final package; earlier candidate results are not release sign-off.
 - [ ] Confirm the production server `.env` contains the public `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`) alongside `TURNSTILE_SECRET_KEY`; otherwise desktop browser registration refuses to start.
 - [ ] Block the Cloudflare script: registration must show an error and Retry, not a blank area or enabled submit. Restore the connection and retry, then verify challenge expiry clears the token and Siteverify rejects absent/invalid responses.
 
