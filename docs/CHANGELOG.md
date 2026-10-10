@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Windows: the Voxpery icon is no longer cropped at small sizes, such as in Settings > Installed apps.
+
 ## [0.4.0] - 2026-10-10
 
 ### Added

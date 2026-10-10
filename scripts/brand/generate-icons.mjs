@@ -101,7 +101,11 @@ for (const [file, variant, size] of TARGETS) {
 }
 
 // Windows .ico with PNG frames of the bare fox; the 32 px frame is byte-identical to 32x32.png.
-const icoFrames = await Promise.all(ICO_SIZES.map((s) => render('bare', s)))
+// Frames render one at a time: render() reuses one page, so concurrent calls mix viewports and crop.
+const icoFrames = []
+for (const s of ICO_SIZES) {
+  icoFrames.push(await render('bare', s))
+}
 const icoHeader = Buffer.alloc(6 + 16 * ICO_SIZES.length)
 icoHeader.writeUInt16LE(0, 0)
 icoHeader.writeUInt16LE(1, 2)
