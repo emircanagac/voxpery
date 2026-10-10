@@ -82,6 +82,28 @@ fn recoverable_status(error: &AppError) -> Option<StatusCode> {
     }
 }
 
+/// Shown when the account exists but the one-time app handoff could not be issued.
+fn account_created_page() -> Response {
+    let nonce = Uuid::new_v4().simple().to_string();
+    let html = format!(
+        r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Account created - Voxpery</title>
+<style nonce="{nonce}">body{{margin:0;padding:16px;font:16px system-ui;background:#171925;color:#f1f3f8;min-height:100vh;display:grid;place-items:center}}main{{max-width:520px;width:100%;background:#202a4b;padding:16px;border-radius:8px}}h1{{margin-top:0}}p{{line-height:1.5;color:#bdc9e3}}</style>
+<main><h1>Your account is ready</h1><p>Your Voxpery account was created, but the app could not be opened automatically.</p><p>Return to Voxpery and sign in with your email and password. You can close this page.</p></main></html>"#
+    );
+    let mut response = Html(html).into_response();
+    response.headers_mut().insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_str(&format!(
+            "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'nonce-{nonce}'"
+        ))
+        .unwrap(),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 fn page(
     state: &AppState,
     pending: &Pending,
@@ -319,7 +341,23 @@ pub(super) async fn complete(
         &state.jwt_secret,
         state.jwt_expiration,
     )?;
-    let code = issue_desktop_oauth_code(&state, &token, &pending.code_challenge).await?;
+    let code = match issue_desktop_oauth_code(&state, &token, &pending.code_challenge).await {
+        Ok(code) => code,
+        Err(error) => {
+            // The account is committed and the pending context consumed: do not invite a retry
+            // that would end in "expired" or "already exists"; send the user to sign in instead.
+            tracing::warn!("Desktop registration handoff failed after account creation: {error}");
+            if let Err(error) = ensure_default_server_join(&state.db, user.id).await {
+                tracing::warn!("Default server join after desktop registration failed: {error}");
+            }
+            let mut response = account_created_page();
+            response.headers_mut().append(
+                header::SET_COOKIE,
+                HeaderValue::from_str(&cookie(&state, "", 0)).unwrap(),
+            );
+            return Ok(response);
+        }
+    };
     if let Err(error) = ensure_default_server_join(&state.db, user.id).await {
         tracing::warn!("Default server join after desktop registration failed: {error}");
     }
@@ -423,7 +461,15 @@ async fn create_account(
 
 #[cfg(test)]
 mod tests {
-    use super::safe_redirect_path;
+    use super::{account_created_page, safe_redirect_path};
+
+    #[test]
+    fn account_created_page_points_to_sign_in_without_codes_or_scripts() {
+        let response = account_created_page();
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let csp = response.headers()["content-security-policy"].to_str().unwrap();
+        assert!(csp.contains("default-src 'none'") && !csp.contains("script-src"));
+    }
 
     #[test]
     fn desktop_registration_keeps_redirects_on_the_app_origin() {

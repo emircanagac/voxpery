@@ -107,6 +107,10 @@ export function getGoogleAuthUrl(redirectPath: string = resolvePostAuthRoute(), 
     return `${effectiveApiBase()}/api/auth/google?${params.toString()}`
 }
 
+// A web logout clears the auth cookie in its response. Sign-in waits for it so a late
+// logout response cannot delete the cookie of the newer session.
+let pendingLogout: Promise<unknown> = Promise.resolve()
+
 export const authApi = {
     getLegalDocuments: () => apiFetch<LegalConsentStatus>('/api/auth/legal-documents'),
     register: (
@@ -116,16 +120,16 @@ export const authApi = {
         legal: RegistrationLegalAcceptance,
         captcha_token?: string,
     ) =>
-        apiFetch<AuthResponse>('/api/auth/register', {
+        pendingLogout.then(() => apiFetch<AuthResponse>('/api/auth/register', {
             method: 'POST',
             body: { username, email, password, captcha_token, ...legal },
-        }),
+        })),
 
     login: (identifier: string, password: string) =>
-        apiFetch<AuthResponse>('/api/auth/login', {
+        pendingLogout.then(() => apiFetch<AuthResponse>('/api/auth/login', {
             method: 'POST',
             body: { identifier, password },
-        }),
+        })),
 
     /** Desktop-only: exchange short-lived OAuth code from deep-link into JWT + user payload. */
     exchangeDesktopOAuthCode: (code: string, codeVerifier: string) =>
@@ -195,11 +199,16 @@ export const authApi = {
         }),
 
     /** Clears httpOnly auth cookie (web). No token needed; call with credentials. */
-    logout: (token: string | null = null) =>
-        apiFetch<void>('/api/auth/logout', {
+    logout: (token: string | null = null) => {
+        const task = apiFetch<void>('/api/auth/logout', {
             method: 'POST',
             token: token ?? undefined,
-        }),
+            // Sign-in waits for logout (and desktop serializes behind revocation); fail fast.
+            timeoutMs: 10_000,
+        })
+        pendingLogout = task.catch(() => {})
+        return task
+    },
 
     /** Change password. Returns success message and clears cookie (forces re-login). */
     changePassword: (oldPassword: string, newPassword: string, token: string | null) =>

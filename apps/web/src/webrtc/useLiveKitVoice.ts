@@ -62,6 +62,9 @@ type RemoteMediaCuePhase = 'start' | 'stop'
 export const LIVEKIT_AUTO_SUBSCRIBE = true
 export const REMOTE_PARTICIPANT_LEAVE_GRACE_MS = 3_000
 
+/** A join superseded by leave, unmount or a newer join; it releases its own media silently. */
+class VoiceJoinCancelledError extends Error {}
+
 type VoiceControlState = {
   muted?: boolean
   deafened?: boolean
@@ -436,6 +439,8 @@ export function useLiveKitVoice() {
   const [joinedChannelId, setJoinedChannelId] = useState<string | null>(null)
   const isJoiningRef = useRef(false)
   const [isJoining, setIsJoining] = useState(false)
+  // Bumped by every join, leave and unmount so suspended joins can detect they are stale.
+  const joinAttemptRef = useRef(0)
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null)
@@ -1087,6 +1092,12 @@ export function useLiveKitVoice() {
     finalMediaDisconnectReconciledRef.current = false
     isJoiningRef.current = true
     setIsJoining(true)
+    const attempt = ++joinAttemptRef.current
+    const ensureCurrentJoin = () => {
+      if (joinAttemptRef.current !== attempt) throw new VoiceJoinCancelledError('Voice join was cancelled')
+    }
+    let attemptRoom: Room | null = null
+    let attemptCancelGate: (() => void) | null = null
     reportObservabilityEvent('voice_join_started')
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
     const joinTiming = createVoiceJoinTiming(preflightStream)
@@ -1097,6 +1108,7 @@ export function useLiveKitVoice() {
       if (!preflightStream) {
         preflightStream = await getMicrophoneStream()
       }
+      ensureCurrentJoin()
       activeInputDeviceIdRef.current = getStoredVoiceInputDeviceId()
       joinTiming.mark('microphoneMs')
 
@@ -1105,12 +1117,14 @@ export function useLiveKitVoice() {
 
       const audioContext = getAudioContext()
       await resumeVoiceAudioContext(audioContext)
+      ensureCurrentJoin()
 
       const noiseSuppressionEnabled = localStorage.getItem('voxpery-settings-noise-suppression') !== '0'
 
       // Keep browser constraints in sync with the user's setting. RNNoise still
       // runs when enabled, and browser NS acts as a reliable fallback layer.
       await applyLocalMicSettings(rawMicTrack)
+      ensureCurrentJoin()
 
       // Build one processed publication source for desktop browsers and webviews.
       gateCancelRef.current?.()
@@ -1128,6 +1142,8 @@ export function useLiveKitVoice() {
         inputGainNodeRef,
         noiseSuppressionEnabled,
       )
+      attemptCancelGate = cancelGate
+      ensureCurrentJoin()
       gateCancelRef.current = cancelGate
       const activeRawMicTrack = rawMicTrackRef.current
       if (activeRawMicTrack) {
@@ -1139,10 +1155,12 @@ export function useLiveKitVoice() {
 
       joinTiming.mark('processingMs')
       const { ws_url, token: lkToken, server_muted, server_deafened } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+      ensureCurrentJoin()
       joinTiming.mark('tokenMs')
       const joinControl = voiceJoinModeration(selfMutedRef.current, selfDeafenedRef.current, !!server_muted, !!server_deafened)
       const publishAllowed = joinControl.canPublishMicrophone
       if (!publishAllowed) await setLocalMicMuted(true)
+      ensureCurrentJoin()
       useAppStore.getState().setVoiceControl(userId, joinControl.muted, joinControl.deafened, false, !!server_muted, !!server_deafened)
 
       const room = new Room({
@@ -1174,6 +1192,7 @@ export function useLiveKitVoice() {
         },
       })
       roomRef.current = room
+      attemptRoom = room
       participantCueCleanupRef.current?.()
       const cueParticipantIds = new Set<string>()
       const pendingLeaveCueTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -1260,6 +1279,7 @@ export function useLiveKitVoice() {
         // Ignore TURN errors in dev
       }
       joinTiming.mark('turnMs')
+      ensureCurrentJoin()
 
       const handleRemoteTrackMuteChanged = createRemoteTrackMuteChangeHandler({
         isLocalParticipant: (participant) => participant === room.localParticipant,
@@ -1454,6 +1474,7 @@ export function useLiveKitVoice() {
         connectionTimer = setTimeout(() => reject(new Error('LiveKit connection timeout after 15 seconds')), 15000)
       })
       try { await Promise.race([connectPromise, timeoutPromise]) } finally { clearTimeout(connectionTimer) }
+      ensureCurrentJoin()
       joinTiming.mark('connectionMs')
       hydrateParticipantCues()
 
@@ -1472,9 +1493,11 @@ export function useLiveKitVoice() {
       unpublishedMicTrackRef.current = publishTrack
       if (publishAllowed) {
         const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions(mobileOptimizedVoice))
+        ensureCurrentJoin()
         micPublished = true
         localAudioTrackRef.current = pub.track as LocalAudioTrack
         await setLocalMicMuted(desiredMicMutedRef.current)
+        ensureCurrentJoin()
       } else {
         publishTrack.enabled = false
         if (rawMicTrackRef.current) rawMicTrackRef.current.enabled = false
@@ -1506,6 +1529,7 @@ export function useLiveKitVoice() {
       if (micPublished && voiceMode === 'push_to_talk') {
         await setLocalMicMuted(true)
       }
+      ensureCurrentJoin()
 
       joinedChannelIdRef.current = channelId
       reconcileLiveKitVoicePresence(userId, channelId, true)
@@ -1522,10 +1546,23 @@ export function useLiveKitVoice() {
       joinTiming.mark('publicationMs')
       joinTiming.finish('connected')
     } catch (e: unknown) {
-      joinTiming.finish('failed')
-      reportObservabilityEvent('voice_join_failed')
-      const msg = (e as Error)?.message ?? 'Failed to join voice'
-      setLastError(msg)
+      const cancelled = e instanceof VoiceJoinCancelledError
+      if (cancelled) {
+        // Release what this attempt captured; a leave may have run before these existed.
+        attemptCancelGate?.()
+        preflightStream?.getTracks().forEach((track) => track.stop())
+        if (attemptRoom && roomRef.current !== attemptRoom) {
+          attemptRoom.removeAllListeners()
+          try { await attemptRoom.disconnect() } catch { /* The room is already closing. */ }
+        }
+        // A newer join owns the shared refs; leave/unmount falls through to release them.
+        if (isJoiningRef.current) return
+      } else {
+        joinTiming.finish('failed')
+        reportObservabilityEvent('voice_join_failed')
+        const msg = (e as Error)?.message ?? 'Failed to join voice'
+        setLastError(msg)
+      }
       remoteMediaStartCueReadyRef.current = false
       remoteMediaStartCueKeysRef.current.clear()
       remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
@@ -1559,15 +1596,20 @@ export function useLiveKitVoice() {
       setLocalStream(null)
       setRoomState('disconnected')
       setParticipantCount(0)
+      if (cancelled) return
       throw e
     } finally {
-      isJoiningRef.current = false
-      setIsJoining(false)
+      if (joinAttemptRef.current === attempt) {
+        isJoiningRef.current = false
+        setIsJoining(false)
+      }
     }
     }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
+    joinAttemptRef.current += 1
     isJoiningRef.current = false
+    setIsJoining(false)
     participantCueCleanupRef.current?.()
     participantCueCleanupRef.current = null
     const departingChannelId = joinedChannelIdRef.current
@@ -1976,6 +2018,18 @@ export function useLiveKitVoice() {
     window.addEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
     return () => window.removeEventListener(VOICE_SETTINGS_CHANGED_EVENT, onSettingsChanged)
   }, [applyLocalMicSettings, getInputVolumeFactor, rebuildPublishedMicrophoneTrack, switchMicrophoneDevice, updateMicProcessingSettings])
+
+  const leaveVoiceRef = useRef(leaveVoice)
+  useEffect(() => {
+    leaveVoiceRef.current = leaveVoice
+  }, [leaveVoice])
+
+  // Unmount only (logout, leaving the app shell): never keep the room or microphone alive.
+  useEffect(() => () => {
+    if (joinedChannelIdRef.current || isJoiningRef.current || roomRef.current) {
+      leaveVoiceRef.current({ skipLeaveSound: true })
+    }
+  }, [])
 
   useEffect(() => {
     return () => {

@@ -6,7 +6,7 @@ import {
   isAuthError,
   shouldUseTauriHttpPluginForApiBase,
 } from './api'
-import { apiFetch } from './api/client'
+import { apiFetch, markAuthSessionChanged } from './api/client'
 
 class MockWebSocket {
   url: string
@@ -40,6 +40,70 @@ describe('API Error Handling', () => {
     await expect(apiFetch('/api/friends')).rejects.toThrow('Unauthorized')
     expect(onExpired).toHaveBeenCalledTimes(1)
   })
+  it('ignores a late 401 from a request that started before the session changed', async () => {
+    const onExpired = vi.fn()
+    setAuthFailureHandler(onExpired)
+    let respond!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { respond = resolve })))
+    const stale = apiFetch('/api/servers')
+    markAuthSessionChanged()
+    respond(new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }))
+    await expect(stale).rejects.toThrow('Unauthorized')
+    expect(onExpired).not.toHaveBeenCalled()
+  })
+
+  it('sends a new login only after the previous logout response has arrived', async () => {
+    const calls: string[] = []
+    let finishLogout!: () => void
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      calls.push(new URL(url).pathname)
+      if (url.endsWith('/api/auth/logout')) {
+        return new Promise<Response>(resolve => { finishLogout = () => resolve(new Response('{}', { status: 200 })) })
+      }
+      return Promise.resolve(new Response(JSON.stringify({ token: 't', user: { id: 'u' } }), { status: 200 }))
+    }))
+    const { authApi } = await import('./api')
+    const logout = authApi.logout(null)
+    const login = authApi.login('user', 'secret')
+    await Promise.resolve()
+    expect(calls).toEqual(['/api/auth/logout'])
+    finishLogout()
+    await logout
+    await login
+    expect(calls).toEqual(['/api/auth/logout', '/api/auth/login'])
+  })
+
+  it('aborts a request that never responds and reports a connection timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const pending = expect(apiFetch('/api/friends')).rejects.toThrow('did not respond in time')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await pending
+      expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses a shorter deadline for logout so desktop sign-in is never blocked for long', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })))
+      const { authApi } = await import('./api')
+      const pending = expect(authApi.logout(null)).rejects.toThrow('did not respond in time')
+      await vi.advanceTimersByTimeAsync(10_000)
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   describe('getAuthErrorMessage', () => {
     it('should parse error with code prefix', () => {
       const err = new Error('INVALID_CREDENTIALS:Wrong password')
