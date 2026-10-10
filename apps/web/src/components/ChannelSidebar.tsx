@@ -643,7 +643,14 @@ export default function ChannelSidebar({
                                             </span>
                                         )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
-                                            <span className="channel-unread-badge">{hasMention ? '@' : formatBadgeCount(unreadByChannel[ch.id] ?? 0)}</span>
+                                            <span
+                                                className={`channel-unread-badge${hasMention ? ' channel-unread-badge--mention' : ''}`}
+                                                aria-label={hasMention
+                                                    ? `${mentionByChannel[ch.id]} mention${mentionByChannel[ch.id] === 1 ? '' : 's'}`
+                                                    : `${unreadByChannel[ch.id]} unread message${unreadByChannel[ch.id] === 1 ? '' : 's'}`}
+                                            >
+                                                {hasMention ? `@${formatBadgeCount(mentionByChannel[ch.id] ?? 0)}` : formatBadgeCount(unreadByChannel[ch.id] ?? 0)}
+                                            </span>
                                         )}
                                     </div>
                                     {ch.channel_type === 'voice' && voiceMembers.length > 0 && (

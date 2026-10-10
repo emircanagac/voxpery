@@ -1028,6 +1028,10 @@ body {
   opacity: 0.45;
 }
 
+.server-mention-badge {
+  pointer-events: none;
+}
+
 .server-unread-dot {
   position: absolute;
   left: 6px;
@@ -1771,14 +1775,19 @@ body {
   min-width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: rgba(240, 71, 71, 0.95);
-  color: #fff;
+  background: rgba(148, 163, 184, 0.3);
+  color: var(--text-primary);
   font-size: 10px;
   font-weight: 700;
   padding: 0 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.channel-unread-badge.channel-unread-badge--mention {
+  background: rgba(240, 71, 71, 0.95);
+  color: #fff;
 }
 
 .channel-actions {
@@ -5943,6 +5952,19 @@ body {
   padding: 0 var(--composer-side-gap) var(--composer-bottom-gap);
   flex-shrink: 0;
   position: relative;
+}
+
+.chat-jump-to-latest[data-new-messages='true'] {
+  width: auto;
+  gap: 6px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+}
+
+.chat-jump-to-latest-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .chat-jump-to-latest {

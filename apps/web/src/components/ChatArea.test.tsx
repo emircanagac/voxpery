@@ -670,6 +670,38 @@ describe('ChatArea regressions', () => {
     rectSpy.mockRestore()
   })
 
+  it('marks messages that arrive while reading history without moving the conversation', async () => {
+    const initialMessages = [message('message-1', 'hello', 0), message('message-2', 'latest', 1)]
+    const props = {
+      activeChannel: channel('general', 'general'),
+      draftAttachments: [],
+      messageInput: '',
+      currentUserId: 'local-user',
+      onPickAttachments: vi.fn(),
+      onRemoveAttachment: vi.fn(),
+      onMessageInputChange: vi.fn(),
+      onSendMessage: vi.fn(),
+      onRetryMessage: vi.fn(),
+      onScrollRefReady: setScrollableMetrics,
+    }
+    const { container, rerender } = render(<ChatArea {...props} messages={initialMessages} />)
+    const scroller = container.querySelector('.chat-messages') as HTMLDivElement
+    fireEvent.wheel(scroller, { deltaY: -240 })
+    scroller.scrollTop = 600
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: 'Jump to latest messages' })).toBeInTheDocument()
+
+    const arrived = [message('message-3', 'first new', 2), message('message-4', 'second new', 3)]
+    rerender(<ChatArea {...props} messages={[...initialMessages, ...arrived]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '2 new messages, jump to latest' })).toBeInTheDocument()
+      expect(screen.getByLabelText('New unread messages').closest('[data-message-id]'))
+        .toHaveAttribute('data-message-id', 'message-3')
+    })
+    expect(scroller.scrollTop).toBe(600)
+  })
+
   it('keeps the unread divider anchored to the original remote message', async () => {
     const localMessage = {
       ...message('message-local', 'my new message', 2),

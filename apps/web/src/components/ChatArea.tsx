@@ -1111,7 +1111,7 @@ export default function ChatArea({
         normalizedUnreadDividerCount,
     ])
 
-    const firstUnreadIndex = useMemo(() => {
+    const storedUnreadIndex = useMemo(() => {
         if (!isCurrentViewActive || normalizedUnreadDividerCount <= 0) return -1
         if (unreadDividerSnapshot.channelId !== currentChatChannelId) return -1
         const unreadIds = new Set(unreadDividerSnapshot.messageIds)
@@ -1123,6 +1123,48 @@ export default function ChatArea({
         normalizedUnreadDividerCount,
         unreadDividerSnapshot,
     ])
+
+    // Messages from others that arrive while the user reads history get their own divider and
+    // a count on the jump control instead of moving the conversation.
+    const isSearching = !!searchQuery?.trim()
+    const isHistoricalView = !!onReturnToLatest
+    const [liveUnreadDivider, setLiveUnreadDivider] = useState<{ channelId: string; messageId: string } | null>(null)
+    const [newWhileReadingCount, setNewWhileReadingCount] = useState(0)
+    const conversationTailRef = useRef<{ channelId: string | null; lastId: string | null; mode: string } | null>(null)
+    useEffect(() => {
+        const last = messages[messages.length - 1]
+        const mode = `${isSearching ? 'search' : 'chat'}:${isHistoricalView ? 'history' : 'live'}`
+        const previous = conversationTailRef.current
+        conversationTailRef.current = { channelId: currentChatChannelId, lastId: last?.id ?? null, mode }
+        if (previous?.channelId !== currentChatChannelId) {
+            setLiveUnreadDivider(null)
+            setNewWhileReadingCount(0)
+            return
+        }
+        if (!currentChatChannelId || previous.mode !== mode || mode !== 'chat:live') return
+        if (!previous.lastId || !last || last.id === previous.lastId) return
+        if (!userReadingHistoryRef.current && shouldAutoScrollRef.current) return
+        const previousIndex = messages.findIndex((message) => message.id === previous.lastId)
+        if (previousIndex < 0) return
+        const arrived = messages.slice(previousIndex + 1).filter((message) => (
+            !message.clientId && (!currentUserId || message.author?.user_id !== currentUserId)
+        ))
+        if (arrived.length === 0) return
+        setLiveUnreadDivider((current) => (
+            current?.channelId === currentChatChannelId ? current : { channelId: currentChatChannelId, messageId: arrived[0].id }
+        ))
+        setNewWhileReadingCount((count) => count + arrived.length)
+    }, [currentChatChannelId, currentUserId, isHistoricalView, isSearching, messages])
+
+    useEffect(() => {
+        if (!showJumpToLatest) setNewWhileReadingCount(0)
+    }, [showJumpToLatest])
+
+    const firstUnreadIndex = useMemo(() => {
+        if (storedUnreadIndex >= 0) return storedUnreadIndex
+        if (isSearching || liveUnreadDivider?.channelId !== currentChatChannelId) return -1
+        return messages.findIndex((message) => message.id === liveUnreadDivider.messageId)
+    }, [currentChatChannelId, isSearching, liveUnreadDivider, messages, storedUnreadIndex])
 
     const virtualCount = messages.length + (typingIndicatorLabel ? 1 : 0)
     const reactionMessageIdsSignature = useMemo(
@@ -2879,11 +2921,19 @@ export default function ChatArea({
                                 snapToBottom()
                             })
                         }}
-                        aria-label="Jump to latest messages"
+                        aria-label={newWhileReadingCount > 0
+                            ? `${newWhileReadingCount} new message${newWhileReadingCount === 1 ? '' : 's'}, jump to latest`
+                            : 'Jump to latest messages'}
                         title={returningToLatest ? 'Loading latest messages' : 'Jump to latest messages'}
                         aria-busy={returningToLatest}
+                        data-new-messages={newWhileReadingCount > 0 ? 'true' : undefined}
                     >
                         {returningToLatest ? <LoaderCircle size={20} aria-hidden="true" /> : <ArrowDown size={20} aria-hidden="true" />}
+                        {!returningToLatest && newWhileReadingCount > 0 && (
+                            <span className="chat-jump-to-latest-label" aria-hidden="true">
+                                {newWhileReadingCount > 99 ? '99+' : newWhileReadingCount} new {newWhileReadingCount === 1 ? 'message' : 'messages'}
+                            </span>
+                        )}
                     </button>
                 )}
                 {replyingTo && onCancelReply && (
