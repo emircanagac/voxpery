@@ -51,6 +51,7 @@ export {
     LEGAL_CONSENT_REQUIRED_EVENT,
     isAuthError,
     isCrossOrigin,
+    markAuthSessionChanged,
     setAuthFailureHandler,
     shouldUseTauriHttpPluginForApiBase,
 } from './api/client'

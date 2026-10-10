@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { authApi, getAuthErrorMessage, isAuthError, type LegalConsentStatus, type UserPublic } from '../api'
+import { authApi, getAuthErrorMessage, isAuthError, markAuthSessionChanged, type LegalConsentStatus, type UserPublic } from '../api'
 import {
     isTauri,
     getSecureToken,
@@ -38,7 +38,7 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
     let generation = 0
     let pending: { generation: number; task: Promise<void> } | null = null
     let desktopTask: Promise<void> = Promise.resolve()
-    const invalidate = () => { generation++; pending = null }
+    const invalidate = () => { generation++; pending = null; markAuthSessionChanged() }
     const onDesktopQueue = (operation: () => Promise<void>) => {
         const task = desktopTask.then(operation)
         desktopTask = task.catch(() => {})

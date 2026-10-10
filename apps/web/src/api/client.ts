@@ -104,6 +104,14 @@ export function setAuthFailureHandler(handler: (() => void) | null) {
     authFailureHandler = handler
 }
 
+// Advances whenever the signed-in identity changes, so a 401 from a request that belongs
+// to an earlier session cannot clear the current one.
+let authSessionEpoch = 0
+
+export function markAuthSessionChanged() {
+    authSessionEpoch++
+}
+
 function shouldBroadcastAuthFailure(path: string): boolean {
     // Bootstrap owns its request generation; a late 401 must not clear a newer login.
     return !(
@@ -180,6 +188,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 
 async function apiFetchWithin<T>(path: string, options: FetchOptions, signal: AbortSignal): Promise<T> {
     const { method = 'GET', body, token } = options
+    const sessionEpoch = authSessionEpoch
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -231,7 +240,7 @@ async function apiFetchWithin<T>(path: string, options: FetchOptions, signal: Ab
     }
 
     if (!res.ok) {
-        if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
+        if (res.status === 401 && shouldBroadcastAuthFailure(path) && sessionEpoch === authSessionEpoch) {
             authFailureHandler?.()
         }
         if (res.status === 428 && typeof window !== 'undefined') {
@@ -302,6 +311,7 @@ export async function apiMultipartFetch<T>(path: string, formData: FormData, tok
 }
 
 async function apiMultipartFetchWithin<T>(path: string, formData: FormData, token: string | null | undefined, signal: AbortSignal): Promise<T> {
+    const sessionEpoch = authSessionEpoch
     const headers: Record<string, string> = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -339,7 +349,7 @@ async function apiMultipartFetchWithin<T>(path: string, formData: FormData, toke
     }
 
     if (!res.ok) {
-        if (res.status === 401 && shouldBroadcastAuthFailure(path)) {
+        if (res.status === 401 && shouldBroadcastAuthFailure(path) && sessionEpoch === authSessionEpoch) {
             authFailureHandler?.()
         }
         if (res.status === 428 && typeof window !== 'undefined') {

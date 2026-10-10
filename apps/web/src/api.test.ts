@@ -6,7 +6,7 @@ import {
   isAuthError,
   shouldUseTauriHttpPluginForApiBase,
 } from './api'
-import { apiFetch } from './api/client'
+import { apiFetch, markAuthSessionChanged } from './api/client'
 
 class MockWebSocket {
   url: string
@@ -40,6 +40,18 @@ describe('API Error Handling', () => {
     await expect(apiFetch('/api/friends')).rejects.toThrow('Unauthorized')
     expect(onExpired).toHaveBeenCalledTimes(1)
   })
+  it('ignores a late 401 from a request that started before the session changed', async () => {
+    const onExpired = vi.fn()
+    setAuthFailureHandler(onExpired)
+    let respond!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { respond = resolve })))
+    const stale = apiFetch('/api/servers')
+    markAuthSessionChanged()
+    respond(new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }))
+    await expect(stale).rejects.toThrow('Unauthorized')
+    expect(onExpired).not.toHaveBeenCalled()
+  })
+
   it('aborts a request that never responds and reports a connection timeout', async () => {
     vi.useFakeTimers()
     try {
