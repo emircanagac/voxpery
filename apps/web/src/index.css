@@ -6726,6 +6726,19 @@ body {
   box-shadow: none;
 }
 
+.member-sidebar.member-sidebar--collapsed {
+  display: none;
+}
+
+.chat-header-channels-btn {
+  margin-left: -8px;
+}
+
+.chat-header-member-btn[aria-pressed="true"] {
+  background: rgba(79, 127, 216, 0.12);
+  color: var(--text);
+}
+
 .member-category {
   padding: 8px 8px 4px;
   font-size: 11px;

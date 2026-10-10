@@ -48,7 +48,8 @@ import {
     shouldNotifyForServerMessage,
     shouldTrackServerUnread,
 } from '../notificationPreferences'
-import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
+import { isAppBackgrounded, shouldShowPushNotification, showPushNotification } from '../pushNotifications'
+import { getMemberPanelOpen, setMemberPanelOpen } from '../memberPanelPreference'
 import { createReplyContentSnippet } from '../replyPreview'
 import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
 import { createSecureId } from '../secureId'
@@ -396,6 +397,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     const [isMobileViewport, setIsMobileViewport] = useState(() =>
         typeof window !== 'undefined' ? window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY).matches : false,
     )
+    const [memberPanelOpen, setMemberPanelOpenState] = useState(getMemberPanelOpen)
+    const toggleMemberPanel = useCallback(() => {
+        setMemberPanelOpenState((open) => !open)
+    }, [])
+
+    useEffect(() => {
+        setMemberPanelOpen(memberPanelOpen)
+    }, [memberPanelOpen])
 
     useEffect(() => {
         setMessageInput(readMessageDraft(user?.id, 'channel', activeChannelId))
@@ -1104,6 +1113,23 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
         clearServerUnread(activeChannelId)
         clearServerMention(activeChannelId)
+
+        // Messages that arrived while the app was in the background stay unread until the
+        // user returns; then they get the divider and are marked read.
+        const syncReadOnReturn = () => {
+            if (isAppBackgrounded()) return
+            const pendingUnread = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
+            if (pendingUnread <= 0) return
+            setChannelUnreadDividerCount(pendingUnread)
+            clearServerUnread(activeChannelId)
+            clearServerMention(activeChannelId)
+        }
+        window.addEventListener('focus', syncReadOnReturn)
+        document.addEventListener('visibilitychange', syncReadOnReturn)
+        return () => {
+            window.removeEventListener('focus', syncReadOnReturn)
+            document.removeEventListener('visibilitychange', syncReadOnReturn)
+        }
     }, [activeChannelId, clearServerMention, clearServerUnread, isViewActive])
 
     useEffect(() => {
@@ -1188,6 +1214,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                         if (cached?.length && !cached.some((m) => m.id === incoming.id)) {
                             messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
                         }
+                    }
+                    // An open channel only reads its messages while the app is in the foreground.
+                    if (!isCurrentVisibleChannel || isAppBackgrounded()) {
                         if (incoming.author?.user_id !== user?.id) {
                             const incomingServerId = channelServerMapRef.current[incomingChannelId]
                             const isMention = messageMentionsUser(incoming.content, user?.username)
@@ -3367,8 +3396,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
                 canSendMessages={canSendMessages}
-                showMemberSheetButton={isMobileViewport && !!activeServerId}
-                onOpenMemberSheet={() => setShowMobileMemberSheet(true)}
+                showMemberSheetButton={!!activeServerId}
+                onOpenMemberSheet={isMobileViewport ? () => setShowMobileMemberSheet(true) : toggleMemberPanel}
+                memberPanelOpen={isMobileViewport ? undefined : memberPanelOpen}
+                onOpenChannelList={isMobileViewport && activeServerId ? () => setMobileSidebarPanel('channels') : undefined}
                 emptyStateDescription={activeServer
                     ? isSoloServer
                         ? 'You are the first member here. Share the invite link or send the first message to get the server moving.'
@@ -3387,6 +3418,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
                 canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                 onReportMember={openUserReport}
+                collapsed={!isMobileViewport && !memberPanelOpen}
             />
             {showMobileMemberSheet && isMobileViewport && createPortal(
                 <>

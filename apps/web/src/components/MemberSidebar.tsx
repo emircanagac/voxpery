@@ -139,6 +139,7 @@ export default function MemberSidebar({
     onReportMember,
     variant = 'sidebar',
     interactive = true,
+    collapsed = false,
 }: {
     canKickMembers: boolean
     canBanMembers: boolean
@@ -147,6 +148,8 @@ export default function MemberSidebar({
     onReportMember?: (member: { user_id: string; username: string }) => void
     variant?: 'sidebar' | 'sheet'
     interactive?: boolean
+    /** Hidden but kept mounted so member data stays loaded while the panel is closed. */
+    collapsed?: boolean
 }) {
     const { user, token } = useAuthStore()
     const navigate = useNavigate()
@@ -593,7 +596,7 @@ export default function MemberSidebar({
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
 
     return (
-        <div className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}`}>
+        <div className={`member-sidebar ${variant === 'sheet' ? 'member-sidebar--sheet' : ''}${collapsed ? ' member-sidebar--collapsed' : ''}`}>
             {onlineMembers.length > 0 && (
                 <>
                     <div className="member-category member-category-online">

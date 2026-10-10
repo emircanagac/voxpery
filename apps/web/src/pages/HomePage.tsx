@@ -583,6 +583,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const channelId = activeDmChannelId
     const syncRead = () => {
       if (isAppBackgrounded() || pendingDmNotificationAnchorRef.current?.channelId === channelId) return
+      // Messages that arrived while the app was in the background get the divider on return.
+      const pendingUnread = useAppStore.getState().dmUnread[channelId] ?? 0
+      if (pendingUnread > 0) setDmUnreadDividerCount(pendingUnread)
       clearDmUnread(channelId)
       void dmApi.markRead(channelId, token).catch(() => {})
     }
