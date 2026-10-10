@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Requests to a server that stops responding now time out (30 s for API calls, 60 s for uploads/downloads, 10 s for logout) on web and desktop; previously the desktop app could wait indefinitely and block the next sign-in or sign-out.
 - A late "unauthorized" response from a request made before signing in again no longer signs you out of the new session.
 - Signing in right after signing out on the web keeps the new session; the sign-in now waits for the sign-out request so its cookie cannot be cleared by it.
+- If desktop email registration creates the account but cannot hand off to the app, the browser page now says the account is ready and asks you to sign in, instead of showing an error whose retry fails.
 
 ## [0.3.1] - 2026-10-10
 
