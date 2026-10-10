@@ -1,4 +1,4 @@
-import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, HeadphoneOff, Radio, Video, Shield, Lock, Settings2, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
+import { Hash, Volume2, ChevronDown, Plus, MicOff, VolumeX, HeadphoneOff, Radio, Video, Shield, Lock, PhoneOff, MessageCircle, UserRound, MoveRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
@@ -12,6 +12,7 @@ import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import VoiceChannelDuration from './VoiceChannelDuration'
+import ServerHeaderMenu from './ServerHeaderMenu'
 import {
     getRemotePlaybackVolume,
     MAX_REMOTE_VOICE_PLAYBACK_VOLUME,
@@ -28,6 +29,7 @@ const PERM_CONNECT_VOICE = 1 << 10
 
 interface ChannelSidebarProps {
     onOpenServerSettings?: () => void
+    inviteLink?: string
     onOpenCreateChannel?: (category?: string) => void
     onOpenCreateCategory?: () => void
     onOpenCategoryPermissions?: (category: string) => void
@@ -53,6 +55,7 @@ interface ChannelSidebarProps {
 
 export default function ChannelSidebar({
     onOpenServerSettings,
+    inviteLink,
     onOpenCreateChannel,
     onOpenCreateCategory,
     onOpenCategoryPermissions,
@@ -331,22 +334,12 @@ export default function ChannelSidebar({
         <div className="channel-sidebar" ref={sidebarRef}>
             <div className="channel-header">
                 {activeServer ? (
-                    <>
-                        <button
-                            type="button"
-                            className="channel-header-server"
-                            onClick={onOpenServerSettings}
-                            title={onOpenServerSettings ? 'Open server settings' : undefined}
-                            disabled={!onOpenServerSettings}
-                        >
-                            <span className="channel-header-title">{activeServer.name}</span>
-                            {onOpenServerSettings && (
-                                <span className="channel-header-action" aria-hidden="true">
-                                    <Settings2 size={14} />
-                                </span>
-                            )}
-                        </button>
-                    </>
+                    <ServerHeaderMenu
+                        key={activeServer.id}
+                        serverName={activeServer.name}
+                        inviteLink={inviteLink}
+                        onOpenServerSettings={onOpenServerSettings}
+                    />
                 ) : (
                     <span style={{ color: 'var(--text-muted)' }}>{loading ? 'Loading server…' : 'Select a Server'}</span>
                 )}
@@ -650,7 +643,14 @@ export default function ChannelSidebar({
                                             </span>
                                         )}
                                         {ch.channel_type === 'text' && (unreadByChannel[ch.id] ?? 0) > 0 && (
-                                            <span className="channel-unread-badge">{hasMention ? '@' : formatBadgeCount(unreadByChannel[ch.id] ?? 0)}</span>
+                                            <span
+                                                className={`channel-unread-badge${hasMention ? ' channel-unread-badge--mention' : ''}`}
+                                                aria-label={hasMention
+                                                    ? `${mentionByChannel[ch.id]} mention${mentionByChannel[ch.id] === 1 ? '' : 's'}`
+                                                    : `${unreadByChannel[ch.id]} unread message${unreadByChannel[ch.id] === 1 ? '' : 's'}`}
+                                            >
+                                                {hasMention ? `@${formatBadgeCount(mentionByChannel[ch.id] ?? 0)}` : formatBadgeCount(unreadByChannel[ch.id] ?? 0)}
+                                            </span>
                                         )}
                                     </div>
                                     {ch.channel_type === 'voice' && voiceMembers.length > 0 && (

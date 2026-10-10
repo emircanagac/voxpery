@@ -36,7 +36,8 @@ function createServerSettingsState() {
 
 async function openServerSettings(page: Page) {
   await page.goto('/servers')
-  await page.getByTitle('Open server settings').click()
+  await page.getByTitle('Server menu').click()
+  await page.getByRole('menuitem', { name: 'Server Settings' }).click()
   await expect(page.getByRole('heading', { name: 'Server Settings' })).toBeVisible()
 }
 
@@ -71,7 +72,7 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(settings.locator('..')).not.toHaveAttribute('inert')
     await close.click()
     await confirm.getByRole('button', { name: 'Discard changes', exact: true }).click()
-    await expect(page.getByTitle('Open server settings')).toBeFocused()
+    await expect(page.getByTitle('Server menu')).toBeFocused()
     await expect(page.locator('#root')).not.toHaveAttribute('inert')
 
     const create = page.getByRole('button', { name: 'Create channel in GENERAL', exact: true })
@@ -157,10 +158,38 @@ test.describe('mocked server settings UI regressions', () => {
     })
     await installMockCoreApi(page, state)
     await page.goto('/servers')
-    await page.getByTitle('Open server settings').click()
+    await page.getByTitle('Server menu').click()
+    await page.getByRole('menuitem', { name: 'Server Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Server information' })).toBeVisible()
     await expect(page.getByText('Server roles are managed by the owner')).toBeVisible()
     await expect(page.getByText('0 roles configured')).toHaveCount(0)
+  })
+
+  test('copies the invite link from the server menu without opening settings', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    const memberServer = buildCoreServer({ id: 'member-server', owner_id: 'someone-else' })
+    const state = createMockCoreState({
+      servers: [memberServer],
+      channelsByServerId: { [memberServer.id]: buildCoreChannels(memberServer.id) },
+      membersByServerId: { [memberServer.id]: buildCoreMembers() },
+      serverPermissionsByServerId: { [memberServer.id]: 0 },
+    })
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    const trigger = page.getByTitle('Server menu')
+    await trigger.click()
+    await expect(page.getByRole('menuitem')).toHaveText(['Invite People', 'Server Settings'])
+    await page.getByRole('menuitem', { name: 'Invite People' }).click()
+    const panel = page.getByRole('dialog', { name: 'Invite people' })
+    const link = await panel.getByRole('textbox', { name: 'Invite link' }).inputValue()
+    expect(link).toContain(`/invite/${memberServer.invite_code}`)
+    await panel.getByRole('button', { name: 'Copy' }).click()
+    await expect(panel.getByRole('button', { name: 'Copied' })).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link)
+    await expect(page.getByRole('heading', { name: 'Server Settings' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(trigger).toBeFocused()
   })
 
   test('keeps the member profile dialog aligned with the active theme', async ({ page }) => {

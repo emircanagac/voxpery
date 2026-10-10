@@ -94,6 +94,17 @@ export default function ServerSidebar({
         }
         return counts
     }, [channelsByServerId, mutedChannelIds, mutedServerIds, serverMentionsByChannel, serverUnreadByChannel, servers])
+
+    // Direct mentions are shown separately from ordinary unread, and also for muted servers.
+    const serverMentionCounts = useMemo(() => {
+        const counts: Record<string, number> = {}
+        for (const server of servers) {
+            const total = (channelsByServerId[server.id] ?? [])
+                .reduce((sum, channel) => sum + (serverMentionsByChannel[channel.id] ?? 0), 0)
+            if (total > 0) counts[server.id] = total
+        }
+        return counts
+    }, [channelsByServerId, serverMentionsByChannel, servers])
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
     const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -302,6 +313,7 @@ export default function ServerSidebar({
         const isVoiceActive = serverIdsWithActiveVoice.has(server.id)
         const voiceCount = serverVoiceCounts[server.id] ?? 0
         const unreadCount = serverUnreadCounts[server.id] ?? 0
+        const mentionCount = serverMentionCounts[server.id] ?? 0
         const dropLineClass = getDropLineClass(server.id)
         const isMuted = mutedServerIds.includes(server.id)
         return (
@@ -355,6 +367,15 @@ export default function ServerSidebar({
                         aria-label={`${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`}
                         title={unreadCount === 1 ? '1 unread message' : `${unreadCount} unread messages`}
                     />
+                )}
+                {mentionCount > 0 && (
+                    <span
+                        className="server-unread-badge server-mention-badge"
+                        aria-label={`${mentionCount} mention${mentionCount === 1 ? '' : 's'}`}
+                        title={mentionCount === 1 ? '1 mention' : `${mentionCount} mentions`}
+                    >
+                        {formatBadgeCount(mentionCount)}
+                    </span>
                 )}
             </div>
         )
