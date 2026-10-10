@@ -339,6 +339,23 @@ type AttachmentResolutionState = {
 const MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES = 160
 const attachmentResolutionCache = new Map<string, AttachmentResolutionState>()
 const decodedAttachmentImageCache = new Set<string>()
+const MAX_DECODED_ATTACHMENT_IMAGE_ENTRIES = MAX_ATTACHMENT_RESOLUTION_CACHE_ENTRIES * 2
+
+/** Insertion-ordered and bounded; revoked blob URLs are forgotten in revokeAttachmentUrl. */
+function rememberDecodedAttachmentImage(url: string) {
+    decodedAttachmentImageCache.delete(url)
+    decodedAttachmentImageCache.add(url)
+    while (decodedAttachmentImageCache.size > MAX_DECODED_ATTACHMENT_IMAGE_ENTRIES) {
+        const oldest = decodedAttachmentImageCache.values().next().value
+        if (oldest === undefined) break
+        decodedAttachmentImageCache.delete(oldest)
+    }
+}
+
+function revokeAttachmentUrl(url: string) {
+    URL.revokeObjectURL(url)
+    decodedAttachmentImageCache.delete(url)
+}
 
 function defaultAttachmentResolution(sourceUrl: string, cacheKey: string): AttachmentResolutionState {
     return {
@@ -374,7 +391,7 @@ function getAttachmentResolutionCacheKey(attachment: Attachment, token: string |
 function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentResolutionState) {
     const previous = attachmentResolutionCache.get(cacheKey)
     if (previous?.resolvedUrl.startsWith('blob:') && previous.resolvedUrl !== resolution.resolvedUrl) {
-        URL.revokeObjectURL(previous.resolvedUrl)
+        revokeAttachmentUrl(previous.resolvedUrl)
     }
     attachmentResolutionCache.delete(cacheKey)
     attachmentResolutionCache.set(cacheKey, resolution)
@@ -382,7 +399,7 @@ function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentRe
         const oldestKey = attachmentResolutionCache.keys().next().value
         if (!oldestKey) break
         const oldest = attachmentResolutionCache.get(oldestKey)
-        if (oldest?.resolvedUrl.startsWith('blob:')) URL.revokeObjectURL(oldest.resolvedUrl)
+        if (oldest?.resolvedUrl.startsWith('blob:')) revokeAttachmentUrl(oldest.resolvedUrl)
         attachmentResolutionCache.delete(oldestKey)
     }
 }
@@ -390,14 +407,14 @@ function rememberAttachmentResolution(cacheKey: string, resolution: AttachmentRe
 function decodeAttachmentImage(url: string): Promise<void> {
     if (decodedAttachmentImageCache.has(url)) return Promise.resolve()
     if (typeof window === 'undefined' || typeof Image === 'undefined') {
-        decodedAttachmentImageCache.add(url)
+        rememberDecodedAttachmentImage(url)
         return Promise.resolve()
     }
     return new Promise((resolve, reject) => {
         const image = new Image()
         image.decoding = 'async'
         image.onload = () => {
-            decodedAttachmentImageCache.add(url)
+            rememberDecodedAttachmentImage(url)
             resolve()
         }
         image.onerror = () => reject(new Error('Image decode failed'))
@@ -406,12 +423,12 @@ function decodeAttachmentImage(url: string): Promise<void> {
         if (decode) {
             decode
                 .then(() => {
-                    decodedAttachmentImageCache.add(url)
+                    rememberDecodedAttachmentImage(url)
                     resolve()
                 })
                 .catch(() => {
                     if (image.complete && image.naturalWidth > 0) {
-                        decodedAttachmentImageCache.add(url)
+                        rememberDecodedAttachmentImage(url)
                         resolve()
                         return
                     }
@@ -694,7 +711,7 @@ function AttachmentLink({ attachment, index }: { attachment: Attachment; index: 
                             loading="eager"
                             decoding="async"
                             onLoad={() => {
-                                decodedAttachmentImageCache.add(currentResolution.resolvedUrl)
+                                rememberDecodedAttachmentImage(currentResolution.resolvedUrl)
                             }}
                             onError={handleImageLoadError}
                         />

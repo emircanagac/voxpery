@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A late "unauthorized" response from a request made before signing in again no longer signs you out of the new session.
 - Signing in right after signing out on the web keeps the new session; the sign-in now waits for the sign-out request so its cookie cannot be cleared by it.
 - If desktop email registration creates the account but cannot hand off to the app, the browser page now says the account is ready and asks you to sign in, instead of showing an error whose retry fails.
+- Long chat sessions no longer accumulate an unbounded list of decoded image addresses in memory.
 
 ## [0.3.1] - 2026-10-10
 
