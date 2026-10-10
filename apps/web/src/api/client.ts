@@ -43,19 +43,15 @@ export function getApiBase(): string {
 export async function checkHealth(): Promise<boolean> {
     try {
         const url = `${effectiveApiBase()}/health`
-        if (shouldUseTauriHttpPlugin()) {
-            const mod = await import('@tauri-apps/plugin-http')
-            const res = await mod.fetch(url, { method: 'GET', timeout: 5 } as RequestInit & { timeout?: number })
+        const deadline = requestDeadline(5000)
+        try {
+            const request = shouldUseTauriHttpPlugin()
+                ? (await import('@tauri-apps/plugin-http')).fetch
+                : fetch
+            const res = await request(url, { method: 'GET', signal: deadline.signal })
             return res.ok
-        } else {
-            const controller = new AbortController()
-            const timer = setTimeout(() => controller.abort(), 5000)
-            const res = await fetch(url, {
-                method: 'GET',
-                signal: controller.signal,
-            })
-            clearTimeout(timer)
-            return res.ok
+        } finally {
+            deadline.clear()
         }
     } catch {
         return false
@@ -79,6 +75,22 @@ interface FetchOptions {
     method?: string
     body?: unknown
     token?: string | null
+    /** Total deadline including the response body; defaults to API_REQUEST_TIMEOUT_MS. */
+    timeoutMs?: number
+}
+
+const API_REQUEST_TIMEOUT_MS = 30_000
+const API_TRANSFER_TIMEOUT_MS = 60_000
+const REQUEST_TIMEOUT_MESSAGE = 'CONNECTION_ERROR:The server did not respond in time. Check the connection and try again.'
+
+/**
+ * Abort a request (including its body) after `ms`. The Tauri HTTP plugin has no total
+ * timeout option, but both it and browser fetch honor an AbortSignal.
+ */
+function requestDeadline(ms: number) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), ms)
+    return { signal: controller.signal, clear: () => clearTimeout(timer) }
 }
 
 export interface DownloadResult {
@@ -158,6 +170,15 @@ export function getAuthErrorMessage(err: unknown): { message: string; code?: str
 }
 
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
+    const deadline = requestDeadline(options.timeoutMs ?? API_REQUEST_TIMEOUT_MS)
+    try {
+        return await apiFetchWithin<T>(path, options, deadline.signal)
+    } finally {
+        deadline.clear()
+    }
+}
+
+async function apiFetchWithin<T>(path: string, options: FetchOptions, signal: AbortSignal): Promise<T> {
     const { method = 'GET', body, token } = options
 
     const headers: Record<string, string> = {
@@ -174,6 +195,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
         headers,
         body: body ? JSON.stringify(body) : undefined,
         credentials: isTauri() ? 'omit' : 'include', // desktop: no cookies; web: httpOnly cookie
+        signal,
     }
 
     let res: Response
@@ -187,11 +209,12 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
                 const msg = importErr instanceof Error ? importErr.message : String(importErr)
                 throw new Error(`CONNECTION_ERROR:Desktop plugin could not load. ${msg}`, { cause: importErr })
             }
-            res = await tauriFetch(url, { ...fetchOptions, timeout: 30 } as RequestInit & { timeout?: number })
+            res = await tauriFetch(url, fetchOptions)
         } else {
             res = await fetch(url, fetchOptions)
         }
     } catch (err) {
+        if (signal.aborted) throw new Error(REQUEST_TIMEOUT_MESSAGE, { cause: err })
         const detail = err instanceof Error ? err.message : String(err)
         const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : (err as { cause?: unknown })?.cause != null ? String((err as { cause: unknown }).cause) : ''
         const fullDetail = cause ? `${detail}. ${cause}` : detail
@@ -223,6 +246,18 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 }
 
 export async function apiDownload(path: string, options: FetchOptions = {}): Promise<DownloadResult> {
+    const deadline = requestDeadline(options.timeoutMs ?? API_TRANSFER_TIMEOUT_MS)
+    try {
+        return await apiDownloadWithin(path, options, deadline.signal)
+    } catch (err) {
+        if (deadline.signal.aborted) throw new Error(REQUEST_TIMEOUT_MESSAGE, { cause: err })
+        throw err
+    } finally {
+        deadline.clear()
+    }
+}
+
+async function apiDownloadWithin(path: string, options: FetchOptions, signal: AbortSignal): Promise<DownloadResult> {
     const { method = 'POST', body, token } = options
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (token) headers.Authorization = `Bearer ${token}`
@@ -232,12 +267,13 @@ export async function apiDownload(path: string, options: FetchOptions = {}): Pro
         headers,
         body: body ? JSON.stringify(body) : undefined,
         credentials: isTauri() ? 'omit' : 'include',
+        signal,
     }
 
     let response: Response
     if (shouldUseTauriHttpPlugin()) {
         const mod = await import('@tauri-apps/plugin-http')
-        response = await mod.fetch(url, { ...request, timeout: 60 } as RequestInit & { timeout?: number })
+        response = await mod.fetch(url, request)
     } else {
         response = await fetch(url, request)
     }
@@ -254,6 +290,18 @@ export async function apiDownload(path: string, options: FetchOptions = {}): Pro
 }
 
 export async function apiMultipartFetch<T>(path: string, formData: FormData, token?: string | null): Promise<T> {
+    const deadline = requestDeadline(API_TRANSFER_TIMEOUT_MS)
+    try {
+        return await apiMultipartFetchWithin<T>(path, formData, token, deadline.signal)
+    } catch (err) {
+        if (deadline.signal.aborted) throw new Error(REQUEST_TIMEOUT_MESSAGE, { cause: err })
+        throw err
+    } finally {
+        deadline.clear()
+    }
+}
+
+async function apiMultipartFetchWithin<T>(path: string, formData: FormData, token: string | null | undefined, signal: AbortSignal): Promise<T> {
     const headers: Record<string, string> = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -267,14 +315,15 @@ export async function apiMultipartFetch<T>(path: string, formData: FormData, tok
                 headers,
                 body: formData,
                 credentials: 'omit',
-                timeout: 60,
-            } as RequestInit & { timeout?: number })
+                signal,
+            })
         } else {
             res = await fetch(url, {
                 method: 'POST',
                 headers,
                 body: formData,
                 credentials: 'include',
+                signal,
             })
         }
     } catch (err) {

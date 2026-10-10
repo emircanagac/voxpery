@@ -40,6 +40,37 @@ describe('API Error Handling', () => {
     await expect(apiFetch('/api/friends')).rejects.toThrow('Unauthorized')
     expect(onExpired).toHaveBeenCalledTimes(1)
   })
+  it('aborts a request that never responds and reports a connection timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const pending = expect(apiFetch('/api/friends')).rejects.toThrow('did not respond in time')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await pending
+      expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses a shorter deadline for logout so desktop sign-in is never blocked for long', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })))
+      const { authApi } = await import('./api')
+      const pending = expect(authApi.logout(null)).rejects.toThrow('did not respond in time')
+      await vi.advanceTimersByTimeAsync(10_000)
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   describe('getAuthErrorMessage', () => {
     it('should parse error with code prefix', () => {
       const err = new Error('INVALID_CREDENTIALS:Wrong password')

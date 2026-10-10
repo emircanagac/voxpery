@@ -199,6 +199,8 @@ export const authApi = {
         apiFetch<void>('/api/auth/logout', {
             method: 'POST',
             token: token ?? undefined,
+            // Desktop serializes sign-in behind revocation; a stalled logout must fail fast.
+            timeoutMs: 10_000,
         }),
 
     /** Change password. Returns success message and clears cookie (forces re-login). */
