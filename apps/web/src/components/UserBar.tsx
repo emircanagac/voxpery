@@ -277,6 +277,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [updateInfo, setUpdateInfo] = useState<UpdateResult | null>(null)
+  const updatesManagedExternally = updateInfo?.available === false && updateInfo.managedExternally === true
   const [updateChecked, setUpdateChecked] = useState(false)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateInstalling, setUpdateInstalling] = useState(false)
@@ -2195,6 +2196,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                           {updateChecked
                             ? updateInfo?.available
                               ? `Voxpery ${updateInfo.version} is available to install.`
+                              : updatesManagedExternally
+                                ? 'Updates for this installation are provided by Flathub.'
                               : updateInfo?.error
                                 ? 'Could not check for new desktop releases right now.'
                               : 'Your desktop app is on the latest version.'
@@ -2202,14 +2205,16 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                         </div>
                       </div>
                       <div className="user-setting-actions">
-                        <button
-                          type="button"
-                          className="user-toggle account-action-btn"
-                          onClick={() => void refreshUpdateStatus(true)}
-                          disabled={updateChecking || updateInstalling}
-                        >
-                          {updateChecking ? 'Checking…' : 'Check now'}
-                        </button>
+                        {!updatesManagedExternally && (
+                          <button
+                            type="button"
+                            className="user-toggle account-action-btn"
+                            onClick={() => void refreshUpdateStatus(true)}
+                            disabled={updateChecking || updateInstalling}
+                          >
+                            {updateChecking ? 'Checking…' : 'Check now'}
+                          </button>
+                        )}
                         {updateInfo?.available && (
                           <button
                             type="button"

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Message search results open in their own panel (beside the chat on desktop, a separate sheet on mobile) with the result count and scope; Go to message opens the message in the conversation with the messages around it. The conversation and your draft stay in place while searching.
 - Messages that arrive while you are reading older history get a "New messages" divider, and the jump-to-latest button shows how many arrived.
 - Returning to a channel or direct message you left while reading older history opens it where you left off; conversations left at the latest message still open at the latest message.
+- The Linux desktop app is ready for Flatpak: when installed as a Flatpak it leaves updates to Flathub instead of using its own updater.
 
 ### Changed
 - The desktop app moves to Tauri 3. Windows and macOS keep their system webview; existing desktop sessions are kept.

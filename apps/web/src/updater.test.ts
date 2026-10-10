@@ -58,6 +58,21 @@ afterEach(() => {
 })
 
 describe('desktop updater', () => {
+  it('leaves Flatpak installs to Flathub without checking or installing', async () => {
+    const { runtime, check, downloadAndInstall } = createRuntime({ update: { version: '0.5.0' } })
+    const flatpakRuntime = { ...runtime, isManagedExternally: () => Promise.resolve(true) }
+    const status = listenForUpdateStatus()
+
+    await expect(checkForUpdatesWithRuntime(flatpakRuntime)).resolves.toEqual({ available: false, managedExternally: true })
+    await expect(downloadAndInstallUpdateWithRuntime(flatpakRuntime)).resolves.toBe(false)
+
+    expect(check).not.toHaveBeenCalled()
+    expect(downloadAndInstall).not.toHaveBeenCalled()
+    expect(flatpakRuntime.relaunch).not.toHaveBeenCalled()
+    expect(status.events).toEqual([])
+    status.stop()
+  })
+
   it('does not check for updates outside desktop runtime', async () => {
     const { runtime, check } = createRuntime({ isDesktop: false })
 

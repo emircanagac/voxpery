@@ -6,7 +6,8 @@ import { isTauri } from './secureStorage'
 import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
 export type UpdateResult =
-  | { available: false; error?: boolean }
+  // `managedExternally`: a package store (Flathub) updates this install, not the app.
+  | { available: false; error?: boolean; managedExternally?: boolean }
   | { available: true; version: string; body?: string; date?: string }
 
 export const DESKTOP_UPDATE_STATUS_EVENT = 'voxpery-desktop-update-status'
@@ -24,6 +25,7 @@ type DesktopUpdate = {
 
 type DesktopUpdaterRuntime = {
   isDesktop: () => boolean
+  isManagedExternally?: () => Promise<boolean>
   check: () => Promise<DesktopUpdate | null>
   prepareForInstall: () => Promise<void>
   relaunch: () => Promise<void>
@@ -42,11 +44,22 @@ function emitDesktopUpdateStatus(result: UpdateResult) {
   )
 }
 
+let updateChannel: Promise<string> | null = null
+
+/** Flatpak installs report the `flatpak` channel; updates come from Flathub there. */
+function isManagedExternally(): Promise<boolean> {
+  updateChannel ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string>('desktop_update_channel'))
+    .catch(() => 'app')
+  return updateChannel.then((channel) => channel === 'flatpak')
+}
+
 async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {
   const { check } = await import('@tauri-apps/plugin-updater')
   const { relaunch } = await import('@tauri-apps/plugin-process')
   return {
     isDesktop: isTauri,
+    isManagedExternally,
     check,
     prepareForInstall: prepareDesktopForUpdateInstall,
     relaunch,
@@ -56,6 +69,9 @@ async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {
 export async function checkForUpdatesWithRuntime(runtime: DesktopUpdaterRuntime): Promise<UpdateResult> {
   if (!runtime.isDesktop()) {
     return { available: false }
+  }
+  if (await runtime.isManagedExternally?.()) {
+    return { available: false, managedExternally: true }
   }
   try {
     const update = await runtime.check()
@@ -81,7 +97,7 @@ export async function checkForUpdatesWithRuntime(runtime: DesktopUpdaterRuntime)
 }
 
 export async function downloadAndInstallUpdateWithRuntime(runtime: DesktopUpdaterRuntime): Promise<boolean> {
-  if (!runtime.isDesktop()) {
+  if (!runtime.isDesktop() || await runtime.isManagedExternally?.()) {
     return false
   }
   try {

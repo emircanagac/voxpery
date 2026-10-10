@@ -163,6 +163,23 @@ fn desktop_set_minimize_to_tray_on_close(
         .store(enabled, Ordering::Relaxed);
 }
 
+/// Whether this install is updated by the app itself or by a package store. Flatpak installs
+/// are updated by Flathub, so the web app keeps the in-app updater off there.
+fn is_flatpak_install() -> bool {
+    cfg!(target_os = "linux")
+        && (std::env::var_os("FLATPAK_ID").is_some()
+            || std::path::Path::new("/.flatpak-info").exists())
+}
+
+#[tauri::command]
+fn desktop_update_channel() -> &'static str {
+    if is_flatpak_install() {
+        "flatpak"
+    } else {
+        "app"
+    }
+}
+
 #[tauri::command]
 fn desktop_prepare_for_update_install(state: tauri::State<'_, DesktopRuntimeState>) {
     state.allow_close_for_update.store(true, Ordering::Relaxed);
@@ -293,7 +310,8 @@ fn main() {
             desktop_prepare_for_update_install,
             desktop_take_pending_deep_links,
             desktop_update_unread_feedback,
-            desktop_open_media_permission_settings
+            desktop_open_media_permission_settings,
+            desktop_update_channel
         ]);
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
