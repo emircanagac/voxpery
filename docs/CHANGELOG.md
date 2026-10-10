@@ -14,8 +14,12 @@ This release is in preparation. Release validation and publication are still pen
 ### Added
 - Desktop: a member list button in the channel header hides or shows the member panel; the choice is remembered.
 - Mobile: a channels button in the chat header opens the channel list without leaving the conversation.
+- Clicking the server name opens a menu with Invite People and Server Settings; Invite People shows the invite link with a Copy button, without opening settings.
+- Message search results open in their own panel (beside the chat on desktop, a separate sheet on mobile) with the result count and scope; Go to message opens the message in the conversation with the messages around it. The conversation and your draft stay in place while searching.
+- Messages that arrive while you are reading older history get a "New messages" divider, and the jump-to-latest button shows how many arrived.
 
 ### Changed
+- Unread badges in the channel list are neutral; direct mentions use a red @ badge, and the server icon shows a separate mention count (also for muted servers).
 - Launch on startup is now on by default for new desktop installs on Windows, macOS and Linux (previously Windows only). Turning it off is remembered across restarts and updates.
 
 ### Fixed

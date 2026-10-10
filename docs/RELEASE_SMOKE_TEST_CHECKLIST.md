@@ -39,6 +39,9 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.0` an
 - [ ] Mobile: the channels button in the chat header opens the channel list; choosing another channel closes it, and the previous channel keeps its draft.
 - [ ] With a server channel open, focus another window and send messages from a second account: the channel shows unread, and returning to Voxpery shows the "New messages" divider before them. Repeat in a DM.
 - [ ] Linux desktop: joining voice shows "Voice not supported here" with the browser suggestion, not "Voice connection failed".
+- [ ] Server name menu: Invite People copies the invite link with Copied feedback for owners and regular members; Server Settings opens settings; Escape and outside clicks close the menu and return focus. Desktop and mobile.
+- [ ] Search in a server channel and a DM: results open beside the chat (desktop) or as a sheet (mobile) with count and scope; the chat and draft stay; Go to message opens an old message with its surrounding messages (server channel) or after loading history (DM); closing search keeps the chat position.
+- [ ] Scroll up in a busy channel while a second account sends messages: the view does not move, the jump button shows the new message count, and a "New messages" divider marks the first one. Mentions show a red @ badge in the channel list and a mention count on the server icon.
 
 ### Chat state regression checks (#361)
 
