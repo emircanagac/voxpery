@@ -123,6 +123,48 @@ describe('ChatArea regressions', () => {
     vi.unstubAllGlobals()
   })
 
+  it('toggles the desktop member panel from the header and keeps the draft', () => {
+    const onOpenMemberSheet = vi.fn()
+    const { rerender } = renderChatArea({
+      messageInput: 'unsent draft',
+      showMemberSheetButton: true,
+      onOpenMemberSheet,
+      memberPanelOpen: true,
+    })
+    const hide = screen.getByRole('button', { name: 'Hide member list' })
+    expect(hide).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(hide)
+    expect(onOpenMemberSheet).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <ChatArea
+        activeChannel={channel('general', 'general')}
+        messages={[message('message-1', 'hello', 0), message('message-2', 'latest', 1)]}
+        draftAttachments={[]}
+        messageInput="unsent draft"
+        onPickAttachments={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onMessageInputChange={vi.fn()}
+        onSendMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+        onScrollRefReady={setScrollableMetrics}
+        showMemberSheetButton
+        onOpenMemberSheet={onOpenMemberSheet}
+        memberPanelOpen={false}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Show member list' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByDisplayValue('unsent draft')).toBeInTheDocument()
+  })
+
+  it('keeps the mobile member sheet label and offers the channel list from the header', () => {
+    const onOpenChannelList = vi.fn()
+    renderChatArea({ showMemberSheetButton: true, onOpenMemberSheet: vi.fn(), onOpenChannelList })
+    expect(screen.getByRole('button', { name: 'View members' })).not.toHaveAttribute('aria-pressed')
+    fireEvent.click(screen.getByRole('button', { name: 'Open channel list' }))
+    expect(onOpenChannelList).toHaveBeenCalledTimes(1)
+  })
+
   it('separates loading and empty search results from an empty conversation', () => {
     const { rerender } = renderChatArea({ messages: [], loading: true })
     expect(screen.queryByText('Welcome to #general!')).not.toBeInTheDocument()

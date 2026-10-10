@@ -33,6 +33,13 @@ Record real desktop smoke results, two-user voice/screen-share and moderation/re
 
 For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.0` and `voxpery/voxpery-web:v0.4.0`, the embedded web badge/build tag, desktop version `0.4.0`, and the release-generated updater `latest.json` version all agree. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
 
+### v0.4.0 chat and layout checks
+
+- [ ] Desktop (1024 px and wider): the member list button in a server channel header hides and shows the member panel; the chat widens, the draft and scroll position stay, and the choice survives a reload. Below 1024 px the button still opens the member sheet.
+- [ ] Mobile: the channels button in the chat header opens the channel list; choosing another channel closes it, and the previous channel keeps its draft.
+- [ ] With a server channel open, focus another window and send messages from a second account: the channel shows unread, and returning to Voxpery shows the "New messages" divider before them. Repeat in a DM.
+- [ ] Linux desktop: joining voice shows "Voice not supported here" with the browser suggestion, not "Voice connection failed".
+
 ### Chat state regression checks (#361)
 
 - [ ] Open an attachment preview using Enter. Initial focus is inside the dialog; Tab/Shift+Tab stay inside, Escape closes it, and focus returns to the trigger. Background controls are inert until dismissal.

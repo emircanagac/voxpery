@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This release is in preparation. Release validation and publication are still pending.
 
+### Added
+- Desktop: a member list button in the channel header hides or shows the member panel; the choice is remembered.
+- Mobile: a channels button in the chat header opens the channel list without leaving the conversation.
+
 ### Changed
 - Launch on startup is now on by default for new desktop installs on Windows, macOS and Linux (previously Windows only). Turning it off is remembered across restarts and updates.
 
@@ -21,6 +25,8 @@ This release is in preparation. Release validation and publication are still pen
 - Signing in right after signing out on the web keeps the new session; the sign-in now waits for the sign-out request so its cookie cannot be cleared by it.
 - If desktop email registration creates the account but cannot hand off to the app, the browser page now says the account is ready and asks you to sign in, instead of showing an error whose retry fails.
 - Long chat sessions no longer accumulate an unbounded list of decoded image addresses in memory.
+- Messages that arrive in the open server channel while the app is in the background or another window is focused stay unread until you return, then show the "New messages" divider. Direct messages also show the divider after returning.
+- When the app cannot make voice calls on the current system (for example the Linux desktop app), joining voice now says so and suggests a browser instead of reporting a network failure.
 
 ## [0.3.1] - 2026-10-10
 

@@ -2,7 +2,7 @@ import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, typ
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
 import { useDialogFocus } from '../hooks/useDialogFocus'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
+import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment, MessageReaction } from '../types'
 import type { GifOption } from '../emoji'
@@ -807,6 +807,10 @@ interface ChatAreaProps {
     seenMessageId?: string | null
     showMemberSheetButton?: boolean
     onOpenMemberSheet?: () => void
+    /** Desktop member panel state; when set, the member button toggles the panel. */
+    memberPanelOpen?: boolean
+    /** Compact layouts: opens the channel list without leaving the chat. */
+    onOpenChannelList?: () => void
     unreadDividerCount?: number
     loading?: boolean
     topContent?: ReactNode
@@ -863,6 +867,8 @@ export default function ChatArea({
     seenMessageId = null,
     showMemberSheetButton = false,
     onOpenMemberSheet,
+    memberPanelOpen,
+    onOpenChannelList,
     unreadDividerCount = 0,
     loading = false,
     topContent,
@@ -1038,6 +1044,9 @@ export default function ChatArea({
         ? Math.max(0, Math.trunc(unreadDividerCount))
         : 0
     const isCurrentViewActive = isViewActive !== false
+    const memberButtonLabel = memberPanelOpen === undefined
+        ? 'View members'
+        : memberPanelOpen ? 'Hide member list' : 'Show member list'
 
     useLayoutEffect(() => {
         setUnreadDividerSnapshot((previous) => {
@@ -2347,6 +2356,17 @@ export default function ChatArea({
         return (
             <div className="chat-area">
                 <div className="chat-header">
+                    {onOpenChannelList && (
+                        <button
+                            type="button"
+                            className="chat-header-member-btn chat-header-channels-btn"
+                            onClick={onOpenChannelList}
+                            title="Channels"
+                            aria-label="Open channel list"
+                        >
+                            <ChevronLeft size={20} />
+                        </button>
+                    )}
                     <span className="channel-hash">
                         <Volume2 size={20} />
                     </span>
@@ -2365,8 +2385,9 @@ export default function ChatArea({
                                 type="button"
                                 className="chat-header-member-btn"
                                 onClick={onOpenMemberSheet}
-                                title="View members"
-                                aria-label="View members"
+                                title={memberButtonLabel}
+                                aria-label={memberButtonLabel}
+                                aria-pressed={memberPanelOpen}
                             >
                                 <Users size={17} />
                             </button>
@@ -2381,6 +2402,17 @@ export default function ChatArea({
     return (
         <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}`} ref={chatAreaRef}>
             <div className={`chat-header${searchOpen ? ' chat-header--searching' : ''}`}>
+                {onOpenChannelList && (
+                    <button
+                        type="button"
+                        className="chat-header-member-btn chat-header-channels-btn"
+                        onClick={onOpenChannelList}
+                        title="Channels"
+                        aria-label="Open channel list"
+                    >
+                        <ChevronLeft size={20} />
+                    </button>
+                )}
                 <span className="channel-hash">
                     <Hash size={20} />
                 </span>
@@ -2556,8 +2588,9 @@ export default function ChatArea({
                             type="button"
                             className="chat-header-member-btn"
                             onClick={onOpenMemberSheet}
-                            title="View members"
-                            aria-label="View members"
+                            title={memberButtonLabel}
+                            aria-label={memberButtonLabel}
+                            aria-pressed={memberPanelOpen}
                         >
                             <Users size={17} />
                         </button>
