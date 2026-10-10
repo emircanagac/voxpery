@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Signing out or leaving the app while in (or joining) a voice channel now leaves voice and turns off the microphone; a join still in progress is cancelled instead of connecting afterwards.
+
 ## [0.3.1] - 2026-10-10
 
 ### Fixed
