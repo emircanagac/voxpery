@@ -3310,6 +3310,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             <ChannelSidebar
                 loading={serverRouteLoading || (!activeServerId && serversLoading)}
                 onOpenServerSettings={() => openServerSettingsModal()}
+                inviteLink={activeServerInviteLink || undefined}
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
                 onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}

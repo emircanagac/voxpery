@@ -1330,6 +1330,100 @@ body {
   cursor: default;
 }
 
+.server-header-menu-root {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+}
+
+.server-context-menu.server-header-menu,
+.server-header-menu.server-invite-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -8px;
+  right: -8px;
+  z-index: 60;
+  font-weight: 400;
+}
+
+.server-invite-panel {
+  box-sizing: border-box;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-high);
+}
+
+.server-invite-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.server-invite-panel-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-invite-panel-close {
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.server-invite-panel-close:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text);
+}
+
+.server-invite-panel-row {
+  display: flex;
+  gap: 8px;
+}
+
+.server-invite-panel-link {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-input, var(--bg-primary));
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.server-invite-panel-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.server-invite-panel-status {
+  min-height: 16px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.server-invite-panel-status:empty {
+  display: none;
+}
+
 .channel-header-title {
   flex: 1;
   min-width: 0;
