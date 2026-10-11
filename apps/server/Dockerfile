@@ -1,4 +1,4 @@
-FROM rust:bookworm AS builder
+FROM rust:trixie AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY build.rs build.rs
 COPY src src
 RUN cargo build --release --locked
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 # Apply Debian security updates at build time: the base image and the cached layer can
 # otherwise ship packages (such as perl-base) that already have fixed versions.

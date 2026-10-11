@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-11
+
 ### Security
 - Security updates.
 
 ### Changed
+- Docker images: the server image moves to Debian 13 (trixie) and the web image to nginx 1.30 (stable); both apply operating system security updates at build time.
 - Server icons now open in the same crop and zoom editor as profile photos. Choosing an image no longer changes the icon; it is saved only with Save photo, and Cancel keeps the current icon.
 
 ### Fixed

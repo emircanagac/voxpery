@@ -357,6 +357,7 @@ jobs:
             VITE_APP_VERSION=${{ steps.tags.outputs.display_tag }}
             VITE_GIPHY_API_KEY=${{ vars.VITE_GIPHY_API_KEY }}
             APP_ENV=production
+            SECURITY_UPDATES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
