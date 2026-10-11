@@ -26,13 +26,21 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.1 preparation (not release sign-off)
+### v0.4.2 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.1`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.2`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.1` and `voxpery/voxpery-web:v0.4.1`, the embedded web badge/build tag, desktop version `0.4.1`, and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.2` and `voxpery/voxpery-web:v0.4.2`, the embedded web badge/build tag, desktop version `0.4.2`, and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.2 checks
+
+- [ ] Desktop (Windows, macOS, Linux): Sign Up stays inside the app with the same form as the web; the CAPTCHA is solved in the app and the new account is signed in without opening the browser.
+- [ ] Desktop: Continue with Google brings Voxpery to the front and signs in on Linux (CachyOS and Ubuntu), Windows and macOS. When the app does not open, the browser page shows a one-time code that signs in under "Use a sign-in code".
+- [ ] Server owner: right-click a text and a voice channel > Channel Permissions opens the Permissions tab; overrides save. A member with Manage Channels who is not the owner does not see Channel Permissions.
+- [ ] Kick, ban and leave (from another device) a test account that has a channel open: the server disappears from its list at once and it lands on another server or Social; voice disconnects on kick and ban.
+- [ ] Server channel: scroll up, open Social (DM) and come back: the same messages are on screen. Scroll back to the latest message, leave and return: it opens at the latest message.
 
 ### v0.4.1 checks
 

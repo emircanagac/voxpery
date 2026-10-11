@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ModalSurface from './ModalSurface'
 import { X, Shield, Settings, AlertTriangle } from 'lucide-react'
@@ -55,6 +55,8 @@ interface ChannelSettingsModalProps {
     serverRoles: ServerRole[]
     /** Permission overrides are owner-only; channel managers only see Overview and Danger Zone. */
     canManagePermissions: boolean
+    /** Tab shown first; `permissions` needs `canManagePermissions`. */
+    initialTab?: 'general' | 'permissions'
     onClose: () => void
     onUpdated?: (channel: Channel) => void
     onDeleted?: (channelId: string) => void
@@ -64,6 +66,7 @@ export default function ChannelSettingsModal({
     channel,
     serverRoles,
     canManagePermissions,
+    initialTab = 'general',
     onClose,
     onUpdated,
     onDeleted,
@@ -128,6 +131,13 @@ export default function ChannelSettingsModal({
             }
         }
     }
+
+    const openedInitialTabRef = useRef(false)
+    useEffect(() => {
+        if (openedInitialTabRef.current || initialTab !== 'permissions' || !canManagePermissions) return
+        openedInitialTabRef.current = true
+        void openPermissionsTab()
+    })
 
     const handleSaveGeneral = async () => {
         const channelValidation = validateChannelNameInput(name)

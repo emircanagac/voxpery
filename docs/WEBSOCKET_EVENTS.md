@@ -181,6 +181,7 @@ Legacy custom signaling event.
 
 - `MemberJoined`
 - `MemberLeft`
+  - The removed member also receives it directly (kick, ban or leaving the server, including from another device), because removed accounts no longer pass the membership check for server broadcasts. Clients drop that server from their list when `user_id` is their own.
 - `MemberRoleUpdated`
 - `ServerRolesUpdated`
 - `ServerChannelsUpdated`

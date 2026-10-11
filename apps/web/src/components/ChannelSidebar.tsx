@@ -47,6 +47,8 @@ interface ChannelSidebarProps {
     mentionByChannel?: Record<string, number>
     voiceControls?: Record<string, { muted: boolean; deafened: boolean; serverMuted?: boolean; serverDeafened?: boolean; screenSharing: boolean; cameraOn?: boolean }>
     onRenameChannel?: (channel: Channel) => void
+    /** Owner-only: opens the channel permission overrides. */
+    onOpenChannelPermissions?: (channel: Channel) => void
     onDeleteChannel?: (channel: Channel) => void
     onReorderChannels?: (draggedChannelId: string, targetChannelId: string, position: 'before' | 'after') => void
     onOpenDirectMessage?: (userId: string) => void
@@ -73,6 +75,7 @@ export default function ChannelSidebar({
     mentionByChannel = {},
     voiceControls = {},
     onRenameChannel,
+    onOpenChannelPermissions,
     onDeleteChannel,
     onReorderChannels,
     onOpenDirectMessage,
@@ -830,6 +833,19 @@ export default function ChannelSidebar({
                                 >
                                     Rename
                                 </button>
+                                {onOpenChannelPermissions && (
+                                    <button
+                                        type="button"
+                                        className="server-context-menu-item"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            setContextMenu(null)
+                                            onOpenChannelPermissions(channel)
+                                        }}
+                                    >
+                                        Channel Permissions
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     className="server-context-menu-item danger"

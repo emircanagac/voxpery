@@ -371,4 +371,32 @@ test.describe('mocked channel permission regressions', () => {
     await expect(page.getByText('Moderator managed message')).toBeHidden()
     expect(state.messagesByChannelId[general.id].some((message) => message.id === 'moderated-message')).toBe(false)
   })
+  test('offers Channel Permissions from the channel menu to the owner only', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    const state = createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+    })
+    await installMockCoreApi(page, state)
+    await page.route('**/api/channels/*/overrides', route => route.fulfill({ json: [] }))
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+
+    await page.locator('.channel-item', { hasText: 'general' }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Channel Permissions', exact: true }).click()
+    const settings = page.locator('.server-settings-content')
+    await expect(settings.getByRole('heading', { name: 'Permissions', exact: true })).toBeVisible()
+    await expect(settings.getByText('Roles', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(settings).toBeHidden()
+
+    // A channel manager who is not the owner keeps Rename but gets no permission overrides.
+    server.owner_id = 'server-owner'
+    state.serverPermissionsByServerId[server.id] = PERM_VIEW_CHANNEL | PERM_MANAGE_CHANNELS
+    await page.reload()
+    await page.locator('.channel-item', { hasText: 'general' }).click({ button: 'right' })
+    await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Channel Permissions', exact: true })).toHaveCount(0)
+  })
 })

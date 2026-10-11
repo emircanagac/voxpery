@@ -1353,6 +1353,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     const sid = d.server_id as string | undefined
                     if (!leftUserId || !sid) break
                     const store = useAppStore.getState()
+                    if (leftUserId === useAuthStore.getState().user?.id) {
+                        // This account was kicked, banned or left elsewhere: drop the server
+                        // instead of keeping its channels and composer on screen.
+                        const remaining = store.servers.filter((server) => server.id !== sid)
+                        store.setServers(remaining)
+                        if (activeServerIdRef.current === sid) store.setActiveServer(remaining[0]?.id ?? null)
+                        break
+                    }
                     const filterList = (list: typeof store.members) => list.filter((m) => m.user_id !== leftUserId)
 
                     if (activeServerIdRef.current === sid) {
@@ -3319,6 +3327,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 mentionByChannel={serverMentionsByChannel}
                 voiceControls={voiceControls}
                 onRenameChannel={openRenameChannelModal}
+                onOpenChannelPermissions={isActiveServerOwner ? (channel) => setChannelSettingsTarget(channel) : undefined}
                 onDeleteChannel={(channel) => setDeleteChannelConfirm(channel)}
                 onReorderChannels={handleReorderChannels}
                 onOpenDirectMessage={(userId) => navigate(ROUTES.dm, { state: { openDmUserId: userId } })}
@@ -4419,6 +4428,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             channel={channelSettingsTarget}
                             serverRoles={serverRoles}
                             canManagePermissions={isActiveServerOwner}
+                            initialTab="permissions"
                             onClose={() => setChannelSettingsTarget(null)}
                             onUpdated={async (updated: Channel) => {
                                 setChannels(channels.map(c => c.id === updated.id ? updated : c))

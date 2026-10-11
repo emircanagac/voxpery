@@ -8097,6 +8097,73 @@ async fn assert_no_ws_event_mentioning(
 }
 
 #[tokio::test]
+async fn removed_and_leaving_members_receive_their_own_member_left_event() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Removal Guild")
+            .await;
+    let (leaver_auth, leaver_id, _) = register_named_user(&mut app, "leaver").await;
+    let (kicked_auth, kicked_id, _) = register_named_user(&mut app, "kicked").await;
+    let (banned_auth, banned_id, _) = register_named_user(&mut app, "banned").await;
+    for auth in [&leaver_auth, &kicked_auth, &banned_auth] {
+        join_with_invite(&mut app, auth, &invite_code).await;
+    }
+    let addr = spawn_ws_app(&state).await;
+    let mut leaver_ws = connect_ws(addr, &leaver_auth).await;
+    let mut kicked_ws = connect_ws(addr, &kicked_auth).await;
+    let mut banned_ws = connect_ws(addr, &banned_auth).await;
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/leave"),
+        &leaver_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "leave failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/members/{kicked_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "kick failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/members/{banned_id}/ban"),
+        &owner_auth,
+        Some(json!({ "reason": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "ban failed: {body}");
+
+    // Removed accounts no longer pass the member check for broadcasts, so each one must be
+    // told directly that it left the server (other members' MemberLeft events may come first).
+    for (label, user_id, ws) in [
+        ("left", leaver_id, &mut leaver_ws),
+        ("kicked", kicked_id, &mut kicked_ws),
+        ("banned", banned_id, &mut banned_ws),
+    ] {
+        loop {
+            let event = receive_ws_event(ws, "MemberLeft").await;
+            if event["data"]["user_id"] == json!(user_id) {
+                assert_eq!(event["data"]["server_id"], json!(server_id), "{label}");
+                break;
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

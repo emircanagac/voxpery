@@ -947,6 +947,8 @@ export default function ChatArea({
     } | null>(null)
     const prevViewActiveRef = useRef(isViewActive)
     const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+    // Bumped when a reading position must be restored without a channel or message change.
+    const [readingRestoreRequest, setReadingRestoreRequest] = useState(0)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const attachmentInputRef = useRef<HTMLInputElement>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
@@ -1474,7 +1476,7 @@ export default function ChatArea({
 
     const rememberReadingPosition = useCallback((el: HTMLDivElement) => {
         const positionKey = readingPositionKey(activeChannel?.id)
-        if (!positionKey || pendingReadingRestoreRef.current) return
+        if (!positionKey || pendingReadingRestoreRef.current || el.clientHeight <= 0) return
         if (isAtBottom(el)) readingPositions.delete(positionKey)
         else if (userReadingHistoryRef.current && reactionHistoryAnchorRef.current) {
             readingPositions.set(positionKey, reactionHistoryAnchorRef.current)
@@ -1491,6 +1493,10 @@ export default function ChatArea({
             const pendingLatestForActiveChannel =
                 !!activeChannel?.id && pendingLatestAnchorChannelIdRef.current === activeChannel.id
             const isUserInitiatedScroll = hasRecentUserScrollIntent || scrollbarDraggingRef.current
+            // The user scrolling ends a pending restore, so leaving at the bottom forgets the old place.
+            if (isUserInitiatedScroll && pendingReadingRestoreRef.current) {
+                pendingReadingRestoreRef.current = null
+            }
             if (currentScrollTop <= TOP_AUTO_LOAD_THRESHOLD_PX
                 && isUserInitiatedScroll
                 && (!pendingLatestForActiveChannel || hasRecentUserScrollIntent)) {
@@ -1602,7 +1608,8 @@ export default function ChatArea({
     useLayoutEffect(() => {
         const pending = pendingReadingRestoreRef.current
         const el = messagesScrollRef.current
-        if (!pending || pending.channelId !== activeChannel?.id || !el) return
+        // A hidden view has no layout yet; restore once it is visible again.
+        if (!pending || pending.channelId !== activeChannel?.id || !el || el.clientHeight <= 0) return
         const index = messages.findIndex((message) => message.id === pending.messageId)
         if (index < 0) {
             if (loading || messages.length === 0) return
@@ -1634,7 +1641,7 @@ export default function ChatArea({
             window.cancelAnimationFrame(firstFrame)
             window.cancelAnimationFrame(secondFrame)
         }
-    }, [activeChannel?.id, loading, messages, readingPositionKey, rowVirtualizer, runProgrammaticScroll, scheduleLatestAnchor, syncJumpToLatestVisibility])
+    }, [activeChannel?.id, loading, messages, readingPositionKey, readingRestoreRequest, rowVirtualizer, runProgrammaticScroll, scheduleLatestAnchor, syncJumpToLatestVisibility])
 
     /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
        from Messages view). useLayoutEffect keeps the first painted frame already
@@ -1797,18 +1804,29 @@ export default function ChatArea({
         }
     }, [activeChannel?.id, isAtBottom, loading, messages.length, snapToBottom])
 
-    /* When user switches back from Servers to Messages/DM, scroll to bottom so latest messages are visible */
+    /* When the view becomes visible again (Social <-> Servers), return to the saved reading
+       position, or to the latest message when the conversation was left at the bottom. */
     useLayoutEffect(() => {
         const becameVisible = isViewActive === true && prevViewActiveRef.current === false
         prevViewActiveRef.current = isViewActive ?? true
         if (!becameVisible || messages.length === 0) return
-        userReadingHistoryRef.current = false
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
         userScrollIntentUntilRef.current = 0
+        const channelId = activeChannel?.id
+        const saved = channelId ? readingPositions.get(readingPositionKey(channelId) ?? '') : undefined
+        if (channelId && saved) {
+            cancelLatestAnchor()
+            pendingReadingRestoreRef.current = { channelId, ...saved }
+            userReadingHistoryRef.current = true
+            shouldAutoScrollRef.current = false
+            setReadingRestoreRequest((request) => request + 1)
+            return
+        }
+        userReadingHistoryRef.current = false
         shouldAutoScrollRef.current = true
-        if (activeChannel?.id) scheduleLatestAnchor(activeChannel.id)
-    }, [activeChannel?.id, isViewActive, messages.length, scheduleLatestAnchor])
+        if (channelId) scheduleLatestAnchor(channelId)
+    }, [activeChannel?.id, cancelLatestAnchor, isViewActive, messages.length, readingPositionKey, scheduleLatestAnchor])
 
     /* When replying to a message, scroll so the replied-to message stays visible above the reply bar */
     useEffect(() => {

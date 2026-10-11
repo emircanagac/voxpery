@@ -445,6 +445,9 @@ export async function installMockCoreApi(page: Page, state: MockCoreState = crea
 
         constructor() {
           super()
+          // Lets specs push server events through `onmessage`.
+          ;(window as unknown as { __mockSockets?: MockWebSocket[] }).__mockSockets ??= []
+          ;(window as unknown as { __mockSockets: MockWebSocket[] }).__mockSockets.push(this)
           window.setTimeout(() => {
             this.readyState = MockWebSocket.OPEN
             const event = new Event('open')

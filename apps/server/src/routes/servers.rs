@@ -1446,6 +1446,16 @@ async fn leave_server(
         },
     )
     .await;
+    // The leaving account's other clients (e.g. desktop while leaving on the web) drop it too.
+    crate::ws::publish_user_event(
+        &state,
+        claims.sub,
+        WsEvent::MemberLeft {
+            server_id,
+            user_id: claims.sub,
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Left server" })))
 }
@@ -2209,6 +2219,10 @@ async fn ban_member(
 
     if removed_member {
         crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+        // The removed account no longer passes the member check for broadcasts, so tell it directly
+        // and let every open client drop the server instead of showing a dead channel.
+        crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
+            .await;
         voice_revoke::revoke_user_voice_access_for_server(
             &state,
             server_id,
@@ -2929,6 +2943,10 @@ async fn kick_member(
     .await?;
 
     crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+    // The removed account no longer passes the member check for broadcasts, so tell it directly
+    // and let every open client drop the server instead of showing a dead channel.
+    crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
+        .await;
     voice_revoke::revoke_user_voice_access_for_server(&state, server_id, user_id, "member kicked")
         .await?;
 

@@ -402,6 +402,29 @@ test.describe('mocked server settings UI regressions', () => {
     }, iconUrl)
     expect(size).toEqual([512, 512])
   })
+  test('drops a server at once when this account is removed from it', { tag: '@core' }, async ({ page }) => {
+    const other = buildCoreServer({ id: 'server-remaining', name: 'Remaining Guild', invite_code: 'remaining-guild' })
+    const state = createServerSettingsState()
+    state.servers.push(other)
+    state.channelsByServerId[other.id] = buildCoreChannels(other.id)
+    state.membersByServerId[other.id] = buildCoreMembers()
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    const icon = (id: string) => page.locator(`.server-icon[data-server-id="${id}"]`)
+    await icon(server.id).click()
+    await expect(page.locator('.chat-messages')).toBeVisible()
+
+    // A kick, ban or leave on another device arrives as MemberLeft for this account.
+    await page.evaluate(({ serverId, userId }) => {
+      const sockets = (window as unknown as { __mockSockets?: Array<{ onmessage: ((event: MessageEvent) => void) | null }> }).__mockSockets ?? []
+      const data = JSON.stringify({ type: 'MemberLeft', data: { server_id: serverId, user_id: userId } })
+      sockets.forEach(socket => socket.onmessage?.(new MessageEvent('message', { data })))
+    }, { serverId: server.id, userId: state.user.id })
+
+    await expect(icon(server.id)).toHaveCount(0)
+    await expect(icon(other.id)).toHaveClass(/active/)
+    await expect(page.getByTitle('Server menu')).toHaveText(other.name)
+  })
 })
 
 async function readSettingsThemeSnapshot(modal: import('@playwright/test').Locator) {
