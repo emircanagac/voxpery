@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- One title bar: the app header is now the window's title bar on Windows, macOS and Linux, with Quick Search in the center and the minimize, maximize and close buttons on the right. Web uses the same header without window buttons.
+
 ### Fixed
 - Changing or removing your profile photo now updates the avatar next to your messages right away, in server channels and direct messages and for everyone who has the conversation open, including older messages loaded earlier.
 
