@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::errors::AppError;
@@ -25,8 +26,23 @@ redis.call('EXPIRE', key, ttl_secs)
 return 1
 "#;
 
+/// Longest key part kept verbatim in Redis. Longer values (only possible from unvalidated
+/// client input) are stored as a fixed-length hash so request bodies cannot grow Redis memory.
+const MAX_VERBATIM_KEY_LEN: usize = 128;
+
+/// Builds a Redis key from a fixed namespace and a caller-influenced value, hashing the value
+/// when it is too long to store verbatim.
+pub fn bounded_redis_key(namespace: &str, value: &str) -> String {
+    if value.len() <= MAX_VERBATIM_KEY_LEN {
+        return format!("{namespace}:{value}");
+    }
+    let digest = Sha256::digest(value.as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{namespace}:sha256:{hex}")
+}
+
 fn rate_limit_key(key: &str) -> String {
-    format!("rate:{}", key)
+    bounded_redis_key("rate", key)
 }
 
 fn rate_limit_member(now_ms: i64, request_id: Uuid) -> String {
@@ -90,6 +106,19 @@ mod tests {
     fn redis_test_client() -> Option<redis::Client> {
         let url = std::env::var("TEST_REDIS_URL").ok()?;
         Some(redis::Client::open(url).expect("TEST_REDIS_URL must be a valid Redis URL"))
+    }
+
+    #[test]
+    fn long_rate_limit_keys_are_stored_as_fixed_length_hashes() {
+        assert_eq!(rate_limit_key("auth:login:alice"), "rate:auth:login:alice");
+
+        let long = format!("auth:login:{}", "x".repeat(1024 * 1024));
+        let other = format!("auth:login:{}y", "x".repeat(1024 * 1024));
+        let key = rate_limit_key(&long);
+        assert!(key.starts_with("rate:sha256:"));
+        assert_eq!(key.len(), "rate:sha256:".len() + 64);
+        assert_eq!(key, rate_limit_key(&long));
+        assert_ne!(key, rate_limit_key(&other));
     }
 
     #[test]

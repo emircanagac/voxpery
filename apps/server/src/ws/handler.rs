@@ -24,7 +24,9 @@ use crate::services::audit::{self, VoiceModerationAuditEntry};
 use crate::services::permissions::{get_user_server_permissions, Permissions};
 use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
-use crate::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
+use crate::ws::access::{
+    can_join_voice_channel, can_subscribe_to_channel, subscribable_channel_candidates,
+};
 use crate::{AppState, PendingVoiceMove};
 
 async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uuid> {
@@ -90,6 +92,12 @@ fn cleanup_voice_channel_active_since_if_empty(state: &AppState, channel_id: Uui
 
 /// Max incoming WebSocket text message size (256 KB) to mitigate DoS via huge Signal payloads.
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
+/// Channel ids accepted from one Subscribe message and kept per connection. The web client
+/// subscribes to every channel it knows in one message, so these sit far above real use.
+const MAX_SUBSCRIBE_IDS_PER_MESSAGE: usize = 1_000;
+const MAX_SUBSCRIBED_CHANNELS_PER_CONNECTION: usize = 5_000;
+/// Open WebSocket connections per account (tabs, windows and devices together).
+const MAX_WS_CONNECTIONS_PER_USER: usize = 10;
 const WS_MESSAGE_RATE_LIMIT_MAX: usize = 120;
 const WS_MESSAGE_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 const WS_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(75);
@@ -690,6 +698,24 @@ pub async fn ws_handler(
         return (axum::http::StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response();
     }
 
+    let open_connections = state
+        .sessions
+        .get(&claims.sub)
+        .map(|sessions| {
+            sessions
+                .iter()
+                .filter(|session| !session.is_closed())
+                .count()
+        })
+        .unwrap_or(0);
+    if open_connections >= MAX_WS_CONNECTIONS_PER_USER {
+        return (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "Too many open connections for this account.",
+        )
+            .into_response();
+    }
+
     let ws = if protocol_token.is_some() {
         ws.protocols(["voxpery.auth"])
     } else {
@@ -1045,8 +1071,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     if let Ok(client_msg) = serde_json::from_str::<WsClientMessage>(&text) {
                         match client_msg {
                             WsClientMessage::Subscribe { channel_ids } => {
+                                // Skip duplicates and channels this connection already has,
+                                // cap the batch, then drop ids the user cannot possibly see
+                                // with one query before the per-channel permission check.
+                                let requested: Vec<Uuid> = {
+                                    let subs = recv_sub.read().await;
+                                    let mut seen = HashSet::new();
+                                    channel_ids
+                                        .into_iter()
+                                        .filter(|id| !subs.contains(id) && seen.insert(*id))
+                                        .take(MAX_SUBSCRIBE_IDS_PER_MESSAGE)
+                                        .collect()
+                                };
+                                let candidates = match subscribable_channel_candidates(
+                                    &recv_state.db,
+                                    user_id,
+                                    &requested,
+                                )
+                                .await
+                                {
+                                    Ok(candidates) => candidates,
+                                    Err(e) => {
+                                        tracing::warn!("Subscribe access check failed: {}", e);
+                                        Vec::new()
+                                    }
+                                };
                                 let mut allowed: Vec<Uuid> = Vec::new();
-                                for id in channel_ids {
+                                for id in candidates {
                                     match can_subscribe_to_channel(&recv_state.db, user_id, id)
                                         .await
                                     {
@@ -1066,6 +1117,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 let mut subs = recv_sub.write().await;
                                 let mut newly_added: Vec<Uuid> = Vec::new();
                                 for id in allowed {
+                                    if subs.len() >= MAX_SUBSCRIBED_CHANNELS_PER_CONNECTION {
+                                        tracing::warn!(
+                                            "Subscription limit reached for user {}",
+                                            user_id
+                                        );
+                                        break;
+                                    }
                                     if subs.insert(id) {
                                         newly_added.push(id);
                                     }

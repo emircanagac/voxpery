@@ -90,9 +90,23 @@ async function getStoredDesktopAutostartPreference(): Promise<boolean | null> {
   return localValue
 }
 
+let desktopInstallChannel: Promise<string> | null = null
+
+/**
+ * Launch on startup needs a host autostart entry. A Flatpak cannot write one from its sandbox
+ * (the entry would point inside it), so the setting is not offered there.
+ */
+export function isDesktopAutostartSupported(): Promise<boolean> {
+  if (!isTauri()) return Promise.resolve(false)
+  desktopInstallChannel ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string>('desktop_update_channel'))
+    .catch(() => 'app')
+  return desktopInstallChannel.then((channel) => channel !== 'flatpak')
+}
+
 /** Launch on startup defaults to on for every desktop platform until the user records a choice. */
 export async function shouldEnableDesktopAutostartByDefault() {
-  if (!isTauri()) return false
+  if (!isTauri() || !(await isDesktopAutostartSupported())) return false
   return (await getStoredDesktopAutostartPreference()) == null
 }
 

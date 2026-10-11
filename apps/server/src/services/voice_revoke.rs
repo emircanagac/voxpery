@@ -18,6 +18,9 @@ use crate::{
 struct LivekitAdminVideoGrant {
     room: String,
     room_admin: bool,
+    /// LiveKit requires `roomCreate` for DeleteRoom; only room-closing tokens carry it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    room_create: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +57,21 @@ struct LivekitParticipantPermission {
 struct ListParticipantsRequest<'a> {
     room: &'a str,
 }
+
+#[derive(Debug, Serialize)]
+struct DeleteRoomRequest<'a> {
+    room: &'a str,
+}
+
+/// Waits between retries of a LiveKit removal that failed. Voxpery has already dropped the
+/// voice session locally; the retries make sure the media connection is cut as well.
+const LIVEKIT_RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_secs(1),
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
 
 #[derive(Debug, Deserialize)]
 struct ListParticipantsResponse {
@@ -182,6 +200,7 @@ fn sign_livekit_admin_token(
     api_key: &str,
     api_secret: &str,
     room: &str,
+    room_create: bool,
 ) -> Result<String, AppError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -197,6 +216,7 @@ fn sign_livekit_admin_token(
             video: LivekitAdminVideoGrant {
                 room: room.to_string(),
                 room_admin: true,
+                room_create,
             },
         },
         &EncodingKey::from_secret(api_secret.as_bytes()),
@@ -205,25 +225,72 @@ fn sign_livekit_admin_token(
     Ok(token)
 }
 
+/// Runs `attempt` again in the background after a failed LiveKit call, until it succeeds or
+/// the retry delays run out. Voice not being configured is not a failure.
+fn retry_livekit_in_background<F, Fut>(description: String, attempt: F)
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), AppError>> + Send + 'static,
+{
+    tokio::spawn(async move {
+        for delay in LIVEKIT_RETRY_DELAYS {
+            tokio::time::sleep(delay).await;
+            match attempt().await {
+                Ok(()) | Err(AppError::FeatureDisabled(_)) => return,
+                Err(error) => tracing::warn!("Retrying {} failed: {}", description, error),
+            }
+        }
+        tracing::error!(
+            "Giving up on {} after {} retries",
+            description,
+            LIVEKIT_RETRY_DELAYS.len()
+        );
+    });
+}
+
 async fn remove_livekit_participant(
     state: &Arc<AppState>,
     channel_id: Uuid,
     user_id: Uuid,
     reason: &str,
 ) {
-    if let Err(e) = remove_livekit_participant_checked(state, channel_id, user_id, reason).await {
-        tracing::warn!(
-            "LiveKit participant revoke failed for user {} room {}: {}",
-            user_id,
-            channel_id,
-            e
-        );
+    match remove_livekit_participant_checked(state, channel_id, user_id, reason).await {
+        Ok(()) | Err(AppError::FeatureDisabled(_)) => {}
+        Err(e) => {
+            tracing::warn!(
+                "LiveKit participant revoke failed for user {} room {}: {}",
+                user_id,
+                channel_id,
+                e
+            );
+            let state = state.clone();
+            let reason = reason.to_string();
+            retry_livekit_in_background(
+                format!("LiveKit participant revoke for user {user_id} room {channel_id}"),
+                move || {
+                    let state = state.clone();
+                    let reason = reason.clone();
+                    async move {
+                        remove_livekit_participant_checked(&state, channel_id, user_id, &reason)
+                            .await
+                    }
+                },
+            );
+        }
     }
 }
 
 fn livekit_admin_request_parts(
     state: &AppState,
     channel_id: Uuid,
+) -> Result<(String, String, String), AppError> {
+    livekit_admin_request_parts_with(state, channel_id, false)
+}
+
+fn livekit_admin_request_parts_with(
+    state: &AppState,
+    channel_id: Uuid,
+    room_create: bool,
 ) -> Result<(String, String, String), AppError> {
     let api_url = state
         .livekit_api_url
@@ -242,8 +309,67 @@ fn livekit_admin_request_parts(
         .ok_or_else(|| AppError::Internal("LIVEKIT_API_URL or LIVEKIT_WS_URL is invalid".into()))?;
 
     let room = channel_id.to_string();
-    let token = sign_livekit_admin_token(api_key, api_secret, &room)?;
+    let token = sign_livekit_admin_token(api_key, api_secret, &room, room_create)?;
     Ok((base_url, room, token))
+}
+
+/// Closes the LiveKit room for a voice channel, disconnecting everyone in it.
+async fn delete_livekit_room_checked(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+) -> Result<(), AppError> {
+    let (base_url, room, token) = livekit_admin_request_parts_with(state, channel_id, true)?;
+    let url = format!("{base_url}/twirp/livekit.RoomService/DeleteRoom");
+    let response = state
+        .release_http_client
+        .post(url)
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(3))
+        .json(&DeleteRoomRequest { room: &room })
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("LiveKit room deletion failed: {e}")))?;
+    if response.status().is_success() || response.status() == StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    Err(AppError::Internal(format!(
+        "LiveKit room deletion returned {}",
+        response.status()
+    )))
+}
+
+/// Ends voice in channels that are being removed (channel or server deletion): clears the
+/// local sessions and closes the LiveKit rooms, retrying in the background on failure.
+pub async fn close_voice_rooms(state: &Arc<AppState>, channel_ids: &[Uuid], reason: &str) {
+    for &channel_id in channel_ids {
+        let user_ids: Vec<Uuid> = state
+            .voice_sessions
+            .iter()
+            .filter(|entry| *entry.value() == channel_id)
+            .map(|entry| *entry.key())
+            .collect();
+        for user_id in user_ids {
+            clear_local_voice_session(state, user_id, channel_id, reason).await;
+        }
+        match delete_livekit_room_checked(state, channel_id).await {
+            Ok(()) | Err(AppError::FeatureDisabled(_)) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "LiveKit room close failed for room {}: {}",
+                    channel_id,
+                    error
+                );
+                let state = state.clone();
+                retry_livekit_in_background(
+                    format!("LiveKit room close for room {channel_id}"),
+                    move || {
+                        let state = state.clone();
+                        async move { delete_livekit_room_checked(&state, channel_id).await }
+                    },
+                );
+            }
+        }
+    }
 }
 
 pub(crate) async fn update_livekit_voice_permissions(

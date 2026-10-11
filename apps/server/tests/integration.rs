@@ -8164,6 +8164,302 @@ async fn removed_and_leaving_members_receive_their_own_member_left_event() {
 }
 
 #[tokio::test]
+async fn anonymous_auth_requests_cannot_store_oversized_values_in_redis() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app_with_auth_features(false, true).await;
+    let mut redis = redis_client()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let long_value = format!("{}@example.com", "x".repeat(48 * 1024));
+    let post = |uri: &str, body: serde_json::Value| {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    };
+
+    let (status, _) = oneshot(
+        &mut app,
+        post(
+            "/api/auth/login",
+            json!({ "identifier": &long_value, "password": "irrelevant-password" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = oneshot(
+        &mut app,
+        post("/api/auth/forgot-password", json!({ "email": &long_value })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = oneshot(
+        &mut app,
+        post(
+            "/api/auth/reset-password",
+            json!({ "token": &long_value, "new_password": "irrelevant-password" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    for key in [
+        format!("rate:auth:login:{long_value}"),
+        format!("auth:login_fail:user:{long_value}"),
+        format!("rate:auth:forgot_password:{long_value}"),
+        format!("rate:auth:reset_password_attempt:{long_value}"),
+    ] {
+        let exists: bool = redis::cmd("EXISTS")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        assert!(
+            !exists,
+            "oversized value was stored in Redis: {}",
+            &key[..40]
+        );
+    }
+
+    // Public auth endpoints only accept small request bodies.
+    let (status, _) = oneshot(
+        &mut app,
+        post(
+            "/api/auth/login",
+            json!({ "identifier": "x".repeat(128 * 1024), "password": "irrelevant-password" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn leaving_deleting_and_failed_livekit_calls_still_end_voice() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    // LiveKit stand-in: records removals and closed rooms; the first removal fails once.
+    let removed = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let deleted_rooms = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let fail_next_removal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let record_removed = removed.clone();
+    let record_deleted = deleted_rooms.clone();
+    let fail_removal = fail_next_removal.clone();
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_removed = record_removed.clone();
+                let fail_removal = fail_removal.clone();
+                async move {
+                    if fail_removal.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({})));
+                    }
+                    record_removed
+                        .lock()
+                        .await
+                        .push(body["identity"].as_str().unwrap_or_default().to_string());
+                    (StatusCode::OK, axum::Json(json!({})))
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/DeleteRoom",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_deleted = record_deleted.clone();
+                async move {
+                    record_deleted
+                        .lock()
+                        .await
+                        .push(body["room"].as_str().unwrap_or_default().to_string());
+                    axum::Json(json!({}))
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/ListParticipants",
+            axum::routing::post(|| async { axum::Json(json!({ "participants": [] })) }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice End Guild")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let removed_identity = |user_id: Uuid| {
+        let removed = removed.clone();
+        async move {
+            for _ in 0..40 {
+                if removed.lock().await.contains(&user_id.to_string()) {
+                    return true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            false
+        }
+    };
+
+    // Leaving the server cuts the LiveKit connection, even when the first attempt fails.
+    let (leaver_auth, leaver_id, _) = register_named_user(&mut app, "leaver").await;
+    join_with_invite(&mut app, &leaver_auth, &invite_code).await;
+    state.voice_sessions.insert(leaver_id, voice_channel_id);
+    fail_next_removal.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/leave"),
+        &leaver_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "leave failed: {body}");
+    assert!(state.voice_sessions.get(&leaver_id).is_none());
+    assert!(
+        removed_identity(leaver_id).await,
+        "leave did not remove the LiveKit participant"
+    );
+
+    // Deleting the account cuts it too.
+    let (deleted_auth, deleted_id, deleted_password) =
+        register_named_user(&mut app, "deleted").await;
+    join_with_invite(&mut app, &deleted_auth, &invite_code).await;
+    state.voice_sessions.insert(deleted_id, voice_channel_id);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &deleted_auth,
+        Some(json!({ "confirm": "DELETE", "password": deleted_password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "account deletion failed: {body}");
+    assert!(state.voice_sessions.get(&deleted_id).is_none());
+    assert!(
+        removed_identity(deleted_id).await,
+        "account deletion did not remove the LiveKit participant"
+    );
+
+    // Deleting the server closes its voice rooms.
+    let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    state.voice_sessions.insert(member_id, voice_channel_id);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "server deletion failed: {body}");
+    assert!(state.voice_sessions.get(&member_id).is_none());
+    assert!(deleted_rooms
+        .lock()
+        .await
+        .contains(&voice_channel_id.to_string()));
+}
+
+#[tokio::test]
+async fn websocket_subscribe_and_connections_are_bounded_per_user() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Bounded Guild")
+            .await;
+    let _ = server_id;
+    let addr = spawn_ws_app(&state).await;
+    let mut redis = redis_client()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let connect_limit_key = format!("rate:ws:{owner_id}");
+
+    // Thousands of unknown ids next to a real channel: the real one is still subscribed.
+    let mut owner_ws = connect_ws(addr, &owner_auth).await;
+    let mut channel_ids: Vec<Uuid> = (0..5_000).map(|_| Uuid::new_v4()).collect();
+    channel_ids.insert(0, text_channel_id);
+    let started = std::time::Instant::now();
+    ws_subscribe(&mut owner_ws, &channel_ids).await;
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "Subscribe with unknown ids took {:?}",
+        started.elapsed()
+    );
+    let marker = format!("bounded subscribe {}", Uuid::new_v4());
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{text_channel_id}"),
+        &owner_auth,
+        Some(json!({ "content": marker })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "message failed: {body}");
+    let delivered = receive_ws_event(&mut owner_ws, "NewMessage").await;
+    assert!(delivered.to_string().contains(&marker));
+
+    // At most 10 open connections per account.
+    let mut open = vec![owner_ws];
+    while open.len() < 10 {
+        let _: () = redis::cmd("DEL")
+            .arg(&connect_limit_key)
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        let mut ws = connect_ws(addr, &owner_auth).await;
+        ws_barrier(&mut ws).await;
+        open.push(ws);
+    }
+    let _: () = redis::cmd("DEL")
+        .arg(&connect_limit_key)
+        .query_async(&mut redis)
+        .await
+        .unwrap();
+    let token = owner_auth.trim_start_matches("Bearer ");
+    let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{token}")).unwrap(),
+    );
+    request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    match connect_async(request).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+        other => panic!(
+            "11th connection must be refused, got {:?}",
+            other.map(|_| ())
+        ),
+    }
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

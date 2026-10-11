@@ -32,6 +32,8 @@ services:
     image: redis:7.4.11-alpine
     container_name: voxpery-redis
     restart: unless-stopped
+    # Bounded memory; noeviction keeps sessions and the token blacklist instead of evicting them.
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "noeviction"]
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     logging: *default-logging

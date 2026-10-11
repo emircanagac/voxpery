@@ -1456,6 +1456,21 @@ async fn leave_server(
         },
     )
     .await;
+    // Membership is gone, so voice in this server ends as well.
+    if let Err(error) = voice_revoke::revoke_user_voice_access_for_server(
+        &state,
+        server_id,
+        claims.sub,
+        "member left server",
+    )
+    .await
+    {
+        tracing::warn!(
+            "Voice revoke after leaving server {} failed: {}",
+            server_id,
+            error
+        );
+    }
 
     Ok(Json(serde_json::json!({ "message": "Left server" })))
 }
@@ -1490,11 +1505,31 @@ async fn delete_server(
     )
     .await?;
 
+    // Collected first: the cascade below removes the channels and memberships.
+    let voice_channel_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice'",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+    let member_ids =
+        sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM server_members WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_all(&state.db)
+            .await?;
+
     // Single DELETE — ON DELETE CASCADE handles channels, members, and messages
     sqlx::query("DELETE FROM servers WHERE id = $1")
         .bind(server_id)
         .execute(&state.db)
         .await?;
+
+    voice_revoke::close_voice_rooms(&state, &voice_channel_ids, "server deleted").await;
+    // Every former member drops the server, as after leaving it.
+    for user_id in member_ids {
+        crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
+            .await;
+    }
 
     Ok(Json(serde_json::json!({ "message": "Server deleted" })))
 }

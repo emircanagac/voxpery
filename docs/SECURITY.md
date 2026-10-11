@@ -141,8 +141,12 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **Server join raid signals**: join bursts and new-account join bursts are recorded for moderator review.
 - **Server message raid protection**: message bursts and invite spikes are tracked per server/user; bursts can be rejected with `429` and write raid audit events.
 - **Messages** (`/api/messages/:id`): 30 messages per 10 seconds per user
-- **WebSocket connect**: 3 attempts per 10 seconds per user
+- **WebSocket connect**: 3 attempts per 10 seconds per user, and at most 10 open connections per user
 - **WebSocket frames**: 120 frames per 10 seconds per user
+- **WebSocket subscriptions**: at most 1,000 new channel ids per `Subscribe` and 5,000 per connection
+- **Password reset** (`/api/auth/forgot-password`, `/api/auth/reset-password`): per-IP limits plus per-email or per-token limits
+
+Values that come from the client (identifiers, emails, tokens) are validated before they become part of a Redis key, and any key part longer than 128 bytes is stored as a SHA-256 hash, so request bodies cannot grow Redis memory. Unauthenticated auth endpoints accept request bodies of at most 64 KiB.
 
 Client-IP rate limits use the direct socket peer by default. `X-Forwarded-For`,
 `X-Real-IP`, and `CF-Connecting-IP` are accepted only when the direct peer belongs

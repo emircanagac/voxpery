@@ -43,6 +43,7 @@ import {
 } from '../updater'
 import {
   bootstrapDesktopAutostartDefault,
+  isDesktopAutostartSupported,
   getDesktopStartupTargetLabel,
   getDesktopAutostartEnabled,
   getStoredMinimizeToTrayOnCloseEnabled,
@@ -283,6 +284,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [updateInstalling, setUpdateInstalling] = useState(false)
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const [desktopAutostartEnabled, setDesktopAutostartState] = useState(false)
+  const [desktopAutostartSupported, setDesktopAutostartSupported] = useState(true)
   const [desktopAutostartLoading, setDesktopAutostartLoading] = useState(false)
   const [minimizeToTrayOnCloseEnabled, setMinimizeToTrayOnCloseEnabled] = useState(true)
   const [minimizeToTrayLoading, setMinimizeToTrayLoading] = useState(false)
@@ -993,10 +995,12 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       setMinimizeToTrayLoading(true)
       try {
         const trayEnabled = getStoredMinimizeToTrayOnCloseEnabled()
-        const defaultEnabled = await bootstrapDesktopAutostartDefault()
-        const autostartEnabled = defaultEnabled ?? await getDesktopAutostartEnabled()
+        const autostartSupported = await isDesktopAutostartSupported()
+        const defaultEnabled = autostartSupported ? await bootstrapDesktopAutostartDefault() : null
+        const autostartEnabled = autostartSupported && (defaultEnabled ?? await getDesktopAutostartEnabled())
         await setDesktopMinimizeToTrayOnClose(trayEnabled)
         if (cancelled) return
+        setDesktopAutostartSupported(autostartSupported)
         setDesktopAutostartState(autostartEnabled)
         setMinimizeToTrayOnCloseEnabled(trayEnabled)
       } finally {
@@ -2227,6 +2231,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                         )}
                       </div>
                     </div>
+                    {desktopAutostartSupported && (
                     <div className="user-setting-row">
                       <div>
                         <div className="user-setting-title">Launch on startup</div>
@@ -2241,6 +2246,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                         {desktopAutostartLoading ? 'Saving…' : desktopAutostartEnabled ? 'Enabled' : 'Disabled'}
                       </button>
                     </div>
+                    )}
                     <div className="user-setting-row">
                       <div>
                         <div className="user-setting-title">Keep running in tray on close</div>

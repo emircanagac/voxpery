@@ -44,6 +44,8 @@ Authorization:
 - Server channels: requires effective `VIEW_SERVER` on that channel.
 - DM channels: user must be a member of that DM channel.
 
+Limits: duplicate and already-subscribed ids are ignored, at most 1,000 new ids are handled per message and 5,000 channels per connection. Ids outside the user's servers and DMs are dropped before the per-channel permission check. An account can keep at most 10 WebSocket connections open; further upgrades get `429`.
+
 ### `Unsubscribe`
 
 ```json
@@ -182,6 +184,7 @@ Legacy custom signaling event.
 - `MemberJoined`
 - `MemberLeft`
   - The removed member also receives it directly (kick, ban or leaving the server, including from another device), because removed accounts no longer pass the membership check for server broadcasts. Clients drop that server from their list when `user_id` is their own.
+  - When a server is deleted, every former member receives `MemberLeft` with their own `user_id`, so the server disappears from their list.
 - `MemberRoleUpdated`
 - `ServerRolesUpdated`
 - `ServerChannelsUpdated`

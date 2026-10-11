@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.2] - 2026-10-11
 
+### Security
+- Security updates.
+
 ### Added
 - Server owners can open a channel's permissions from its right-click menu (Channel Permissions).
 
@@ -18,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Desktop: after Google sign-in in the browser, Voxpery comes to the front on Linux. If the browser cannot open the app, the page shows a one-time sign-in code you can paste under "Use a sign-in code".
 - When you are kicked from, banned from or leave a server (also on another device), it disappears from your server list right away instead of leaving its channels and message box on screen.
+- When a server is deleted, it disappears from every member's server list right away.
 - Your place in a server channel is kept when you switch to direct messages and back.
 - If you scroll back down to the latest message before leaving a conversation, it now opens at the latest message instead of your earlier reading position.
 

@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
@@ -760,7 +760,7 @@ fn normalize_oauth_username_seed(input: &str) -> String {
 }
 
 fn login_failure_user_key(identifier: &str) -> String {
-    format!("auth:login_fail:user:{identifier}")
+    crate::services::rate_limit::bounded_redis_key("auth:login_fail:user", identifier)
 }
 
 fn login_failure_ip_key(ip: &str) -> String {
@@ -1003,6 +1003,11 @@ fn summarize_export_attachments(attachments: &Option<serde_json::Value>) -> Vec<
         .collect()
 }
 
+/// Emails are stored and validated with at most this many characters.
+const MAX_EMAIL_LEN: usize = 255;
+/// Public (unauthenticated) auth requests are small forms; the global limit is for uploads.
+const PUBLIC_AUTH_BODY_LIMIT: usize = 64 * 1024;
+
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let legal_exempt = Router::new()
         .route("/me", get(get_me))
@@ -1054,6 +1059,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/captcha-frame", get(captcha_frame::show))
         .route("/email/confirm", post(confirm_email_verification))
+        .layer(DefaultBodyLimit::max(PUBLIC_AUTH_BODY_LIMIT))
         .merge(legal_exempt)
         .merge(protected)
 }
@@ -1161,6 +1167,12 @@ async fn register(
         kvkk_notice_acknowledged,
         kvkk_notice_version.trim(),
     )?;
+
+    if email.len() > MAX_EMAIL_LEN || !is_valid_email(&email) {
+        return Err(AppError::Validation(
+            "Email must be a valid format (e.g. user@domain)".into(),
+        ));
+    }
 
     // 1) Email-based rate limit
     enforce_rate_limit(
@@ -1573,15 +1585,6 @@ async fn login(
         connect_info.as_ref().map(|Extension(info)| info),
     );
 
-    enforce_rate_limit(
-        &state.redis,
-        format!("auth:login:{identifier}"),
-        state.auth_rate_limit_max,
-        Duration::from_secs(state.auth_rate_limit_window_secs),
-        "Too many login attempts. Please wait and try again.",
-    )
-    .await?;
-
     if let Some(ip) = client_ip.as_deref() {
         enforce_rate_limit(
             &state.redis,
@@ -1592,6 +1595,21 @@ async fn login(
         )
         .await?;
     }
+
+    // No account has an identifier this long (emails are capped at 255 characters), so reject it
+    // before it reaches Redis or the database.
+    if identifier.is_empty() || identifier.len() > MAX_EMAIL_LEN {
+        return Err(AppError::InvalidCredentials);
+    }
+
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:login:{identifier}"),
+        state.auth_rate_limit_max,
+        Duration::from_secs(state.auth_rate_limit_window_secs),
+        "Too many login attempts. Please wait and try again.",
+    )
+    .await?;
 
     ensure_login_not_temporarily_locked(&state, &identifier, client_ip.as_deref()).await?;
 
@@ -3470,6 +3488,13 @@ async fn delete_my_account(
         }
     }
 
+    // Collected first: the transaction below removes the memberships.
+    let member_server_ids =
+        sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM server_members WHERE user_id = $1")
+            .bind(claims.sub)
+            .fetch_all(&state.db)
+            .await?;
+
     let mut tx = state.db.begin().await?;
     let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
 
@@ -3576,19 +3601,34 @@ async fn delete_my_account(
     }
 
     state.sessions.remove(&claims.sub);
-    state.voice_participant_sids.remove(&claims.sub);
-    if let Some((_, previous_channel_id)) = state.voice_sessions.remove(&claims.sub) {
-        let channel_still_has_participants = state
-            .voice_sessions
-            .iter()
-            .any(|entry| *entry.value() == previous_channel_id);
-        if !channel_still_has_participants {
-            state
-                .voice_channel_active_since_ms
-                .remove(&previous_channel_id);
-        }
+    if let Some(channel_id) = state.voice_sessions.get(&claims.sub).map(|entry| *entry) {
+        crate::services::voice_revoke::clear_local_voice_session(
+            &state,
+            claims.sub,
+            channel_id,
+            "account deleted",
+        )
+        .await;
     }
+    state.voice_participant_sids.remove(&claims.sub);
     state.voice_controls.remove(&claims.sub);
+    // End the LiveKit connection in every server the account was in, outside the request.
+    let voice_state = state.clone();
+    let deleted_user_id = claims.sub;
+    tokio::spawn(async move {
+        for server_id in member_server_ids {
+            if let Err(error) = crate::services::voice_revoke::revoke_user_voice_access_for_server(
+                &voice_state,
+                server_id,
+                deleted_user_id,
+                "account deleted",
+            )
+            .await
+            {
+                tracing::warn!("Voice revoke after account deletion failed: {}", error);
+            }
+        }
+    });
     crate::ws::publish_event(
         &state,
         WsEvent::PresenceUpdate {
@@ -3632,16 +3672,7 @@ async fn forgot_password(
         )
     };
 
-    enforce_rate_limit(
-        &state.redis,
-        format!("auth:forgot_password:{}", email),
-        3,
-        Duration::from_secs(3600), // max 3 attempts per hour
-        "Too many password reset requests. Please check your email or try again later.",
-    )
-    .await?;
-
-    // 2) IP-based rate limit to reduce brute-force / flood attempts.
+    // 1) IP-based rate limit to reduce brute-force / flood attempts.
     if let Some(ip) = client_ip.as_deref() {
         enforce_rate_limit(
             &state.redis,
@@ -3652,6 +3683,21 @@ async fn forgot_password(
         )
         .await?;
     }
+
+    // No account can have a malformed email; answer as usual without touching Redis.
+    if email.len() > MAX_EMAIL_LEN || !is_valid_email(&email) {
+        return Ok(generic_ok());
+    }
+
+    // 2) Per-email rate limit.
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:forgot_password:{}", email),
+        3,
+        Duration::from_secs(3600), // max 3 attempts per hour
+        "Too many password reset requests. Please check your email or try again later.",
+    )
+    .await?;
 
     #[derive(sqlx::FromRow)]
     struct ResetCandidate {
@@ -3719,12 +3765,35 @@ async fn forgot_password(
 /// POST /api/auth/reset-password
 async fn reset_password(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<ResetPasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     if !state.password_reset_enabled {
         return Err(feature_disabled(
             "Password reset is disabled because email delivery is not configured",
         ));
+    }
+
+    let client_ip = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    );
+    if let Some(ip) = client_ip.as_deref() {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:reset_password_ip:{ip}"),
+            10,
+            Duration::from_secs(60),
+            "Too many password reset attempts. Please wait and try again.",
+        )
+        .await?;
+    }
+
+    // Reset tokens are UUIDs; anything else cannot match and never reaches Redis.
+    if body.token.len() != 36 || Uuid::parse_str(&body.token).is_err() {
+        return Err(AppError::Validation("Invalid password reset token".into()));
     }
 
     enforce_rate_limit(

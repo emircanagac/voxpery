@@ -349,6 +349,9 @@ Current key limits (Redis-backed):
 - Register: per-email + per-IP protection
 - Login: per-identifier + per-IP protection
 - Login brute-force lock: temporary lockout per identifier and per IP after repeated failed attempts
+- Forgot password: 10/min per IP and 3/hour per email; malformed emails get the generic response without being stored
+- Reset password: 10/min per IP and 5/hour per token; tokens that are not UUIDs are rejected with `400`
+- Public auth endpoints (`/api/auth/*` without a session) accept request bodies up to 64 KiB (`413` above)
 - Profile update: 12/min per user
 - Change password: 5/hour per user
 - Friend request: 5/min per user

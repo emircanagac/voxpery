@@ -242,6 +242,10 @@ async fn delete_channel(
 
     tx.commit().await?;
 
+    if channel.channel_type == "voice" {
+        voice_revoke::close_voice_rooms(&state, &[channel_id], "channel deleted").await;
+    }
+
     crate::ws::publish_event(
         &state,
         WsEvent::ServerChannelsUpdated {

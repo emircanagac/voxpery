@@ -178,6 +178,7 @@ Important:
 The backend is ready for multiple instances for REST traffic and cross-instance WebSocket event delivery when all instances share the same Postgres, Redis, `JWT_SECRET`, and public configuration.
 
 - Redis is required for JWT blacklist checks, distributed rate limits, and the WebSocket event bus.
+- The bundled Redis runs with `--maxmemory ${REDIS_MAXMEMORY:-512mb}` and `--maxmemory-policy noeviction`: when full it rejects new writes instead of evicting keys, so revoked tokens and sessions are never dropped silently. An external Redis should use a memory cap and `noeviction` as well.
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
 - REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.

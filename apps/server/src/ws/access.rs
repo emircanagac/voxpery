@@ -37,6 +37,34 @@ pub async fn can_subscribe_to_channel(
     Ok(dm_access > 0)
 }
 
+/// Narrows requested ids to channels the user could possibly subscribe to (a server channel
+/// in a server they belong to, or a DM they are part of) with one query, so unknown or foreign
+/// ids never reach the per-channel permission check.
+pub async fn subscribable_channel_candidates(
+    db: &PgPool,
+    user_id: Uuid,
+    channel_ids: &[Uuid],
+) -> Result<Vec<Uuid>, AppError> {
+    if channel_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let candidates = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT c.id
+           FROM channels c
+           JOIN server_members m ON m.server_id = c.server_id AND m.user_id = $2
+           WHERE c.id = ANY($1)
+           UNION
+           SELECT d.channel_id
+           FROM dm_channel_members d
+           WHERE d.channel_id = ANY($1) AND d.user_id = $2"#,
+    )
+    .bind(channel_ids)
+    .bind(user_id)
+    .fetch_all(db)
+    .await?;
+    Ok(candidates)
+}
+
 /// Returns true if the user can join this voice channel:
 /// - Channel exists, is type 'voice', and user is a member of the channel's server.
 pub async fn can_join_voice_channel(
