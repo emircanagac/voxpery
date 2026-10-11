@@ -28,10 +28,18 @@ export function validateLinuxDesktopEntry(text, { legacy = false } = {}) {
     Exec: legacy ? '{{exec}} %U' : 'voxpery-desktop %U',
     Icon: legacy ? '{{icon}}' : 'voxpery-desktop',
     StartupWMClass: legacy ? '{{exec}}' : 'voxpery-desktop',
-    Terminal: 'false', MimeType: 'x-scheme-handler/voxpery;',
+    Terminal: 'false',
   }
   for (const [key, value] of Object.entries(expected)) {
     if (entry.get(key) !== value) throw new Error(`Linux launcher ${key} must equal ${value}.`)
+  }
+  // Only the canonical launcher handles voxpery:// links; a second handler makes desktops ask
+  // which "Voxpery" should open the sign-in return.
+  const mimeType = entry.get('MimeType')
+  if (legacy ? mimeType !== undefined : mimeType !== 'x-scheme-handler/voxpery;') {
+    throw new Error(legacy
+      ? 'The hidden bundler launcher must not register the voxpery scheme.'
+      : 'Linux launcher MimeType must equal x-scheme-handler/voxpery;.')
   }
   if (legacy ? entry.get('NoDisplay') !== 'true' : ['NoDisplay', 'Hidden'].some(key => entry.get(key) === 'true')) {
     throw new Error('Only the compatibility launcher may be hidden.')
@@ -48,7 +56,7 @@ export function validateLinuxLaunchers(repoRoot) {
     const bundle = config.bundle?.linux?.[format]
     if (bundle?.desktopTemplate !== 'linux/legacy.desktop.hbs'
       || bundle.files?.['/usr/share/applications/com.voxpery.desktop'] !== 'linux/com.voxpery.desktop') {
-      throw new Error(`${format} must install the canonical launcher and preserve the hidden compatibility launcher.`)
+      throw new Error(`${format} must install the canonical launcher and keep the bundler launcher hidden.`)
     }
   }
   validateLinuxDesktopEntry(readFileSync(resolve(root, 'linux/com.voxpery.desktop'), 'utf8'))

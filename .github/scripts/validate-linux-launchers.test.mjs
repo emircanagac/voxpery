@@ -6,7 +6,7 @@ import { validateLinuxDesktopEntry, validateLinuxLaunchers } from './validate-li
 
 const canonical = readFileSync(new URL('../../apps/desktop/src-tauri/linux/com.voxpery.desktop', import.meta.url), 'utf8')
 
-test('both packages match the GTK app ID and preserve an URL-aware compatibility launcher', () => {
+test('both packages match the GTK app ID with one voxpery:// handler', () => {
   validateLinuxLaunchers(fileURLToPath(new URL('../../', import.meta.url)))
 })
 
@@ -16,4 +16,10 @@ test('rejects launchers that lose the OAuth URL, icon, identity or visibility', 
     canonical.replace('x-scheme-handler/voxpery;', ''), `${canonical}\nNoDisplay=true`,
     `${canonical}\nExec=voxpery-desktop %U`,
   ]) assert.throws(() => validateLinuxDesktopEntry(text))
+})
+
+test('rejects a hidden bundler launcher that also registers the voxpery scheme', () => {
+  const legacy = readFileSync(new URL('../../apps/desktop/src-tauri/linux/legacy.desktop.hbs', import.meta.url), 'utf8')
+  validateLinuxDesktopEntry(legacy, { legacy: true })
+  assert.throws(() => validateLinuxDesktopEntry(`${legacy}\nMimeType=x-scheme-handler/voxpery;`, { legacy: true }))
 })
