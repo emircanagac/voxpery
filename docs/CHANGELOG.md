@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Changing or removing your profile photo now updates the avatar next to your messages right away, in server channels and direct messages and for everyone who has the conversation open, including older messages loaded earlier.
+
 ## [0.4.2] - 2026-10-11
 
 ### Security

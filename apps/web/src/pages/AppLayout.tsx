@@ -37,6 +37,7 @@ import {
     type DraftAttachmentItem,
 } from '../draftAttachments'
 import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import { withAuthorsFrom, withUpdatedAuthor } from '../messageAuthors'
 import {
     clearMessageDraftIfUnchanged,
     readMessageDraft,
@@ -837,7 +838,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setMessages(cached ?? [])
         messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
-            const merged = mergeLatestPageWithHistory(ui, cached ?? [])
+            const merged = mergeLatestPageWithHistory(ui, withAuthorsFrom(cached ?? [], ui))
             if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
                 return
             }
@@ -867,7 +868,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
             if (requestId !== channelMessagesRequestRef.current) return
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
-            const merged = mergeLatestPageWithHistory(ui, cached)
+            const merged = mergeLatestPageWithHistory(ui, withAuthorsFrom(cached, ui))
             messagesByChannelRef.current[channelId] = merged
             if (activeChannelIdRef.current === channelId) {
                 setMessages(merged)
@@ -1285,6 +1286,15 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     const user_id = updated?.id
                     if (!user_id) break
                     const store = useAppStore.getState()
+
+                    // Messages carry a copy of their author; refresh it in the open channel,
+                    // every cached channel and the pinned list.
+                    const profile = { id: user_id, username: updated.username, avatar_url: updated.avatar_url ?? null }
+                    setMessages((prev) => withUpdatedAuthor(prev, profile))
+                    Object.entries(messagesByChannelRef.current).forEach(([cachedChannelId, cached]) => {
+                        messagesByChannelRef.current[cachedChannelId] = withUpdatedAuthor(cached, profile)
+                    })
+                    setChannelPins((prev) => withUpdatedAuthor(prev, profile))
 
                     const members = store.members ?? []
                     if (members.some((m) => m.user_id === user_id)) {

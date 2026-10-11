@@ -68,6 +68,19 @@ export function loadDmMessagesOnce(
   return request
 }
 
+/** Rewrites every cached conversation of `userId`, e.g. when a participant's profile changes. */
+export function updateCachedDmMessages(
+  userId: string,
+  update: (messages: CachedDmMessage[]) => CachedDmMessage[],
+): void {
+  const prefix = cacheKey(userId, '')
+  for (const [key, messages] of messageCache) {
+    if (!key.startsWith(prefix)) continue
+    const next = update(messages)
+    if (next !== messages) messageCache.set(key, next)
+  }
+}
+
 export function clearDmMessageCacheForTests(): void {
   messageCache.clear()
   inFlightLoads.clear()

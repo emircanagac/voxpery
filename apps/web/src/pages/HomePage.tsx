@@ -34,6 +34,7 @@ import {
   type DraftAttachmentItem,
 } from '../draftAttachments'
 import { mergeLatestPageWithHistory, reconcileConfirmedMessage } from '../messageResilience'
+import { withAuthorsFrom, withUpdatedAuthor, type AuthorProfileUpdate } from '../messageAuthors'
 import {
   clearMessageDraftIfUnchanged,
   readMessageDraft,
@@ -56,6 +57,7 @@ import {
   getCachedDmMessages,
   loadDmMessagesOnce,
   setCachedDmMessages,
+  updateCachedDmMessages,
   type CachedDmMessage,
 } from '../dmMessageCache'
 import { isAppBackgrounded } from '../pushNotifications'
@@ -525,7 +527,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setDmMessages(cached ?? [])
     try {
       const ui = await loadDmMessagesOnce(userId, channelId, () => dmApi.listMessages(channelId, token))
-      const merged = mergeLatestPageWithHistory(ui, cached ?? [])
+      const merged = mergeLatestPageWithHistory(ui, withAuthorsFrom(cached ?? [], ui))
       rememberDmMessages(channelId, merged)
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmMessages(merged)
@@ -782,6 +784,22 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     })
     return () => unsub()
   }, [rememberDmMessages, subscribe, user?.id])
+
+  // A participant's new name or avatar applies to their messages in every conversation.
+  useEffect(() => {
+    const unsub = subscribe((evt: unknown) => {
+      const e = evt as { type?: string; data?: { user?: AuthorProfileUpdate } }
+      const profile = e?.type === 'UserUpdated' ? e.data?.user : undefined
+      if (!profile?.id) return
+      setDmMessages((prev) => withUpdatedAuthor(prev, profile))
+      Object.entries(dmMessagesByChannelRef.current).forEach(([cachedChannelId, cached]) => {
+        dmMessagesByChannelRef.current[cachedChannelId] = withUpdatedAuthor(cached, profile)
+      })
+      if (userId) updateCachedDmMessages(userId, (messages) => withUpdatedAuthor(messages, profile))
+      setDmPins((prev) => withUpdatedAuthor(prev, profile))
+    })
+    return () => unsub()
+  }, [subscribe, userId])
 
   // Keep friends list and DM channel peer status in sync with PresenceUpdate (online/offline)
   useEffect(() => {
