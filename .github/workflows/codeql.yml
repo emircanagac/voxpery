@@ -1,20 +1,12 @@
 name: Security / CodeQL
 
 # Pull requests run the fast JavaScript/TypeScript and Actions analyses. Rust analysis of the
-# server and desktop crates takes about 15 minutes, so it runs after merges to main and weekly.
+# server and desktop crates takes about 15 minutes, so it runs weekly and on demand (run it
+# manually before tagging a release); the weekly and manual runs cover all languages.
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'apps/web/**'
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - '.github/scripts/**'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/server/**'
-      - 'apps/desktop/src-tauri/**'
       - 'apps/web/**'
       - '.github/workflows/**'
       - '.github/actions/**'
