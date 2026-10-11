@@ -23,8 +23,7 @@ use crate::{
     services::rate_limit::enforce_rate_limit,
     services::voice_moderation,
     services::voice_revoke::{
-        clear_local_voice_session, remove_livekit_participant_checked,
-        update_livekit_voice_permissions,
+        clear_local_voice_session, remove_livekit_participant, update_livekit_voice_permissions,
     },
     ws::access::can_join_voice_channel,
     AppState,
@@ -275,16 +274,14 @@ async fn livekit_webhook(
         // A join token stays usable until it expires, so recheck current membership and
         // channel access on every join and reconnect, not only when the token was issued.
         if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
-            if let Err(error) = remove_livekit_participant_checked(
+            // Retried in the background if LiveKit cannot be reached right now.
+            remove_livekit_participant(
                 &state,
                 channel_id,
                 user_id,
                 "voice access no longer allowed",
             )
-            .await
-            {
-                tracing::error!("LiveKit unauthorized participant removal failed: {}", error);
-            }
+            .await;
             return Ok(StatusCode::NO_CONTENT);
         }
         if let Some(moderation) =
@@ -298,19 +295,13 @@ async fn livekit_webhook(
                     error
                 );
                 if moderation.muted || moderation.deafened {
-                    if let Err(revoke_error) = remove_livekit_participant_checked(
+                    remove_livekit_participant(
                         &state,
                         channel_id,
                         user_id,
                         "voice moderation permission sync failed",
                     )
-                    .await
-                    {
-                        tracing::error!(
-                            "LiveKit joined participant revoke fallback failed: {}",
-                            revoke_error
-                        );
-                    }
+                    .await;
                 }
             }
         }

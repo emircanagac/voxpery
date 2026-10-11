@@ -49,7 +49,7 @@ pub struct AppState {
     /// Broadcast channel for real-time events (messages, presence, etc.)
     pub tx: broadcast::Sender<ws::WsEvent>,
     /// Connected WebSocket sessions: user_id -> list of sender handles
-    pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::UnboundedSender<ws::WsEvent>>>,
+    pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::Sender<ws::WsEvent>>>,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// Active LiveKit participant SID per user, used to reject stale leave webhooks after rejoin.

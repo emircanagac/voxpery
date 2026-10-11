@@ -49,8 +49,7 @@ Google callbacks require a verified provider email. Existing accounts keep the n
 - Server permissions come from implicit `Everyone` + assigned roles.
 - Effective channel permissions:
   - server bitmask
-  - category overrides (deny then allow)
-  - channel overrides (deny then allow)
+  - category overrides, then channel overrides; at each level the `Everyone` override first, then the member's role overrides together (each step deny before allow). An `Everyone` allow does not undo a deny on one of the member's roles; one role's allow still lifts another role's deny.
 - Server owner is full-access override.
 - Membership comes first: a non-member gets no permissions from any role or override, including `Everyone`. WebSocket subscriptions, event delivery, voice access, attachments and channel member lists all use this computation, so leaving, kicks and bans take effect on existing connections too.
 - Overrides only carry channel-scoped bits (`Permissions::CHANNEL_OVERRIDABLE`); server-wide powers such as `MANAGE_SERVER`, `MANAGE_ROLES`, `KICK_MEMBERS`, `BAN_MEMBERS` and `VIEW_AUDIT_LOG` cannot be granted or removed per channel.

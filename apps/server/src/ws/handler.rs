@@ -92,6 +92,12 @@ fn cleanup_voice_channel_active_since_if_empty(state: &AppState, channel_id: Uui
 
 /// Max incoming WebSocket text message size (256 KB) to mitigate DoS via huge Signal payloads.
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
+/// Events waiting for one connection. A client that keeps up never comes close; one that
+/// stops reading cannot make the server buffer events without bound.
+const WS_SESSION_QUEUE_CAPACITY: usize = 256;
+/// A write that cannot complete in this time means the client stopped reading; the
+/// connection is closed and the client reconnects and reloads its state.
+const WS_SEND_TIMEOUT: Duration = Duration::from_secs(20);
 /// Channel ids accepted from one Subscribe message and kept per connection. The web client
 /// subscribes to every channel it knows in one message, so these sit far above real use.
 const MAX_SUBSCRIBE_IDS_PER_MESSAGE: usize = 1_000;
@@ -122,14 +128,14 @@ fn voice_move_result_event(
 }
 
 fn send_voice_move_result(
-    sender: &mpsc::UnboundedSender<WsEvent>,
+    sender: &mpsc::Sender<WsEvent>,
     request_id: Uuid,
     target_user_id: Uuid,
     channel_id: Uuid,
     success: bool,
     message: impl Into<String>,
 ) {
-    let _ = sender.send(voice_move_result_event(
+    let _ = sender.try_send(voice_move_result_event(
         request_id,
         target_user_id,
         channel_id,
@@ -796,12 +802,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
-    let (tx, mut rx) = mpsc::unbounded_channel::<WsEvent>();
+    let (tx, mut rx) = mpsc::channel::<WsEvent>(WS_SESSION_QUEUE_CAPACITY);
 
     // Register this session
     state.sessions.entry(user_id).or_default().push(tx.clone());
     if let Some(pending) = state.pending_voice_moves.get(&user_id) {
-        let _ = tx.send(WsEvent::VoiceMemberMoveRequested {
+        let _ = tx.try_send(WsEvent::VoiceMemberMoveRequested {
             request_id: pending.request_id,
             source_channel_id: pending.source_channel_id,
             channel_id: pending.destination_channel_id,
@@ -869,16 +875,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
             tokio::select! {
                 _ = auth_refresh_interval.tick() => {
                     if !is_ws_session_still_valid(&send_state, &send_token, &send_claims).await {
-                        let _ = ws_sender.send(Message::Close(Some(CloseFrame {
-                            code: 4001,
-                            reason: "Authentication expired".into(),
-                        }))).await;
+                        let _ = tokio::time::timeout(
+                            WS_SEND_TIMEOUT,
+                            ws_sender.send(Message::Close(Some(CloseFrame {
+                                code: 4001,
+                                reason: "Authentication expired".into(),
+                            }))),
+                        )
+                        .await;
                         break;
                     }
                 }
                 // Server-side WS ping (Ping frame; browser/axum auto-reply with Pong)
                 _ = ping_interval.tick() => {
-                    if ws_sender.send(Message::Ping(vec![].into())).await.is_err() {
+                    if !matches!(
+                        tokio::time::timeout(WS_SEND_TIMEOUT, ws_sender.send(Message::Ping(vec![].into()))).await,
+                        Ok(Ok(()))
+                    ) {
                         break;
                     }
                 }
@@ -995,7 +1008,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     if let Some(event) = outgoing {
                         match serde_json::to_string(event.as_ref()) {
                             Ok(json) => {
-                                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                if !matches!(
+                                    tokio::time::timeout(WS_SEND_TIMEOUT, ws_sender.send(Message::Text(json.into()))).await,
+                                    Ok(Ok(()))
+                                ) {
                                     break;
                                 }
                             }
@@ -1009,7 +1025,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                 Some(event) = rx.recv() => {
                     match serde_json::to_string(&event) {
                         Ok(json) => {
-                            if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                            if !matches!(
+                                tokio::time::timeout(WS_SEND_TIMEOUT, ws_sender.send(Message::Text(json.into()))).await,
+                                Ok(Ok(()))
+                            ) {
                                 break;
                             }
                         }
@@ -1150,7 +1169,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                     &recv_state,
                                                     cid,
                                                 );
-                                            let _ = client_tx.send(WsEvent::VoiceStateUpdate {
+                                            let _ = client_tx.try_send(WsEvent::VoiceStateUpdate {
                                                 channel_id: Some(cid),
                                                 user_id: *other_uid,
                                                 server_id,
@@ -1166,11 +1185,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                 .unwrap_or((
                                                     false, false, false, false, false, false,
                                                 ));
-                                            let _ = client_tx.send(voice_control_event_from_state(
-                                                *other_uid,
-                                                server_id,
-                                                control_state,
-                                            ));
+                                            let _ =
+                                                client_tx.try_send(voice_control_event_from_state(
+                                                    *other_uid,
+                                                    server_id,
+                                                    control_state,
+                                                ));
                                         }
                                     }
                                     for entry in recv_state.screen_share_viewers.iter() {
@@ -1188,7 +1208,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         {
                                             continue;
                                         }
-                                        let _ = client_tx.send(screen_share_viewer_event(
+                                        let _ = client_tx.try_send(screen_share_viewer_event(
                                             *viewer_id,
                                             *publisher_id,
                                             cid,
@@ -1364,15 +1384,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         for entry in recv_state.voice_sessions.iter() {
                                             let (other_uid, other_cid) = entry.pair();
                                             if *other_cid == channel_id && *other_uid != user_id {
-                                                let _ = client_tx.send(WsEvent::VoiceStateUpdate {
-                                                    channel_id: Some(channel_id),
-                                                    user_id: *other_uid,
-                                                    server_id,
-                                                    channel_active_since_ms: Some(
-                                                        channel_active_since_ms,
-                                                    ),
-                                                    previous_channel_id: None,
-                                                });
+                                                let _ =
+                                                    client_tx.try_send(WsEvent::VoiceStateUpdate {
+                                                        channel_id: Some(channel_id),
+                                                        user_id: *other_uid,
+                                                        server_id,
+                                                        channel_active_since_ms: Some(
+                                                            channel_active_since_ms,
+                                                        ),
+                                                        previous_channel_id: None,
+                                                    });
                                                 let control_state = recv_state
                                                     .voice_controls
                                                     .get(other_uid)
@@ -1380,12 +1401,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                     .unwrap_or((
                                                         false, false, false, false, false, false,
                                                     ));
-                                                let _ =
-                                                    client_tx.send(voice_control_event_from_state(
+                                                let _ = client_tx.try_send(
+                                                    voice_control_event_from_state(
                                                         *other_uid,
                                                         server_id,
                                                         control_state,
-                                                    ));
+                                                    ),
+                                                );
                                             }
                                         }
                                     }
@@ -1844,17 +1866,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             error
                                         );
                                         if muted || deafened {
-                                            if let Err(revoke_error) =
-                                                voice_revoke::remove_livekit_participant_checked(
-                                                    &recv_state,
-                                                    target_channel_id,
-                                                    target_id,
-                                                    "voice moderation permission update failed",
-                                                )
-                                                .await
-                                            {
-                                                tracing::error!("SetVoiceControl LiveKit revoke fallback failed: {}", revoke_error);
-                                            }
+                                            // Retried in the background if LiveKit is unreachable.
+                                            voice_revoke::remove_livekit_participant(
+                                                &recv_state,
+                                                target_channel_id,
+                                                target_id,
+                                                "voice moderation permission update failed",
+                                            )
+                                            .await;
                                         }
                                     }
                                     continue;
@@ -2007,7 +2026,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 }
                             }
                             WsClientMessage::Ping { sent_at_ms } => {
-                                let _ = client_tx.send(WsEvent::Pong { sent_at_ms });
+                                let _ = client_tx.try_send(WsEvent::Pong { sent_at_ms });
                             }
                         }
                     }

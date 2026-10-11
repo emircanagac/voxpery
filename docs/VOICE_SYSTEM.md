@@ -45,7 +45,7 @@ Screen-share tiles carry an explicit `screen` media kind and use `object-fit: co
 - `LIVEKIT_WS_URL` is the client-facing connection address. Docker Compose automatically supplies the backend-only internal `livekit` service address for admin verification and revocation, without requiring another production `.env` setting.
 - If a member is kicked, banned, leaves the server, deletes their account, is disconnected by a moderator, or loses active voice permissions through role/channel overrides, the backend clears the runtime voice session and asks LiveKit to remove that participant from the room. Deleting a voice channel or a server closes its LiveKit rooms (`DeleteRoom`, with a short-lived admin token that carries `roomCreate`).
 - This server-side removal is required because a modified client could ignore WebSocket leave events while keeping an already-established LiveKit media connection alive.
-- If LiveKit is unavailable during revocation, Voxpery still clears local voice state, logs the failure for operators and retries the LiveKit removal in the background (after 1, 5, 15, 30 and 60 seconds).
+- If LiveKit is unavailable during revocation, Voxpery still clears local voice state, logs the failure for operators and retries the LiveKit removal in the background (after 1, 5, 15, 30 and 60 seconds). This covers the `participant_joined` webhook check and the moderation fallbacks too. When a permission change cannot list a room's participants, that room is rechecked in the background on the same schedule instead of being skipped.
 
 ### Confirmed Moderator Moves
 

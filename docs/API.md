@@ -40,7 +40,7 @@ Important behavior:
 
 - Server owner is always effectively full-access.
 - `Everyone` role is seeded by default per server and implicitly included for members.
-- Effective channel permissions are computed as: server roles -> category overrides (deny then allow) -> channel overrides (deny then allow).
+- Effective channel permissions are computed as: server roles -> category overrides -> channel overrides. At each override level the `Everyone` override is applied first and the member's role overrides after it (each deny before allow), so a role's deny is not undone by an `Everyone` allow.
 - Only members have permissions. A user who is not a member (including after leaving, being kicked or being banned) gets no permissions from any role or override, including `Everyone`'s.
 - Category and channel overrides only carry channel-scoped bits: `VIEW_SERVER`, `MANAGE_CHANNELS`, `SEND_MESSAGES`, `MANAGE_MESSAGES`, `MANAGE_PINS`, `CONNECT_VOICE`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, `MOVE_MEMBERS`. Other bits are rejected with `400` and ignored if already stored.
 - Role and permission management is limited to the server owner: creating, editing, deleting and reordering roles, assigning member roles, and creating, editing or deleting category and channel overrides. `MANAGE_ROLES` currently grants read access to roles only; `MANAGE_CHANNELS` still allows editing channels and categories themselves.

@@ -52,7 +52,7 @@ Startup uses the authenticated, non-cacheable `/api/auth/session` snapshot. User
 Every protected operation checks effective permissions:
 
 - **Server-level bitmask**: computed from `@everyone` + assigned roles
-- **Category/channel overrides**: DENY first, then ALLOW
+- **Category/channel overrides**: at each level the `Everyone` override first, then the member's role overrides (each DENY first, then ALLOW)
 - **Owner override**: server owner has full access
 - **Message ownership**: author can edit/delete own messages (non-author moderation requires permission)
 
@@ -144,6 +144,7 @@ pub fn validate_security_config(cors_origins: &[String], cookie_secure: bool) ->
 - **WebSocket connect**: 3 attempts per 10 seconds per user, and at most 10 open connections per user
 - **WebSocket frames**: 120 frames per 10 seconds per user
 - **WebSocket subscriptions**: at most 1,000 new channel ids per `Subscribe` and 5,000 per connection
+- **WebSocket output**: at most 256 queued events per connection; a client that does not read for 20 seconds is disconnected
 - **Password reset** (`/api/auth/forgot-password`, `/api/auth/reset-password`): per-IP limits plus per-email or per-token limits
 
 Values that come from the client (identifiers, emails, tokens) are validated before they become part of a Redis key, and any key part longer than 128 bytes is stored as a SHA-256 hash, so request bodies cannot grow Redis memory. Unauthenticated auth endpoints accept request bodies of at most 64 KiB.

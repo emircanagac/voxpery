@@ -8460,6 +8460,383 @@ async fn websocket_subscribe_and_connections_are_bounded_per_user() {
 }
 
 #[tokio::test]
+async fn sign_in_keeps_owner_edits_to_the_default_moderator_role() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    // Registering makes sure the default server and its Moderator role exist.
+    register_named_user(&mut app, "seed").await;
+    let (role_id, original_name, original_permissions): (Uuid, String, i64) = sqlx::query_as(
+        r#"SELECT sr.id, sr.name, sr.permissions
+           FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery' AND LOWER(sr.name) = 'moderator'"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .expect("default server must have a Moderator role");
+
+    use voxpery_server::services::permissions::Permissions;
+    let removed = (Permissions::KICK_MEMBERS | Permissions::BAN_MEMBERS).bits();
+    let trimmed = original_permissions & !removed;
+    let password = test_credential("default");
+    let suffix = Uuid::new_v4();
+    let email = format!("mod-edit-{suffix}@example.com");
+    register_user(
+        &mut app,
+        &email,
+        &format!("modedit_{}", suffix.as_u128() % 1_000_000),
+        password,
+    )
+    .await;
+    let login_body =
+        serde_json::to_vec(&json!({ "identifier": email, "password": password })).unwrap();
+    let sign_in_request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(login_body.clone()))
+            .unwrap()
+    };
+
+    // 1) The owner removes kick and ban; a sign-in must not add them back.
+    sqlx::query("UPDATE server_roles SET permissions = $2 WHERE id = $1")
+        .bind(role_id)
+        .bind(trimmed)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (status, body) = oneshot(&mut app, sign_in_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "login failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let permissions_after_sign_in: i64 =
+        sqlx::query_scalar("SELECT permissions FROM server_roles WHERE id = $1")
+            .bind(role_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+
+    // 2) The owner renames the role; a sign-in must not create a new Moderator role.
+    sqlx::query("UPDATE server_roles SET name = 'Helpers' WHERE id = $1")
+        .bind(role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (status, body) = oneshot(&mut app, sign_in_request()).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "login failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let recreated: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM server_roles sr
+           INNER JOIN servers s ON s.id = sr.server_id
+           WHERE s.invite_code = 'voxpery' AND LOWER(sr.name) = 'moderator'"#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    // Restore the shared default server before asserting.
+    sqlx::query(
+        r#"DELETE FROM server_roles
+           WHERE id <> $1
+             AND LOWER(name) = 'moderator'
+             AND server_id = (SELECT server_id FROM server_roles WHERE id = $1)"#,
+    )
+    .bind(role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE server_roles SET permissions = $2, name = $3 WHERE id = $1")
+        .bind(role_id)
+        .bind(original_permissions)
+        .bind(&original_name)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        permissions_after_sign_in, trimmed,
+        "sign-in restored removed permissions"
+    );
+    assert_eq!(
+        recreated, 0,
+        "sign-in recreated a Moderator role the owner renamed"
+    );
+}
+
+#[tokio::test]
+async fn everyone_allow_does_not_undo_a_role_deny() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    use voxpery_server::services::permissions::{get_user_channel_permissions, Permissions};
+    use voxpery_server::ws::access::{can_join_voice_channel, can_subscribe_to_channel};
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Deny Guild").await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "restricted").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let restricted_id =
+        grant_role_with_permissions(&state, server_id, member_id, "Restricted", 5, 0).await;
+    let channel_perms = |channel_id: Uuid| {
+        let db = state.db.clone();
+        async move {
+            get_user_channel_permissions(&db, channel_id, member_id)
+                .await
+                .unwrap()
+        }
+    };
+
+    // Channel level: Everyone may view and send, the member's role may not view.
+    put_channel_override_row(
+        &state,
+        text_channel_id,
+        everyone_id,
+        PERM_VIEW | PERM_SEND,
+        0,
+    )
+    .await;
+    put_channel_override_row(&state, text_channel_id, restricted_id, 0, PERM_VIEW).await;
+    assert!(!channel_perms(text_channel_id)
+        .await
+        .contains(Permissions::VIEW_SERVER));
+    assert!(
+        !can_subscribe_to_channel(&state.db, member_id, text_channel_id)
+            .await
+            .unwrap()
+    );
+    let (status, _) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/messages/{text_channel_id}"),
+        &member_auth,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "REST must agree with the computed permissions"
+    );
+
+    // Voice: Everyone may connect, the member's role may not.
+    put_channel_override_row(
+        &state,
+        voice_channel_id,
+        everyone_id,
+        PERM_VIEW | PERM_CONNECT_VOICE,
+        0,
+    )
+    .await;
+    put_channel_override_row(
+        &state,
+        voice_channel_id,
+        restricted_id,
+        0,
+        PERM_CONNECT_VOICE,
+    )
+    .await;
+    assert!(
+        !can_join_voice_channel(&state.db, member_id, voice_channel_id)
+            .await
+            .unwrap()
+    );
+
+    // Between the member's own roles an allow still lifts a deny (Discord behaviour).
+    put_channel_override_row(&state, text_channel_id, restricted_id, 0, PERM_SEND).await;
+    assert!(!channel_perms(text_channel_id)
+        .await
+        .contains(Permissions::SEND_MESSAGES));
+    let speaker_id =
+        grant_role_with_permissions(&state, server_id, member_id, "Speaker", 6, 0).await;
+    put_channel_override_row(&state, text_channel_id, speaker_id, PERM_SEND, 0).await;
+    let perms = channel_perms(text_channel_id).await;
+    assert!(perms.contains(Permissions::VIEW_SERVER) && perms.contains(Permissions::SEND_MESSAGES));
+
+    // Category level follows the same order.
+    sqlx::query("DELETE FROM channel_role_overrides WHERE channel_id = $1")
+        .bind(text_channel_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let category: String = sqlx::query_scalar("SELECT category FROM channels WHERE id = $1")
+        .bind(text_channel_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    for (role_id, allow, deny) in [(everyone_id, PERM_VIEW, 0), (restricted_id, 0, PERM_VIEW)] {
+        sqlx::query(
+            r#"INSERT INTO channel_category_role_overrides (server_id, category, role_id, allow, deny)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(server_id)
+        .bind(&category)
+        .bind(role_id)
+        .bind(allow)
+        .bind(deny)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+    assert!(!channel_perms(text_channel_id)
+        .await
+        .contains(Permissions::VIEW_SERVER));
+    assert!(
+        !can_subscribe_to_channel(&state.db, member_id, text_channel_id)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn failed_livekit_revocations_are_retried_until_the_participant_is_gone() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // LiveKit stand-in whose next listing and removal requests fail once each.
+    let room_participants = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let removed = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let failing_lists = Arc::new(AtomicUsize::new(0));
+    let failing_removals = Arc::new(AtomicUsize::new(0));
+    let (list_participants, list_failures) = (room_participants.clone(), failing_lists.clone());
+    let (record_removed, removal_failures) = (removed.clone(), failing_removals.clone());
+    let unavailable = || (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({})));
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/ListParticipants",
+            axum::routing::post(move || {
+                let list_participants = list_participants.clone();
+                let list_failures = list_failures.clone();
+                async move {
+                    if list_failures.load(Ordering::SeqCst) > 0 {
+                        list_failures.fetch_sub(1, Ordering::SeqCst);
+                        return unavailable();
+                    }
+                    let identities = list_participants.lock().await.clone();
+                    let participants: Vec<_> = identities
+                        .iter()
+                        .map(|identity| json!({ "identity": identity, "sid": format!("PA_{identity}") }))
+                        .collect();
+                    (StatusCode::OK, axum::Json(json!({ "participants": participants })))
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_removed = record_removed.clone();
+                let removal_failures = removal_failures.clone();
+                async move {
+                    if removal_failures.load(Ordering::SeqCst) > 0 {
+                        removal_failures.fetch_sub(1, Ordering::SeqCst);
+                        return unavailable();
+                    }
+                    let identity = body["identity"].as_str().unwrap_or_default().to_string();
+                    record_removed.lock().await.push(identity);
+                    (StatusCode::OK, axum::Json(json!({})))
+                }
+            }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Retry Guild").await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let (_, outsider_id, _) = register_named_user(&mut app, "outsider").await;
+    let removed_identity = |user_id: Uuid| {
+        let removed = removed.clone();
+        async move {
+            for _ in 0..40 {
+                if removed.lock().await.contains(&user_id.to_string()) {
+                    return true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            false
+        }
+    };
+
+    // A non-member joins the room with a token; the first removal request fails.
+    failing_removals.store(1, Ordering::SeqCst);
+    let joined = json!({
+        "event": "participant_joined",
+        "room": { "name": voice_channel_id.to_string() },
+        "participant": { "identity": outsider_id.to_string(), "sid": "PA_outsider" },
+    })
+    .to_string();
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/webrtc/livekit-webhook")
+        .header(
+            "Authorization",
+            signed_livekit_webhook(&state, joined.as_bytes()),
+        )
+        .header("content-type", "application/webhook+json")
+        .body(Body::from(joined))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    assert!(
+        removed_identity(outsider_id).await,
+        "a failed webhook removal must be retried"
+    );
+
+    // A member connected straight to LiveKit loses voice access while listing the room fails.
+    room_participants.lock().await.push(member_id.to_string());
+    failing_lists.store(1, Ordering::SeqCst);
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{voice_channel_id}/overrides/{everyone_id}"),
+        &owner_auth,
+        Some(json!({ "allow": 0, "deny": PERM_CONNECT_VOICE })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "override failed: {body}");
+    assert!(
+        removed_identity(member_id).await,
+        "a room whose participant list failed must be rechecked later"
+    );
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

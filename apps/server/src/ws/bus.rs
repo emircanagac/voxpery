@@ -27,7 +27,13 @@ enum WsBusEnvelope {
 fn deliver_user_event(state: &AppState, user_id: Uuid, event: WsEvent) {
     if let Some(session_senders) = state.sessions.get(&user_id) {
         for sender in session_senders.iter() {
-            let _ = sender.send(event.clone());
+            // A full queue means the client stopped reading; its connection is closed by the
+            // send timeout, so the event is dropped instead of buffered without bound.
+            if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
+                sender.try_send(event.clone())
+            {
+                tracing::debug!("WebSocket queue full for user {}; event dropped", user_id);
+            }
         }
     }
 }

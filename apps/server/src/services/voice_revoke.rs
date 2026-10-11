@@ -248,7 +248,8 @@ where
     });
 }
 
-async fn remove_livekit_participant(
+/// Removes a participant from a LiveKit room; a failed request is retried in the background.
+pub(crate) async fn remove_livekit_participant(
     state: &Arc<AppState>,
     channel_id: Uuid,
     user_id: Uuid,
@@ -625,27 +626,46 @@ pub async fn revoke_invalid_voice_sessions_for_server(
     }
 
     // A client can connect to LiveKit with its token without reporting the session to
-    // Voxpery, so also recheck everyone actually present in each room.
+    // Voxpery, so also recheck everyone actually present in each room. A room that cannot be
+    // checked now is checked again in the background instead of being skipped.
     for channel_id in voice_channel_ids {
-        let user_ids = match livekit_room_user_ids(state, channel_id).await {
-            Ok(Some(user_ids)) => user_ids,
-            Ok(None) => return Ok(()),
-            Err(error) => {
-                tracing::warn!(
-                    "LiveKit participant recheck failed for room {}: {}",
-                    channel_id,
-                    error
-                );
-                continue;
-            }
-        };
-        for user_id in user_ids {
-            if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
-                remove_livekit_participant(state, channel_id, user_id, reason).await;
-            }
+        if let Err(error) = recheck_livekit_room(state, channel_id, reason).await {
+            tracing::warn!(
+                "LiveKit participant recheck failed for room {}: {}",
+                channel_id,
+                error
+            );
+            let state = state.clone();
+            let reason = reason.to_string();
+            retry_livekit_in_background(
+                format!("LiveKit participant recheck for room {channel_id}"),
+                move || {
+                    let state = state.clone();
+                    let reason = reason.clone();
+                    async move { recheck_livekit_room(&state, channel_id, &reason).await }
+                },
+            );
         }
     }
 
+    Ok(())
+}
+
+/// Removes everyone connected to the LiveKit room of `channel_id` who may no longer join it.
+/// Listing or permission lookup errors are returned so the caller can retry the room.
+async fn recheck_livekit_room(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    reason: &str,
+) -> Result<(), AppError> {
+    let Some(user_ids) = livekit_room_user_ids(state, channel_id).await? else {
+        return Ok(());
+    };
+    for user_id in user_ids {
+        if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
+            remove_livekit_participant(state, channel_id, user_id, reason).await;
+        }
+    }
     Ok(())
 }
 

@@ -159,7 +159,8 @@ async fn member_server_permissions_on_connection(
 ///
 /// Algorithm (Discord-like):
 /// 1. Start from server-level permissions.
-/// 2. Apply channel role overrides: first DENY, then ALLOW.
+/// 2. Apply category, then channel overrides; at each level the Everyone override first,
+///    then the member's role overrides (each DENY before ALLOW).
 pub async fn get_user_channel_permissions(
     db: &PgPool,
     channel_id: Uuid,
@@ -198,7 +199,7 @@ pub async fn get_user_channel_permissions_on_connection(
     }
 
     if let Some(category_name) = category.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
-        let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
+        let category_overrides: Vec<(bool, i64, i64)> = sqlx::query_as(
             r#"WITH effective_roles AS (
                    SELECT sr.id AS role_id
                    FROM server_roles sr
@@ -210,8 +211,9 @@ pub async fn get_user_channel_permissions_on_connection(
                    WHERE smr.server_id = $1
                      AND smr.user_id = $2
                )
-               SELECT co.allow, co.deny
+               SELECT LOWER(sr.name) = 'everyone' AS is_everyone, co.allow, co.deny
                FROM effective_roles er
+               INNER JOIN server_roles sr ON sr.id = er.role_id
                INNER JOIN channel_category_role_overrides co
                  ON co.role_id = er.role_id
                WHERE co.server_id = $1
@@ -223,13 +225,11 @@ pub async fn get_user_channel_permissions_on_connection(
         .fetch_all(&mut *db)
         .await?;
 
-        let (allow_mask, deny_mask) = override_masks(category_overrides);
-        perms.remove(deny_mask);
-        perms |= allow_mask;
+        apply_overrides(&mut perms, category_overrides);
     }
 
     // Gather all role overrides for roles the user has in this server.
-    let overrides: Vec<(i64, i64)> = sqlx::query_as(
+    let overrides: Vec<(bool, i64, i64)> = sqlx::query_as(
         r#"WITH effective_roles AS (
                SELECT sr.id AS role_id
                FROM server_roles sr
@@ -241,8 +241,9 @@ pub async fn get_user_channel_permissions_on_connection(
                WHERE smr.server_id = $1
                  AND smr.user_id = $2
            )
-           SELECT cro.allow, cro.deny
+           SELECT LOWER(sr.name) = 'everyone' AS is_everyone, cro.allow, cro.deny
            FROM effective_roles er
+           INNER JOIN server_roles sr ON sr.id = er.role_id
            INNER JOIN channel_role_overrides cro
              ON cro.role_id = er.role_id
            WHERE cro.channel_id = $3"#,
@@ -253,12 +254,29 @@ pub async fn get_user_channel_permissions_on_connection(
     .fetch_all(&mut *db)
     .await?;
 
-    // Apply deny first, then allow.
-    let (allow_mask, deny_mask) = override_masks(overrides);
-    perms.remove(deny_mask);
-    perms |= allow_mask;
+    apply_overrides(&mut perms, overrides);
 
     Ok(perms)
+}
+
+/// Applies override rows `(is_everyone, allow, deny)` in Discord's order: the Everyone
+/// override first, then the member's role overrides together, each step deny before allow.
+/// So an Everyone allow cannot undo a deny on one of the member's roles, while one role's
+/// allow still lifts another role's deny.
+fn apply_overrides(perms: &mut Permissions, rows: Vec<(bool, i64, i64)>) {
+    let (everyone, roles): (Vec<_>, Vec<_>) = rows
+        .into_iter()
+        .partition(|(is_everyone, _, _)| *is_everyone);
+    for layer in [everyone, roles] {
+        let (allow_mask, deny_mask) = override_masks(
+            layer
+                .into_iter()
+                .map(|(_, allow, deny)| (allow, deny))
+                .collect(),
+        );
+        perms.remove(deny_mask);
+        *perms |= allow_mask;
+    }
 }
 
 /// Combines override rows into (allow, deny), keeping only channel-scoped bits so rows
@@ -284,7 +302,8 @@ fn override_masks(rows: Vec<(i64, i64)>) -> (Permissions, Permissions) {
 ///
 /// Algorithm:
 /// 1. Start from server-level permissions.
-/// 2. Apply category role overrides: first DENY, then ALLOW.
+/// 2. Apply category overrides: the Everyone override first, then the member's role
+///    overrides (each DENY before ALLOW).
 pub async fn get_user_category_permissions(
     db: &PgPool,
     server_id: Uuid,
@@ -307,7 +326,7 @@ pub async fn get_user_category_permissions(
         return Ok(perms);
     }
 
-    let category_overrides: Vec<(i64, i64)> = sqlx::query_as(
+    let category_overrides: Vec<(bool, i64, i64)> = sqlx::query_as(
         r#"WITH effective_roles AS (
                SELECT sr.id AS role_id
                FROM server_roles sr
@@ -319,8 +338,9 @@ pub async fn get_user_category_permissions(
                WHERE smr.server_id = $1
                  AND smr.user_id = $2
            )
-           SELECT co.allow, co.deny
+           SELECT LOWER(sr.name) = 'everyone' AS is_everyone, co.allow, co.deny
            FROM effective_roles er
+           INNER JOIN server_roles sr ON sr.id = er.role_id
            INNER JOIN channel_category_role_overrides co
              ON co.role_id = er.role_id
            WHERE co.server_id = $1
@@ -332,9 +352,7 @@ pub async fn get_user_category_permissions(
     .fetch_all(db)
     .await?;
 
-    let (allow_mask, deny_mask) = override_masks(category_overrides);
-    perms.remove(deny_mask);
-    perms |= allow_mask;
+    apply_overrides(&mut perms, category_overrides);
     Ok(perms)
 }
 

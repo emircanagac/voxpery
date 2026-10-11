@@ -46,6 +46,8 @@ Authorization:
 
 Limits: duplicate and already-subscribed ids are ignored, at most 1,000 new ids are handled per message and 5,000 channels per connection. Ids outside the user's servers and DMs are dropped before the per-channel permission check. An account can keep at most 10 WebSocket connections open; further upgrades get `429`.
 
+Slow clients: events addressed to one connection wait in a queue of at most 256 events, and a write the client does not take within 20 seconds closes the connection. A client that stops reading is disconnected instead of making the server buffer its events; on reconnect it reloads its state as usual.
+
 ### `Unsubscribe`
 
 ```json

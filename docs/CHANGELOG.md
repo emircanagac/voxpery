@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.3] - 2026-10-12
 
+### Security
+- Security updates.
+
 ### Added
 - Linux: each release now also includes a `.flatpak` package next to the `.deb` and `.rpm`. Install or update it with `flatpak install --user --reinstall ./Voxpery_<version>_x86_64.flatpak`.
 

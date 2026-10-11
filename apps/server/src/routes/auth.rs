@@ -1457,6 +1457,27 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .execute(db)
         .await?;
 
+        // Seed the Moderator role only with a new server. Afterwards the role belongs to the
+        // owner: sign-ins must not restore permissions (or a role) the owner removed.
+        let moderator_perms = PERM_MANAGE_MESSAGES
+            | PERM_MANAGE_PINS
+            | PERM_KICK_MEMBERS
+            | PERM_BAN_MEMBERS
+            | PERM_MUTE_MEMBERS
+            | PERM_DEAFEN_MEMBERS
+            | PERM_MOVE_MEMBERS
+            | PERM_VIEW_AUDIT_LOG;
+        sqlx::query(
+            r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+                   VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
+                   ON CONFLICT (server_id, LOWER(name)) DO NOTHING"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(server_id)
+        .bind(moderator_perms)
+        .execute(db)
+        .await?;
+
         sqlx::query(
             r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
                SELECT $1, u.id, 'member', NOW()
@@ -1474,28 +1495,6 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
     }
 
     if let Some(server_id) = server_id_opt {
-        // Ensure default Voxpery server has the seeded Moderator role.
-        // This also backfills older default servers that were created without it.
-        let moderator_perms = PERM_MANAGE_MESSAGES
-            | PERM_MANAGE_PINS
-            | PERM_KICK_MEMBERS
-            | PERM_BAN_MEMBERS
-            | PERM_MUTE_MEMBERS
-            | PERM_DEAFEN_MEMBERS
-            | PERM_MOVE_MEMBERS
-            | PERM_VIEW_AUDIT_LOG;
-        sqlx::query(
-            r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
-                   VALUES ($1, $2, 'Moderator', '#5865F2', 0, $3)
-                   ON CONFLICT (server_id, LOWER(name))
-                   DO UPDATE SET permissions = (server_roles.permissions | EXCLUDED.permissions)"#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(server_id)
-        .bind(moderator_perms)
-        .execute(db)
-        .await?;
-
         // Ensure default Voxpery server has an "@everyone" baseline role.
         // Baseline member access: can view server, send messages, and connect voice.
         let everyone_perms = PERM_VIEW_SERVER | PERM_SEND_MESSAGES | PERM_CONNECT_VOICE;
