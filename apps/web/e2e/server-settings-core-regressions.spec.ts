@@ -414,7 +414,11 @@ test.describe('mocked server settings UI regressions', () => {
     await icon(server.id).click()
     await expect(page.locator('.chat-messages')).toBeVisible()
 
-    // A kick, ban or leave on another device arrives as MemberLeft for this account.
+    // A kick, ban or leave on another device arrives as MemberLeft for this account. The
+    // server list no longer includes the server, and the app also reloads that list.
+    state.servers = state.servers.filter(entry => entry.id !== server.id)
+    const serverListReload = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/servers' && response.request().method() === 'GET')
     await page.evaluate(({ serverId, userId }) => {
       const sockets = (window as unknown as { __mockSockets?: Array<{ onmessage: ((event: MessageEvent) => void) | null }> }).__mockSockets ?? []
       const data = JSON.stringify({ type: 'MemberLeft', data: { server_id: serverId, user_id: userId } })
@@ -424,6 +428,8 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(icon(server.id)).toHaveCount(0)
     await expect(icon(other.id)).toHaveClass(/active/)
     await expect(page.getByTitle('Server menu')).toHaveText(other.name)
+    await serverListReload
+    await expect(icon(server.id)).toHaveCount(0)
   })
 })
 
