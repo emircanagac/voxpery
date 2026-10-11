@@ -10,6 +10,7 @@ import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import { googleOAuthErrorMessage, resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
+import DesktopSignInCode from '../components/DesktopSignInCode'
 
 function GoogleLogoIcon() {
     return (
@@ -174,6 +175,7 @@ export default function LoginPage() {
                             <GoogleLogoIcon />
                             <span>Continue with Google</span>
                         </a>
+                        {isTauri() && <DesktopSignInCode />}
                     </>
                 )}
 

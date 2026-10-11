@@ -149,22 +149,46 @@ describe('auth feature gating', () => {
     expect(openedUrl).toContain('kvkk_notice_version=2026-08-23')
   })
 
-  it('hands desktop email registration to the browser-hosted form', async () => {
+  it('registers in the desktop app with the CAPTCHA solved in the API-hosted frame', async () => {
     vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '0x-test-site-key')
     ;(window as typeof window & { __TAURI_INTERNALS__?: Record<string, unknown> }).__TAURI_INTERNALS__ = {}
+    const register = vi.spyOn(authApi, 'register').mockResolvedValue({
+      token: 'desktop-token',
+      user: { id: 'user-1', username: 'newuser' } as never,
+    })
     renderWithFeatures(<RegisterPage />)
 
     await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeEnabled())
-    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'newuser' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'long-enough-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'long-enough-password' } })
     for (const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue in browser' }))
 
-    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledTimes(1))
-    const openedUrl = vi.mocked(openExternalUrl).mock.calls[0]?.[0] ?? ''
-    expect(openedUrl).toContain('/api/auth/desktop-registration?')
-    expect(openedUrl).toContain('origin=voxpery%3A%2F%2Fauth')
-    expect(openedUrl).toContain('code_challenge=')
-    expect(screen.queryByText('Turnstile')).not.toBeInTheDocument()
+    const frame = screen.getByTitle('CAPTCHA verification') as HTMLIFrameElement
+    const frameUrl = new URL(frame.src, window.location.href)
+    expect(frameUrl.pathname).toBe('/api/auth/captcha-frame')
+    expect(frameUrl.searchParams.get('parent')).toBe(window.location.origin)
+    const signUp = screen.getByRole('button', { name: 'Sign Up' })
+    expect(signUp).toBeDisabled()
+
+    // Messages from anything but the frame are ignored.
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: frameUrl.origin, data: { source: 'voxpery-captcha', type: 'token', token: 'forged' },
+    }))
+    expect(signUp).toBeDisabled()
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: frameUrl.origin,
+      source: frame.contentWindow,
+      data: { source: 'voxpery-captcha', type: 'token', token: 'frame-token' },
+    }))
+    await waitFor(() => expect(signUp).toBeEnabled())
+    fireEvent.click(signUp)
+
+    await waitFor(() => expect(register).toHaveBeenCalledTimes(1))
+    expect(register.mock.calls[0]?.[0]).toBe('newuser')
+    expect(register.mock.calls[0]?.[4]).toBe('frame-token')
+    expect(openExternalUrl).not.toHaveBeenCalled()
   })
 
   it('shows a disabled password reset message instead of the request form', () => {

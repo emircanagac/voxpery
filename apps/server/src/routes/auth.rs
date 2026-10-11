@@ -43,6 +43,8 @@ use crate::{
     AppState,
 };
 
+#[path = "captcha_frame.rs"]
+mod captcha_frame;
 #[path = "desktop_registration.rs"]
 mod desktop_registration;
 #[path = "registration_pages.rs"]
@@ -68,7 +70,8 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 }
 
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
-const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
+// Long enough to copy the code from the browser page when the app does not open by itself.
+const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 300;
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let dummy_password = Uuid::new_v4().to_string();
     hash_password(&dummy_password).expect("dummy Argon2 hash should be generated successfully")
@@ -194,9 +197,29 @@ fn javascript_string_literal(value: &str) -> String {
         .replace('>', "\\u003e")
 }
 
+/// The one-time exchange code carried by a desktop return URL, if it is well formed.
+fn desktop_handoff_code(redirect_url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(redirect_url).ok()?;
+    let code = url
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.into_owned())?;
+    (code.len() == 32 && code.bytes().all(|b| b.is_ascii_hexdigit())).then_some(code)
+}
+
 fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool, csp_nonce: &str) -> String {
     let href = escape_html_attribute(redirect_url);
     let app_url = javascript_string_literal(redirect_url);
+    // The code only works together with the PKCE verifier held by the app that started the
+    // sign-in, once, within a few minutes, so showing it for manual entry is safe.
+    let manual_code = desktop_handoff_code(redirect_url)
+        .filter(|_| succeeded)
+        .map(|code| {
+            format!(
+                r#"<details class="manual"><summary>Voxpery did not open?</summary><p>Copy this sign-in code and paste it in Voxpery under <strong>Use a sign-in code</strong>. It works once and expires in 5 minutes.</p><div class="code-row"><code id="sign-in-code">{code}</code><button type="button" id="copy-code" class="copy">Copy</button></div></details>"#
+            )
+        })
+        .unwrap_or_default();
     let (eyebrow, title, message, action) = if succeeded {
         (
             "Desktop sign-in",
@@ -234,6 +257,11 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool, csp_nonce: &s
     .btn {{ display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin-top: 20px; padding: 10px 16px; border: 1px solid #8bb4ff; border-radius: 8px; background: #4f7fd8; color: #ffffff; text-decoration: none; font-weight: 800; transition: background .15s ease, border-color .15s ease; }}
     .btn:hover {{ background: #6090e5; border-color: #b2ceff; }}
     .btn:focus-visible {{ outline: 3px solid rgba(160, 197, 255, .55); outline-offset: 3px; }}
+    .manual {{ margin-top: 22px; color: #bdc9e3; }}
+    .manual summary {{ cursor: pointer; color: #9fbae9; font-weight: 700; }}
+    .code-row {{ display: flex; gap: 8px; align-items: center; margin-top: 12px; }}
+    .code-row code {{ flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 10px; border: 1px solid #44577f; border-radius: 6px; background: #0e1b2d; color: #ffffff; font-size: 14px; }}
+    .copy {{ min-height: 40px; padding: 8px 14px; border: 1px solid #8bb4ff; border-radius: 6px; background: transparent; color: #ffffff; font: inherit; font-weight: 700; cursor: pointer; }}
     @media (max-width: 480px) {{ body {{ padding: 14px; }} .card {{ padding: 24px 20px; }} }}
 </style>
 </head>
@@ -245,6 +273,7 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool, csp_nonce: &s
     <p>{message}</p>
     <p id="handoff-status" class="status" role="status" aria-live="polite">Opening the desktop app...</p>
     <a id="open-voxpery" href="{href}" class="btn">{action}</a>
+    {manual_code}
 </main>
 <script nonce="{csp_nonce}">
     const appUrl = {app_url};
@@ -255,6 +284,14 @@ fn desktop_oauth_handoff_html(redirect_url: &str, succeeded: bool, csp_nonce: &s
     }};
     openButton.addEventListener("click", () => {{
         status.textContent = "Opening Voxpery...";
+    }});
+    const copyButton = document.getElementById("copy-code");
+    copyButton?.addEventListener("click", () => {{
+        const code = document.getElementById("sign-in-code").textContent;
+        navigator.clipboard?.writeText(code).then(
+            () => {{ copyButton.textContent = "Copied"; }},
+            () => {{ copyButton.textContent = "Select and copy"; }},
+        );
     }});
     window.setTimeout(openDesktop, 50);
     window.setTimeout(() => {{
@@ -463,8 +500,28 @@ mod oauth_pkce_tests {
         assert!(html.contains("<script nonce=\"test-nonce\">"));
         assert!(html.contains("You are signed in"));
         assert!(html.contains("&quot;&lt;/script&gt;"));
+        assert!(!html.contains("id=\"sign-in-code\""), "malformed codes are never shown");
         assert!(html.contains("\\u003c/script\\u003e"));
         assert!(!html.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn desktop_oauth_handoff_shows_the_one_time_code_for_manual_entry() {
+        let code = "0123456789abcdef0123456789abcdef";
+        let html = desktop_oauth_handoff_html(
+            &format!("voxpery://auth/servers?code={code}"),
+            true,
+            "test-nonce",
+        );
+        assert!(html.contains(&format!("<code id=\"sign-in-code\">{code}</code>")));
+        assert!(html.contains("Use a sign-in code"));
+
+        let failed = desktop_oauth_handoff_html(
+            &format!("voxpery://auth/servers?code={code}"),
+            false,
+            "test-nonce",
+        );
+        assert!(!failed.contains("<code id=\"sign-in-code\">"));
     }
 
     #[test]
@@ -995,6 +1052,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/desktop-registration",
             get(desktop_registration::show).post(desktop_registration::complete),
         )
+        .route("/captcha-frame", get(captcha_frame::show))
         .route("/email/confirm", post(confirm_email_verification))
         .merge(legal_exempt)
         .merge(protected)

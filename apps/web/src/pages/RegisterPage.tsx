@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { TurnstileInstance } from '@marsidev/react-turnstile'
-import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getDesktopRegistrationUrl, getGoogleAuthUrl, type LegalConsentStatus } from '../api'
+import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl, type LegalConsentStatus } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
@@ -14,6 +14,8 @@ import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import { currentLegalAcceptance } from '../legal'
 import LegalAcknowledgements from '../components/LegalAcknowledgements'
 import RegistrationCaptcha from '../components/RegistrationCaptcha'
+import DesktopRegistrationCaptcha from '../components/DesktopRegistrationCaptcha'
+import DesktopSignInCode from '../components/DesktopSignInCode'
 
 function GoogleLogoIcon() {
     return (
@@ -42,6 +44,7 @@ export default function RegisterPage() {
     const [confirmPassword, setConfirmPassword] = useState('')
     const [captchaToken, setCaptchaToken] = useState<string>('')
     const captchaRef = useRef<TurnstileInstance | undefined>(undefined)
+    const [desktopCaptchaReset, setDesktopCaptchaReset] = useState(0)
     const [termsAccepted, setTermsAccepted] = useState(false)
     const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false)
     const [error, setError] = useState('')
@@ -67,7 +70,7 @@ export default function RegisterPage() {
     const legalReady = !!documents && termsAccepted && privacyAcknowledged
 
     const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
-    const browserRegistrationRequired = isTauri() && !!turnstileSiteKey
+    const desktopApp = isTauri()
 
     const handleGoogleLogin = async () => {
         if (!googleOAuthEnabled || !legalReady || !documents || loading || openingGoogle) return
@@ -98,19 +101,6 @@ export default function RegisterPage() {
             setError('Accept the Terms of Service and acknowledge the Privacy Notice before continuing.')
             return
         }
-        if (browserRegistrationRequired) {
-            setLoading(true)
-            try {
-                const url = await getDesktopRegistrationUrl(redirectTo)
-                await openExternalUrl(url)
-            } catch {
-                setError('Could not open registration in your browser. Try again.')
-            } finally {
-                setLoading(false)
-            }
-            return
-        }
-
         if (username.length < 3) {
             setError('Username must be at least 3 characters')
             return
@@ -123,7 +113,7 @@ export default function RegisterPage() {
             setError('Passwords do not match')
             return
         }
-        if (!browserRegistrationRequired && turnstileSiteKey && !captchaToken) {
+        if (turnstileSiteKey && !captchaToken) {
             setError('Please complete the CAPTCHA verification')
             return
         }
@@ -144,6 +134,7 @@ export default function RegisterPage() {
         } catch (err: unknown) {
             setCaptchaToken('')
             captchaRef.current?.reset()
+            setDesktopCaptchaReset((count) => count + 1)
             const { message, code } = getAuthErrorMessage(err)
             setError(code ? `${message} (Error code: ${code})` : message || 'Registration failed')
         } finally {
@@ -171,7 +162,7 @@ export default function RegisterPage() {
                     </div>
                 )}
 
-                {!browserRegistrationRequired && <div className="auth-register-fields">
+                <div className="auth-register-fields">
                 <div className="form-group">
                     <label htmlFor="register-username">Username</label>
                     <input
@@ -244,9 +235,12 @@ export default function RegisterPage() {
                     />
                 </div>
 
-                </div>}
-                {turnstileSiteKey && !isTauri() && (
+                </div>
+                {turnstileSiteKey && !desktopApp && (
                     <RegistrationCaptcha widgetRef={captchaRef} siteKey={turnstileSiteKey} onToken={setCaptchaToken} />
+                )}
+                {turnstileSiteKey && desktopApp && (
+                    <DesktopRegistrationCaptcha onToken={setCaptchaToken} resetSignal={desktopCaptchaReset} />
                 )}
 
                 {documentError && <div className="auth-error" role="alert">{documentError}
@@ -254,8 +248,8 @@ export default function RegisterPage() {
                 </div>}
                 <LegalAcknowledgements terms={termsAccepted} privacy={privacyAcknowledged} onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} disabled={!documents || loading || openingGoogle} />
 
-                <button className="auth-btn" type="submit" disabled={loading || openingGoogle || !legalReady || (!browserRegistrationRequired && !!turnstileSiteKey && !captchaToken)}>
-                    {loading ? (browserRegistrationRequired ? 'Opening browser...' : 'Creating account...') : (browserRegistrationRequired ? 'Continue in browser' : 'Sign Up')}
+                <button className="auth-btn" type="submit" disabled={loading || openingGoogle || !legalReady || (!!turnstileSiteKey && !captchaToken)}>
+                    {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
 
                 <AuthIntegrationStatus />
@@ -275,6 +269,7 @@ export default function RegisterPage() {
                             <GoogleLogoIcon />
                             <span>Continue with Google</span>
                         </button>
+                        {desktopApp && <DesktopSignInCode />}
                     </>
                 )}
 

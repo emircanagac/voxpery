@@ -81,7 +81,7 @@ npm run dev
 
 Use the ignored root `.env` as the single configuration source. `node scripts/dev/local-qa.mjs init` checks it without printing credentials or creating another environment file. Use development credentials and, for automated CAPTCHA tests, official Turnstile test keys; never use test keys in production. The launcher rejects production mode.
 
-When desktop registration uses the browser handoff, the server renders Turnstile with `TURNSTILE_SITE_KEY`; it falls back to `VITE_TURNSTILE_SITE_KEY` for the shared local `.env`. Keep `TURNSTILE_SECRET_KEY` server-only.
+Desktop registration loads Turnstile from the API (`/api/auth/captcha-frame`, and the older browser handoff); the server renders it with `TURNSTILE_SITE_KEY`; it falls back to `VITE_TURNSTILE_SITE_KEY` for the shared local `.env`. Keep `TURNSTILE_SECRET_KEY` server-only.
 
 In a running WSL distribution with Docker Engine/Compose installed, start only
 supporting services for the split mode:

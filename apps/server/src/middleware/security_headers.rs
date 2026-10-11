@@ -21,10 +21,18 @@ pub async fn apply(mut response: Response) -> Response {
         HeaderName::from_static("strict-transport-security"),
         HeaderValue::from_static("max-age=31536000"),
     );
-    headers.insert(
-        HeaderName::from_static("x-frame-options"),
-        HeaderValue::from_static("DENY"),
-    );
+    // A page that sets its own `frame-ancestors` allowlist (the desktop CAPTCHA frame) is
+    // governed by that CSP; every other response is never framed.
+    let allows_listed_ancestors = headers
+        .get("content-security-policy")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|csp| csp.contains("frame-ancestors ") && !csp.contains("frame-ancestors 'none'"));
+    if !allows_listed_ancestors {
+        headers.insert(
+            HeaderName::from_static("x-frame-options"),
+            HeaderValue::from_static("DENY"),
+        );
+    }
     headers.insert(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),

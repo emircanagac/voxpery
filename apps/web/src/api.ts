@@ -58,8 +58,8 @@ export {
 export {
     authApi,
     clearStoredDesktopOAuthVerifier,
+    getDesktopCaptchaFrameUrl,
     getDesktopGoogleAuthUrl,
-    getDesktopRegistrationUrl,
     getGoogleAuthUrl,
     getStoredDesktopOAuthVerifier,
 } from './api/auth'

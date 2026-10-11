@@ -124,6 +124,35 @@ export function createDesktopOAuthDeepLinkHandler(deps: DesktopOAuthHandlerDepen
   }
 }
 
+/**
+ * Builds the return URL from a sign-in code (or the full `voxpery://auth` link) copied from the
+ * browser page, for when the browser could not open the app.
+ */
+export function desktopSignInCodeUrl(input: string): string | null {
+  const value = input.trim()
+  if (value.toLowerCase().startsWith(`${DESKTOP_OAUTH_PROTOCOL}//`)) {
+    return parseDesktopOAuthDeepLink(value)?.code ? value : null
+  }
+  return DESKTOP_OAUTH_CODE_PATTERN.test(value)
+    ? `${DESKTOP_OAUTH_PROTOCOL}//${DESKTOP_OAUTH_HOST}/?code=${value.toLowerCase()}`
+    : null
+}
+
+let signInCodeHandler: ((url: string) => Promise<boolean>) | null = null
+
+/** The desktop app registers its deep-link handler so pasted sign-in codes take the same path. */
+export function setDesktopSignInCodeHandler(handler: ((url: string) => Promise<boolean>) | null) {
+  signInCodeHandler = handler
+}
+
+export async function submitDesktopSignInCode(input: string): Promise<'invalid' | 'unavailable' | 'submitted'> {
+  const url = desktopSignInCodeUrl(input)
+  if (!url) return 'invalid'
+  if (!signInCodeHandler) return 'unavailable'
+  await signInCodeHandler(url)
+  return 'submitted'
+}
+
 export async function registerDesktopOAuthDeepLinks(
   sources: DesktopOAuthDeepLinkSources,
   handler: (url: string) => Promise<boolean>,

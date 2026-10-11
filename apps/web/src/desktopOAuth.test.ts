@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createDesktopOAuthDeepLinkHandler,
+  desktopSignInCodeUrl,
   parseDesktopOAuthDeepLink,
   registerDesktopOAuthDeepLinks,
+  setDesktopSignInCodeHandler,
+  submitDesktopSignInCode,
   type DesktopOAuthDeepLinkSources,
 } from './desktopOAuth'
 import { ROUTES } from './routes'
@@ -154,5 +157,28 @@ describe('desktop OAuth deep links', () => {
 
     expect(handler).toHaveBeenCalledOnce()
     expect(handler).toHaveBeenCalledWith(pendingUrl)
+  })
+})
+
+describe('desktop sign-in codes', () => {
+  it('turns a pasted code or return link into the app return URL', () => {
+    expect(desktopSignInCodeUrl(`  ${code.toUpperCase()} `)).toBe(`voxpery://auth/?code=${code}`)
+    expect(desktopSignInCodeUrl(`voxpery://auth/servers?code=${code}`)).toBe(`voxpery://auth/servers?code=${code}`)
+    for (const invalid of ['', 'abc', `${code}0`, `https://voxpery.com/?code=${code}`, 'voxpery://auth/servers?error=oauth_failed']) {
+      expect(desktopSignInCodeUrl(invalid)).toBeNull()
+    }
+  })
+
+  it('sends a valid code through the registered deep-link handler', async () => {
+    const handler = vi.fn().mockResolvedValue(true)
+    expect(await submitDesktopSignInCode(code)).toBe('unavailable')
+    setDesktopSignInCodeHandler(handler)
+    try {
+      expect(await submitDesktopSignInCode('not-a-code')).toBe('invalid')
+      expect(await submitDesktopSignInCode(code)).toBe('submitted')
+      expect(handler).toHaveBeenCalledWith(`voxpery://auth/?code=${code}`)
+    } finally {
+      setDesktopSignInCodeHandler(null)
+    }
   })
 })

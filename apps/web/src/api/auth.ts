@@ -71,18 +71,10 @@ export async function getDesktopGoogleAuthUrl(
     })
 }
 
-/** Start the browser-hosted desktop email registration flow. */
-export async function getDesktopRegistrationUrl(redirectPath: string = '/'): Promise<string> {
-    const { verifier, challenge } = await createDesktopPkcePair()
-    if (typeof window !== 'undefined') {
-        window.localStorage.setItem(DESKTOP_OAUTH_VERIFIER_KEY, verifier)
-    }
-    const params = new URLSearchParams({
-        origin: 'voxpery://auth',
-        redirect: redirectPath,
-        code_challenge: challenge,
-    })
-    return `${effectiveApiBase()}/api/auth/desktop-registration?${params.toString()}`
+/** API-hosted Turnstile frame used by in-app desktop registration (posts the token to this window). */
+export function getDesktopCaptchaFrameUrl(): string {
+    const params = new URLSearchParams({ parent: window.location.origin })
+    return `${effectiveApiBase()}/api/auth/captcha-frame?${params.toString()}`
 }
 
 /** URL to start Google OAuth. Redirects to Google then back to callback; frontend should use window.location or <a href>. */

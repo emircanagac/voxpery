@@ -460,7 +460,19 @@ fn main() {
     }
 
     let context = tauri::generate_context!();
-    builder.run(context).expect("error while running Voxpery");
+    let app = builder
+        .build(context)
+        .expect("error while building Voxpery");
+    app.run(|app, event| {
+        // On Linux, CEF hands a deep link from a second launch to this instance as `Opened`
+        // (the single-instance callback never sees it); macOS delivers deep links the same
+        // way. The webview receives the URL through the deep-link plugin; bring it forward.
+        if let tauri::RunEvent::Opened { urls } = &event {
+            if urls.iter().any(|url| url.scheme() == "voxpery") {
+                show_main_window(app);
+            }
+        }
+    });
 }
 
 #[cfg(test)]

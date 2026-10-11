@@ -7780,6 +7780,67 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
+.auth-captcha-frame {
+  display: block;
+  width: 100%;
+  margin: 14px 0 4px;
+  border: 0;
+  background: transparent;
+  color-scheme: dark;
+}
+
+.auth-sign-in-code-toggle {
+  display: block;
+  margin: 12px auto 0;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.auth-sign-in-code-toggle:hover {
+  text-decoration: underline;
+}
+
+.auth-sign-in-code {
+  margin-top: 14px;
+  text-align: left;
+}
+
+.auth-sign-in-code label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.auth-sign-in-code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-sign-in-code-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.auth-sign-in-code-row .auth-btn {
+  width: auto;
+  margin-top: 0;
+  padding-inline: 16px;
+}
+
+.auth-sign-in-code-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .auth-footer {
   text-align: center;
   margin-top: 16px;

@@ -11,7 +11,7 @@ import GlobalLoading from './components/GlobalLoading'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
-import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks } from './desktopOAuth'
+import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks, setDesktopSignInCodeHandler } from './desktopOAuth'
 import { configureObservability, reportObservabilityEvent } from './observability'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
@@ -151,6 +151,7 @@ function App() {
         onError: (error) => console.error('Desktop OAuth return failed:', error),
         onObservabilityEvent: reportObservabilityEvent,
       })
+      setDesktopSignInCodeHandler(handleDeepLinkUrl)
 
       const bootstrapDesktopSession = async () => {
         const phase = useAuthStore.getState().sessionState
@@ -190,6 +191,7 @@ function App() {
       return () => {
         disposed = true
         disposeDeepLinks?.()
+        setDesktopSignInCodeHandler(null)
       }
     }
   }, [isDesktopApp, navigate, restoreSession])

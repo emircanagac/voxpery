@@ -8741,3 +8741,45 @@ async fn hidden_voice_channel_activity_is_not_broadcast_to_members_who_cannot_vi
     assert!(left["data"]["channel_id"].is_null());
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
 }
+
+#[tokio::test]
+async fn desktop_captcha_frame_is_embeddable_only_by_the_desktop_app() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, mut state) = setup_app().await;
+    drop(app);
+    let config = Arc::get_mut(&mut state).unwrap();
+    config.turnstile_secret_key = Some(test_credential("turnstile").into());
+    config.turnstile_site_key = Some("test-public-site-key".into());
+    let app = build_app(state.clone(), state.cors_origins.clone());
+
+    let frame = |parent: &str| {
+        Request::builder()
+            .uri(format!(
+                "/api/auth/captcha-frame?parent={}",
+                parent.replace(':', "%3A").replace('/', "%2F")
+            ))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let response = app.clone().oneshot(frame("https://tauri.localhost")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers().clone();
+    let csp = headers["content-security-policy"].to_str().unwrap();
+    assert!(csp.contains("frame-ancestors https://tauri.localhost;"), "{csp}");
+    assert!(csp.contains("script-src 'nonce-"));
+    assert!(headers.get("x-frame-options").is_none(), "the CSP allowlist governs framing");
+    assert_eq!(headers["cache-control"], "no-store");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("data-sitekey=\"test-public-site-key\""));
+    assert!(html.contains("const parentOrigin = \"https://tauri.localhost\";"));
+
+    for rejected in ["https://evil.example", "https://tauri.localhost.evil.example", ""] {
+        let response = app.clone().oneshot(frame(rejected)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{rejected}");
+        assert_eq!(response.headers()["x-frame-options"], "DENY");
+    }
+}

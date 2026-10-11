@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Desktop: signing up happens inside the app with the same form as the web; the CAPTCHA no longer sends you to the browser.
+
+### Fixed
+- Desktop: after Google sign-in in the browser, Voxpery comes to the front on Linux. If the browser cannot open the app, the page shows a one-time sign-in code you can paste under "Use a sign-in code".
+
 ## [0.4.1] - 2026-10-11
 
 ### Security
