@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- One title bar: the app header is now the window's title bar on Windows, macOS and Linux, with Quick Search in the center and the minimize, maximize and close buttons on the right. Web uses the same header without window buttons.
+
 ## [0.4.2] - 2026-10-11
 
 ### Security

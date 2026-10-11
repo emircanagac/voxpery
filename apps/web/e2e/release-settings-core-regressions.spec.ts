@@ -144,6 +144,55 @@ test.describe('mocked release and settings regressions', () => {
   })
   }
 
+  test('uses one title bar: brand left, Quick Search centered, window buttons only on desktop', { tag: '@core' }, async ({ page }, testInfo) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/social')
+    const topbar = page.locator('.shell-topbar')
+    const search = topbar.getByRole('button', { name: /Quick Search/ })
+    const centerOffset = () => search.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return Math.abs(box.left + box.width / 2 - window.innerWidth / 2)
+    })
+    expect(await centerOffset()).toBeLessThanOrEqual(1)
+    await expect(topbar.getByRole('button', { name: 'Close' })).toHaveCount(0)
+    await expect(topbar).not.toHaveAttribute('data-tauri-drag-region')
+
+    // Desktop: the header is the window's title bar on every platform.
+    await installDesktopWindowMock(page, true)
+    await page.reload()
+    await expect(topbar).toHaveAttribute('data-tauri-drag-region', 'deep')
+    await expect(page.locator('.desktop-window-strip')).toBeHidden()
+    expect(await centerOffset()).toBeLessThanOrEqual(1)
+    const controls = topbar.locator('.window-controls')
+    await expect(controls.getByRole('button')).toHaveText(['', '', ''])
+    await controls.getByRole('button', { name: 'Minimize' }).click()
+    await controls.getByRole('button', { name: 'Maximize' }).click()
+    await controls.getByRole('button', { name: 'Close' }).click()
+    await expect.poll(() => page.evaluate(() => (Reflect.get(window, '__windowCalls') as string[])
+      .filter(call => ['minimize', 'toggle_maximize', 'close'].includes(call))))
+      .toEqual(['minimize', 'toggle_maximize', 'close'])
+    const closeBox = await controls.getByRole('button', { name: 'Close' }).boundingBox()
+    expect(closeBox!.x + closeBox!.width).toBeGreaterThan(1920 - 12)
+    await page.screenshot({ path: testInfo.outputPath('desktop-title-bar.png'), clip: { x: 0, y: 0, width: 1920, height: 60 } })
+  })
+
+  test('keeps the desktop window draggable and closable on the sign-in screen', { tag: '@core' }, async ({ page }, testInfo) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
+    await installDesktopWindowMock(page, false)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/login')
+    const strip = page.locator('.desktop-window-strip')
+    await expect(strip).toBeVisible()
+    await expect(strip).toHaveAttribute('data-tauri-drag-region', 'deep')
+    await strip.getByRole('button', { name: 'Close' }).click()
+    await expect.poll(() => page.evaluate(() => (Reflect.get(window, '__windowCalls') as string[]).includes('close'))).toBe(true)
+    // The sign-in form starts below the strip instead of under it.
+    const stripBottom = (await strip.boundingBox())!.y + 36
+    expect((await page.locator('#root').boundingBox())!.y).toBeGreaterThanOrEqual(stripBottom)
+    await page.screenshot({ path: testInfo.outputPath('desktop-sign-in-strip.png'), clip: { x: 0, y: 0, width: 1366, height: 120 } })
+  })
+
   test('groups Quick Search and preserves keyboard navigation, filtering and focus', async ({ page }, testInfo) => {
     const server = buildCoreServer()
     await installMockCoreApi(page, createMockCoreState({
@@ -1559,4 +1608,28 @@ async function readSettledSemanticThemeSnapshot(page: import('@playwright/test')
   const snapshot = await readSemanticThemeSnapshot(page)
   assertSemanticTextContract(snapshot)
   return snapshot
+}
+
+/** Minimal Tauri runtime for desktop-only UI: window commands are recorded in `__windowCalls`. */
+async function installDesktopWindowMock(page: Page, signedIn: boolean) {
+  await page.addInitScript((hasSession) => {
+    const calls: string[] = []
+    Reflect.set(window, '__windowCalls', calls)
+    let maximized = false
+    Reflect.set(window, '__TAURI_INTERNALS__', {
+      metadata: { currentWindow: { label: 'main' }, currentWebview: { windowLabel: 'main', label: 'main' } },
+      invoke: async (command: string, args?: { payload?: { prefixedKey?: string } }) => {
+        if (command.startsWith('plugin:window|')) calls.push(command.slice('plugin:window|'.length))
+        if (command === 'plugin:window|is_maximized') return maximized
+        if (command === 'plugin:window|toggle_maximize') maximized = !maximized
+        if (command === 'plugin:app|version') return '0.4.2'
+        if (command === 'plugin:event|listen') return 1
+        if (hasSession && command === 'plugin:secure-storage|get_item' && args?.payload?.prefixedKey === 'voxpery-auth-token') return 'mock-token'
+        return null
+      },
+      transformCallback: () => 1,
+      unregisterCallback: () => {},
+      convertFileSrc: (path: string) => path,
+    })
+  }, signedIn)
 }

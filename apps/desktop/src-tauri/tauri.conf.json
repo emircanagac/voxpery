@@ -20,6 +20,8 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
+        "decorations": false,
+        "shadow": true,
         "fullscreen": false,
         "dragDropEnabled": false,
         "useHttpsScheme": true

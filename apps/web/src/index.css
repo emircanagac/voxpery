@@ -538,16 +538,35 @@ body {
   }
 }
 
+/* Brand on the left, Quick Search in the exact center, window controls (desktop) on the right. */
 .shell-topbar {
   height: 52px;
   border-bottom: var(--border-subtle);
   background: linear-gradient(180deg, var(--topbar-start), var(--topbar-end));
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 0 12px;
   flex-shrink: 0;
   position: relative;
+}
+
+/* The desktop window has no system title bar: this header is dragged and holds the window buttons. */
+.shell-topbar--desktop {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Window buttons sit closer to the edge without shifting the centered Quick Search. */
+.shell-topbar--desktop .window-controls {
+  margin-right: -6px;
+}
+
+.shell-topbar-center {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
 }
 
 .shell-left {
@@ -678,9 +697,111 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex: 0 0 var(--member-sidebar-width);
+  height: 100%;
   justify-content: flex-end;
 }
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.window-control {
+  width: 36px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.window-control:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+  color: var(--text-primary);
+}
+
+.window-control--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.window-control:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+/* Desktop screens without the app header get a plain draggable strip with the window buttons. */
+.desktop-window-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  background: var(--bg-primary);
+  z-index: 9000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body:has(.shell-topbar) .desktop-window-strip {
+  display: none;
+}
+
+body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
+  height: calc(100% - 36px);
+  margin-top: 36px;
+}
+
+/* Linux frameless window: thin resize borders along the window edges. */
+.window-resize-edge {
+  position: fixed;
+  z-index: 10000;
+}
+
+.window-resize-edge--n,
+.window-resize-edge--s {
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.window-resize-edge--n { top: 0; }
+.window-resize-edge--s { bottom: 0; }
+
+.window-resize-edge--e,
+.window-resize-edge--w {
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.window-resize-edge--e { right: 0; }
+.window-resize-edge--w { left: 0; }
+
+.window-resize-edge--ne,
+.window-resize-edge--nw,
+.window-resize-edge--se,
+.window-resize-edge--sw {
+  width: 8px;
+  height: 8px;
+}
+
+.window-resize-edge--ne { top: 0; right: 0; cursor: nesw-resize; }
+.window-resize-edge--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.window-resize-edge--nw { top: 0; left: 0; cursor: nwse-resize; }
+.window-resize-edge--se { bottom: 0; right: 0; cursor: nwse-resize; }
 
 .shell-mobile-settings {
   display: none;
@@ -690,9 +811,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: calc(var(--member-sidebar-width) - 12px);
-  max-width: calc(var(--member-sidebar-width) - 12px);
-  flex: 0 0 calc(var(--member-sidebar-width) - 12px);
+  width: min(420px, 36vw);
+  max-width: min(420px, 36vw);
+  flex: 0 0 auto;
   min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
@@ -16479,7 +16600,14 @@ textarea {
   }
 
   .shell-topbar {
+    display: flex;
     padding: 0 10px;
+  }
+
+  /* Narrow layout: Quick Search becomes an icon next to the right-hand controls. */
+  .shell-topbar-center {
+    margin-left: auto;
+    flex: 0 0 auto;
   }
 
   .shell-mobile-settings {
@@ -16509,7 +16637,7 @@ textarea {
     flex: 0 0 auto;
     width: auto;
     min-width: 36px;
-    margin-left: auto;
+    margin-left: 6px;
     justify-content: flex-end;
   }
 
@@ -18182,9 +18310,8 @@ textarea {
 
 @media (min-width: 1024px) and (max-width: 1180px) {
   .shell-quick-switch-btn {
-    width: calc(var(--member-sidebar-width) - 12px);
-    max-width: calc(var(--member-sidebar-width) - 12px);
-    flex-basis: calc(var(--member-sidebar-width) - 12px);
+    width: min(320px, 30vw);
+    max-width: min(320px, 30vw);
   }
 
   .shell-quick-switch-shortcut {

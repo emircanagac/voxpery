@@ -10,6 +10,7 @@ import ActiveCallBar from '../components/ActiveCallBar'
 import QuickSwitcher, { type QuickSwitcherItem } from '../components/QuickSwitcher'
 import UserBar from '../components/UserBar'
 import { ProjectSupportLink } from '../components/SocialInfoPanel'
+import WindowControls from '../components/WindowControls'
 import { useToastStore } from '../stores/toast'
 import { authApi, dmApi, friendApi, serverApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
@@ -38,6 +39,12 @@ const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SOCIAL_FALLBACK_SYNC_INTERVAL_MS = 5 * 60 * 1000
 const SOCIAL_FOREGROUND_STALE_MS = 30 * 1000
 const BUILD_APP_VERSION = formatAppVersionBadge(import.meta.env.VITE_APP_VERSION)
+const QUICK_SEARCH_SHORTCUT = typeof navigator !== 'undefined'
+  && /mac/i.test(navigator.platform || navigator.userAgent)
+  ? '⌘ K'
+  : 'Ctrl K'
+// The desktop window has no system title bar; this header is the title bar on every platform.
+const IS_DESKTOP_WINDOW = isTauri()
 
 export default function AppShell() {
   const { user } = useAuthStore()
@@ -728,7 +735,10 @@ export default function AppShell() {
 
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
-      <header className="shell-topbar">
+      <header
+        className={`shell-topbar${IS_DESKTOP_WINDOW ? ' shell-topbar--desktop' : ''}`}
+        data-tauri-drag-region={IS_DESKTOP_WINDOW ? 'deep' : undefined}
+      >
         <div className="shell-left">
           <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
             <img src="/voxpery-logo.svg" alt="" className="shell-brand-logo" width={32} height={32} />
@@ -741,7 +751,7 @@ export default function AppShell() {
             </span>
           </button>
         </div>
-        <div className="shell-topbar-right">
+        <div className="shell-topbar-center">
           <button
             type="button"
             className="shell-quick-switch-btn"
@@ -751,9 +761,12 @@ export default function AppShell() {
             <Search size={14} />
             <span className="shell-quick-switch-label">Quick Search</span>
             <span className="shell-quick-switch-mobile-label">Search</span>
-            <span className="shell-quick-switch-shortcut">Ctrl K</span>
+            <span className="shell-quick-switch-shortcut">{QUICK_SEARCH_SHORTCUT}</span>
           </button>
+        </div>
+        <div className="shell-topbar-right">
           <div className="shell-mobile-settings" ref={setCompactSettingsTarget} />
+          {IS_DESKTOP_WINDOW && <WindowControls />}
         </div>
       </header>
       <main className="shell-content">
