@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 190 1200 820" fill="none" role="img" aria-labelledby="vp-title vp-description">
+  <title id="vp-title">Voxpery</title>
+  <desc id="vp-description">The Voxpery fox icon gently nods, blinks and sends out sound waves. A seamless eight-second animation on a transparent background. Reduced-motion preferences show a still logo.</desc>
+  <defs>
+    <linearGradient id="vp-fox-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFA24A"/>
+      <stop offset="1" stop-color="#EE5A0C"/>
+    </linearGradient>
+    <linearGradient id="vp-fox-shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F58A30"/>
+      <stop offset="1" stop-color="#D9500A"/>
+    </linearGradient>
+    <linearGradient id="vp-gleam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vp-ground" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#0E131D" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#0E131D" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="vp-fox-clip">
+      <path d="M12 11 L27 23.5 Q32 22 37 23.5 L52 11 L52.5 31 L57 37 L32 56.5 L7 37 L11.5 31 Z"/>
+    </clipPath>
+  </defs>
+  <style>
+    /* One shared 8s cycle. The SVG needs no script, font or external image. */
+    .vp-fox{transform-origin:600px 946px;animation:vp-hello 8s ease-in-out infinite}
+    .vp-eye-left,.vp-eye-right{transform-box:fill-box;transform-origin:center}
+    .vp-eye-left{animation:vp-blink 8s ease-in-out infinite}
+    .vp-eye-right{animation:vp-wink 8s ease-in-out infinite}
+    .vp-wave{opacity:0;transform-origin:600px 585px;animation:vp-voice 8s ease-in-out infinite}
+    .vp-wave-2{animation-delay:.18s}
+    .vp-wave-3{animation-delay:.36s}
+    .vp-shine{opacity:0;animation:vp-light 8s linear infinite}
+    .vp-shadow{transform-origin:600px 975px;animation:vp-grounding 8s ease-in-out infinite}
+    @keyframes vp-hello{
+      0%,8%,49%,100%{transform:translateY(0) rotate(0deg) scale(1)}
+      13%{transform:translateY(7px) rotate(0deg) scale(1.015,.985)}
+      22%{transform:translateY(-20px) rotate(-3deg) scale(.99,1.01)}
+      32%{transform:translateY(-10px) rotate(2deg) scale(1)}
+      41%{transform:translateY(0) rotate(-.6deg) scale(1)}
+      67%{transform:translateY(-6px) rotate(0deg) scale(1)}
+      84%{transform:translateY(0) rotate(0deg) scale(1)}
+    }
+    @keyframes vp-blink{
+      0%,68%,73%,100%{transform:scaleY(1)}
+      70%,71%{transform:scaleY(.2)}
+    }
+    @keyframes vp-wink{
+      0%,25%,34%,68%,73%,100%{transform:scaleY(1)}
+      28%,30%{transform:scaleY(.2)}
+      70%,71%{transform:scaleY(.2)}
+    }
+    @keyframes vp-voice{
+      0%,12%,50%,100%{opacity:0;transform:scaleX(.94)}
+      24%{opacity:.85;transform:scaleX(1)}
+      40%{opacity:0;transform:scaleX(1.05)}
+      58%{opacity:0;transform:scaleX(.96)}
+      68%{opacity:.4;transform:scaleX(1)}
+      83%{opacity:0;transform:scaleX(1.04)}
+    }
+    @keyframes vp-light{
+      0%,43%{opacity:0;transform:translateX(-40px)}
+      47%{opacity:1;transform:translateX(-20px)}
+      63%{opacity:1;transform:translateX(70px)}
+      65%,100%{opacity:0;transform:translateX(80px)}
+    }
+    @keyframes vp-grounding{
+      0%,8%,49%,84%,100%{opacity:.8;transform:scaleX(1)}
+      13%{opacity:1;transform:scaleX(1.04)}
+      22%{opacity:.45;transform:scaleX(.88)}
+      32%{opacity:.6;transform:scaleX(.94)}
+      67%{opacity:.65;transform:scaleX(.97)}
+    }
+    @media(prefers-reduced-motion:reduce){
+      .vp-fox,.vp-eye-left,.vp-eye-right,.vp-wave,.vp-shine,.vp-shadow{animation:none!important}
+      .vp-wave,.vp-shine{opacity:0}
+    }
+  </style>
+  <g aria-hidden="true">
+    <ellipse class="vp-shadow" cx="600" cy="975" rx="300" ry="18" fill="url(#vp-ground)"/>
+    <g stroke="#FF8A2A" stroke-linecap="round">
+      <path class="vp-wave vp-wave-1" d="M150 505Q120 585 150 665M1050 505Q1080 585 1050 665" stroke-width="18"/>
+      <path class="vp-wave vp-wave-2" d="M104 460Q56 585 104 710M1096 460Q1144 585 1096 710" stroke-width="15"/>
+      <path class="vp-wave vp-wave-3" d="M58 418Q-6 585 58 752M1142 418Q1206 585 1142 752" stroke-width="12"/>
+    </g>
+  </g>
+  <g class="vp-fox">
+    <g transform="translate(108 66) scale(15.38)">
+      <path fill="url(#vp-fox-fill)" stroke="#F47A20" stroke-width="1.2" stroke-linejoin="round" d="M12 11 L27 23.5 Q32 22 37 23.5 L52 11 L52.5 31 L57 37 L32 56.5 L7 37 L11.5 31 Z"/>
+      <path fill="url(#vp-fox-shade)" d="M32 22.6 Q34.5 22.6 37 23.5 L52 11 L52.5 31 L57 37 L32 56.5 Z"/>
+      <path fill="#B8430A" d="M15 16.5 L23.5 23.8 L16.5 27.5 Z M49 16.5 L40.5 23.8 L47.5 27.5 Z"/>
+      <path fill="#FFFFFF" d="M9.2 37.3 L13.3 32.6 L24.5 34.8 L30 43.5 L31.3 54.3 Z M54.8 37.3 L50.7 32.6 L39.5 34.8 L34 43.5 L32.7 54.3 Z"/>
+      <g fill="none" stroke="#0E131D" stroke-width="3" stroke-linecap="round">
+        <path class="vp-eye-left" d="M19.5 29 L25.5 30.8"/>
+        <path class="vp-eye-right" d="M44.5 29 L38.5 30.8"/>
+      </g>
+      <path fill="#0E131D" stroke="#0E131D" stroke-width="1.5" stroke-linejoin="round" d="M28.8 45.5 H35.2 L32 49.5 Z"/>
+      <g clip-path="url(#vp-fox-clip)">
+        <path class="vp-shine" d="M-10 -4H6L22 68H6Z" fill="url(#vp-gleam)"/>
+      </g>
+    </g>
+  </g>
+</svg>

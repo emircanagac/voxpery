@@ -77,17 +77,7 @@ export interface MessageReaction {
     }>;
 }
 
-export interface SignalingMessage {
-    type: 'Offer' | 'Answer' | 'IceCandidate';
-    payload: {
-        sdp?: string;
-        candidate?: string;
-        sdp_mid?: string;
-        sdp_m_line_index?: number;
-    };
-}
-
 export interface WsEvent {
-    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'VoiceMemberMoveRequested' | 'VoiceMemberMoveResult' | 'ScreenShareViewerUpdate' | 'Signal' | 'Pong';
+    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'VoiceMemberMoveRequested' | 'VoiceMemberMoveResult' | 'ScreenShareViewerUpdate' | 'Pong';
     data: unknown;
 }

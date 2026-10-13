@@ -113,30 +113,8 @@ pub enum WsEvent {
     UserUpdated {
         user: crate::models::UserBroadcastProfile,
     },
-    /// WebRTC signaling message (Offer, Answer, ICE Candidate).
-    Signal {
-        sender_id: Uuid,
-        signal: SignalingMessage,
-    },
     /// Pong response for latency measurement.
     Pong { sent_at_ms: u64 },
-}
-
-/// WebRTC signaling data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "payload")]
-pub enum SignalingMessage {
-    Offer {
-        sdp: String,
-    },
-    Answer {
-        sdp: String,
-    },
-    IceCandidate {
-        candidate: String,
-        sdp_mid: Option<String>,
-        sdp_m_line_index: Option<u16>,
-    },
 }
 
 #[cfg(test)]
@@ -293,11 +271,6 @@ pub enum WsClientMessage {
     SetScreenShareWatching {
         publisher_user_id: Uuid,
         watching: bool,
-    },
-    /// WebRTC signaling message.
-    Signal {
-        target_user_id: Uuid,
-        signal: SignalingMessage,
     },
     /// Ping request for latency measurement.
     Ping { sent_at_ms: u64 },

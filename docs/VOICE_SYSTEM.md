@@ -406,7 +406,7 @@ When debugging a production voice report, capture:
 
 ## Performance
 
-- **Latency**: 50-150ms typical (P2P via SFU)
+- **Latency**: 50-150ms typical (through the LiveKit SFU)
 - **Bandwidth**: ~50 kbps per audio stream (Opus codec)
 - **CPU**: Minimal (SFU does forwarding, not transcoding)
 - **Scalability**: Tested up to 20 concurrent users per room on 2-core VPS

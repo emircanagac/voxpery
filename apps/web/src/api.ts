@@ -35,7 +35,6 @@ export type {
     ServerRole,
     ServerTimeoutEntry,
     ServerRule,
-    SignalingMessage,
     SystemFeatures,
     TurnCredentials,
     UpdateServerOnboardingGuideRequest,

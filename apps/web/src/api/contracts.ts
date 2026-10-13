@@ -1,6 +1,6 @@
-import type { User, Server, ServerInvitePreview, Channel, Message, SignalingMessage, WsEvent } from '../types'
+import type { User, Server, ServerInvitePreview, Channel, Message, WsEvent } from '../types'
 
-export type { User, Server, ServerInvitePreview, Channel, Message, SignalingMessage, WsEvent }
+export type { User, Server, ServerInvitePreview, Channel, Message, WsEvent }
 
 export interface AuditLogEntry {
     id: string
