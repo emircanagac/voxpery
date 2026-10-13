@@ -224,6 +224,28 @@ async fn desktop_update_unread_feedback(
     Ok(())
 }
 
+/// Linux: the page calls this after each click, because a click inside the focused window can
+/// take X11 keyboard focus away from the CEF browser without a new window focus event.
+/// Async so it runs off the main thread; other platforms do nothing.
+#[tauri::command]
+async fn desktop_refocus_webview_keyboard(app: tauri::AppHandle) {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        linux_focus::refocus_webview_keyboard(&window);
+        // GTK or the window manager can take focus back just after the click; check once more.
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            linux_focus::refocus_webview_keyboard(&window);
+        })
+        .await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
+}
+
 #[tauri::command]
 fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
     let target = match kind.as_str() {
@@ -313,6 +335,7 @@ fn main() {
             desktop_take_pending_deep_links,
             desktop_update_unread_feedback,
             desktop_open_media_permission_settings,
+            desktop_refocus_webview_keyboard,
             desktop_update_channel
         ]);
 

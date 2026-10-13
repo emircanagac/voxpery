@@ -113,6 +113,19 @@ function App() {
   }, [isDesktopApp])
 
   useEffect(() => {
+    if (!isDesktopApp) return
+    let dispose: (() => void) | null = null
+    let cancelled = false
+    void import('./linuxDesktopFocus').then(({ installLinuxDesktopKeyboardFocus }) => {
+      if (!cancelled) dispose = installLinuxDesktopKeyboardFocus()
+    })
+    return () => {
+      cancelled = true
+      dispose?.()
+    }
+  }, [isDesktopApp])
+
+  useEffect(() => {
     const clearExpiredSession = () => {
       if (authFailureHandledRef.current) return
       authFailureHandledRef.current = true
