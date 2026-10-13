@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Security updates.
+
+### Fixed
+- Direct message history and message search no longer fail when asked for an out-of-range page size.
+
 ## [0.4.4] - 2026-10-13
 
 ### Security

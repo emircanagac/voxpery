@@ -769,7 +769,7 @@ async fn get_dm_messages(
 ) -> Result<Json<Vec<MessageWithAuthor>>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
 
-    let limit = query.limit.unwrap_or(50).min(100);
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let rows: Vec<DmMessageRow> = if let Some(before) = query.before {
         sqlx::query_as::<_, DmMessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
@@ -1312,7 +1312,7 @@ async fn search_dm_messages(
     if term.is_empty() && author.is_empty() && !has_attachment {
         return Ok(Json(vec![]));
     }
-    let limit = query.limit.unwrap_or(100).min(200);
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
     let pattern = if term.is_empty() {
         String::new()
     } else {

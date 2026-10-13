@@ -45,10 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
@@ -87,7 +87,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
@@ -96,7 +96,7 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libgtk-4-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev patchelf cmake ninja-build file
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: 'npm'
@@ -138,19 +138,19 @@ jobs:
         run: npm run build
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri -> target
 
       # Linux bundles the Chromium (CEF) distribution; cache the ~1 GB download between releases.
       - name: Cache CEF distribution
         if: matrix.platform == 'ubuntu-24.04'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/tauri-cef
           key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
@@ -158,7 +158,7 @@ jobs:
       # Icons must be committed in apps/desktop/src-tauri/icons/ (see docs/DESKTOP_RELEASE_HARDENING.md).
 
       - name: Build Tauri and create release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -180,7 +180,7 @@ jobs:
 
       - name: Keep the Linux .deb for the Flatpak bundle
         if: matrix.platform == 'ubuntu-24.04'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-deb
           path: apps/desktop/src-tauri/target/release/bundle/deb/*.deb
@@ -198,10 +198,10 @@ jobs:
       options: --privileged
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Download the Linux .deb
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: linux-deb
           path: deb
@@ -239,7 +239,7 @@ jobs:
           grep -q "version=\"$VERSION\"" build/files/share/metainfo/com.voxpery.Voxpery.metainfo.xml
 
       - name: Keep the Flatpak bundle
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-flatpak
           path: Voxpery_${{ steps.version.outputs.version }}_x86_64.flatpak
@@ -254,7 +254,7 @@ jobs:
       contents: write
     steps:
       - name: Download the Flatpak bundle
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: linux-flatpak
 

@@ -9102,6 +9102,145 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
 }
 
 #[tokio::test]
+async fn oversized_websocket_messages_close_the_connection() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "wsbig").await;
+    let addr = spawn_ws_app(&state).await;
+    let mut ws = connect_ws(addr, &auth).await;
+
+    // Over the 256 KB limit: the server stops reading instead of buffering it.
+    let oversized = format!("{{\"type\":\"Ping\",\"data\":{{\"pad\":\"{}\"}}}}", "x".repeat(300 * 1024));
+    let _ = ws.send(WsMessage::Text(oversized.into())).await;
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match ws.next().await {
+                None | Some(Err(_)) | Some(Ok(WsMessage::Close(_))) => return true,
+                Some(Ok(_)) => continue,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(closed, "an oversized message must end the connection");
+}
+
+#[tokio::test]
+async fn out_of_range_page_limits_are_clamped_instead_of_failing() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "limitsa").await;
+    let (_, friend_id, _) = register_named_user(&mut app, "limitsb").await;
+    befriend(&state, user_id, friend_id).await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Limits").await;
+    let (status, dm) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{friend_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "open DM failed: {dm}");
+    let dm_id = dm["id"].as_str().unwrap().to_string();
+
+    for uri in [
+        format!("/api/dm/messages/{dm_id}?limit=-1"),
+        format!("/api/dm/messages/{dm_id}?limit=0"),
+        format!("/api/dm/messages/{dm_id}/search?q=hi&limit=-5"),
+        format!("/api/messages/{channel_id}/search?q=hi&limit=-5"),
+    ] {
+        let (status, body) = api_json(&mut app, "GET", &uri, &auth, None).await;
+        assert_eq!(status, StatusCode::OK, "{uri} failed: {body}");
+    }
+}
+
+async fn seed_password_reset_token(
+    state: &AppState,
+    user_id: Uuid,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> String {
+    let token = Uuid::new_v4().to_string();
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    sqlx::query(
+        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, expires_at = EXCLUDED.expires_at",
+    )
+    .bind(user_id)
+    .bind(BASE64.encode(hasher.finalize()))
+    .bind(expires_at)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    token
+}
+
+fn reset_password_request(token: &str, new_password: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/api/auth/reset-password")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "token": token, "new_password": new_password })).unwrap(),
+        ))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn password_reset_tokens_work_once_even_under_concurrent_use() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app_with_auth_features(false, true).await;
+    let (_, user_id, _) = register_named_user(&mut app, "resetonce").await;
+
+    let token =
+        seed_password_reset_token(&state, user_id, chrono::Utc::now() + chrono::Duration::hours(1))
+            .await;
+    let (mut first_app, mut second_app) = (app.clone(), app.clone());
+    let first = reset_password_request(&token, test_credential("first"));
+    let second = reset_password_request(&token, test_credential("second"));
+    let ((first_status, _), (second_status, _)) = tokio::join!(
+        oneshot(&mut first_app, first),
+        oneshot(&mut second_app, second)
+    );
+    let mut statuses = [first_status, second_status];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        [StatusCode::OK, StatusCode::BAD_REQUEST],
+        "exactly one concurrent reset may use the token"
+    );
+    let (status, _) =
+        oneshot(&mut app, reset_password_request(&token, test_credential("third"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a used token is rejected");
+
+    // An expired token is refused and removed.
+    let expired =
+        seed_password_reset_token(&state, user_id, chrono::Utc::now() - chrono::Duration::minutes(1))
+            .await;
+    let (status, _) =
+        oneshot(&mut app, reset_password_request(&expired, test_credential("late"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0, "the expired token is deleted");
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

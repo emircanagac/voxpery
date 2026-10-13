@@ -12,6 +12,7 @@ use axum::{
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
+use crate::services::redact::ShortId;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
@@ -114,7 +115,7 @@ async fn upload_attachments(
         Err(error) => {
             if let Err(rollback_error) = tx.rollback().await {
                 tracing::error!(
-                    user_id = %claims.sub,
+                    user_id = %ShortId(claims.sub),
                     error = %rollback_error,
                     "Failed to roll back attachment upload transaction"
                 );
