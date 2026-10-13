@@ -29,6 +29,14 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
   # Tray icon host (StatusNotifierItem).
   - --talk-name=org.kde.StatusNotifierWatcher
+  # The tray backend (ksni) registers the item under a well-known bus name
+  # (org.kde.StatusNotifierItem-$PID-$ID) and does not fall back to its unique
+  # connection name, so without permission to own that name TrayIconBuilder::build
+  # fails and the tray never appears ("Voxpery tray is unavailable"). Flatpak's bus
+  # grammar cannot wildcard the -$PID-$ID suffix, so the StatusNotifier convention
+  # is to allow the org.kde.* prefix. See
+  # https://docs.flatpak.org/en/latest/desktop-integration.html#tray-icons
+  - --own-name=org.kde.*
 
 modules:
   - name: voxpery
