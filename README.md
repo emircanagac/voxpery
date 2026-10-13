@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="apps/web/public/fox-animated.svg" alt="Voxpery fox logo" width="104" height="104" />
-
-# Voxpery
+<h1>
+  <img src="docs/assets/voxpery-readme-logo.svg" alt="" width="140" height="96" /><br />
+  Voxpery
+</h1>
 
 **Open-source chat, voice, and screen sharing for communities that want control.**
 
