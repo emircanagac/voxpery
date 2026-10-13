@@ -181,6 +181,12 @@ Legacy custom signaling event.
   - Targeted to each affected user after request, accept, reject, cancel, or remove operations.
   - Clients refresh friend/request snapshots from this event, with reconnect, foreground, and a five-minute visible-session fallback for recovery; do not add short-interval polling.
 
+### Direct Messages
+
+- `DmChannelsUpdated` (`channel_id`)
+  - Targeted to every current member, and to removed members, when a group DM is created, renamed or its membership changes. Never broadcast.
+  - Clients reload their DM list; a group that is no longer listed is closed.
+
 ### Server Membership / Roles / Channels
 
 - `MemberJoined`

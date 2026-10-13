@@ -8837,6 +8837,271 @@ async fn failed_livekit_revocations_are_retried_until_the_participant_is_gone() 
 }
 
 #[tokio::test]
+async fn friends_only_users_can_be_answered_in_dms_they_wrote_in() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (private_auth, private_id, _) = register_named_user(&mut app, "private").await;
+    let (open_auth, open_id, _) = register_named_user(&mut app, "open").await;
+    sqlx::query("UPDATE users SET dm_privacy = 'friends' WHERE id = $1")
+        .bind(private_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    // A non-friend cannot start a DM with the friends-only user.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{private_id}"),
+        &open_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The friends-only user starts the DM; until they write, the other side still cannot.
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{open_id}"),
+        &private_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "open DM failed: {channel}");
+    let channel_id = channel["id"].as_str().unwrap().to_string();
+    let send = |content: &'static str| json!({ "content": content });
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{channel_id}"),
+        &open_auth,
+        Some(send("hello first")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "no reply before the friends-only user writes");
+
+    // Once they have written, the reply goes through.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{channel_id}"),
+        &private_auth,
+        Some(send("hi there")),
+    )
+    .await;
+    assert!(status.is_success(), "friends-only user could not write: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{channel_id}"),
+        &open_auth,
+        Some(send("hi back")),
+    )
+    .await;
+    assert!(status.is_success(), "reply to a DM the friends-only user wrote in failed: {body}");
+
+    // Writing in one conversation is not consent for strangers in general.
+    let (stranger_auth, _, _) = register_named_user(&mut app, "stranger").await;
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{private_id}"),
+        &stranger_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+async fn befriend(state: &AppState, one: Uuid, other: Uuid) {
+    let (a, b) = if one < other { (one, other) } else { (other, one) };
+    sqlx::query("INSERT INTO friendships (user_a, user_b) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(a)
+        .bind(b)
+        .execute(&state.db)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn group_dms_are_built_from_friends_and_follow_membership() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "gowner").await;
+    let (amy_auth, amy_id, _) = register_named_user(&mut app, "gamy").await;
+    let (ben_auth, ben_id, _) = register_named_user(&mut app, "gben").await;
+    let (_, cara_id, _) = register_named_user(&mut app, "gcara").await;
+    let (stranger_auth, stranger_id, _) = register_named_user(&mut app, "gstranger").await;
+    for friend in [amy_id, ben_id, cara_id] {
+        befriend(&state, owner_id, friend).await;
+    }
+
+    // At least two friends; strangers cannot be added.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/dm/groups",
+        &owner_auth,
+        Some(json!({ "member_ids": [amy_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a group needs at least two friends");
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/dm/groups",
+        &owner_auth,
+        Some(json!({ "member_ids": [amy_id, stranger_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "only friends can be added");
+
+    let addr = spawn_ws_app(&state).await;
+    let mut ben_ws = connect_ws(addr, &ben_auth).await;
+    let (status, group) = api_json(
+        &mut app,
+        "POST",
+        "/api/dm/groups",
+        &owner_auth,
+        Some(json!({ "member_ids": [amy_id, ben_id], "name": "  Weekend  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create group failed: {group}");
+    let group_id = group["id"].as_str().unwrap().to_string();
+    assert_eq!(group["is_group"], true);
+    assert_eq!(group["name"], "Weekend");
+    assert_eq!(group["owner_id"], json!(owner_id));
+    assert_eq!(group["members"].as_array().unwrap().len(), 3);
+    let updated = receive_ws_event(&mut ben_ws, "DmChannelsUpdated").await;
+    assert_eq!(updated["data"]["channel_id"], json!(group_id));
+
+    // The group shows up in every member's DM list, not in a stranger's.
+    for (auth, expected) in [(&amy_auth, true), (&stranger_auth, false)] {
+        let (status, list) = api_json(&mut app, "GET", "/api/dm/channels", auth, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed = list.as_array().unwrap().iter().any(|c| c["id"] == json!(group_id));
+        assert_eq!(listed, expected);
+    }
+
+    // Members talk to each other (Amy and Ben are not friends); everyone else is refused.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{group_id}"),
+        &amy_auth,
+        Some(json!({ "content": "hi group" })),
+    )
+    .await;
+    assert!(status.is_success(), "member could not write: {body}");
+    let delivered = receive_ws_event(&mut ben_ws, "NewMessage").await;
+    assert_eq!(delivered["data"]["channel_id"], json!(group_id));
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{group_id}"),
+        &stranger_auth,
+        Some(json!({ "content": "let me in" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Any member renames; a member adds their own friend; the size limit holds.
+    let (status, renamed) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/dm/groups/{group_id}"),
+        &amy_auth,
+        Some(json!({ "name": "" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(renamed["name"].is_null(), "an empty name falls back to member names");
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/groups/{group_id}/members"),
+        &amy_auth,
+        Some(json!({ "user_ids": [cara_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "Amy is not Cara's friend");
+    let (status, grown) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/groups/{group_id}/members"),
+        &owner_auth,
+        Some(json!({ "user_ids": [cara_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "add member failed: {grown}");
+    assert_eq!(grown["members"].as_array().unwrap().len(), 4);
+
+    // Only the owner removes others; anyone can leave; the owner leaving hands the group on.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/dm/groups/{group_id}/members/{cara_id}"),
+        &amy_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/dm/groups/{group_id}/members/{cara_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/dm/groups/{group_id}/members/{owner_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let new_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM dm_channels WHERE id = $1")
+        .bind(Uuid::parse_str(&group_id).unwrap())
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(new_owner, Some(amy_id), "the longest-standing member becomes owner");
+    let (status, _) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/dm/messages/{group_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a former member loses access");
+
+    // Groups never stand in for the one-to-one DM between two of their members.
+    let (status, direct) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{owner_id}"),
+        &amy_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{direct}");
+    assert_ne!(direct["id"], json!(group_id));
+    assert_eq!(direct["is_group"], false);
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

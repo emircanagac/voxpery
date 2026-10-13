@@ -26,6 +26,9 @@ use crate::{
 
 const DM_SEARCH_RATE_LIMIT_MAX: usize = 15;
 const DM_SEARCH_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+/// Members of a group DM, the creator included.
+pub const MAX_GROUP_DM_MEMBERS: usize = 8;
+const MAX_GROUP_DM_NAME_CHARS: usize = 64;
 
 fn escape_ilike_pattern(input: &str) -> String {
     input
@@ -37,6 +40,8 @@ fn escape_ilike_pattern(input: &str) -> String {
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct DmChannelInfo {
     pub id: Uuid,
+    /// One-to-one DMs: the other person. Group DMs: a nil id, the group's display name and no
+    /// avatar; use `members` instead.
     pub peer_id: Uuid,
     pub peer_username: String,
     pub peer_avatar_url: Option<String>,
@@ -45,6 +50,42 @@ pub struct DmChannelInfo {
     pub unread_count: i64,
     pub pinned_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_pinned: bool,
+    #[sqlx(default)]
+    pub is_group: bool,
+    /// Group DMs: the name set by a member, or `None` to show the members' names.
+    #[sqlx(default)]
+    pub name: Option<String>,
+    #[sqlx(default)]
+    pub owner_id: Option<Uuid>,
+    #[sqlx(skip)]
+    pub members: Vec<DmMemberInfo>,
+    /// Orders conversations that have no messages yet.
+    #[sqlx(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct DmMemberInfo {
+    pub id: Uuid,
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CreateGroupDmRequest {
+    pub member_ids: Vec<Uuid>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateGroupDmRequest {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AddGroupDmMembersRequest {
+    pub user_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -238,6 +279,13 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/channels", get(list_dm_channels))
         .route("/channels/{peer_id}", post(get_or_create_dm_channel))
+        .route("/groups", post(create_group_dm))
+        .route("/groups/{channel_id}", patch(update_group_dm))
+        .route("/groups/{channel_id}/members", post(add_group_dm_members))
+        .route(
+            "/groups/{channel_id}/members/{user_id}",
+            delete(remove_group_dm_member),
+        )
         .route("/channels/{channel_id}/hide", post(hide_dm_channel))
         .route(
             "/channels/{channel_id}/preferences",
@@ -319,6 +367,7 @@ async fn list_dm_channels(
              INNER JOIN dm_channel_members peer_m
                ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
              INNER JOIN users u ON u.id = peer_m.user_id
+             WHERE NOT c.is_group
            )
            SELECT id,
                   peer_id,
@@ -328,7 +377,8 @@ async fn list_dm_channels(
                   last_message_at,
                   unread_count,
                   pinned_at,
-                  pinned_at IS NOT NULL AS is_pinned
+                  pinned_at IS NOT NULL AS is_pinned,
+                  created_at
            FROM channel_rows
            WHERE hidden_at IS NULL
               OR pinned_at IS NOT NULL
@@ -343,7 +393,7 @@ async fn list_dm_channels(
     .await?;
 
     // Use live WebSocket sessions for peer online/offline.
-    let with_presence: Vec<DmChannelInfo> = rows
+    let mut with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
             let peer_status =
@@ -352,10 +402,129 @@ async fn list_dm_channels(
         })
         .collect();
 
+    // Group DMs join the same list and ordering: pinned first, then latest activity.
+    with_presence.extend(load_group_dm_infos(&state, claims.sub, None).await?);
+    with_presence.sort_by(|a, b| {
+        let activity = |c: &DmChannelInfo| c.last_message_at.or(c.created_at);
+        a.pinned_at
+            .is_none()
+            .cmp(&b.pinned_at.is_none())
+            .then_with(|| b.pinned_at.cmp(&a.pinned_at))
+            .then_with(|| activity(b).cmp(&activity(a)))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
     Ok(Json(with_presence))
 }
 
+/// Group DMs of `user_id` (all of them, or only `only_channel`), with their members. Hidden
+/// groups are left out of the full list the same way hidden one-to-one DMs are.
+async fn load_group_dm_infos(
+    state: &AppState,
+    user_id: Uuid,
+    only_channel: Option<Uuid>,
+) -> Result<Vec<DmChannelInfo>, AppError> {
+    let mut groups = sqlx::query_as::<_, DmChannelInfo>(
+        r#"WITH group_rows AS (
+             SELECT c.id,
+                    c.name,
+                    c.owner_id,
+                    c.created_at,
+                    self_m.hidden_at,
+                    self_m.pinned_at,
+                    (
+                      SELECT m.created_at
+                      FROM dm_messages m
+                      WHERE m.channel_id = c.id
+                      ORDER BY m.created_at DESC
+                      LIMIT 1
+                    ) as last_message_at,
+                    (
+                      SELECT COUNT(*)
+                      FROM dm_messages m
+                      LEFT JOIN dm_channel_reads r
+                        ON r.channel_id = c.id AND r.user_id = $1
+                      WHERE m.channel_id = c.id
+                        AND m.user_id <> $1
+                        AND (r.read_at IS NULL OR m.created_at > r.read_at)
+                    ) as unread_count
+             FROM dm_channels c
+             INNER JOIN dm_channel_members self_m
+               ON self_m.channel_id = c.id AND self_m.user_id = $1
+             WHERE c.is_group
+               AND ($2::uuid IS NULL OR c.id = $2)
+           )
+           SELECT id,
+                  '00000000-0000-0000-0000-000000000000'::uuid AS peer_id,
+                  '' AS peer_username,
+                  NULL::text AS peer_avatar_url,
+                  'offline' AS peer_status,
+                  last_message_at,
+                  unread_count,
+                  pinned_at,
+                  pinned_at IS NOT NULL AS is_pinned,
+                  TRUE AS is_group,
+                  name,
+                  owner_id,
+                  created_at
+           FROM group_rows
+           WHERE $2::uuid IS NOT NULL
+              OR hidden_at IS NULL
+              OR pinned_at IS NOT NULL
+              OR last_message_at > hidden_at"#,
+    )
+    .bind(user_id)
+    .bind(only_channel)
+    .fetch_all(&state.db)
+    .await?;
+    if groups.is_empty() {
+        return Ok(groups);
+    }
+
+    let channel_ids: Vec<Uuid> = groups.iter().map(|group| group.id).collect();
+    let member_rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String)>(
+        r#"SELECT m.channel_id, u.id, u.username, u.avatar_url, u.status
+           FROM dm_channel_members m
+           INNER JOIN users u ON u.id = m.user_id
+           WHERE m.channel_id = ANY($1)
+           ORDER BY m.joined_at ASC, u.username ASC"#,
+    )
+    .bind(&channel_ids)
+    .fetch_all(&state.db)
+    .await?;
+    let mut members_by_channel: HashMap<Uuid, Vec<DmMemberInfo>> = HashMap::new();
+    for (channel_id, id, username, avatar_url, status) in member_rows {
+        let status = visible_presence(&status, state.sessions.contains_key(&id));
+        members_by_channel
+            .entry(channel_id)
+            .or_default()
+            .push(DmMemberInfo {
+                id,
+                username,
+                avatar_url,
+                status,
+            });
+    }
+    for group in &mut groups {
+        group.members = members_by_channel.remove(&group.id).unwrap_or_default();
+        group.peer_username = group.name.clone().unwrap_or_else(|| {
+            let names: Vec<&str> = group
+                .members
+                .iter()
+                .filter(|member| member.id != user_id)
+                .map(|member| member.username.as_str())
+                .collect();
+            names.join(", ")
+        });
+    }
+    Ok(groups)
+}
+
 /// Ensures the sender is allowed to DM the peer according to the peer's dm_privacy setting.
+///
+/// A peer who only accepts DMs from friends can still be answered in a one-to-one DM they
+/// wrote in themselves: writing to someone is consent to their reply. Before the peer has
+/// written, a non-friend can neither start the DM nor send to it.
 async fn check_can_dm_peer(
     state: &AppState,
     sender_id: Uuid,
@@ -368,49 +537,51 @@ async fn check_can_dm_peer(
             .await?
             .ok_or(AppError::NotFound("User not found".into()))?;
 
-    match peer_dm_privacy.as_str() {
-        "everyone" => {}
-        "friends" => {
-            let (a, b) = if sender_id < peer_id {
-                (sender_id, peer_id)
-            } else {
-                (peer_id, sender_id)
-            };
-            let are_friends = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
-            )
-            .bind(a)
-            .bind(b)
-            .fetch_one(&state.db)
-            .await?;
-            if are_friends == 0 {
-                return Err(AppError::Forbidden(
-                    "This user accepts DMs from friends only".into(),
-                ));
-            }
-        }
-        _ => {
-            // server_members no longer offered; treat any other value as friends-only
-            let (a, b) = if sender_id < peer_id {
-                (sender_id, peer_id)
-            } else {
-                (peer_id, sender_id)
-            };
-            let are_friends = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM friendships WHERE user_a = $1 AND user_b = $2",
-            )
-            .bind(a)
-            .bind(b)
-            .fetch_one(&state.db)
-            .await?;
-            if are_friends == 0 {
-                return Err(AppError::Forbidden(
-                    "This user accepts DMs from friends only".into(),
-                ));
-            }
-        }
+    // "everyone" is open; anything else (including the retired "server_members") is friends-only.
+    if peer_dm_privacy == "everyone" {
+        return Ok(());
     }
-    Ok(())
+    let (a, b) = if sender_id < peer_id {
+        (sender_id, peer_id)
+    } else {
+        (peer_id, sender_id)
+    };
+    let are_friends = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM friendships WHERE user_a = $1 AND user_b = $2)",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_one(&state.db)
+    .await?;
+    if are_friends || peer_wrote_to_sender(state, sender_id, peer_id).await? {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(
+        "This user accepts DMs from friends only".into(),
+    ))
+}
+
+/// Whether `peer_id` has sent a message in a one-to-one DM with `sender_id`.
+async fn peer_wrote_to_sender(
+    state: &AppState,
+    sender_id: Uuid,
+    peer_id: Uuid,
+) -> Result<bool, AppError> {
+    let wrote = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM dm_messages m
+               INNER JOIN dm_channels c ON c.id = m.channel_id AND NOT c.is_group
+               INNER JOIN dm_channel_members sender
+                 ON sender.channel_id = m.channel_id AND sender.user_id = $1
+               WHERE m.user_id = $2
+           )"#,
+    )
+    .bind(sender_id)
+    .bind(peer_id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(wrote)
 }
 
 async fn get_or_create_dm_channel(
@@ -456,6 +627,7 @@ async fn get_or_create_dm_channel(
            FROM dm_channels c
            INNER JOIN dm_channel_members m1 ON m1.channel_id = c.id AND m1.user_id = $1
            INNER JOIN dm_channel_members m2 ON m2.channel_id = c.id AND m2.user_id = $2
+           WHERE NOT c.is_group
            LIMIT 1"#,
     )
     .bind(claims.sub)
@@ -644,15 +816,19 @@ async fn send_dm_message(
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
 
-    let peer_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2 LIMIT 1",
-    )
-    .bind(channel_id)
-    .bind(claims.sub)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
-    check_can_dm_peer(&state, claims.sub, peer_id).await?;
+    // Group members are added by a friend and can leave at any time, so DM privacy settings
+    // apply to one-to-one DMs only.
+    if !is_group_dm(&state, channel_id).await? {
+        let peer_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2 LIMIT 1",
+        )
+        .bind(channel_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
+        check_can_dm_peer(&state, claims.sub, peer_id).await?;
+    }
 
     let client_request_id = normalize_client_request_id(body.client_request_id.as_deref())?;
     let content = body.content.unwrap_or_default();
@@ -801,12 +977,279 @@ async fn push_dm_event_to_members(
     Ok(())
 }
 
+async fn is_group_dm(state: &AppState, channel_id: Uuid) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, bool>("SELECT is_group FROM dm_channels WHERE id = $1")
+            .bind(channel_id)
+            .fetch_optional(&state.db)
+            .await?
+            .unwrap_or(false),
+    )
+}
+
+fn normalize_group_dm_name(name: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(None);
+    };
+    if name.chars().count() > MAX_GROUP_DM_NAME_CHARS || name.chars().any(char::is_control) {
+        return Err(AppError::Validation(format!(
+            "Group name must be 1-{MAX_GROUP_DM_NAME_CHARS} characters"
+        )));
+    }
+    Ok(Some(name.to_string()))
+}
+
+/// Only friends can be put into a group; nobody is added by a stranger.
+async fn ensure_friends_with(
+    db: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    others: &[Uuid],
+) -> Result<(), AppError> {
+    let friends = sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*)
+           FROM friendships
+           WHERE (user_a = $1 AND user_b = ANY($2))
+              OR (user_b = $1 AND user_a = ANY($2))"#,
+    )
+    .bind(user_id)
+    .bind(others)
+    .fetch_one(&mut *db)
+    .await?;
+    if friends as usize != others.len() {
+        return Err(AppError::Forbidden(
+            "You can only add your friends to a group".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Locks a group DM for a membership change and returns its owner and members, after checking
+/// that `user_id` is one of them.
+async fn lock_group_dm(
+    db: &mut sqlx::PgConnection,
+    channel_id: Uuid,
+    user_id: Uuid,
+) -> Result<(Option<Uuid>, Vec<Uuid>), AppError> {
+    let (is_group, owner_id) = sqlx::query_as::<_, (bool, Option<Uuid>)>(
+        "SELECT is_group, owner_id FROM dm_channels WHERE id = $1 FOR UPDATE",
+    )
+    .bind(channel_id)
+    .fetch_optional(&mut *db)
+    .await?
+    .ok_or(AppError::NotFound("DM channel not found".into()))?;
+    let members = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC",
+    )
+    .bind(channel_id)
+    .fetch_all(&mut *db)
+    .await?;
+    if !members.contains(&user_id) {
+        return Err(AppError::Forbidden("No access to this DM channel".into()));
+    }
+    if !is_group {
+        return Err(AppError::Validation("This is not a group DM".into()));
+    }
+    Ok((owner_id, members))
+}
+
+/// Tells each user to reload their DM list (a group was created, renamed or changed members).
+async fn publish_dm_channels_updated(state: &Arc<AppState>, channel_id: Uuid, user_ids: &[Uuid]) {
+    for user_id in user_ids {
+        crate::ws::publish_user_event(state, *user_id, WsEvent::DmChannelsUpdated { channel_id })
+            .await;
+    }
+}
+
+async fn group_dm_info(
+    state: &AppState,
+    user_id: Uuid,
+    channel_id: Uuid,
+) -> Result<DmChannelInfo, AppError> {
+    load_group_dm_infos(state, user_id, Some(channel_id))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or(AppError::NotFound("DM channel not found".into()))
+}
+
+/// POST /api/dm/groups — start a group DM with at least two friends.
+async fn create_group_dm(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<CreateGroupDmRequest>,
+) -> Result<Json<DmChannelInfo>, AppError> {
+    let mut member_ids: Vec<Uuid> = Vec::new();
+    for id in body.member_ids {
+        if id != claims.sub && !member_ids.contains(&id) {
+            member_ids.push(id);
+        }
+    }
+    if member_ids.len() < 2 {
+        return Err(AppError::Validation(
+            "Choose at least two friends for a group".into(),
+        ));
+    }
+    if member_ids.len() + 1 > MAX_GROUP_DM_MEMBERS {
+        return Err(AppError::Validation(format!(
+            "A group can have at most {MAX_GROUP_DM_MEMBERS} members"
+        )));
+    }
+    let name = normalize_group_dm_name(body.name.as_deref())?;
+
+    enforce_rate_limit(
+        &state.redis,
+        format!("dm_create:{}", claims.sub),
+        5,
+        Duration::from_secs(60),
+        "Too many DM channels created recently. Please slow down.",
+    )
+    .await?;
+
+    let mut tx = state.db.begin().await?;
+    ensure_friends_with(&mut tx, claims.sub, &member_ids).await?;
+    let channel_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO dm_channels (id, created_at, is_group, name, owner_id) VALUES ($1, NOW(), TRUE, $2, $3)",
+    )
+    .bind(channel_id)
+    .bind(&name)
+    .bind(claims.sub)
+    .execute(&mut *tx)
+    .await?;
+    let mut everyone = vec![claims.sub];
+    everyone.extend(&member_ids);
+    sqlx::query(
+        r#"INSERT INTO dm_channel_members (channel_id, user_id, joined_at)
+           SELECT $1, member_id, NOW()
+           FROM UNNEST($2::uuid[]) AS member_id"#,
+    )
+    .bind(channel_id)
+    .bind(&everyone)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    publish_dm_channels_updated(&state, channel_id, &everyone).await;
+    Ok(Json(group_dm_info(&state, claims.sub, channel_id).await?))
+}
+
+/// PATCH /api/dm/groups/:channel_id — rename a group DM (any member; empty name clears it).
+async fn update_group_dm(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Json(body): Json<UpdateGroupDmRequest>,
+) -> Result<Json<DmChannelInfo>, AppError> {
+    let name = normalize_group_dm_name(body.name.as_deref())?;
+    let mut tx = state.db.begin().await?;
+    let (_, members) = lock_group_dm(&mut tx, channel_id, claims.sub).await?;
+    sqlx::query("UPDATE dm_channels SET name = $2 WHERE id = $1")
+        .bind(channel_id)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    publish_dm_channels_updated(&state, channel_id, &members).await;
+    Ok(Json(group_dm_info(&state, claims.sub, channel_id).await?))
+}
+
+/// POST /api/dm/groups/:channel_id/members — any member adds their own friends.
+async fn add_group_dm_members(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(channel_id): Path<Uuid>,
+    Json(body): Json<AddGroupDmMembersRequest>,
+) -> Result<Json<DmChannelInfo>, AppError> {
+    let mut tx = state.db.begin().await?;
+    let (_, mut members) = lock_group_dm(&mut tx, channel_id, claims.sub).await?;
+    let mut added: Vec<Uuid> = Vec::new();
+    for id in body.user_ids {
+        if !members.contains(&id) && !added.contains(&id) {
+            added.push(id);
+        }
+    }
+    if added.is_empty() {
+        return Err(AppError::Validation(
+            "Choose friends who are not in the group yet".into(),
+        ));
+    }
+    if members.len() + added.len() > MAX_GROUP_DM_MEMBERS {
+        return Err(AppError::Validation(format!(
+            "A group can have at most {MAX_GROUP_DM_MEMBERS} members"
+        )));
+    }
+    ensure_friends_with(&mut tx, claims.sub, &added).await?;
+    sqlx::query(
+        r#"INSERT INTO dm_channel_members (channel_id, user_id, joined_at)
+           SELECT $1, member_id, NOW()
+           FROM UNNEST($2::uuid[]) AS member_id"#,
+    )
+    .bind(channel_id)
+    .bind(&added)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    members.extend(added);
+    publish_dm_channels_updated(&state, channel_id, &members).await;
+    Ok(Json(group_dm_info(&state, claims.sub, channel_id).await?))
+}
+
+/// DELETE /api/dm/groups/:channel_id/members/:user_id — leave (own id) or, for the owner,
+/// remove someone. The last member leaving deletes the group; an owner who leaves hands the
+/// group to the longest-standing member.
+async fn remove_group_dm_member(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((channel_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut tx = state.db.begin().await?;
+    let (owner_id, members) = lock_group_dm(&mut tx, channel_id, claims.sub).await?;
+    if user_id != claims.sub && owner_id != Some(claims.sub) {
+        return Err(AppError::Forbidden(
+            "Only the group owner can remove members".into(),
+        ));
+    }
+    if !members.contains(&user_id) {
+        return Err(AppError::NotFound("This user is not in the group".into()));
+    }
+    sqlx::query("DELETE FROM dm_channel_members WHERE channel_id = $1 AND user_id = $2")
+        .bind(channel_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    let remaining: Vec<Uuid> = members.iter().copied().filter(|id| *id != user_id).collect();
+    if remaining.is_empty() {
+        sqlx::query("DELETE FROM dm_channels WHERE id = $1")
+            .bind(channel_id)
+            .execute(&mut *tx)
+            .await?;
+    } else if owner_id == Some(user_id) || owner_id.is_none() {
+        sqlx::query("UPDATE dm_channels SET owner_id = $2 WHERE id = $1")
+            .bind(channel_id)
+            .bind(remaining[0])
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+
+    publish_dm_channels_updated(&state, channel_id, &members).await;
+    Ok(Json(serde_json::json!({ "message": "Left the group" })))
+}
+
 async fn get_dm_read_state(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<DmReadState>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
+    // "Seen" belongs to one-to-one DMs; a group has no single other reader.
+    if is_group_dm(&state, channel_id).await? {
+        return Ok(Json(DmReadState {
+            peer_last_read_message_id: None,
+        }));
+    }
     let peer_last = sqlx::query_scalar::<_, Option<Uuid>>(
         r#"SELECT r.last_read_message_id
            FROM dm_channel_reads r

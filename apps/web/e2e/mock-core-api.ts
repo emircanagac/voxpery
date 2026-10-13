@@ -1078,6 +1078,49 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  if (pathname === '/api/dm/groups' && method === 'POST') {
+    const body = parseJsonBody<{ member_ids?: string[]; name?: string | null }>(request)
+    const picked = state.friends.filter((friend) => body.member_ids?.includes(friend.id))
+    const members = [
+      { id: state.user.id, username: state.user.username, avatar_url: state.user.avatar_url ?? null, status: 'online' },
+      ...picked.map(({ id, username, avatar_url, status }) => ({ id, username, avatar_url, status })),
+    ]
+    const name = body.name?.trim() || null
+    const channel = upsertDmChannel(state, {
+      id: `group-${state.dmChannels.length + 1}`,
+      peer_id: '00000000-0000-0000-0000-000000000000',
+      peer_username: name ?? picked.map((friend) => friend.username).join(', '),
+      peer_avatar_url: null,
+      peer_status: 'offline',
+      last_message_at: null,
+      unread_count: 0,
+      pinned_at: null,
+      is_pinned: false,
+      is_group: true,
+      name,
+      owner_id: state.user.id,
+      members,
+      created_at: new Date().toISOString(),
+    })
+    await json(route, channel)
+    return
+  }
+
+  const groupDmMatch = pathname.match(/^\/api\/dm\/groups\/([^/]+)$/)
+  if (groupDmMatch && method === 'PATCH') {
+    const body = parseJsonBody<{ name?: string }>(request)
+    const channel = state.dmChannels.find((item) => item.id === groupDmMatch[1])
+    if (!channel) {
+      await json(route, { error: 'Not found' }, 404)
+      return
+    }
+    channel.name = body.name?.trim() || null
+    channel.peer_username = channel.name
+      ?? (channel.members ?? []).filter((member) => member.id !== state.user.id).map((member) => member.username).join(', ')
+    await json(route, channel)
+    return
+  }
+
   const createDmMatch = pathname.match(/^\/api\/dm\/channels\/([^/]+)$/)
   if (createDmMatch && method === 'POST') {
     const peerId = createDmMatch[1]

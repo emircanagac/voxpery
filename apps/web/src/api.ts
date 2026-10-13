@@ -12,6 +12,7 @@ export type {
     DataExportPayload,
     DeleteAccountPayload,
     DmChannel,
+    DmMember,
     DmReadState,
     EmailVerificationConfirmResponse,
     Friend,

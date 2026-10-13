@@ -828,6 +828,8 @@ interface ChatAreaProps {
     unreadDividerCount?: number
     loading?: boolean
     topContent?: ReactNode
+    /** Extra buttons at the end of the header, e.g. group DM settings. */
+    headerActions?: ReactNode
     emptyStateTitle?: string
     emptyStateDescription?: string
     emptyStateActions?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>
@@ -891,6 +893,7 @@ export default function ChatArea({
     unreadDividerCount = 0,
     loading = false,
     topContent,
+    headerActions,
     emptyStateTitle,
     emptyStateDescription,
     emptyStateActions,
@@ -2762,6 +2765,7 @@ export default function ChatArea({
                             <Users size={17} />
                         </button>
                     )}
+                    {headerActions}
                 </div>
             </div>
 

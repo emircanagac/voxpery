@@ -510,6 +510,10 @@ export default function AppShell() {
             void syncSocial(true)
           }
         }
+        if (e?.type === 'DmChannelsUpdated') {
+          // Group DM created, renamed or its membership changed.
+          void syncSocial(true)
+        }
         if (e?.type === 'NewMessage') {
           const payload = e?.data as { channel_id?: string; channel_type?: string; message?: { id?: string; created_at?: string; author?: { user_id?: string; username?: string } } }
           const channelId = payload?.channel_id

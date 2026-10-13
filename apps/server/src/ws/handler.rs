@@ -931,6 +931,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         WsEvent::FriendUpdate { user_id: target_user_id } => {
                             *target_user_id == user_id
                         }
+                        // Sent to each member directly, never broadcast.
+                        WsEvent::DmChannelsUpdated { .. } => false,
                         WsEvent::DmRead {
                             user_id: target_user_id,
                             ..

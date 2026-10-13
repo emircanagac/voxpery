@@ -144,7 +144,8 @@ Uniqueness (case-insensitive):
 
 ### `dm_channels`
 
-- `id`, `created_at`
+- `id`, `created_at`, `is_group`, `name`, `owner_id`
+- One-to-one DMs have `is_group = FALSE` and exactly two members. Group DMs (`is_group = TRUE`) have up to 8 members, an optional `name` (1-64 characters) and an `owner_id` that falls back to the longest-standing member when the owner leaves.
 
 ### `dm_channel_members`
 
@@ -299,6 +300,9 @@ All migrations currently present:
 - `048_voice_moderation_audit.sql`
 - `049_backfill_official_community_members.sql`
 - `050_persist_server_voice_moderation.sql`
+- `051_pending_google_registration.sql`
+- `052_pending_desktop_registration.sql`
+- `053_group_dms.sql`
 
 ### Privacy audit log
 

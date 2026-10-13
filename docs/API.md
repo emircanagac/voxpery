@@ -65,7 +65,7 @@ Important behavior:
   - Updates the account and inserts the privacy-safe audit event in one database transaction; repeating the same current acknowledgement is idempotent.
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
-  - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`
+  - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`. With `friends`, a non-friend cannot start a DM or send to one, except to reply in a one-to-one DM where the `friends` user has written themselves (writing to someone is consent to their reply); otherwise `403`.
   - Optional profile field: `about_me` (maximum 190 characters).
   - Usernames may contain ASCII letters in either case, digits, underscores, and periods. Display casing is preserved, while uniqueness, login, search, mentions, and friend lookup remain case-insensitive.
   - A username can be changed once every 7 days; the API is the authority for the cooldown.
@@ -301,6 +301,17 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Channels hidden by the current user are excluded until explicitly reopened or a message newer than the hide action arrives.
 - `POST /api/dm/channels/:peer_id`
   - Opens or creates a DM channel with the peer and restores it if the current user had hidden it.
+- `POST /api/dm/groups`
+  - Accepts `{ "member_ids": [uuid, ...], "name": string|null }` and creates a group DM owned by the caller.
+  - Needs at least two other people, all of them the caller's friends (403 otherwise); a group holds at most 8 people including the creator. Names are trimmed, at most 64 characters, and an empty name falls back to the members' names.
+  - Group DMs appear in `GET /api/dm/channels` with `is_group: true`, `name`, `owner_id`, `members` and a nil `peer_id`; `peer_username` carries the display name. DM privacy settings do not apply inside a group the user is a member of.
+- `PATCH /api/dm/groups/:channel_id`
+  - Accepts `{ "name": string }`; any member can rename the group.
+- `POST /api/dm/groups/:channel_id/members`
+  - Accepts `{ "user_ids": [uuid, ...] }`; any member can add their own friends while the group has room.
+- `DELETE /api/dm/groups/:channel_id/members/:user_id`
+  - Members can remove themselves (leave); only the owner can remove others. When the owner leaves, the longest-standing member becomes owner; the group is deleted when its last member leaves.
+  - Every create, rename and membership change sends `DmChannelsUpdated` to the current and removed members.
 - `POST /api/dm/channels/:channel_id/hide`
   - Hides and unpins the channel for the current user without deleting messages or hiding it for the peer.
 - `PATCH /api/dm/channels/:channel_id/preferences`

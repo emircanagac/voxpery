@@ -170,6 +170,19 @@ export interface DmChannel {
     unread_count: number
     pinned_at: string | null
     is_pinned: boolean
+    /** Group DMs have a nil `peer_id`; `peer_username` holds the display name. */
+    is_group?: boolean
+    name?: string | null
+    owner_id?: string | null
+    members?: DmMember[]
+    created_at?: string | null
+}
+
+export interface DmMember {
+    id: string
+    username: string
+    avatar_url: string | null
+    status: string
 }
 
 export interface DmReadState {

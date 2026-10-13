@@ -37,7 +37,8 @@ export function getVisibleFriendsForFilter(friends: Friend[], filter: Exclude<Fr
 }
 
 function dmActivityTimestamp(channel: DmChannel): number {
-  const timestamp = channel.last_message_at ? Date.parse(channel.last_message_at) : 0
+  const activityAt = channel.last_message_at ?? channel.created_at
+  const timestamp = activityAt ? Date.parse(activityAt) : 0
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 

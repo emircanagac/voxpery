@@ -1,13 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Clock3, Compass, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Search, Send, UserMinus, UserPlus, UserRound, Users, X } from 'lucide-react'
+import { Activity, ArrowRight, Check, Clock3, Compass, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Plus, Search, Send, Settings, UserMinus, UserPlus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
   friendApi,
   resolveAvatarUrl,
   serverApi,
+  type DmChannel,
   type Friend,
   type FriendRequest,
   type MessageWithAuthor,
@@ -67,6 +68,9 @@ import {
 } from '../dmNotificationNavigation'
 import { createSecureId } from '../secureId'
 import MemberProfileDialog, { type MemberProfileMember } from '../components/MemberProfileDialog'
+import { groupDmApi } from '../api/groupDms'
+import DmFriendPicker, { MAX_GROUP_DM_MEMBERS } from '../components/DmFriendPicker'
+import GroupDmSettingsDialog from '../components/GroupDmSettingsDialog'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -86,7 +90,7 @@ type UiDmMessage = CachedDmMessage
 const DM_SEARCH_JUMP_MAX_PAGES = 20
 
 type SocialContextMenu = {
-  kind: 'friend' | 'dm'
+  kind: 'friend' | 'dm' | 'group'
   userId: string
   username: string
   avatarUrl: string | null
@@ -202,6 +206,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
   const [removingFriend, setRemovingFriend] = useState(false)
   const [openingDmPeerId, setOpeningDmPeerId] = useState<string | null>(null)
+  const [newDmPickerOpen, setNewDmPickerOpen] = useState(false)
+  const [groupDmDialog, setGroupDmDialog] = useState<{ kind: 'settings' | 'add'; channelId: string } | null>(null)
+  const [groupDmBusy, setGroupDmBusy] = useState(false)
+  const newDmButtonRef = useRef<HTMLButtonElement | null>(null)
   const [updatingDmPreferenceId, setUpdatingDmPreferenceId] = useState<string | null>(null)
   const [socialContextMenu, setSocialContextMenu] = useState<SocialContextMenu | null>(null)
   const [profileCard, setProfileCard] = useState<MemberProfileMember | null>(null)
@@ -237,6 +245,65 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     }
   }, [clearDmUnread, navigate, openingDmPeerId, pushToast, setActiveDmChannelId, setDmChannelIds, setStoreDmChannels, token, user])
 
+  const applyDmChannel = useCallback((channel: DmChannel) => {
+    const nextChannels = upsertDmChannel(useAppStore.getState().dmChannels, channel)
+    setStoreDmChannels(nextChannels)
+    setDmChannelIds(nextChannels.map((dmChannel) => dmChannel.id))
+  }, [setDmChannelIds, setStoreDmChannels])
+
+  const runGroupDmAction = useCallback(async (title: string, action: () => Promise<void>) => {
+    if (groupDmBusy) return
+    setGroupDmBusy(true)
+    try {
+      await action()
+    } catch (err) {
+      pushToast({
+        level: 'error',
+        title,
+        message: err instanceof Error ? err.message : 'Please try again.',
+      })
+    } finally {
+      setGroupDmBusy(false)
+    }
+  }, [groupDmBusy, pushToast])
+
+  // One friend opens (or reuses) the direct message; several start a group.
+  const handleNewDmSubmit = useCallback(async (selectedIds: string[], groupName: string) => {
+    if (selectedIds.length === 1) {
+      setNewDmPickerOpen(false)
+      setMobileSidebarPanel('none')
+      await openDirectMessage(selectedIds[0])
+      return
+    }
+    await runGroupDmAction('Group failed', async () => {
+      const channel = await groupDmApi.create(selectedIds, groupName || null, token)
+      applyDmChannel(channel)
+      setNewDmPickerOpen(false)
+      setMobileSidebarPanel('none')
+      setActiveDmChannelId(channel.id)
+      setView('dm')
+      setPersistedSocialView('dm')
+      navigate(ROUTES.dm, { replace: true, state: {} })
+    })
+  }, [applyDmChannel, navigate, openDirectMessage, runGroupDmAction, setActiveDmChannelId, setMobileSidebarPanel, token])
+
+  const handleLeaveGroupDm = useCallback(async (channelId: string) => {
+    if (!user) return
+    await runGroupDmAction('Leave failed', async () => {
+      await groupDmApi.removeMember(channelId, user.id, token)
+      const nextChannels = useAppStore.getState().dmChannels.filter((channel) => channel.id !== channelId)
+      setStoreDmChannels(nextChannels)
+      setDmChannelIds(nextChannels.map((channel) => channel.id))
+      setGroupDmDialog(null)
+      if (useAppStore.getState().activeDmChannelId === channelId) {
+        setView('friends')
+        setActiveDmChannelId(null)
+        setPersistedSocialView('friends')
+        navigate(ROUTES.home)
+      }
+    })
+  }, [navigate, runGroupDmAction, setActiveDmChannelId, setDmChannelIds, setStoreDmChannels, token, user])
+
   // Social paths (/social and /social/dm): restore last social tab and optional deep-linked DM.
   useEffect(() => {
     const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
@@ -258,7 +325,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     if (openDmUserId) {
       const channel = isUuid(openDmUserId)
         ? dmChannels.find((c) => c.peer_id === openDmUserId)
-        : dmChannels.find((c) => c.peer_username === decodeURIComponent(openDmUserId))
+        : dmChannels.find((c) => !c.is_group && c.peer_username === decodeURIComponent(openDmUserId))
       if (channel) {
         setActiveDmChannelId(channel.id)
         setView('dm')
@@ -345,14 +412,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     target: Omit<SocialContextMenu, 'x' | 'y'>,
   ) => {
     event.preventDefault()
-    const menuWidth = target.kind === 'dm' ? 224 : 240
+    const menuWidth = target.kind !== 'friend' ? 224 : 240
     const pad = 8
     const trigger = event.currentTarget.closest<HTMLElement>('.social-dm-item, .home-member-row') ?? event.currentTarget
     const rect = trigger.getBoundingClientRect()
     const sidebarRect = socialSidebarRef.current?.getBoundingClientRect()
     const socialContentRect = socialContentRef.current?.getBoundingClientRect()
-    const menuContainerRect = target.kind === 'dm' ? sidebarRect : socialContentRect
-    const shouldCenterInSidebar = target.kind === 'dm' && !!sidebarRect
+    const menuContainerRect = target.kind !== 'friend' ? sidebarRect : socialContentRect
+    const shouldCenterInSidebar = target.kind !== 'friend' && !!sidebarRect
     const shouldOpenFriendMenuLeft = target.kind === 'friend' && event.type === 'click'
     const preferredX = shouldCenterInSidebar && sidebarRect
       ? sidebarRect.left + (sidebarRect.width - menuWidth) / 2
@@ -369,7 +436,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       x: Math.min(Math.max(preferredX, minX), Math.max(minX, maxX)),
       y: rect.bottom + 4,
       trigger,
-      horizontalBoundary: target.kind === 'dm' ? socialSidebarRef.current : socialContentRef.current,
+      horizontalBoundary: target.kind !== 'friend' ? socialSidebarRef.current : socialContentRef.current,
     })
   }, [])
 
@@ -813,8 +880,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         setStoreFriends(prevFriends.map((f) => (f.id === user_id ? { ...f, status } : f)))
       }
       const prevChannels = useAppStore.getState().dmChannels
-      if (prevChannels.some((c) => c.peer_id === user_id)) {
-        setStoreDmChannels(prevChannels.map((c) => (c.peer_id === user_id ? { ...c, peer_status: status } : c)))
+      const inChannel = (c: DmChannel) => c.peer_id === user_id || !!c.members?.some((m) => m.id === user_id)
+      if (prevChannels.some(inChannel)) {
+        setStoreDmChannels(prevChannels.map((c) => (inChannel(c)
+          ? {
+              ...c,
+              peer_status: c.peer_id === user_id ? status : c.peer_status,
+              members: c.members?.map((m) => (m.id === user_id ? { ...m, status } : m)),
+            }
+          : c)))
       }
     })
     return () => unsub()
@@ -1336,7 +1410,16 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         <div className="social-sidebar-divider" />
         <div className="social-sidebar-title">
           <h2>Direct Messages</h2>
-          {dmChannels.length > 0 && <span className="social-conversation-count" title={`${dmChannels.length} conversations`}>{dmChannels.length}</span>}
+          <button
+            ref={newDmButtonRef}
+            type="button"
+            className="social-new-dm-btn"
+            title="New direct message"
+            aria-label="New direct message"
+            onClick={() => setNewDmPickerOpen(true)}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
         </div>
         {showSocialBootstrapLoading ? (
           <div className="home-sidebar-skeleton" aria-hidden="true">
@@ -1367,7 +1450,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               onPointerEnter={() => prefetchDmConversation(channel.id)}
               onContextMenu={(event) => {
                 openSocialContextMenu(event, {
-                  kind: 'dm',
+                  kind: channel.is_group ? 'group' : 'dm',
                   channelId: channel.id,
                   userId: channel.peer_id,
                   username: channel.peer_username,
@@ -1392,11 +1475,13 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   if (location.pathname !== ROUTES.dm) navigate(ROUTES.dm)
                   setMobileSidebarPanel('none')
                 }}
-                aria-label={`Open DM with ${channel.peer_username}`}
+                aria-label={channel.is_group ? `Open group ${channel.peer_username}` : `Open DM with ${channel.peer_username}`}
                 aria-current={view === 'dm' && activeDmChannelId === channel.id ? 'page' : undefined}
               >
-                <div className={`home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
-                  {channel.peer_avatar_url ? (
+                <div className={channel.is_group ? 'home-member-avatar social-dm-group-avatar' : `home-member-avatar avatar-status-${(channel.peer_status ?? 'offline') as StatusValue}`}>
+                  {channel.is_group ? (
+                    <Users size={16} aria-hidden="true" />
+                  ) : channel.peer_avatar_url ? (
                     <img src={resolveAvatarUrl(channel.peer_avatar_url) ?? ''} alt="" />
                   ) : (
                     channel.peer_username.charAt(0).toUpperCase()
@@ -1404,7 +1489,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 </div>
                 <div className="home-member-meta">
                   <div title={channel.peer_username}>{channel.peer_username}</div>
-                  <span className="social-dm-status">{channel.peer_status === 'online' ? 'Online' : channel.peer_status === 'dnd' ? 'Do not disturb' : 'Offline'}</span>
+                  <span className="social-dm-status">{channel.is_group
+                    ? `${channel.members?.length ?? 0} members`
+                    : channel.peer_status === 'online' ? 'Online' : channel.peer_status === 'dnd' ? 'Do not disturb' : 'Offline'}</span>
                 </div>
               </button>
               <div className="social-dm-actions">
@@ -1413,7 +1500,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   type="button"
                   className="home-member-action social-dm-close"
                   title="Hide conversation"
-                  aria-label={`Hide DM with ${channel.peer_username}`}
+                  aria-label={channel.is_group ? `Hide group ${channel.peer_username}` : `Hide DM with ${channel.peer_username}`}
                   onClick={() => void handleHideDmChannel(channel.id)}
                 >
                   <X size={14} />
@@ -1751,17 +1838,22 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 </div>
               )
             }
+            const isGroupDm = !!dmChannel.is_group
+            const groupMembers = dmChannel.members ?? []
             const syntheticChannel = {
               id: dmChannel.id,
               server_id: '',
               name: dmChannel.peer_username,
               channel_type: 'text' as const,
               position: 0,
+              description: isGroupDm ? `${groupMembers.length} members` : null,
             }
-            const dmMentionUsers = [
-              { user_id: dmChannel.peer_id, username: dmChannel.peer_username, avatar_url: dmChannel.peer_avatar_url, status: dmChannel.peer_status },
-              ...(user ? [{ user_id: user.id, username: user.username, avatar_url: user.avatar_url ?? null, status: user.status }] : []),
-            ]
+            const dmMentionUsers = isGroupDm
+              ? groupMembers.map((member) => ({ user_id: member.id, username: member.username, avatar_url: member.avatar_url, status: member.status }))
+              : [
+                  { user_id: dmChannel.peer_id, username: dmChannel.peer_username, avatar_url: dmChannel.peer_avatar_url, status: dmChannel.peer_status },
+                  ...(user ? [{ user_id: user.id, username: user.username, avatar_url: user.avatar_url ?? null, status: user.status }] : []),
+                ]
             return (
               <ChatArea
                 activeChannel={syntheticChannel}
@@ -1810,8 +1902,19 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 onPinMessage={handlePinDmMessage}
                 onUnpinMessage={handleUnpinDmMessage}
                 onToggleReaction={handleToggleDmReaction}
-                emptyStateTitle={`Start your conversation with ${dmChannel.peer_username}`}
-                emptyStateDescription="This is the beginning of your direct message history."
+                emptyStateTitle={isGroupDm ? `Welcome to ${dmChannel.peer_username}` : `Start your conversation with ${dmChannel.peer_username}`}
+                emptyStateDescription={isGroupDm ? 'This is the beginning of this group conversation.' : 'This is the beginning of your direct message history.'}
+                headerActions={isGroupDm ? (
+                  <button
+                    type="button"
+                    className="chat-header-member-btn"
+                    onClick={() => setGroupDmDialog({ kind: 'settings', channelId: dmChannel.id })}
+                    title="Group settings"
+                    aria-label="Group settings"
+                  >
+                    <Settings size={17} />
+                  </button>
+                ) : undefined}
                 jumpToMessageId={notificationJumpMessageId
                   ?? (dmSearchJump?.channelId === activeDmChannelId ? dmSearchJump.messageId : null)}
                 onJumpToMessageHandled={notificationJumpMessageId ? handleDmNotificationAnchorVisible : () => setDmSearchJump(null)}
@@ -1848,19 +1951,35 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             onKeyDown={handleMenuKeyboardNavigation}
             onClick={(event) => event.stopPropagation()}
           >
-            <button
-              type="button"
-              className="server-context-menu-item"
-              role="menuitem"
-              autoFocus
-              onClick={() => {
-                closeSocialContextMenu()
-                setProfileCard(profileMember)
-              }}
-            >
-              <UserRound size={14} />
-              <span className="social-context-action-label">View profile (@{socialContextMenu.username})</span>
-            </button>
+            {socialContextMenu.kind === 'group' && channel ? (
+              <button
+                type="button"
+                className="server-context-menu-item"
+                role="menuitem"
+                autoFocus
+                onClick={() => {
+                  closeSocialContextMenu()
+                  setGroupDmDialog({ kind: 'settings', channelId: channel.id })
+                }}
+              >
+                <Settings size={14} />
+                Group settings
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="server-context-menu-item"
+                role="menuitem"
+                autoFocus
+                onClick={() => {
+                  closeSocialContextMenu()
+                  setProfileCard(profileMember)
+                }}
+              >
+                <UserRound size={14} />
+                <span className="social-context-action-label">View profile (@{socialContextMenu.username})</span>
+              </button>
+            )}
             {socialContextMenu.kind === 'friend' && (
               <button
                 type="button"
@@ -1953,6 +2072,57 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         />,
         document.body,
       )}
+
+      {newDmPickerOpen && (
+        <DmFriendPicker
+          mode="new"
+          friends={friends}
+          busy={groupDmBusy || openingDmPeerId !== null}
+          onSubmit={(selectedIds, groupName) => void handleNewDmSubmit(selectedIds, groupName)}
+          onClose={() => setNewDmPickerOpen(false)}
+          returnFocusRef={newDmButtonRef}
+        />
+      )}
+
+      {groupDmDialog && user && (() => {
+        const channel = dmChannels.find((candidate) => candidate.id === groupDmDialog.channelId && candidate.is_group)
+        if (!channel) return null
+        const members = channel.members ?? []
+        if (groupDmDialog.kind === 'add') {
+          return (
+            <DmFriendPicker
+              mode="add"
+              friends={friends}
+              excludeIds={members.map((member) => member.id)}
+              capacity={Math.max(0, MAX_GROUP_DM_MEMBERS - members.length)}
+              busy={groupDmBusy}
+              onSubmit={(selectedIds) => void runGroupDmAction('Add members failed', async () => {
+                applyDmChannel(await groupDmApi.addMembers(channel.id, selectedIds, token))
+                setGroupDmDialog({ kind: 'settings', channelId: channel.id })
+              })}
+              onClose={() => setGroupDmDialog({ kind: 'settings', channelId: channel.id })}
+            />
+          )
+        }
+        return (
+          <GroupDmSettingsDialog
+            key={channel.id}
+            channel={channel}
+            currentUserId={user.id}
+            busy={groupDmBusy}
+            onRename={(name) => void runGroupDmAction('Rename failed', async () => {
+              applyDmChannel(await groupDmApi.rename(channel.id, name, token))
+            })}
+            onRemoveMember={(memberId) => void runGroupDmAction('Remove failed', async () => {
+              await groupDmApi.removeMember(channel.id, memberId, token)
+              applyDmChannel({ ...channel, members: members.filter((member) => member.id !== memberId) })
+            })}
+            onAddMembers={() => setGroupDmDialog({ kind: 'add', channelId: channel.id })}
+            onLeave={() => void handleLeaveGroupDm(channel.id)}
+            onClose={() => setGroupDmDialog(null)}
+          />
+        )
+      })()}
 
       {removeFriendTarget && createPortal(
         <div className="modal-overlay" onClick={() => !removingFriend && setRemoveFriendTarget(null)}>

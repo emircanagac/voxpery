@@ -9061,11 +9061,36 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin: 0;
 }
 
-.social-conversation-count {
+.social-new-dm-btn {
   flex-shrink: 0;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  /* Keeps the title row as tall as the heading. */
+  margin: -6px -4px -6px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.social-new-dm-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.social-new-dm-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.social-dm-group-avatar {
+  background: rgba(var(--ui-contrast-rgb), 0.1);
+  color: var(--text-secondary);
 }
 
 .social-dm-item {

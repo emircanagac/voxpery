@@ -208,7 +208,7 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(hide).toHaveCSS('outline-style', 'solid')
       await sidebar.screenshot({ path: testInfo.outputPath('social-dock.png') })
       await expect(sidebar.locator('.social-sidebar-title h2')).toHaveText('Direct Messages')
-      await expect(sidebar.locator('.social-conversation-count')).toHaveText('32')
+      await expect(sidebar.getByRole('button', { name: 'New direct message' })).toBeVisible()
       await expect(row.locator('.social-dm-status')).toHaveText('Online')
       const header = (await sidebar.locator('.social-sidebar-header').boundingBox())!
       const friends = (await sidebar.getByRole('button', { name: 'Friends', exact: true }).boundingBox())!
@@ -449,4 +449,53 @@ test.describe('mocked social friend UI regressions', () => {
       expect(anchoredBox!.y + anchoredBox!.height).toBeLessThanOrEqual(viewport.height - 8)
     }
   })
+
+  for (const width of [1920, 390]) {
+    test(`starts a DM or a group from the new message picker at ${width}px`, { tag: '@core' }, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 })
+      const state = createMockCoreState({ friends: buildFriends(3) })
+      await installMockCoreApi(page, state)
+      const groupRequests: string[] = []
+      page.on('request', request => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/dm/groups') groupRequests.push(request.postData() ?? '')
+      })
+      await page.goto('/social')
+      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      const sidebar = page.locator('.social-sidebar')
+      const plus = sidebar.getByRole('button', { name: 'New direct message' })
+
+      // One friend opens the direct message.
+      await plus.click()
+      const picker = page.getByRole('dialog', { name: 'New message' })
+      await picker.getByRole('checkbox', { name: 'Friend 02' }).check()
+      await picker.getByRole('button', { name: 'Open DM' }).click()
+      await expect(picker).toHaveCount(0)
+      await expect(page.locator('.channel-title')).toHaveText('Friend 02')
+
+      // Several friends start a named group.
+      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      await plus.click()
+      await picker.getByRole('searchbox', { name: 'Search friends' }).fill('01')
+      await picker.getByRole('checkbox', { name: 'Friend 01' }).check()
+      await picker.getByRole('searchbox', { name: 'Search friends' }).fill('')
+      await picker.getByRole('checkbox', { name: 'Friend 03' }).check()
+      await picker.getByLabel('Group name (optional)').fill('Weekend')
+      await picker.getByRole('button', { name: 'Create group' }).click()
+      await expect(picker).toHaveCount(0)
+      expect(JSON.parse(groupRequests[0])).toEqual({ member_ids: ['friend-01', 'friend-03'], name: 'Weekend' })
+      await expect(page.locator('.channel-title')).toHaveText('Weekend')
+      await expect(page.locator('.channel-description')).toHaveText('3 members')
+
+      // Any member can rename the group from its settings.
+      await page.getByRole('button', { name: 'Group settings' }).click()
+      const settings = page.getByRole('dialog', { name: 'Group settings' })
+      await expect(settings.getByRole('list', { name: 'Group members' }).getByRole('listitem')).toHaveCount(3)
+      await settings.getByLabel('Group name').fill('Trip')
+      await settings.getByRole('button', { name: 'Save' }).click()
+      await expect(page.locator('.channel-title')).toHaveText('Trip')
+      await settings.getByRole('button', { name: 'Close' }).click()
+      await expect(settings).toHaveCount(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    })
+  }
 })
