@@ -9241,6 +9241,76 @@ async fn password_reset_tokens_work_once_even_under_concurrent_use() {
 }
 
 #[tokio::test]
+async fn only_authors_edit_their_messages_and_dm_peers_cannot_delete_them() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (author_auth, author_id, _) = register_named_user(&mut app, "msgauthor").await;
+    let (other_auth, other_id, _) = register_named_user(&mut app, "msgother").await;
+
+    // Server channel: a regular member cannot edit or delete the owner's message.
+    let (_, channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &author_auth, "Authorship").await;
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers/join",
+        &other_auth,
+        Some(json!({ "invite_code": invite_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &author_auth,
+        Some(json!({ "content": "original" })),
+    )
+    .await;
+    assert!(status.is_success(), "send failed: {message}");
+    let message_id = message["id"].as_str().unwrap().to_string();
+    let item = format!("/api/messages/item/{message_id}");
+    let (status, _) = api_json(&mut app, "PATCH", &item, &other_auth, Some(json!({ "content": "hijacked" }))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a member cannot edit someone else's message");
+    let (status, _) = api_json(&mut app, "DELETE", &item, &other_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a member without Manage Messages cannot delete it");
+    let (status, edited) = api_json(&mut app, "PATCH", &item, &author_auth, Some(json!({ "content": "edited" }))).await;
+    assert_eq!(status, StatusCode::OK, "the author can edit: {edited}");
+
+    // Direct message: the other participant cannot edit or delete it either.
+    befriend(&state, author_id, other_id).await;
+    let (status, dm) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{other_id}"),
+        &author_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "open DM failed: {dm}");
+    let dm_id = dm["id"].as_str().unwrap().to_string();
+    let (status, dm_message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{dm_id}"),
+        &author_auth,
+        Some(json!({ "content": "private" })),
+    )
+    .await;
+    assert!(status.is_success(), "DM send failed: {dm_message}");
+    let dm_item = format!("/api/dm/messages/item/{}", dm_message["id"].as_str().unwrap());
+    let (status, _) = api_json(&mut app, "PATCH", &dm_item, &other_auth, Some(json!({ "content": "hijacked" }))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the peer cannot edit a DM they did not write");
+    let (status, _) = api_json(&mut app, "DELETE", &dm_item, &other_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the peer cannot delete a DM they did not write");
+    let (status, _) = api_json(&mut app, "DELETE", &dm_item, &author_auth, None).await;
+    assert!(status.is_success(), "the author can delete their DM");
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
