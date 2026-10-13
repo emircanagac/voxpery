@@ -179,10 +179,12 @@ mod tests {
 
     #[test]
     fn frame_posts_only_to_the_escaped_parent_origin() {
-        let html = frame_html("site\"key", "https://tauri.localhost", "n0nce");
+        // A fresh nonce, as `show` generates one per response.
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let html = frame_html("site\"key", "https://tauri.localhost", &nonce);
         assert!(html.contains("const parentOrigin = \"https://tauri.localhost\";"));
         assert!(html.contains("data-sitekey=\"site&quot;key\""));
         assert!(html.contains("postMessage({ source: \"voxpery-captcha\", ...message }, parentOrigin)"));
-        assert!(html.contains("<script nonce=\"n0nce\">"));
+        assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
     }
 }
