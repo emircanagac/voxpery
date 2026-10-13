@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::services::redact::ShortId;
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
@@ -98,7 +99,7 @@ async fn turn_credentials(
     )
     .await?;
 
-    tracing::info!("User {} requested TURN credentials", claims.sub);
+    tracing::info!("User {} requested TURN credentials", ShortId(claims.sub));
 
     let urls: Vec<String> = state
         .turn_urls
@@ -317,7 +318,7 @@ async fn livekit_webhook(
     ) {
         tracing::debug!(
             "Ignoring stale LiveKit participant_left webhook for rejoined user {}",
-            user_id
+            ShortId(user_id)
         );
         return Ok(StatusCode::NO_CONTENT);
     }

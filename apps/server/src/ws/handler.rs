@@ -22,6 +22,7 @@ use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
 use crate::services::permissions::{get_user_server_permissions, Permissions};
+use crate::services::redact::ShortId;
 use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
 use crate::ws::access::{
@@ -90,7 +91,8 @@ fn cleanup_voice_channel_active_since_if_empty(state: &AppState, channel_id: Uui
     }
 }
 
-/// Max incoming WebSocket text message size (256 KB) to mitigate DoS via huge Signal payloads.
+/// Max incoming WebSocket message and frame size (256 KB). Enforced while reading, so an
+/// oversized message is never buffered; exceeding it ends the connection.
 const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
 /// Events waiting for one connection. A client that keeps up never comes close; one that
 /// stops reading cannot make the server buffer events without bound.
@@ -188,7 +190,7 @@ async fn complete_voice_member_move(
         tracing::warn!(
             "Voice move {} failed on target client {}: {}",
             request_id,
-            target_user_id,
+            ShortId(target_user_id),
             error
         );
         publish_voice_move_result(
@@ -533,7 +535,7 @@ async fn can_receive_subscribed_channel_event(
         Err(e) => {
             tracing::warn!(
                 "WS event authorization re-check failed for user {} channel {}: {}",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 e
             );
@@ -728,7 +730,9 @@ pub async fn ws_handler(
         ws
     };
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state, claims, token))
+    ws.max_message_size(MAX_WS_MESSAGE_BYTES)
+        .max_frame_size(MAX_WS_MESSAGE_BYTES)
+        .on_upgrade(move |socket| handle_socket(socket, state, claims, token))
 }
 
 async fn validate_ws_token(
@@ -857,7 +861,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     )
     .await;
 
-    tracing::info!("WebSocket connected: {} ({})", username, user_id);
+    tracing::info!("WebSocket connected: {}", ShortId(user_id));
 
     // Task: forward broadcast events to this client (if subscribed) + server-side keepalive
     let send_task = tokio::spawn(async move {
@@ -900,7 +904,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     let event = match result {
                         Ok(ev) => ev,
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!("Broadcast receiver lagged by {} events (user {})", n, user_id);
+                            tracing::warn!("Broadcast receiver lagged by {} events (user {})", n, ShortId(user_id));
                             continue;
                         }
                         Err(_) => break,
@@ -1057,14 +1061,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
             let msg = match tokio::time::timeout(WS_CLIENT_IDLE_TIMEOUT, ws_receiver.next()).await {
                 Ok(Some(Ok(msg))) => msg,
                 Ok(Some(Err(e))) => {
-                    tracing::warn!("WebSocket receive error for {}: {}", user_id, e);
+                    tracing::warn!("WebSocket receive error for {}: {}", ShortId(user_id), e);
                     break;
                 }
                 Ok(None) => break,
                 Err(_) => {
                     tracing::warn!(
                         "WebSocket idle timeout (zombie session) for user {}; closing connection",
-                        user_id
+                        ShortId(user_id)
                     );
                     break;
                 }
@@ -1077,17 +1081,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
                         tracing::warn!(
                             "Closing WS for rate limit breach (user {}): {}",
-                            user_id,
+                            ShortId(user_id),
                             e
                         );
                         break;
-                    }
-                    if text.len() > MAX_WS_MESSAGE_BYTES {
-                        tracing::warn!(
-                            "WebSocket message too large ({} bytes), ignoring",
-                            text.len()
-                        );
-                        continue;
                     }
                     if let Ok(client_msg) = serde_json::from_str::<WsClientMessage>(&text) {
                         match client_msg {
@@ -1127,7 +1124,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             tracing::debug!(
                                                 "Subscribe denied for channel {} (user {})",
                                                 id,
-                                                user_id
+                                                ShortId(user_id)
                                             );
                                         }
                                         Err(e) => {
@@ -1141,7 +1138,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     if subs.len() >= MAX_SUBSCRIBED_CHANNELS_PER_CONNECTION {
                                         tracing::warn!(
                                             "Subscription limit reached for user {}",
-                                            user_id
+                                            ShortId(user_id)
                                         );
                                         break;
                                     }
@@ -1276,7 +1273,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         tracing::debug!(
                                             "JoinVoice denied for channel {} (user {})",
                                             channel_id,
-                                            user_id
+                                            ShortId(user_id)
                                         );
                                     }
                                     Err(e) => {
@@ -2037,14 +2034,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
                         tracing::warn!(
                             "Closing WS for rate limit breach (user {}): {}",
-                            user_id,
+                            ShortId(user_id),
                             e
                         );
                         break;
                     }
                     tracing::warn!(
                         "Closing WS for unexpected binary frame from {} ({} bytes)",
-                        user_id,
+                        ShortId(user_id),
                         bin.len()
                     );
                     break;
@@ -2053,7 +2050,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     if let Err(e) = enforce_ws_frame_rate_limit(&recv_state, user_id).await {
                         tracing::warn!(
                             "Closing WS for rate limit breach (user {}): {}",
-                            user_id,
+                            ShortId(user_id),
                             e
                         );
                         break;
@@ -2138,7 +2135,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
         }
     }
 
-    tracing::info!("WebSocket disconnected: {}", user_id);
+    tracing::info!("WebSocket disconnected: {}", ShortId(user_id));
 }
 
 #[cfg(test)]

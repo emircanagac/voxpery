@@ -6,6 +6,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::services::redact::ShortId;
 use crate::{
     errors::AppError,
     services::voice_moderation::ServerVoiceModeration,
@@ -152,7 +153,7 @@ pub(crate) async fn clear_local_voice_session(
 
     tracing::info!(
         "Revoked local voice session for user {} in channel {} ({})",
-        user_id,
+        ShortId(user_id),
         channel_id,
         reason
     );
@@ -260,7 +261,7 @@ pub(crate) async fn remove_livekit_participant(
         Err(e) => {
             tracing::warn!(
                 "LiveKit participant revoke failed for user {} room {}: {}",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 e
             );
@@ -481,7 +482,7 @@ pub(crate) async fn remove_livekit_participant_checked(
         Ok(response) if response.status().is_success() => {
             tracing::info!(
                 "Removed LiveKit participant {} from room {} ({})",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 reason
             );
@@ -490,7 +491,7 @@ pub(crate) async fn remove_livekit_participant_checked(
         Ok(response) if response.status() == StatusCode::NOT_FOUND => {
             tracing::debug!(
                 "LiveKit participant {} was not present in room {} during revoke ({})",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 reason
             );
@@ -501,7 +502,7 @@ pub(crate) async fn remove_livekit_participant_checked(
             let body = response.text().await.unwrap_or_default();
             tracing::warn!(
                 "LiveKit participant revoke failed for user {} room {}: status={} body_length={}",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 status,
                 body.len()
@@ -513,7 +514,7 @@ pub(crate) async fn remove_livekit_participant_checked(
         Err(e) => {
             tracing::warn!(
                 "LiveKit participant revoke request failed for user {} room {}: {}",
-                user_id,
+                ShortId(user_id),
                 channel_id,
                 e
             );

@@ -72,6 +72,8 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
 // Long enough to copy the code from the browser page when the app does not open by itself.
 const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 300;
+/// Upper bound for each request to Google's OAuth token and userinfo endpoints.
+const GOOGLE_OAUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let dummy_password = Uuid::new_v4().to_string();
     hash_password(&dummy_password).expect("dummy Argon2 hash should be generated successfully")
@@ -1394,7 +1396,7 @@ pub async fn ensure_seed_admin(
     .bind(&password_hash)
     .execute(db)
     .await?;
-    tracing::info!("Seed admin user created: {}", username);
+    tracing::info!("Seed admin user created");
     Ok(Some(id))
 }
 
@@ -2187,7 +2189,17 @@ async fn google_oauth_callback(
         ("redirect_uri", &redirect_uri),
         ("grant_type", "authorization_code"),
     ];
-    let client = reqwest::Client::new();
+    // Bounded so a slow or unreachable Google cannot hold the sign-in request open.
+    let client = match reqwest::Client::builder()
+        .timeout(GOOGLE_OAUTH_HTTP_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!("Google OAuth client setup failed: {}", e);
+            return failure("oauth_failed");
+        }
+    };
     let token_res = match client.post(token_url).form(&body).send().await {
         Ok(r) => r,
         Err(e) => {
@@ -3814,57 +3826,44 @@ async fn reset_password(
     hasher.update(body.token.as_bytes());
     let token_hash = BASE64.encode(hasher.finalize());
 
-    // Find the token
     #[derive(sqlx::FromRow)]
     struct TokenRow {
         user_id: Uuid,
         expires_at: chrono::DateTime<chrono::Utc>,
     }
 
+    // Claim the token by deleting it: a concurrent request with the same token waits on the
+    // row and then finds nothing, so each token resets the password at most once.
+    let mut tx = state.db.begin().await?;
     let token_row = sqlx::query_as::<_, TokenRow>(
-        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = $1",
+        "DELETE FROM password_reset_tokens WHERE token_hash = $1 RETURNING user_id, expires_at",
     )
     .bind(&token_hash)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
 
-    if let Some(row) = token_row {
-        if chrono::Utc::now() > row.expires_at {
-            // Delete expired token
-            sqlx::query("DELETE FROM password_reset_tokens WHERE token_hash = $1")
-                .bind(&token_hash)
-                .execute(&state.db)
-                .await?;
-            return Err(AppError::Validation(
-                "Password reset token has expired".into(),
-            ));
-        }
-
-        // Token is valid, update password
-        let password_hash = hash_password(&body.new_password)?;
-
-        // Use a transaction to update password and delete token
-        let mut tx = state.db.begin().await?;
-
-        sqlx::query(
-            "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
-        )
-        .bind(&password_hash)
-        .bind(row.user_id)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
-            .bind(row.user_id)
-            .execute(&mut *tx)
-            .await?;
-
+    let Some(row) = token_row else {
+        return Err(AppError::Validation("Invalid password reset token".into()));
+    };
+    if chrono::Utc::now() > row.expires_at {
+        // Keep the deletion: an expired token is spent either way.
         tx.commit().await?;
-
-        Ok(Json(
-            serde_json::json!({ "message": "Password has been successfully reset. You can now log in." }),
-        ))
-    } else {
-        Err(AppError::Validation("Invalid password reset token".into()))
+        return Err(AppError::Validation(
+            "Password reset token has expired".into(),
+        ));
     }
+
+    let password_hash = hash_password(&body.new_password)?;
+    sqlx::query(
+        "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+    )
+    .bind(&password_hash)
+    .bind(row.user_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        serde_json::json!({ "message": "Password has been successfully reset. You can now log in." }),
+    ))
 }

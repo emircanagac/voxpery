@@ -204,15 +204,30 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
     }
 }
 
+type ProfileHint = Pick<UserPublic, 'id' | 'username' | 'avatar_url'>
+
+/** Only what may be shown before the server session snapshot arrives; never email or settings. */
+function toProfileHint(user: Partial<UserPublic> | null | undefined): ProfileHint | null {
+    if (!user?.id || !user.username) return null
+    return { id: user.id, username: user.username, ...(user.avatar_url ? { avatar_url: user.avatar_url } : {}) }
+}
+
+/** The app renders signed-in screens only after restoreSession replaces this placeholder. */
+function userFromProfileHint(user: Partial<UserPublic> | null | undefined): UserPublic | null {
+    const hint = toProfileHint(user)
+    return hint ? { ...hint, email: '', email_verified: false, status: 'offline' } : null
+}
+
 /** Persist only display profile hints. Session validity and consent are restored from the server. */
 export const useAuthStore = create<AuthState>()(
     persist(authSlice, {
         name: AUTH_STORAGE_KEY,
         storage: createJSONStorage(() => localStorage),
-        version: 2,
+        // v3 drops email and account settings from the stored hint; older entries are rewritten.
+        version: 3,
         merge: (persisted, current) => ({
             ...current,
-            user: (persisted as Partial<AuthState> | null)?.user ?? null,
+            user: userFromProfileHint((persisted as { user?: Partial<UserPublic> | null } | null)?.user),
             token: null, legalConsent: null, sessionState: 'idle', sessionError: null, loggingOut: false,
         }),
         migrate: (persistedState) => {
@@ -227,7 +242,7 @@ export const useAuthStore = create<AuthState>()(
         },
         partialize: (state) => ({
             token: null,
-            user: state.user,
+            user: toProfileHint(state.user),
         }),
     })
 )

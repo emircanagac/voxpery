@@ -343,6 +343,7 @@ CI validates the nginx and Tauri policy files statically. Release smoke validate
 - Sensitive fields are not exposed in serialized user output (`password_hash` is skipped).
 - `User` debug output is redacted for sensitive fields (`password_hash`, email, OAuth linkage detail).
 - OAuth failure paths avoid logging raw state/cookie nonce values, PKCE challenges, full email addresses, and third-party token bodies.
+- Server logs never contain usernames or full user ids; WebSocket, voice and attachment log lines identify the account only by `ShortId` (the first eight hex digits of its id), which is enough to follow one session but not to look the account up.
 - Third-party service failures log status and safe metadata instead of raw response bodies.
 
 ### Pending Google Registration

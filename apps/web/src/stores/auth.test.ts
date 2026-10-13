@@ -56,10 +56,26 @@ describe('auth store persistence', () => {
 
   it('ignores persisted session validity and document flags on reload', async () => {
     localStorage.setItem('voxpery-auth', JSON.stringify({
-      version: 2, state: { user, token: 'untrusted', legalConsent: consent, sessionState: 'ready' },
+      version: 3, state: { user, token: 'untrusted', legalConsent: consent, sessionState: 'ready' },
     }))
     await useAuthStore.persist.rehydrate()
-    expect(useAuthStore.getState()).toMatchObject({ user, token: null, legalConsent: null, sessionState: 'idle' })
+    expect(useAuthStore.getState()).toMatchObject({
+      user: { id: user.id, username: user.username, email: '' },
+      token: null, legalConsent: null, sessionState: 'idle',
+    })
+  })
+
+  it('stores only display hints and rewrites older entries without the email', async () => {
+    localStorage.setItem('voxpery-auth', JSON.stringify({ version: 2, state: { user, token: null } }))
+    await useAuthStore.persist.rehydrate()
+    const migrated = JSON.parse(localStorage.getItem('voxpery-auth')!)
+    expect(migrated.version).toBe(3)
+    expect(migrated.state.user).toEqual({ id: user.id, username: user.username })
+
+    useAuthStore.getState().setUser({ ...user, avatar_url: '/avatars/u1.png' })
+    const saved = JSON.parse(localStorage.getItem('voxpery-auth')!)
+    expect(saved.state.user).toEqual({ id: user.id, username: user.username, avatar_url: '/avatars/u1.png' })
+    expect(JSON.stringify(saved)).not.toContain(user.email)
   })
 
   it('does not let a late previous-account response replace a new account', async () => {

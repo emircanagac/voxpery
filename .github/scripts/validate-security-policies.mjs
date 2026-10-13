@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { securityHeaderFailures } from '../../apps/web/scripts/security-headers.mjs'
 
@@ -108,6 +109,35 @@ validateNginx('apps/web/nginx.production.conf', { production: true })
 validateNginx('apps/web/nginx.development.conf', { production: false })
 validateTauri('apps/desktop/src-tauri/tauri.conf.json', { production: true })
 validateTauri('apps/desktop/src-tauri/tauri.dev.conf.json', { production: false })
+
+// A tag can be moved to other code; a full commit SHA cannot. Workflows hold deploy and
+// signing secrets, so every remote action is pinned to a commit (Dependabot keeps it current).
+function workflowFiles(dir) {
+  let entries = []
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries.flatMap((entry) => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) return workflowFiles(path)
+    return /\.ya?ml$/.test(entry.name) ? [path] : []
+  })
+}
+
+function unpinnedActionUses(text) {
+  return [...text.matchAll(/^\s*-?\s*uses:\s*['"]?([^\s'"#]+)/gm)]
+    .map((match) => match[1])
+    .filter((ref) => !ref.startsWith('./') && !ref.startsWith('docker://'))
+    .filter((ref) => !/@[0-9a-f]{40}$/.test(ref))
+}
+
+for (const path of [...workflowFiles('.github/workflows'), ...workflowFiles('.github/actions')]) {
+  for (const ref of unpinnedActionUses(read(path))) {
+    failures.push(`${path} must pin ${ref} to a full commit SHA (with the version as a comment)`)
+  }
+}
 
 const pwaRegistration = read('apps/web/src/pwa.ts')
 requireText('apps/web/src/pwa.ts', pwaRegistration, "register('/sw.js', { updateViaCache: 'none' })")

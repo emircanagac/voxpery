@@ -4,6 +4,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::services::redact::ShortId;
 use crate::AppState;
 
 use super::WsEvent;
@@ -32,7 +33,10 @@ fn deliver_user_event(state: &AppState, user_id: Uuid, event: WsEvent) {
             if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
                 sender.try_send(event.clone())
             {
-                tracing::debug!("WebSocket queue full for user {}; event dropped", user_id);
+                tracing::debug!(
+                    "WebSocket queue full for user {}; event dropped",
+                    ShortId(user_id)
+                );
             }
         }
     }

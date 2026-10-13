@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -51,12 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
@@ -72,7 +72,7 @@ jobs:
       frontend: ${{ steps.detect.outputs.frontend }}
       desktop: ${{ steps.detect.outputs.desktop }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -121,15 +121,15 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/server -> target
 
@@ -153,12 +153,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -199,7 +199,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-core-ui-smoke-playwright-report
           path: apps/web/playwright-report
@@ -224,7 +224,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -234,7 +234,7 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libgtk-4-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev patchelf cmake ninja-build
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
@@ -242,10 +242,10 @@ jobs:
         run: node --test .github/scripts/validate-linux-launchers.test.mjs scripts/dev/local-qa-config.test.mjs
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri -> target
 
@@ -284,15 +284,15 @@ jobs:
           - backend
           - frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -330,7 +330,7 @@ jobs:
 
       - name: Build and push backend
         if: matrix.component == 'backend'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./apps/server
           file: ./apps/server/Dockerfile
@@ -344,7 +344,7 @@ jobs:
 
       - name: Build and push frontend
         if: matrix.component == 'frontend'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile
