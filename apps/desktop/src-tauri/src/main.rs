@@ -15,6 +15,10 @@ struct DesktopRuntimeState {
     minimize_to_tray_on_close: AtomicBool,
     allow_close_for_update: AtomicBool,
     tray_icon_variant: AtomicBool,
+    // Whether the system tray icon was created. On Linux this decides how the
+    // window leaves the screen on close: hide it when the tray can bring it back,
+    // otherwise only minimize so it is not lost on desktops without a tray host.
+    tray_available: AtomicBool,
     pending_deep_links: Mutex<Vec<String>>,
 }
 
@@ -24,6 +28,7 @@ impl Default for DesktopRuntimeState {
             minimize_to_tray_on_close: AtomicBool::new(true),
             allow_close_for_update: AtomicBool::new(false),
             tray_icon_variant: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
             pending_deep_links: Mutex::new(Vec::new()),
         }
     }
@@ -428,8 +433,13 @@ fn main() {
                     })
                     .build(app);
                 #[cfg(target_os = "linux")]
-                if tray.is_err() {
-                    eprintln!("Voxpery tray is unavailable; the window remains accessible from the taskbar");
+                {
+                    app.state::<DesktopRuntimeState>()
+                        .tray_available
+                        .store(tray.is_ok(), Ordering::Relaxed);
+                    if tray.is_err() {
+                        eprintln!("Voxpery tray is unavailable; the window remains accessible from the taskbar");
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 let _tray = tray?;
@@ -439,7 +449,14 @@ fn main() {
                 if let Some(main_win) = app.get_webview_window("main") {
                     if is_autostart_launch() {
                         #[cfg(target_os = "linux")]
-                        let _ = main_win.minimize();
+                        {
+                            if app.state::<DesktopRuntimeState>().tray_available.load(Ordering::Relaxed) {
+                                let _ = main_win.set_skip_taskbar(true);
+                                let _ = main_win.hide();
+                            } else {
+                                let _ = main_win.minimize();
+                            }
+                        }
                         #[cfg(not(target_os = "linux"))]
                         {
                             let _ = main_win.set_skip_taskbar(true);
@@ -461,10 +478,21 @@ fn main() {
                             }
 
                             api.prevent_close();
-                            // A tray object does not prove that the desktop has a tray host.
-                            // Keep a taskbar recovery path on Linux, including GNOME without extensions.
+                            // On Linux, hide the window so the tray icon is the way back, like
+                            // on the other platforms. Minimizing is not enough: tiling Wayland
+                            // compositors (Hyprland, sway) have no minimized state, so the window
+                            // would just stay on screen and the close would appear to do nothing.
+                            // Fall back to minimize only when no tray was created, so the window
+                            // is still recoverable from the taskbar on desktops without a tray host.
                             #[cfg(target_os = "linux")]
-                            let _ = main_win_clone.minimize();
+                            {
+                                if state.tray_available.load(Ordering::Relaxed) {
+                                    let _ = main_win_clone.set_skip_taskbar(true);
+                                    let _ = main_win_clone.hide();
+                                } else {
+                                    let _ = main_win_clone.minimize();
+                                }
+                            }
                             #[cfg(not(target_os = "linux"))]
                             let _ = main_win_clone.hide();
                         }
