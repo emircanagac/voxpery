@@ -145,13 +145,6 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 
 Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The target reuses its active authorized microphone capture when switching rooms, including from a background browser tab. The server retries briefly while the destination participant becomes visible, then verifies the room and authenticated identity, reconciles the authoritative LiveKit participant SID, and only then performs source cleanup and records audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
 
-### `Signal`
-
-Legacy custom signaling event.
-
-- Only forwarded when sender and target are in the same voice channel.
-- LiveKit handles media signaling in normal voice flow.
-
 ### `Ping`
 
 ```json
@@ -229,7 +222,6 @@ Legacy custom signaling event.
 
 ### Low-level
 
-- `Signal`
 - `Pong`
 
 ## Voice + LiveKit Flow
@@ -250,7 +242,6 @@ Legacy custom signaling event.
 - LiveKit webhook payloads require a matching API-key issuer, HS256 signature, expiration, and raw-body SHA-256 claim before they can clear voice state.
 - Voice state/control events are filtered by current server membership.
 - Screen-share viewer updates are accepted only for users in the same voice channel and are cleared when either participant leaves or the publisher stops sharing.
-- `Signal` forwarding is constrained to same voice channel participants.
 
 ---
 

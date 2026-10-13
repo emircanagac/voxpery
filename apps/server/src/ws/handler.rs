@@ -1001,7 +1001,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         WsEvent::VoiceMemberMoveRequested { .. }
                         | WsEvent::VoiceMemberMoveResult { .. } => false,
                         WsEvent::Pong { .. } => false,
-                        WsEvent::Signal { .. } => false,
                     };
 
                     let outgoing = if !should_send {
@@ -1999,30 +1998,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     ),
                                 )
                                 .await;
-                            }
-                            WsClientMessage::Signal {
-                                target_user_id,
-                                signal,
-                            } => {
-                                // Only allow Signal to users in the same voice channel (prevents signaling spam).
-                                let sender_channel =
-                                    recv_state.voice_sessions.get(&user_id).map(|r| *r);
-                                let target_channel =
-                                    recv_state.voice_sessions.get(&target_user_id).map(|r| *r);
-                                if let (Some(sc), Some(tc)) = (sender_channel, target_channel) {
-                                    if sc == tc {
-                                        if let Some(sessions) =
-                                            recv_state.sessions.get(&target_user_id)
-                                        {
-                                            for s in sessions.iter() {
-                                                let _ = s.send(WsEvent::Signal {
-                                                    sender_id: user_id,
-                                                    signal: signal.clone(),
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
                             }
                             WsClientMessage::Ping { sent_at_ms } => {
                                 let _ = client_tx.try_send(WsEvent::Pong { sent_at_ms });
