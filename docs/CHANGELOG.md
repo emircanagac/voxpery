@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-13
+
+### Security
+- Security updates.
+
+### Added
+- Group direct messages: start a conversation with up to 7 friends at once. Any member can rename the group or add their own friends; the group owner can remove members, and anyone can leave.
+- A "+" button next to "Direct Messages" opens your friends list so you can start a direct message or a group from the sidebar.
+
+### Fixed
+- Direct messages: when someone who only accepts DMs from friends writes to you first, you can now reply to them.
+- Linux: the `.flatpak` package now opens its window; in v0.4.3 it could quit right after launch.
+- Linux: after clicking elsewhere in the app, clicking the message box or another text field lets you type again.
+
 ## [0.4.3] - 2026-10-12
 
 ### Security

@@ -26,13 +26,21 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.3 preparation (not release sign-off)
+### v0.4.4 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.3`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.4`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.3` and `voxpery/voxpery-web:v0.4.3`, the embedded web badge/build tag, desktop version `0.4.3`, the `Voxpery_0.4.3_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.4` and `voxpery/voxpery-web:v0.4.4`, the embedded web badge/build tag, desktop version `0.4.4`, the `Voxpery_0.4.4_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.4 checks
+
+- [ ] Linux desktop (Ubuntu `.deb` and `.flatpak`, Wayland/XWayland and X11): at startup, after minimizing and restoring, after switching to another window and back, on the sign-in screen, and after clicking elsewhere in the app, clicking the message box shows a caret and typing works; header dragging and window buttons still work; clicking Voxpery and quickly switching to another app does not pull focus back.
+- [ ] Linux Flatpak from this release starts and opens its window on a clean system.
+- [ ] Social: the "+" next to Direct Messages opens the friend picker on desktop and mobile, by mouse and keyboard; search works; one friend opens the existing DM; with no friends the picker explains why it is empty.
+- [ ] Group DM with three real accounts: create with and without a name; all members see it at once and receive messages and notifications; rename, add a friend, the owner removes a member (they lose the group at once), a member leaves, the owner leaves and ownership passes on; a group of 8 cannot grow; non-friends cannot be added.
+- [ ] DM privacy: a friends-only account writes first to a non-friend, who can reply; a non-friend cannot start a DM or write before that; group members who are not friends can talk inside the group.
 
 ### v0.4.3 checks
 
