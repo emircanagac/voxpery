@@ -471,7 +471,7 @@ async fn search_messages(
     if term.is_empty() && author.is_empty() && !has_attachment {
         return Ok(Json(vec![]));
     }
-    let limit = query.limit.unwrap_or(100).min(200);
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
     let pattern = if term.is_empty() {
         String::new()
     } else {
