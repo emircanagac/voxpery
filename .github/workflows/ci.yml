@@ -130,6 +130,18 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          components: rustfmt, clippy
+
+      # Some sources keep mixed CRLF/LF line endings; check a copy with LF endings so only
+      # formatting is compared.
+      - name: Format
+        shell: bash
+        run: |
+          check_dir="$(mktemp -d)"
+          cp -r apps/server "$check_dir/server"
+          find "$check_dir/server" -name '*.rs' -exec sed -i 's/\r$//' {} +
+          cd "$check_dir/server" && cargo fmt --check
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -139,6 +151,10 @@ jobs:
       - name: Check
         working-directory: apps/server
         run: cargo check --locked
+
+      - name: Clippy
+        working-directory: apps/server
+        run: cargo clippy --locked -- -D warnings
 
       - name: Test
         working-directory: apps/server
@@ -246,6 +262,17 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          components: rustfmt, clippy
+
+      # Same line-ending normalization as the backend format check.
+      - name: Format
+        shell: bash
+        run: |
+          check_dir="$(mktemp -d)"
+          cp -r apps/desktop/src-tauri "$check_dir/src-tauri"
+          find "$check_dir/src-tauri" -name '*.rs' -exec sed -i 's/\r$//' {} +
+          cd "$check_dir/src-tauri" && cargo fmt --check
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -261,6 +288,10 @@ jobs:
       - name: Check
         working-directory: apps/desktop/src-tauri
         run: cargo check --locked
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --locked -- -D warnings
 
       - name: Test
         working-directory: apps/desktop/src-tauri
