@@ -103,12 +103,33 @@ function validateTauri(path, { production }) {
   if (production && includesLocalBackendTarget(JSON.stringify(csp))) {
     failures.push(`${path} release CSP must not include loopback targets`)
   }
+  // Without an explicit list Tauri enables every file in capabilities/, so releases name it.
+  const capabilities = config?.app?.security?.capabilities
+  if (production && JSON.stringify(capabilities) !== JSON.stringify(['default'])) {
+    failures.push(`${path} must enable only the "default" capability`)
+  }
+}
+
+// Capability files ship in every build; development access belongs in tauri.dev.conf.json.
+function validateTauriCapabilityFiles(dir) {
+  let names = []
+  try {
+    names = readdirSync(dir).filter((name) => name.endsWith('.json'))
+  } catch (error) {
+    failures.push(`Unable to list ${dir}: ${String(error)}`)
+  }
+  for (const name of names) {
+    const text = read(join(dir, name))
+    if (includesLocalBackendTarget(text)) failures.push(`${dir}/${name} must not grant loopback targets`)
+    if (/"remote"\s*:/.test(text)) failures.push(`${dir}/${name} must not grant capabilities to remote origins`)
+  }
 }
 
 validateNginx('apps/web/nginx.production.conf', { production: true })
 validateNginx('apps/web/nginx.development.conf', { production: false })
 validateTauri('apps/desktop/src-tauri/tauri.conf.json', { production: true })
 validateTauri('apps/desktop/src-tauri/tauri.dev.conf.json', { production: false })
+validateTauriCapabilityFiles('apps/desktop/src-tauri/capabilities')
 
 // A tag can be moved to other code; a full commit SHA cannot. Workflows hold deploy and
 // signing secrets, so every remote action is pinned to a commit (Dependabot keeps it current).

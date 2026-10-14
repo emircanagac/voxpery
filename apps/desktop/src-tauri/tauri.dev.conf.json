@@ -15,7 +15,24 @@
         "base-uri": "'none'",
         "form-action": "'self'",
         "frame-ancestors": "'none'"
-      }
+      },
+      "capabilities": [
+        "default",
+        {
+          "identifier": "dev-local-api",
+          "description": "Development only: lets the dev frontend reach the local backend.",
+          "windows": ["main"],
+          "permissions": [
+            {
+              "identifier": "http:default",
+              "allow": [
+                { "url": "http://localhost:3001/**" },
+                { "url": "http://127.0.0.1:3001/**" }
+              ]
+            }
+          ]
+        }
+      ]
     }
   }
 }
