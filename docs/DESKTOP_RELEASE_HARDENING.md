@@ -44,6 +44,34 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Release preflight rejects missing `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, or `media-src 'self' blob:` directives.
 - If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
 - Voxpery development uses `apps/desktop/src-tauri/tauri.dev.conf.json` together with `cargo tauri dev --config tauri.dev.conf.json` for local backend connectivity.
+- Capabilities:
+  - `tauri.conf.json` enables only the `default` capability (`app.security.capabilities: ["default"]`), so the release `gen/schemas/capabilities.json` contains only `default`.
+  - The development capability (`dev-local-api`, HTTP access to the local backend) is inlined in `tauri.dev.conf.json`. No file in `capabilities/` may grant loopback targets or remote origins.
+  - `validate-security-policies.mjs` enforces all three rules.
+  - `default` is a local capability: the bundled app is served from the runtime's own scheme URL (`https://tauri.localhost` on Windows and Linux CEF, `tauri://localhost` on macOS), and Tauri treats that origin as local. In development, the `devUrl` counts as local.
+  - Check on each platform that sign-in, keyring persistence, the updater and HTTP requests work in an installed release build.
+
+## 2.1.0) Desktop Platform Decision
+
+Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macOS and Linux, with every Tauri crate pinned to an exact version.
+
+- Why Tauri 3 alpha: Linux needs WebRTC for voice, and system WebKitGTK builds ship without it. Chromium through `tauri-runtime-cef` exists only in Tauri 3. Windows and macOS stay on their system webviews through `tauri-runtime-wry`.
+- Considered: Tauri 2 stable for Windows and macOS with Tauri 3 only on Linux. Rejected for now: one crate cannot depend on two Tauri major versions without duplicating the app shell, plugins, capability schemas and release pipeline per platform, which doubles maintenance and the manual QA gate. Windows and macOS have run on Tauri 3 alpha since the Linux CEF move (#409) without platform-specific regressions.
+- Revisit when any of these happens:
+  - Tauri 3 reaches beta or stable: move all crates and JS packages together.
+  - An alpha regression on Windows or macOS has no workaround: re-evaluate a split.
+  - WebKitGTK ships WebRTC in the supported distributions: re-evaluate CEF on Linux.
+- Upgrade policy: upgrade `tauri`, `tauri-build`, the runtimes and all plugins in one change. Run the full manual QA gate (section 5) on all three platforms before release, and the Linux checks in 2.1.1.
+- JavaScript packages: the web app uses `@tauri-apps/api` and plugin packages 2.x, while the Rust crates are 3.0.0 alphas, and 3.0.0 alpha JS packages exist on npm. The JS packages only wrap IPC calls, and every call the app makes has worked unchanged on all three platforms since v0.4.0:
+  - `core` invoke, `window`, `event`, `app` version
+  - the HTTP plugin fetch, updater check and install, process relaunch
+  - deep-link URLs, global shortcuts, autostart, opener
+  - the app's own `desktop_*` and `secure-storage` commands
+
+  Section 5 exercises each of these. Move the JS packages to 3.x together with the next Tauri crate upgrade and verify the same list. A plugin whose command changes would otherwise fail only at runtime.
+- Upstream issues tracked:
+  - tauri-apps/tauri#16251: the Linux CEF webview loses X11 keyboard focus; worked around by `src/linux_focus.rs`, see 2.1.1.
+  - The `glib` 0.18 advisory (#242): `glib` 0.18 comes in through `gtk` 0.18, which Tauri's menu crate `muda` 0.20 uses. It needs an upstream move to newer gtk-rs crates and stays documented until then.
 
 ## 2.1.1) Linux Tauri Runtime And Packaging
 
