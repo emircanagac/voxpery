@@ -132,6 +132,7 @@ Uniqueness (case-insensitive):
 ### `channel_pins`
 
 - `channel_id`, `message_id`, `pinned_by_id`, `pinned_at`
+- `pinned_by_id` is nullable (migration `054`): deleting the pinning account clears it and the pin stays.
 
 ### `friend_requests`
 
@@ -171,6 +172,7 @@ Uniqueness (case-insensitive):
 ### `dm_channel_pins`
 
 - `dm_channel_id`, `dm_message_id`, `pinned_by_id`, `pinned_at`
+- `pinned_by_id` is nullable (migration `054`), as in `channel_pins`.
 
 ### `audit_log`
 
@@ -221,6 +223,10 @@ Uniqueness (case-insensitive):
 - `original_name`, `content_type`, `size_bytes`, `sha256`
 - malware fields: `scan_status`, `malware_signature`
 - `created_at`
+- `last_claimed_at`: when the file was last uploaded (an identical re-upload reuses the row and updates it).
+- `release_check_at`: when the server next checks whether the upload is still used; `NULL` once it was found in use.
+- Unused uploads are released (migration `055`). Triggers on `messages` and `dm_messages` set `release_check_at` for the files of every deleted message, including messages removed with their channel, server or DM. A periodic job (every 10 minutes, and right after a message delete) deletes uploads that no message references and that were last uploaded more than 24 hours ago, subtracts their size from `users.storage_used_bytes` in the same transaction and removes the files after the commit. Unsent uploads therefore stay usable for 24 hours.
+- Message `attachments` reference uploads by `id`; migration `055` added the id to older references that only had a URL. GIN indexes on `messages.attachments` and `dm_messages.attachments` serve the "still in use" and attachment-access lookups.
 
 ## Transactional Write Invariants
 
@@ -232,6 +238,9 @@ Critical multi-row writes use explicit PostgreSQL transactions and serialize com
 - Channel creation and deletion serialize on the same server-row lock. Text-channel deletion counts the remaining channels while holding that lock, so concurrent deletes cannot remove the final text channel.
 - Pin additions lock their server or DM channel before enforcing the 50-pin limit. Reaction additions lock their server or DM message before enforcing the 20-distinct-emoji limit.
 - Open user and message reports are protected by partial unique indexes. Concurrent duplicate submissions resolve to the existing moderation-queue item instead of creating duplicate rows.
+- Releasing unused uploads locks candidate rows with `FOR UPDATE SKIP LOCKED`, so several server instances can run the job at once. An upload that is being reused takes the same row lock first and restarts its grace period.
+
+Lookup indexes added in migration `056`: `users (lower(email))` for case-insensitive sign-in and registration checks, and `token_hash` on `password_reset_tokens` and `email_verification_tokens`.
 
 WebSocket broadcasts and LiveKit reconciliation happen only after the database commit. They may report or reconcile committed state, but they cannot cause a successful database transaction to be presented as rolled back.
 

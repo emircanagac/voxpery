@@ -1,6 +1,7 @@
 //! Attachment upload, storage, malware scanning, and URL validation.
 
 use std::{
+    collections::HashMap,
     io::Cursor,
     path::{Path, PathBuf},
     time::Duration,
@@ -456,56 +457,85 @@ impl AttachmentService {
         signing_secret: &str,
         attachments: Option<Value>,
     ) -> Result<Option<Value>, AppError> {
-        let Some(raw) = attachments else {
-            return Ok(None);
-        };
-        let Some(arr) = raw.as_array() else {
-            return Ok(Some(raw));
-        };
+        let mut hydrated = self
+            .hydrate_attachment_lists_for_output(db, signing_secret, vec![attachments])
+            .await?;
+        Ok(hydrated.pop().flatten())
+    }
 
-        let mut hydrated = Vec::with_capacity(arr.len());
-        for item in arr {
-            let Some(obj) = item.as_object() else {
-                hydrated.push(item.clone());
-                continue;
+    /// Hydrates the stored attachments of many messages, looking up every referenced upload
+    /// with one query (plus one for legacy upload URLs) instead of one query per attachment.
+    pub async fn hydrate_attachment_lists_for_output(
+        &self,
+        db: &sqlx::PgPool,
+        signing_secret: &str,
+        lists: Vec<Option<Value>>,
+    ) -> Result<Vec<Option<Value>>, AppError> {
+        let mut ids = Vec::new();
+        let mut storage_keys = Vec::new();
+        for item in lists.iter().flatten().filter_map(Value::as_array).flatten() {
+            match item.as_object().map(stored_attachment_ref) {
+                Some(StoredAttachmentRef::Id(id)) => ids.push(id),
+                Some(StoredAttachmentRef::StorageKey(key)) => storage_keys.push(key),
+                _ => {}
+            }
+        }
+
+        let mut by_id = HashMap::new();
+        if !ids.is_empty() {
+            let rows = sqlx::query_as::<_, UploadedAttachmentRecord>(
+                r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+                   FROM uploaded_attachments
+                   WHERE id = ANY($1) AND scan_status = 'clean'"#,
+            )
+            .bind(&ids)
+            .fetch_all(db)
+            .await?;
+            by_id.extend(rows.into_iter().map(|record| (record.id, record)));
+        }
+        let mut by_storage_key = HashMap::new();
+        if !storage_keys.is_empty() {
+            let rows = sqlx::query_as::<_, UploadedAttachmentRecord>(
+                r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+                   FROM uploaded_attachments
+                   WHERE storage_key = ANY($1) AND scan_status = 'clean'"#,
+            )
+            .bind(&storage_keys)
+            .fetch_all(db)
+            .await?;
+            by_storage_key.extend(
+                rows.into_iter()
+                    .map(|record| (record.storage_key.clone(), record)),
+            );
+        }
+
+        let hydrate_item = |item: &Value| -> Value {
+            let record = match item.as_object().map(stored_attachment_ref) {
+                Some(StoredAttachmentRef::Id(id)) => by_id.get(&id),
+                Some(StoredAttachmentRef::StorageKey(key)) => by_storage_key.get(&key),
+                _ => None,
             };
-
-            let attachment_id = obj
-                .get("id")
-                .and_then(Value::as_str)
-                .and_then(|s| Uuid::parse_str(s).ok());
-            let source_url = obj.get("url").and_then(Value::as_str);
-
-            let record = if let Some(id) = attachment_id {
-                self.find_attachment_by_id(db, id).await?
-            } else if let Some(url) = source_url {
-                if let Some(id) = parse_attachment_id_from_content_url(url) {
-                    self.find_attachment_by_id(db, id).await?
-                } else if let Some(storage_key) = parse_storage_key_from_legacy_upload_url(url) {
-                    self.find_attachment_by_storage_key(db, &storage_key)
-                        .await?
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            if let Some(record) = record {
-                hydrated.push(serde_json::json!({
+            match record {
+                Some(record) => serde_json::json!({
                     "id": record.id,
                     "url": self.signed_content_url(record.id, signing_secret),
                     "type": record.content_type,
                     "name": record.original_name,
                     "size": record.size_bytes,
                     "sha256": record.sha256,
-                }));
-            } else {
-                hydrated.push(item.clone());
+                }),
+                None => item.clone(),
             }
-        }
-
-        Ok(Some(Value::Array(hydrated)))
+        };
+        Ok(lists
+            .into_iter()
+            .map(|raw| match raw {
+                Some(Value::Array(items)) => {
+                    Some(Value::Array(items.iter().map(&hydrate_item).collect()))
+                }
+                other => other,
+            })
+            .collect())
     }
 
     pub async fn get_clean_attachment_by_id(
@@ -588,23 +618,6 @@ impl AttachmentService {
                LIMIT 1"#,
         )
         .bind(attachment_id)
-        .fetch_optional(db)
-        .await?;
-        Ok(row)
-    }
-
-    async fn find_attachment_by_storage_key(
-        &self,
-        db: &sqlx::PgPool,
-        storage_key: &str,
-    ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
-        let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
-            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
-               FROM uploaded_attachments
-               WHERE storage_key = $1 AND scan_status = 'clean'
-               LIMIT 1"#,
-        )
-        .bind(storage_key)
         .fetch_optional(db)
         .await?;
         Ok(row)
@@ -1328,6 +1341,34 @@ fn validate_attachment_url(url: &str) -> Result<(), String> {
         return Err("Attachment URL must use https:// or http://".into());
     }
     Ok(())
+}
+
+enum StoredAttachmentRef {
+    Id(Uuid),
+    StorageKey(String),
+    Unresolvable,
+}
+
+/// How a stored attachment points at its upload: by id, by a content URL carrying the id, or by
+/// a legacy `/uploads/` URL carrying the storage key. An id is used even when it does not match.
+fn stored_attachment_ref(obj: &serde_json::Map<String, Value>) -> StoredAttachmentRef {
+    if let Some(id) = obj
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+    {
+        return StoredAttachmentRef::Id(id);
+    }
+    let Some(url) = obj.get("url").and_then(Value::as_str) else {
+        return StoredAttachmentRef::Unresolvable;
+    };
+    if let Some(id) = parse_attachment_id_from_content_url(url) {
+        StoredAttachmentRef::Id(id)
+    } else if let Some(storage_key) = parse_storage_key_from_legacy_upload_url(url) {
+        StoredAttachmentRef::StorageKey(storage_key)
+    } else {
+        StoredAttachmentRef::Unresolvable
+    }
 }
 
 fn parse_attachment_id_from_content_url(url: &str) -> Option<Uuid> {

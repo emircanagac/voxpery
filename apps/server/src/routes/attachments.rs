@@ -192,7 +192,8 @@ async fn process_attachment_upload(
                  AND original_name = $5
                  AND scan_status = 'clean'
                ORDER BY created_at ASC
-               LIMIT 1"#,
+               LIMIT 1
+               FOR UPDATE"#,
         )
         .bind(user_id)
         .bind(&prepared.sha256)
@@ -202,6 +203,12 @@ async fn process_attachment_upload(
         .fetch_optional(&mut **tx)
         .await?;
         if let Some((id, content_type, original_name, size_bytes, sha256)) = existing {
+            // A reused upload is being attached again: keep it through the unused-upload grace
+            // period like a new one. The row lock above waits out a concurrent release.
+            sqlx::query("UPDATE uploaded_attachments SET last_claimed_at = NOW() WHERE id = $1")
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
             uploaded.push(AttachmentResponseItem {
                 id,
                 url: state
@@ -230,7 +237,7 @@ async fn process_attachment_upload(
 
         if reserve_result.is_none() {
             return Err(AppError::Validation(
-                "Storage quota exceeded (1 GB). Delete old files or upgrade your plan.".into(),
+                "Storage quota exceeded (1 GB). Delete messages with files you no longer need; their space is freed shortly after.".into(),
             ));
         }
 

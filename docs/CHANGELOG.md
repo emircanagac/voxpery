@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Direct message history and message search no longer fail when asked for an out-of-range page size.
+- Deleted and edited direct messages now disappear or update right away for everyone in the conversation, and on your other devices.
+- Deleting messages with files now frees your 1 GB upload storage, so it no longer fills up for good; files that were uploaded but never sent are removed after a day.
+- Role changes now reach members connected to every server instance in multi-instance setups.
+- AutoMod spam detection now counts every message in a burst.
+- Large servers load their channel list, member list and message attachments faster.
 
 ## [0.4.4] - 2026-10-13
 

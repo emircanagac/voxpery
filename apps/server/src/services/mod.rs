@@ -1,3 +1,4 @@
+pub mod attachment_release;
 pub mod attachments;
 pub mod audit;
 pub mod auth;

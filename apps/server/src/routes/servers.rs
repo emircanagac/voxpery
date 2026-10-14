@@ -954,9 +954,7 @@ async fn create_role(
         _ => AppError::from(e),
     })?;
 
-    let _ = state
-        .tx
-        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
     Ok(Json(role))
 }
@@ -1024,9 +1022,7 @@ async fn reorder_roles(
 
     tx.commit().await?;
 
-    let _ = state
-        .tx
-        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
     Ok(Json(serde_json::json!({ "message": "Roles reordered" })))
 }
@@ -1127,9 +1123,7 @@ async fn update_role(
         _ => AppError::from(e),
     })?;
 
-    let _ = state
-        .tx
-        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
     if permissions_opt.is_some() {
         voice_revoke::revoke_invalid_voice_sessions_for_server(
@@ -1190,9 +1184,7 @@ async fn delete_role(
         return Err(AppError::NotFound("Role not found".into()));
     }
 
-    let _ = state
-        .tx
-        .send(crate::ws::WsEvent::ServerRolesUpdated { server_id });
+    crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
     voice_revoke::revoke_invalid_voice_sessions_for_server(&state, server_id, "role deleted")
         .await?;
@@ -1693,10 +1685,12 @@ async fn list_channels(
     .fetch_all(&state.db)
     .await?;
 
+    let snapshot =
+        permissions::ServerPermissionSnapshot::load(&state.db, server_id, Some(&[claims.sub]))
+            .await?;
     let mut visible = Vec::with_capacity(channels.len());
     for channel in channels {
-        let perms =
-            permissions::get_user_channel_permissions(&state.db, channel.id, claims.sub).await?;
+        let perms = snapshot.channel_permissions(channel.id, claims.sub);
         if perms.contains(Permissions::VIEW_SERVER) {
             visible.push(ChannelWithPermissions {
                 id: channel.id,
@@ -1806,11 +1800,10 @@ async fn list_channel_visible_members(
     .fetch_all(&state.db)
     .await?;
 
+    let snapshot = permissions::ServerPermissionSnapshot::load(&state.db, server_id, None).await?;
     let mut visible_members = Vec::with_capacity(members.len());
     for mut member in members {
-        let perms =
-            permissions::get_user_channel_permissions(&state.db, channel_id, member.user_id)
-                .await?;
+        let perms = snapshot.channel_permissions(channel_id, member.user_id);
         if !perms.contains(Permissions::VIEW_SERVER) {
             continue;
         }

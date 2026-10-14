@@ -8928,6 +8928,404 @@ async fn befriend(state: &AppState, one: Uuid, other: Uuid) {
         .unwrap();
 }
 
+async fn upload_text_file(app: &mut axum::Router, auth: &str, name: &str, bytes: &[u8]) -> Uuid {
+    let boundary = format!("----voxperyrelease{}", Uuid::new_v4());
+    let body = [
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"{name}\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .into_bytes(),
+        bytes.to_vec(),
+        format!("\r\n--{boundary}--\r\n").into_bytes(),
+    ]
+    .concat();
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", auth)
+        .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+        .body(Body::from(body))
+        .unwrap();
+    let (status, body) = oneshot(app, request).await;
+    assert_eq!(status, StatusCode::OK, "upload failed: {}", String::from_utf8_lossy(&body));
+    let uploaded: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    uploaded[0]["id"].as_str().unwrap().parse().unwrap()
+}
+
+async fn send_with_attachment(
+    app: &mut axum::Router,
+    auth: &str,
+    channel_id: Uuid,
+    attachment: Uuid,
+) -> String {
+    let (status, message) = api_json(
+        app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        auth,
+        Some(json!({ "content": "file", "attachments": [{ "id": attachment.to_string() }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{message}");
+    message["id"].as_str().unwrap().to_string()
+}
+
+async fn upload_release_state(
+    state: &AppState,
+    id: Uuid,
+) -> Option<(String, Option<chrono::DateTime<chrono::Utc>>)> {
+    sqlx::query_as("SELECT storage_key, release_check_at FROM uploaded_attachments WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap()
+}
+
+/// Moves an upload back past the grace period for unsent files and makes it due for a check.
+async fn age_upload(state: &AppState, id: Uuid, due: bool) {
+    sqlx::query(
+        "UPDATE uploaded_attachments
+         SET last_claimed_at = NOW() - INTERVAL '2 days',
+             release_check_at = CASE WHEN $2 THEN NOW() ELSE release_check_at END
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(due)
+    .execute(&state.db)
+    .await
+    .unwrap();
+}
+
+async fn storage_used(state: &AppState, user_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT storage_used_bytes FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn unused_uploads_are_released_and_their_quota_returned() {
+    use voxpery_server::services::attachment_release::release_unused_uploads;
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "uploader").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Uploads").await;
+
+    // A file used by two messages stays until the second one is deleted.
+    let shared = upload_text_file(&mut app, &auth, "shared.txt", b"shared release bytes").await;
+    let (shared_key, _) = upload_release_state(&state, shared).await.unwrap();
+    let first = send_with_attachment(&mut app, &auth, channel_id, shared).await;
+    let second = send_with_attachment(&mut app, &auth, channel_id, shared).await;
+    age_upload(&state, shared, false).await;
+    let used_before = storage_used(&state, user_id).await;
+    let (status, _) =
+        api_json(&mut app, "DELETE", &format!("/api/messages/item/{first}"), &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, check_at) = upload_release_state(&state, shared).await.expect("still in use");
+    assert!(check_at.is_none(), "a file in use waits for its next message deletion");
+    let (status, _) =
+        api_json(&mut app, "DELETE", &format!("/api/messages/item/{second}"), &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(upload_release_state(&state, shared).await.is_none(), "unused file must be released");
+    assert!(state.attachment_service.open_local_attachment_file(&shared_key).await.is_err());
+    assert_eq!(
+        storage_used(&state, user_id).await,
+        used_before - b"shared release bytes".len() as i64
+    );
+
+    // An unsent upload is kept through the grace period, then released.
+    let draft = upload_text_file(&mut app, &auth, "draft.txt", b"draft bytes").await;
+    let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[draft]))
+        .await
+        .unwrap();
+    assert_eq!(outcome.released, 0);
+    let (_, check_at) = upload_release_state(&state, draft).await.unwrap();
+    assert!(check_at.unwrap() > chrono::Utc::now() + chrono::Duration::hours(23));
+    age_upload(&state, draft, true).await;
+    let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[draft]))
+        .await
+        .unwrap();
+    assert_eq!(outcome.released, 1);
+
+    // Uploading the same file again reuses the upload and restarts its grace period.
+    let reused = upload_text_file(&mut app, &auth, "again.txt", b"reuse bytes").await;
+    age_upload(&state, reused, true).await;
+    assert_eq!(upload_text_file(&mut app, &auth, "again.txt", b"reuse bytes").await, reused);
+    release_unused_uploads(&state.db, &state.attachment_service, Some(&[reused]))
+        .await
+        .unwrap();
+    assert!(upload_release_state(&state, reused).await.is_some(), "a fresh re-upload is kept");
+
+    // Messages removed with their channel mark their files for the next check.
+    let cascaded = upload_text_file(&mut app, &auth, "cascade.txt", b"cascade bytes").await;
+    send_with_attachment(&mut app, &auth, channel_id, cascaded).await;
+    age_upload(&state, cascaded, false).await;
+    sqlx::query("UPDATE uploaded_attachments SET release_check_at = NULL WHERE id = $1")
+        .bind(cascaded)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (_, check_at) = upload_release_state(&state, cascaded).await.unwrap();
+    assert!(check_at.is_some(), "deleting messages must queue their files");
+    let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[cascaded]))
+        .await
+        .unwrap();
+    assert_eq!(outcome.released, 1);
+
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM uploaded_attachments WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(storage_used(&state, user_id).await, remaining, "quota matches the files left");
+}
+
+#[tokio::test]
+async fn permission_snapshot_matches_per_user_permission_checks() {
+    use voxpery_server::services::permissions::{
+        get_user_category_permissions, get_user_channel_permissions, Permissions,
+        ServerPermissionSnapshot,
+    };
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "snapowner").await;
+    let (server_id, general_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Snapshot").await;
+    let mut users = vec![owner_id];
+    for label in ["snapplain", "snapstaff", "snapmuted", "snapadmin", "snapweird"] {
+        let (auth, user_id, _) = register_named_user(&mut app, label).await;
+        join_with_invite(&mut app, &auth, &invite_code).await;
+        users.push(user_id);
+    }
+    let (_, outsider_id, _) = register_named_user(&mut app, "snapoutsider").await;
+    users.push(outsider_id);
+    let [_, _, staff_id, muted_id, admin_id, weird_id, _] = users[..] else {
+        unreachable!()
+    };
+
+    let view = Permissions::VIEW_SERVER.bits();
+    let send = Permissions::SEND_MESSAGES.bits();
+    let pins = Permissions::MANAGE_PINS.bits();
+    let add_role = |name: &'static str, bits: i64, member: Uuid| {
+        let state = state.clone();
+        async move {
+            let role_id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO server_roles (id, server_id, name, color, position, permissions) VALUES ($1, $2, $3, NULL, 5, $4)",
+            )
+            .bind(role_id)
+            .bind(server_id)
+            .bind(name)
+            .bind(bits)
+            .execute(&state.db)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
+                .bind(server_id)
+                .bind(member)
+                .bind(role_id)
+                .execute(&state.db)
+                .await
+                .unwrap();
+            role_id
+        }
+    };
+    let staff_role = add_role("Snap staff", send, staff_id).await;
+    let muted_role = add_role("Snap muted", 0, muted_id).await;
+    add_role("Snap admin", Permissions::MANAGE_SERVER.bits(), admin_id).await;
+    // Unknown bits make a role's permissions unreadable, so it grants nothing.
+    add_role("Snap weird", (1 << 40) | Permissions::MANAGE_CHANNELS.bits(), weird_id).await;
+    let everyone_role: Uuid = sqlx::query_scalar(
+        "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    sqlx::query("INSERT INTO server_channel_categories (server_id, name, position) VALUES ($1, 'Staff', 1)")
+        .bind(server_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let mut channels = vec![general_id];
+    for (name, category) in [("staff-chat", Some("Staff")), ("padded", Some("  Staff ")), ("news", None)] {
+        let channel_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at) VALUES ($1, $2, $3, 'text', $4, 3, NOW())",
+        )
+        .bind(channel_id)
+        .bind(server_id)
+        .bind(name)
+        .bind(category)
+        .execute(&state.db)
+        .await
+        .unwrap();
+        channels.push(channel_id);
+    }
+    let [_, staff_chat, _, news] = channels[..] else {
+        unreachable!()
+    };
+    for (role_id, allow, deny) in [(everyone_role, 0, view), (staff_role, view, 0)] {
+        sqlx::query(
+            "INSERT INTO channel_category_role_overrides (server_id, category, role_id, allow, deny) VALUES ($1, 'Staff', $2, $3, $4)",
+        )
+        .bind(server_id)
+        .bind(role_id)
+        .bind(allow)
+        .bind(deny)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+    for (channel_id, role_id, allow, deny) in [
+        (news, everyone_role, 0, send),
+        (news, staff_role, send, 0),
+        (news, muted_role, 0, view),
+        // Allowing a server-wide power per channel has no effect.
+        (staff_chat, muted_role, view | Permissions::MANAGE_SERVER.bits(), 0),
+        (staff_chat, staff_role, 0, pins),
+    ] {
+        sqlx::query(
+            "INSERT INTO channel_role_overrides (channel_id, role_id, allow, deny) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(channel_id)
+        .bind(role_id)
+        .bind(allow)
+        .bind(deny)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    let everyone = ServerPermissionSnapshot::load(&state.db, server_id, None).await.unwrap();
+    for &user_id in &users {
+        let single = ServerPermissionSnapshot::load(&state.db, server_id, Some(&[user_id]))
+            .await
+            .unwrap();
+        for &channel_id in &channels {
+            let expected = get_user_channel_permissions(&state.db, channel_id, user_id)
+                .await
+                .unwrap();
+            assert_eq!(everyone.channel_permissions(channel_id, user_id), expected);
+            assert_eq!(single.channel_permissions(channel_id, user_id), expected);
+        }
+        for category in ["Staff", " Staff ", "", "Missing"] {
+            let expected = get_user_category_permissions(&state.db, server_id, category, user_id)
+                .await
+                .unwrap();
+            assert_eq!(everyone.category_permissions(category, user_id), expected);
+            assert_eq!(single.category_permissions(category, user_id), expected);
+        }
+    }
+    // The fixture exercises distinct outcomes, not only empty or full permissions.
+    assert!(!everyone.channel_permissions(staff_chat, users[1]).contains(Permissions::VIEW_SERVER));
+    assert!(everyone.channel_permissions(staff_chat, staff_id).contains(Permissions::VIEW_SERVER));
+    assert!(everyone.channel_permissions(staff_chat, muted_id).contains(Permissions::VIEW_SERVER));
+    assert!(!everyone.channel_permissions(news, muted_id).contains(Permissions::VIEW_SERVER));
+    assert!(everyone.channel_permissions(news, staff_id).contains(Permissions::SEND_MESSAGES));
+    assert_eq!(everyone.channel_permissions(news, outsider_id), Permissions::empty());
+}
+
+#[tokio::test]
+async fn pin_authors_can_be_cleared_when_their_account_goes() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (_, state) = setup_app().await;
+    // ON DELETE SET NULL needs a nullable column; NOT NULL would make the delete fail instead.
+    for table in ["channel_pins", "dm_channel_pins"] {
+        let nullable: String = sqlx::query_scalar(
+            "SELECT is_nullable FROM information_schema.columns
+             WHERE table_schema = current_schema() AND table_name = $1 AND column_name = 'pinned_by_id'",
+        )
+        .bind(table)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(nullable, "YES", "{table}.pinned_by_id");
+    }
+}
+
+#[tokio::test]
+async fn dm_edits_and_deletions_reach_every_member_session() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (author_auth, author_id, _) = register_named_user(&mut app, "dmauthor").await;
+    let (peer_auth, peer_id, _) = register_named_user(&mut app, "dmpeer").await;
+    befriend(&state, author_id, peer_id).await;
+    let (status, channel) =
+        api_json(&mut app, "POST", &format!("/api/dm/channels/{peer_id}"), &author_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{channel}");
+    let channel_id = channel["id"].as_str().unwrap().to_string();
+    let (status, message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{channel_id}"),
+        &author_auth,
+        Some(json!({ "content": "before edit" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{message}");
+    let message_id = message["id"].as_str().unwrap().to_string();
+
+    let addr = spawn_ws_app(&state).await;
+    let mut peer_ws = connect_ws(addr, &peer_auth).await;
+    // The author's other device must stay in sync as well.
+    let mut author_other_ws = connect_ws(addr, &author_auth).await;
+    ws_barrier(&mut peer_ws).await;
+    ws_barrier(&mut author_other_ws).await;
+
+    let (status, _) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/dm/messages/item/{message_id}"),
+        &author_auth,
+        Some(json!({ "content": "after edit" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for ws in [&mut peer_ws, &mut author_other_ws] {
+        let event = receive_ws_event(ws, "MessageUpdated").await;
+        assert_eq!(event["data"]["channel_id"], channel_id.as_str());
+        assert_eq!(event["data"]["message"]["content"], "after edit");
+    }
+
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/dm/messages/item/{message_id}"),
+        &author_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for ws in [&mut peer_ws, &mut author_other_ws] {
+        let event = receive_ws_event(ws, "MessageDeleted").await;
+        assert_eq!(event["data"]["channel_id"], channel_id.as_str());
+        assert_eq!(event["data"]["message_id"], message_id.as_str());
+    }
+}
+
 #[tokio::test]
 async fn group_dms_are_built_from_friends_and_follow_membership() {
     let Some(_) = test_db_url() else {

@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
@@ -354,6 +356,211 @@ pub async fn get_user_category_permissions(
 
     apply_overrides(&mut perms, category_overrides);
     Ok(perms)
+}
+
+/// Role, membership and override data of one server, loaded with a fixed number of queries so
+/// permissions for many members, channels or categories are computed in memory. Results match
+/// [`get_user_channel_permissions`] and [`get_user_category_permissions`].
+pub struct ServerPermissionSnapshot {
+    owner_id: Option<Uuid>,
+    members: HashSet<Uuid>,
+    /// Roles named Everyone: every member has them implicitly.
+    everyone_roles: Vec<(Uuid, i64)>,
+    /// Assigned roles per member: (role id, permission bits, named Everyone).
+    member_roles: HashMap<Uuid, Vec<(Uuid, i64, bool)>>,
+    channel_categories: HashMap<Uuid, Option<String>>,
+    /// (role id, allow, deny) per category name and per channel.
+    category_overrides: HashMap<String, Vec<(Uuid, i64, i64)>>,
+    channel_overrides: HashMap<Uuid, Vec<(Uuid, i64, i64)>>,
+}
+
+impl ServerPermissionSnapshot {
+    /// Loads the snapshot. With `users`, only those users' memberships and roles are read.
+    pub async fn load(
+        db: &PgPool,
+        server_id: Uuid,
+        users: Option<&[Uuid]>,
+    ) -> Result<Self, AppError> {
+        let owner_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
+                .bind(server_id)
+                .fetch_optional(db)
+                .await?;
+        let members: Vec<Uuid> = sqlx::query_scalar(
+            r#"SELECT user_id FROM server_members
+               WHERE server_id = $1 AND ($2::uuid[] IS NULL OR user_id = ANY($2))"#,
+        )
+        .bind(server_id)
+        .bind(users)
+        .fetch_all(db)
+        .await?;
+        let everyone_roles: Vec<(Uuid, i64)> = sqlx::query_as(
+            "SELECT id, permissions FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone'",
+        )
+        .bind(server_id)
+        .fetch_all(db)
+        .await?;
+        let assigned: Vec<(Uuid, Uuid, i64, bool)> = sqlx::query_as(
+            r#"SELECT smr.user_id, sr.id, sr.permissions, LOWER(sr.name) = 'everyone'
+               FROM server_member_roles smr
+               INNER JOIN server_roles sr ON sr.id = smr.role_id
+               WHERE smr.server_id = $1 AND ($2::uuid[] IS NULL OR smr.user_id = ANY($2))"#,
+        )
+        .bind(server_id)
+        .bind(users)
+        .fetch_all(db)
+        .await?;
+        let channels: Vec<(Uuid, Option<String>)> =
+            sqlx::query_as("SELECT id, category FROM channels WHERE server_id = $1")
+                .bind(server_id)
+                .fetch_all(db)
+                .await?;
+        let category_rows: Vec<(String, Uuid, i64, i64)> = sqlx::query_as(
+            r#"SELECT category, role_id, allow, deny
+               FROM channel_category_role_overrides
+               WHERE server_id = $1"#,
+        )
+        .bind(server_id)
+        .fetch_all(db)
+        .await?;
+        let channel_rows: Vec<(Uuid, Uuid, i64, i64)> = sqlx::query_as(
+            r#"SELECT cro.channel_id, cro.role_id, cro.allow, cro.deny
+               FROM channel_role_overrides cro
+               INNER JOIN channels c ON c.id = cro.channel_id
+               WHERE c.server_id = $1"#,
+        )
+        .bind(server_id)
+        .fetch_all(db)
+        .await?;
+
+        let mut member_roles: HashMap<Uuid, Vec<(Uuid, i64, bool)>> = HashMap::new();
+        for (user_id, role_id, bits, is_everyone) in assigned {
+            member_roles
+                .entry(user_id)
+                .or_default()
+                .push((role_id, bits, is_everyone));
+        }
+        let mut category_overrides: HashMap<String, Vec<(Uuid, i64, i64)>> = HashMap::new();
+        for (category, role_id, allow, deny) in category_rows {
+            category_overrides
+                .entry(category)
+                .or_default()
+                .push((role_id, allow, deny));
+        }
+        let mut channel_overrides: HashMap<Uuid, Vec<(Uuid, i64, i64)>> = HashMap::new();
+        for (channel_id, role_id, allow, deny) in channel_rows {
+            channel_overrides
+                .entry(channel_id)
+                .or_default()
+                .push((role_id, allow, deny));
+        }
+
+        Ok(Self {
+            owner_id,
+            members: members.into_iter().collect(),
+            everyone_roles,
+            member_roles,
+            channel_categories: channels.into_iter().collect(),
+            category_overrides,
+            channel_overrides,
+        })
+    }
+
+    /// Server-level permissions, or `None` when the user is neither the owner nor a member.
+    fn server_permissions(&self, user_id: Uuid) -> Option<Permissions> {
+        if self.owner_id == Some(user_id) {
+            return Some(Permissions::all());
+        }
+        if !self.members.contains(&user_id) {
+            return None;
+        }
+        let assigned = self
+            .member_roles
+            .get(&user_id)
+            .into_iter()
+            .flatten()
+            .filter(|(_, _, is_everyone)| !is_everyone)
+            .map(|(_, bits, _)| *bits);
+        let mut perms = Permissions::empty();
+        for bits in self.everyone_roles.iter().map(|(_, bits)| *bits).chain(assigned) {
+            if let Some(p) = Permissions::from_bits(bits) {
+                perms |= p;
+            }
+        }
+        Some(perms)
+    }
+
+    /// The member's roles for override lookups, each marked whether it is named Everyone.
+    fn effective_roles(&self, user_id: Uuid) -> HashMap<Uuid, bool> {
+        let mut roles: HashMap<Uuid, bool> = self
+            .everyone_roles
+            .iter()
+            .map(|(role_id, _)| (*role_id, true))
+            .collect();
+        for (role_id, _, is_everyone) in self.member_roles.get(&user_id).into_iter().flatten() {
+            roles.insert(*role_id, *is_everyone);
+        }
+        roles
+    }
+
+    fn override_rows(
+        rows: Option<&Vec<(Uuid, i64, i64)>>,
+        roles: &HashMap<Uuid, bool>,
+    ) -> Vec<(bool, i64, i64)> {
+        rows.into_iter()
+            .flatten()
+            .filter_map(|(role_id, allow, deny)| {
+                roles
+                    .get(role_id)
+                    .map(|is_everyone| (*is_everyone, *allow, *deny))
+            })
+            .collect()
+    }
+
+    /// Like [`get_user_channel_permissions`] for a channel of this server.
+    pub fn channel_permissions(&self, channel_id: Uuid, user_id: Uuid) -> Permissions {
+        let Some(category) = self.channel_categories.get(&channel_id) else {
+            return Permissions::empty();
+        };
+        let Some(mut perms) = self.server_permissions(user_id) else {
+            return Permissions::empty();
+        };
+        if perms.contains(Permissions::MANAGE_SERVER) {
+            return Permissions::all();
+        }
+        let roles = self.effective_roles(user_id);
+        if let Some(category_name) = category.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            apply_overrides(
+                &mut perms,
+                Self::override_rows(self.category_overrides.get(category_name), &roles),
+            );
+        }
+        apply_overrides(
+            &mut perms,
+            Self::override_rows(self.channel_overrides.get(&channel_id), &roles),
+        );
+        perms
+    }
+
+    /// Like [`get_user_category_permissions`] for a category of this server.
+    pub fn category_permissions(&self, category: &str, user_id: Uuid) -> Permissions {
+        let Some(mut perms) = self.server_permissions(user_id) else {
+            return Permissions::empty();
+        };
+        if perms.contains(Permissions::MANAGE_SERVER) {
+            return Permissions::all();
+        }
+        let category_name = category.trim();
+        if category_name.is_empty() {
+            return perms;
+        }
+        let roles = self.effective_roles(user_id);
+        apply_overrides(
+            &mut perms,
+            Self::override_rows(self.category_overrides.get(category_name), &roles),
+        );
+        perms
+    }
 }
 
 pub async fn ensure_server_permission(

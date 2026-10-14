@@ -161,6 +161,8 @@ Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be diffe
   - Payload includes `channel_id`, `user_id`, and `last_read_message_id`.
 - `MessageUpdated`
 - `MessageDeleted`
+  - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.
+  - Payloads: `MessageUpdated` carries `channel_id` and the full `message`; `MessageDeleted` carries `channel_id` and `message_id`.
 - `Typing`
 
 ### Presence/User
