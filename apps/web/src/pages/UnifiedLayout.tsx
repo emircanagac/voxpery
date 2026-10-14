@@ -8,7 +8,8 @@ import { useSocketStore } from '../stores/socket'
 import UnifiedSidebar from '../components/UnifiedSidebar'
 import HomePage from './HomePage'
 import AppLayout from './AppLayout'
-import { friendApi } from '../api'
+import { friendApi, setImageProxyGrant } from '../api'
+import { apiFetch } from '../api/client'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { ROUTES } from '../routes'
@@ -22,6 +23,8 @@ function tryGetStoredServerId(): string | null {
     return null
   }
 }
+
+const IMAGE_PROXY_GRANT_REFRESH_MS = 60 * 60 * 1000
 
 export default function UnifiedLayout() {
   const location = useLocation()
@@ -60,6 +63,16 @@ export default function UnifiedLayout() {
 
   const isFriendsOrDm = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
   const isServerView = location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
+
+  // Keep the image proxy grant fresh while the app stays open; it changes twice a day.
+  useEffect(() => {
+    if (!userId) return
+    const timer = window.setInterval(() => {
+      void apiFetch<{ grant: string }>('/api/images/grant', { token: token ?? undefined })
+        .then(({ grant }) => setImageProxyGrant(grant)).catch(() => {})
+    }, IMAGE_PROXY_GRANT_REFRESH_MS)
+    return () => window.clearInterval(timer)
+  }, [userId, token])
 
   // When on /servers with no active server, set first server (or restore from sessionStorage)
   useEffect(() => {

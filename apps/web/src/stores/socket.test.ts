@@ -58,7 +58,6 @@ vi.mock('../api', () => ({
   messagesApi: {},
   friendsApi: {},
   dmApi: {},
-  webrtcApi: {},
 }))
 
 describe('WebSocket Store', () => {

@@ -86,6 +86,7 @@ export interface LegalConsentStatus {
 export interface SessionResponse {
     user: UserPublic
     legal_consent: LegalConsentStatus
+    image_proxy?: { grant: string, expires_at: number }
 }
 
 export interface DeleteAccountPayload {

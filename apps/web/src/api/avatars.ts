@@ -1,4 +1,5 @@
 import { getApiBase } from './client'
+import { getImageProxyGrant } from './imageProxyGrant'
 
 function safeOrigin(value: string): string | null {
   try {
@@ -8,7 +9,7 @@ function safeOrigin(value: string): string | null {
   }
 }
 
-function resolveExternalImageUrl(rawUrl: string, proxyPath: '/api/images/avatar' | '/api/images/remote'): string {
+function resolveExternalImageUrl(rawUrl: string, proxyPath: '/api/images/avatar' | '/api/images/remote', grant: string | null): string {
   const apiBase = getApiBase()
   const apiOrigin = safeOrigin(apiBase)
   const imageOrigin = safeOrigin(rawUrl)
@@ -18,10 +19,15 @@ function resolveExternalImageUrl(rawUrl: string, proxyPath: '/api/images/avatar'
     return rawUrl
   }
 
-  return `${apiBase}${proxyPath}?url=${encodeURIComponent(rawUrl)}`
+  const url = `${apiBase}${proxyPath}?url=${encodeURIComponent(rawUrl)}`
+  return grant ? `${url}&grant=${encodeURIComponent(grant)}` : url
 }
 
-function resolveImageUrl(rawUrl: string | null | undefined, proxyPath: '/api/images/avatar' | '/api/images/remote'): string | null {
+function resolveImageUrl(
+  rawUrl: string | null | undefined,
+  proxyPath: '/api/images/avatar' | '/api/images/remote',
+  grant?: string | null,
+): string | null {
   const url = rawUrl?.trim()
   if (!url) return null
 
@@ -29,15 +35,16 @@ function resolveImageUrl(rawUrl: string | null | undefined, proxyPath: '/api/ima
   if (lower.startsWith('data:image/') || lower.startsWith('blob:')) return url
   if (!lower.startsWith('http://') && !lower.startsWith('https://')) return url
 
-  return resolveExternalImageUrl(url, proxyPath)
+  return resolveExternalImageUrl(url, proxyPath, grant || getImageProxyGrant())
 }
 
 export function resolveAvatarUrl(rawUrl?: string | null): string | null {
   return resolveImageUrl(rawUrl, '/api/images/avatar')
 }
 
-export function resolveRemoteImageUrl(rawUrl?: string | null): string | null {
-  return resolveImageUrl(rawUrl, '/api/images/remote')
+/** `grant` overrides the session grant, e.g. the icon grant of an invite preview shown before sign-in. */
+export function resolveRemoteImageUrl(rawUrl?: string | null, grant?: string | null): string | null {
+  return resolveImageUrl(rawUrl, '/api/images/remote', grant)
 }
 
 export const resolveServerIconUrl = resolveRemoteImageUrl

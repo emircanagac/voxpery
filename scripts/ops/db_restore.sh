@@ -50,4 +50,10 @@ else
   compose_exec "$POSTGRES_SERVICE" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" < "$INPUT_FILE"
 fi
 
+# The restore runs as the superuser, so hand the restored tables back to the server's role.
+APP_ROLE_SERVICE="postgres-app-role"
+if service_exists "$APP_ROLE_SERVICE"; then
+  compose run --rm --no-deps "$APP_ROLE_SERVICE"
+fi
+
 echo "Restore completed: $INPUT_FILE -> $DB_NAME"

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Self-hosting: the server no longer starts with the example `JWT_SECRET` or `LIVEKIT_API_SECRET` from `.env.example`, or with secrets shorter than 32 characters; the log names the value to change. The example admin account is now optional and is not created with the example password.
+- Self-hosting: the server now connects to PostgreSQL as a separate role without superuser rights. Add `POSTGRES_APP_PASSWORD` to `.env` before updating; existing tables move to the new role on the first start (see `docs/DEPLOYMENT.md`).
 - Deleting your account now also removes the files you uploaded, and a server you own passes to its highest-ranked remaining member instead of being left without an owner.
 
 ### Fixed

@@ -59,6 +59,9 @@ pub struct ServerInvitePreview {
     pub description: Option<String>,
     pub invite_code: String,
     pub member_count: i64,
+    /// Lets the image proxy serve `icon_url` to visitors who are not signed in.
+    #[sqlx(skip)]
+    pub icon_grant: Option<String>,
 }
 
 /// Server details with member list (for sidebar)

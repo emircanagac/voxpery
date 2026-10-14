@@ -531,7 +531,7 @@ async fn get_invite_preview(
         ));
     }
 
-    let preview = sqlx::query_as::<_, ServerInvitePreview>(
+    let mut preview = sqlx::query_as::<_, ServerInvitePreview>(
         r#"SELECT s.id, s.name, s.icon_url, s.description, s.invite_code, COUNT(sm.user_id) AS member_count
            FROM servers s
            LEFT JOIN server_members sm ON sm.server_id = s.id
@@ -542,6 +542,9 @@ async fn get_invite_preview(
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound("Invalid invite code".into()))?;
+    preview.icon_grant = preview.icon_url.as_deref().map(|icon_url| {
+        crate::services::image_proxy_grant::current_image_grant(&state.jwt_secret, icon_url)
+    });
 
     Ok(Json(preview))
 }

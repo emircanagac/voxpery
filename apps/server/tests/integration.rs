@@ -37,6 +37,7 @@ use voxpery_server::{
     build_app, run_migrations,
     services::{
         auth::generate_token,
+        image_proxy_grant,
         privacy::{
             CURRENT_KVKK_NOTICE_VERSION, CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION,
         },
@@ -10032,6 +10033,164 @@ async fn google_only_account_deletion_needs_a_recent_sign_in() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "a fresh Google sign-in can delete it: {response}");
+}
+
+#[tokio::test]
+async fn image_proxy_serves_only_server_signed_grants() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let (token, _) = register_user(
+        &mut app,
+        &format!("img-{uid}@example.com"),
+        &format!("img_{}", uid.as_u128() % 1_000_000),
+        test_credential("image-grant"),
+    )
+    .await;
+    let auth_header = format!("Bearer {token}");
+    let get = |uri: String, auth: Option<&str>| {
+        let mut builder = Request::builder().method("GET").uri(uri);
+        if let Some(auth) = auth {
+            builder = builder.header("Authorization", auth);
+        }
+        builder.body(Body::empty()).unwrap()
+    };
+    let proxy = |url: &str, grant: Option<&str>| {
+        let mut uri = format!("/api/images/remote?url={}", urlencoding::encode(url));
+        if let Some(grant) = grant {
+            uri.push_str(&format!("&grant={}", urlencoding::encode(grant)));
+        }
+        uri
+    };
+
+    // The session snapshot and the refresh endpoint hand signed-in clients a grant.
+    let (status, body) = oneshot(&mut app, get("/api/auth/session".into(), Some(&auth_header))).await;
+    assert_eq!(status, StatusCode::OK);
+    let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let user_grant = session["image_proxy"]["grant"].as_str().unwrap().to_string();
+    assert!(session["image_proxy"]["expires_at"].as_i64().unwrap() > chrono::Utc::now().timestamp());
+    let (status, _) = oneshot(&mut app, get("/api/images/grant".into(), None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = oneshot(&mut app, get("/api/images/grant".into(), Some(&auth_header))).await;
+    assert_eq!(status, StatusCode::OK);
+    let refreshed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(refreshed["grant"].as_str().is_some_and(|grant| !grant.is_empty()));
+
+    // Without a valid grant nothing is fetched, even for signed-in callers.
+    let image = "https://cdn.example.com/a.png";
+    for (grant, auth) in [
+        (None, None),
+        (None, Some(auth_header.as_str())),
+        (Some("u.0.0.AAAA"), None),
+    ] {
+        let (status, _) = oneshot(&mut app, get(proxy(image, grant), auth)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "grant {grant:?}");
+    }
+    // A valid grant passes the check; this URL then fails validation without any fetch.
+    let (status, _) = oneshot(&mut app, get(proxy("https://127.0.0.1/a.png", Some(&user_grant)), None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Invite previews carry a grant for the server icon only.
+    let (_, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &auth_header, "Icon server").await;
+    sqlx::query("UPDATE servers SET icon_url = $1 WHERE invite_code = $2")
+        .bind(image)
+        .bind(&invite_code)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (status, body) =
+        oneshot(&mut app, get(format!("/api/servers/invite/{invite_code}"), None)).await;
+    assert_eq!(status, StatusCode::OK);
+    let preview: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let icon_grant = preview["icon_grant"].as_str().unwrap();
+    let now = chrono::Utc::now().timestamp();
+    assert!(image_proxy_grant::verify(&state.jwt_secret, icon_grant, image, now));
+    assert!(!image_proxy_grant::verify(
+        &state.jwt_secret,
+        icon_grant,
+        "https://cdn.example.com/other.png",
+        now
+    ));
+    let (status, _) = oneshot(
+        &mut app,
+        get(proxy("https://cdn.example.com/other.png", Some(icon_grant)), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn email_confirmation_and_desktop_exchange_are_rate_limited_per_ip() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (_, state) = setup_app_with_auth_features(true, true).await;
+    // Served over TCP with connect info, so the per-IP limits see the client address.
+    let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await;
+    });
+    // Start from a clean per-IP budget for this address.
+    let mut redis = state.redis.get_multiplexed_async_connection().await.unwrap();
+    for key in ["auth:email_confirm_ip:127.0.0.1", "auth:desktop_exchange_ip:127.0.0.1"] {
+        let _: () = redis::AsyncCommands::del(&mut redis, key).await.unwrap();
+    }
+    let client = reqwest::Client::new();
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("http://{addr}{path}"))
+            .header("origin", "http://localhost:5173")
+            .json(&body)
+            .send()
+    };
+
+    // A token that is not a UUID is refused before any lookup.
+    let response = post("/api/auth/email/confirm", json!({ "token": "not-a-token" })).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut statuses = Vec::new();
+    for _ in 0..12 {
+        let response = post(
+            "/api/auth/email/confirm",
+            json!({ "token": Uuid::new_v4().to_string() }),
+        )
+        .await
+        .unwrap();
+        statuses.push(response.status());
+    }
+    assert!(
+        statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
+        "repeated confirmation guesses from one IP must be limited: {statuses:?}"
+    );
+
+    let mut statuses = Vec::new();
+    for _ in 0..22 {
+        let response = post(
+            "/api/auth/desktop-exchange",
+            json!({
+                "code": Uuid::new_v4().simple().to_string(),
+                "code_verifier": "a".repeat(64),
+            }),
+        )
+        .await
+        .unwrap();
+        statuses.push(response.status());
+    }
+    assert!(
+        statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
+        "repeated desktop code guesses from one IP must be limited: {statuses:?}"
+    );
 }
 
 #[tokio::test]

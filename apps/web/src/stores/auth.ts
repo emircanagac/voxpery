@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { authApi, getAuthErrorMessage, isAuthError, markAuthSessionChanged, type LegalConsentStatus, type UserPublic } from '../api'
+import { authApi, getAuthErrorMessage, isAuthError, markAuthSessionChanged, setImageProxyGrant, type LegalConsentStatus, type UserPublic } from '../api'
 import {
     isTauri,
     getSecureToken,
@@ -104,6 +104,7 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                     const session = await authApi.getSession(token)
                     if (request !== generation) return
                     if (!session.legal_consent) throw new Error('The server did not return session document status.')
+                    setImageProxyGrant(session.image_proxy?.grant)
                     set({
                         token, user: session.user, legalConsent: session.legal_consent,
                         sessionState: 'ready', sessionError: null,
@@ -161,6 +162,7 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             })),
         clearSession: () => {
             invalidate()
+            setImageProxyGrant(null)
             const request = generation
             if (isTauri()) {
                 localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
