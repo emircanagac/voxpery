@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/auth'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
-import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest } from '../api'
+import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest, type WsEvent } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
@@ -1123,11 +1123,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     // ─── WebSocket ─────────────────────────────
 
     // Handle incoming messages
-    const handleWsEvent = useCallback((data: unknown) => {
+    const handleWsEvent = useCallback((event: WsEvent) => {
         try {
-            const ev = data as { type?: string; data?: Record<string, unknown> }
-            if (!ev || typeof ev.type !== 'string') return
-            const d = ev.data ?? {}
+            if (!event || typeof event.type !== 'string') return
             const refreshServerSnapshot = (sid: string, t: string | null, refreshChannels: boolean) => {
                 const detailPromise = serverApi.get(sid, t)
                 const channelsPromise = refreshChannels
@@ -1164,12 +1162,12 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     })
                     .catch(() => { })
             }
-            switch (ev.type) {
+            switch (event.type) {
                 case 'NewMessage': {
-                    const incomingChannelId = d.channel_id as string | undefined
-                    const rawMsg = d.message
-                    if (!incomingChannelId || !rawMsg) break
-                    const incoming = rawMsg as MessageWithAuthor
+                    const d = event.data
+                    const incomingChannelId = d.channel_id
+                    const incoming = d.message
+                    if (!incomingChannelId || !incoming) break
                     const isCurrentVisibleChannel =
                         incomingChannelId === activeChannelIdRef.current
                         && isViewActive
@@ -1238,8 +1236,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'MessageDeleted': {
-                    const channelId = d.channel_id as string | undefined
-                    const messageId = d.message_id as string | undefined
+                    const d = event.data
+                    const channelId = d.channel_id
+                    const messageId = d.message_id
                     if (!channelId || !messageId) break
                     if (channelId === activeChannelIdRef.current) {
                         setMessages((prev) => prev.filter((m) => m.id !== messageId))
@@ -1251,8 +1250,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'MessageUpdated': {
-                    const channelId = d.channel_id as string | undefined
-                    const message = d.message as MessageWithAuthor | undefined
+                    const d = event.data
+                    const channelId = d.channel_id
+                    const message = d.message
                     if (!channelId || !message?.id) break
                     if (channelId === activeChannelIdRef.current) {
                         setMessages((prev) => prev.map((m) => (m.id === message.id ? message : m)))
@@ -1264,8 +1264,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'PresenceUpdate': {
-                    const user_id = d.user_id as string | undefined
-                    const status = d.status as string | undefined
+                    const d = event.data
+                    const user_id = d.user_id
+                    const status = d.status
                     if (!user_id || !status) break
                     const store = useAppStore.getState()
 
@@ -1282,7 +1283,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'UserUpdated': {
-                    const updated = d.user as { id?: string; username?: string; avatar_url?: string | null; status?: string } | undefined
+                    const d = event.data
+                    const updated = d.user
                     const user_id = updated?.id
                     if (!user_id) break
                     const store = useAppStore.getState()
@@ -1331,36 +1333,41 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'MemberJoined': {
-                    const eventSid = d.server_id as string | undefined
+                    const d = event.data
+                    const eventSid = d.server_id
                     if (!eventSid) break
                     const t = tokenRef.current ?? null
                     refreshServerSnapshot(eventSid, t, false)
                     break
                 }
                 case 'MemberRoleUpdated': {
-                    const sid = d.server_id as string | undefined
+                    const d = event.data
+                    const sid = d.server_id
                     if (!sid) break
                     const t = tokenRef.current ?? null
                     refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'ServerRolesUpdated': {
-                    const sid = d.server_id as string | undefined
+                    const d = event.data
+                    const sid = d.server_id
                     if (!sid) break
                     const t = tokenRef.current ?? null
                     refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'ServerChannelsUpdated': {
-                    const sid = d.server_id as string | undefined
+                    const d = event.data
+                    const sid = d.server_id
                     if (!sid) break
                     const t = tokenRef.current ?? null
                     refreshServerSnapshot(sid, t, true)
                     break
                 }
                 case 'MemberLeft': {
-                    const leftUserId = d.user_id as string | undefined
-                    const sid = d.server_id as string | undefined
+                    const d = event.data
+                    const leftUserId = d.user_id
+                    const sid = d.server_id
                     if (!leftUserId || !sid) break
                     const store = useAppStore.getState()
                     if (leftUserId === useAuthStore.getState().user?.id) {
@@ -1383,10 +1390,11 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'VoiceStateUpdate': {
-                    const channel_id = d.channel_id as string | null | undefined
-                    const user_id = d.user_id as string | undefined
-                    const server_id = d.server_id as string | null | undefined
-                    const channel_active_since_ms = d.channel_active_since_ms as number | null | undefined
+                    const d = event.data
+                    const channel_id = d.channel_id
+                    const user_id = d.user_id
+                    const server_id = d.server_id
+                    const channel_active_since_ms = d.channel_active_since_ms
                     if (!user_id) break
                     const store = useAppStore.getState()
                     store.setVoiceState(user_id, channel_id ?? null, channel_active_since_ms ?? null)
@@ -1405,7 +1413,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'VoiceControlUpdate': {
-                    const user_id = d.user_id as string | undefined
+                    const d = event.data
+                    const user_id = d.user_id
                     const muted = d.muted
                     const deafened = d.deafened
                     const server_muted = d.server_muted
@@ -1426,9 +1435,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'VoiceMemberMoveRequested': {
-                    const requestId = d.request_id as string | undefined
-                    const sourceChannelId = d.source_channel_id as string | undefined
-                    const channelId = d.channel_id as string | undefined
+                    const d = event.data
+                    const requestId = d.request_id
+                    const sourceChannelId = d.source_channel_id
+                    const channelId = d.channel_id
                     if (!requestId || !sourceChannelId || !channelId) break
                     const joinVoice = (window as Window & {
                         __voxperyJoinVoice?: (targetChannelId: string) => Promise<void>
@@ -1453,6 +1463,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     break
                 }
                 case 'VoiceMemberMoveResult': {
+                    const d = event.data
                     const success = d.success === true
                     if (!success) {
                         pushToast({

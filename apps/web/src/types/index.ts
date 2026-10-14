@@ -78,7 +78,67 @@ export interface MessageReaction {
     }>;
 }
 
-export interface WsEvent {
-    type: 'NewMessage' | 'DmRead' | 'MessageDeleted' | 'MessageUpdated' | 'Typing' | 'PresenceUpdate' | 'FriendUpdate' | 'MemberJoined' | 'MemberLeft' | 'MemberRoleUpdated' | 'ServerRolesUpdated' | 'ServerChannelsUpdated' | 'VoiceStateUpdate' | 'VoiceControlUpdate' | 'VoiceMemberMoveRequested' | 'VoiceMemberMoveResult' | 'ScreenShareViewerUpdate' | 'Pong';
-    data: unknown;
+/**
+ * Payloads of the server's WebSocket events (`WsEvent` in apps/server/src/ws/mod.rs).
+ * `.github/scripts/check-ws-event-sync.mjs` fails CI when names or fields drift apart.
+ */
+export interface WsEventDataMap {
+    NewMessage: { channel_id: string; channel_type: string; message: Message };
+    DmRead: { channel_id: string; user_id: string; last_read_message_id: string | null };
+    MessageDeleted: { channel_id: string; message_id: string };
+    MessageUpdated: { channel_id: string; message: Message };
+    Typing: { channel_id: string; user_id: string; username: string; is_typing: boolean };
+    PresenceUpdate: { user_id: string; status: string };
+    FriendUpdate: { user_id: string };
+    DmChannelsUpdated: { channel_id: string };
+    MemberJoined: { server_id: string; user_id: string; username: string };
+    MemberLeft: { server_id: string; user_id: string };
+    MemberRoleUpdated: { server_id: string; user_id: string };
+    ServerRolesUpdated: { server_id: string };
+    ServerChannelsUpdated: { server_id: string };
+    VoiceStateUpdate: {
+        channel_id: string | null;
+        user_id: string;
+        server_id: string | null;
+        channel_active_since_ms: number | null;
+        previous_channel_id?: string;
+    };
+    VoiceControlUpdate: {
+        user_id: string;
+        server_id: string | null;
+        muted: boolean;
+        deafened: boolean;
+        server_muted: boolean;
+        server_deafened: boolean;
+        screen_sharing: boolean;
+        camera_on: boolean;
+    };
+    VoiceMemberMoveRequested: {
+        request_id: string;
+        source_channel_id: string;
+        channel_id: string;
+        server_id: string;
+        actor_id: string;
+    };
+    VoiceMemberMoveResult: {
+        request_id: string;
+        target_user_id: string;
+        channel_id: string;
+        success: boolean;
+        message: string;
+    };
+    ScreenShareViewerUpdate: {
+        viewer_id: string;
+        publisher_id: string;
+        channel_id: string;
+        server_id: string | null;
+        watching: boolean;
+    };
+    UserUpdated: { user: { id: string; username: string; avatar_url: string | null; status: string } };
+    Pong: { sent_at_ms: number };
 }
+
+export type WsEventType = keyof WsEventDataMap;
+
+/** A WebSocket event as received: narrowing on `type` gives the matching `data`. */
+export type WsEvent = { [K in WsEventType]: { type: K; data: WsEventDataMap[K] } }[WsEventType];

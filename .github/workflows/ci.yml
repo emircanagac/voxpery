@@ -35,6 +35,9 @@ jobs:
           MIGRATION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node .github/scripts/validate-migration-history.mjs
 
+      - name: Check WebSocket event contract
+        run: node .github/scripts/check-ws-event-sync.mjs
+
       - name: Secret scan (gitleaks)
         run: |
           docker run --rm \

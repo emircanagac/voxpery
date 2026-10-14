@@ -1234,7 +1234,7 @@ async fn register(
         "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($2)",
     )
     .bind(&email)
-    .bind(&username)
+    .bind(username)
     .fetch_one(&state.db)
     .await?;
 
@@ -1258,7 +1258,7 @@ async fn register(
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
-    .bind(&username)
+    .bind(username)
     .bind(&email)
     .bind(&password_hash)
     .bind(CURRENT_TERMS_VERSION)
@@ -1405,7 +1405,7 @@ pub async fn ensure_seed_admin(
            VALUES ($1, $2, $3, $4, 'online', NOW())"#,
     )
     .bind(id)
-    .bind(&username)
+    .bind(username)
     .bind(email)
     .bind(&password_hash)
     .execute(db)
@@ -1439,7 +1439,7 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .await?;
 
         sqlx::query(
-            "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', NOW())",
+            "INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, NOW())",
         )
         .bind(server_id)
         .bind(owner_id)
@@ -1495,8 +1495,8 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .await?;
 
         sqlx::query(
-            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-               SELECT $1, u.id, 'member', NOW()
+            r#"INSERT INTO server_members (server_id, user_id, joined_at)
+               SELECT $1, u.id, NOW()
                FROM users u
                WHERE NOT EXISTS (
                    SELECT 1 FROM server_bans b WHERE b.server_id = $1 AND b.user_id = u.id
@@ -1528,8 +1528,8 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         ensure_default_onboarding_guide(db, server_id).await?;
 
         sqlx::query(
-            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-               SELECT $1, $2, 'member', NOW()
+            r#"INSERT INTO server_members (server_id, user_id, joined_at)
+               SELECT $1, $2, NOW()
                WHERE NOT EXISTS (
                    SELECT 1 FROM server_bans WHERE server_id = $1 AND user_id = $2
                )
@@ -2744,7 +2744,7 @@ async fn update_profile(
             let taken = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
             )
-            .bind(&username)
+            .bind(username)
             .bind(claims.sub)
             .fetch_one(&state.db)
             .await?;
@@ -3298,7 +3298,7 @@ async fn export_my_data(
     let memberships = sqlx::query_as::<_, ExportMembershipRow>(
         r#"SELECT s.name AS server_name,
                   sm.joined_at,
-                  sm.role
+                  CASE WHEN s.owner_id = sm.user_id THEN 'owner' ELSE 'member' END AS role
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            WHERE sm.user_id = $1
@@ -3650,11 +3650,6 @@ async fn delete_my_account(
             .bind(server_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE server_members SET role = 'owner' WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(successor)
-            .execute(&mut *tx)
-            .await?;
         transferred_server_ids.push(server_id);
     }
 
@@ -3664,12 +3659,11 @@ async fn delete_my_account(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-           SELECT id, $1, 'owner', NOW()
+        r#"INSERT INTO server_members (server_id, user_id, joined_at)
+           SELECT id, $1, NOW()
            FROM servers
            WHERE owner_id = $1
-           ON CONFLICT (server_id, user_id)
-           DO UPDATE SET role = 'owner'"#,
+           ON CONFLICT (server_id, user_id) DO NOTHING"#,
     )
     .bind(deleted_placeholder_id)
     .execute(&mut *tx)

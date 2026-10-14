@@ -86,18 +86,13 @@ struct LivekitParticipantInfo {
     identity: String,
 }
 
-fn server_id_for_channel_from_state(
-    state: &Arc<AppState>,
-    channel_id: Uuid,
-) -> impl std::future::Future<Output = Option<Uuid>> + '_ {
-    async move {
-        sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
-            .bind(channel_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-    }
+async fn server_id_for_channel_from_state(state: &Arc<AppState>, channel_id: Uuid) -> Option<Uuid> {
+    sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
+        .bind(channel_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
 }
 
 fn cleanup_voice_channel_active_since_if_empty(state: &Arc<AppState>, channel_id: Uuid) {

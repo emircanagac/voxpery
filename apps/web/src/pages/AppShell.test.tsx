@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DmChannel, Friend, User } from '../api'
+import type { DmChannel, Friend, User, WsEvent } from '../api'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
@@ -167,7 +167,7 @@ describe('AppShell social refresh', () => {
 
   it('refreshes membership immediately for another session joining and reconciles on reconnect', async () => {
     renderAppShell('/social')
-    act(() => useSocketStore.getState().listeners.forEach(listener => listener({ type: 'MemberJoined', data: { user_id: localUser.id } })))
+    act(() => useSocketStore.getState().listeners.forEach(listener => listener({ type: 'MemberJoined', data: { user_id: localUser.id } } as unknown as WsEvent)))
     await waitFor(() => expect(apiMocks.listServers).toHaveBeenCalledTimes(1))
     act(() => useSocketStore.getState().reconnectListeners.forEach(listener => listener()))
     await waitFor(() => expect(apiMocks.listServers).toHaveBeenCalledTimes(2))
@@ -289,7 +289,7 @@ describe('AppShell social refresh', () => {
               author: { user_id: 'friend-1', username: 'friend' },
             },
           },
-        })
+        } as unknown as WsEvent)
       })
     })
 

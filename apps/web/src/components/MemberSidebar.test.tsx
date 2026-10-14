@@ -124,3 +124,48 @@ describe('MemberSidebar profile interaction', () => {
     expect(member).toHaveFocus()
   })
 })
+
+describe('MemberSidebar moderation actions', () => {
+  it('offers kicking only members the server would let this user kick', () => {
+    const member = (user_id: string, username: string, highest_role_position: number) => ({
+      user_id,
+      username,
+      avatar_url: null,
+      role: 'member',
+      status: 'online',
+      role_color: null,
+      highest_role_position,
+    })
+    useAuthStore.setState({ token: 'token', user: localUser, loggingOut: false })
+    useAppStore.setState({
+      servers: [{ ...server, owner_id: 'owner-1' }],
+      activeServerId: server.id,
+      activeChannelId: voiceChannel.id,
+      channels: [voiceChannel],
+      members: [
+        { ...member('owner-1', 'founder', -1), role: 'owner' },
+        member(localUser.id, localUser.username, 5),
+        member('junior-1', 'junior', 10),
+        member('peer-1', 'peer', 5),
+        member('senior-1', 'senior', 2),
+      ],
+      friends: [],
+    })
+    render(
+      <MemoryRouter>
+        <MemberSidebar canKickMembers canBanMembers={false} canTimeoutMembers={false} />
+      </MemoryRouter>,
+    )
+    const kickOffered = (username: string) => {
+      fireEvent.contextMenu(screen.getByText(username).closest('.member-item')!, { clientX: 10, clientY: 10 })
+      const offered = screen.queryByRole('menuitem', { name: 'Kick user' }) !== null
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+      return offered
+    }
+
+    expect(kickOffered('junior')).toBe(true)
+    expect(kickOffered('peer')).toBe(false)
+    expect(kickOffered('senior')).toBe(false)
+    expect(kickOffered('founder')).toBe(false)
+  })
+})

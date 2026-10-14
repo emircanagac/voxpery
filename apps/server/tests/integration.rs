@@ -524,6 +524,8 @@ async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_
     assert_eq!(status, StatusCode::OK);
     let features: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(features["observability_enabled"], true);
+    // Without TURN_URLS, voice uses LiveKit's own ICE servers.
+    assert_eq!(features["turn_enabled"], false);
 
     let valid = Request::builder()
         .method("POST")
@@ -6318,15 +6320,6 @@ async fn concurrent_member_role_replacements_leave_one_complete_state() {
     .await
     .unwrap();
     assert_eq!(roles_after_rejection, assigned_role_ids);
-
-    let legacy_role: String =
-        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(member_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
-    assert_eq!(legacy_role, "member");
 }
 
 #[tokio::test]

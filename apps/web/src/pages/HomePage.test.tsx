@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, type InitialEntry } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DmChannel, Friend } from '../api'
+import type { DmChannel, Friend, WsEvent } from '../api'
 import { ROUTES } from '../routes'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -650,7 +650,7 @@ describe('HomePage friends list', () => {
             channel_id: channel.id,
             message: dmMessage('message-background', channel.id),
           },
-        })
+        } as unknown as WsEvent)
       })
     })
 
@@ -678,7 +678,7 @@ describe('HomePage friends list', () => {
     await waitFor(() => expect(chat).toHaveAttribute('data-message-contents', 'Original text|Soon removed'))
 
     const emit = (event: unknown) => act(() => {
-      useSocketStore.getState().listeners.forEach((listener) => listener(event))
+      useSocketStore.getState().listeners.forEach((listener) => listener(event as WsEvent))
     })
     emit({
       type: 'MessageUpdated',

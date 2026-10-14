@@ -128,9 +128,3 @@ pub async fn require_auth_and_current_legal_consent(
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)
 }
-
-/// Helper to extract claims from request extensions in handlers.
-#[allow(dead_code)]
-pub fn get_claims(extensions: &axum::http::Extensions) -> Result<&Claims, AppError> {
-    extensions.get::<Claims>().ok_or(AppError::Unauthorized)
-}

@@ -55,11 +55,7 @@ pub enum WsEvent {
     /// User left a server.
     MemberLeft { server_id: Uuid, user_id: Uuid },
     /// Member role was updated.
-    MemberRoleUpdated {
-        server_id: Uuid,
-        user_id: Uuid,
-        role: String,
-    },
+    MemberRoleUpdated { server_id: Uuid, user_id: Uuid },
     /// Server roles (name/color/permissions/order) changed; clients should refresh derived UI.
     ServerRolesUpdated { server_id: Uuid },
     /// Server channels/categories/overrides changed; clients should refresh visible channel tree.

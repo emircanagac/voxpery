@@ -303,6 +303,8 @@ impl AttachmentService {
         .await
     }
 
+    // Mirrors the configuration fields one to one; a parameter struct would only rename them.
+    #[allow(clippy::too_many_arguments)]
     async fn new_local(
         local_dir: PathBuf,
         key_prefix: String,
@@ -1251,34 +1253,6 @@ enum ScanResult {
     Infected(String),
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-fn sanitize_file_name(input: &str) -> String {
-    let fallback = "file.bin".to_string();
-    let candidate = input.trim();
-    if candidate.is_empty() {
-        return fallback;
-    }
-
-    let sanitized = candidate
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string();
-
-    if sanitized.is_empty() {
-        fallback
-    } else {
-        sanitized
-    }
-}
-
 fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -1530,12 +1504,6 @@ mod tests {
     #[test]
     fn allows_none() {
         assert!(validate_attachments(None).is_ok());
-    }
-
-    #[test]
-    fn sanitizes_filename() {
-        assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
-        assert_eq!(sanitize_file_name(""), "file.bin");
     }
 
     #[test]

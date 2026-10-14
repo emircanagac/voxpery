@@ -14,13 +14,6 @@ export type VoiceDeviceOption = {
   fullLabel: string
 }
 
-export type EnumeratedVoiceDevices = {
-  inputs: VoiceDeviceOption[]
-  outputs: VoiceDeviceOption[]
-  canSelectOutput: boolean
-  labelsUnlocked: boolean
-}
-
 export type MicrophonePermissionState = 'granted' | 'prompt' | 'denied' | 'unsupported'
 
 function readStoredDeviceId(key: string): string {

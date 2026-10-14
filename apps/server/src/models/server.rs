@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -14,14 +12,6 @@ pub struct Server {
     pub owner_id: Uuid,
     pub invite_code: String,
     pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ServerMember {
-    pub server_id: Uuid,
-    pub user_id: Uuid,
-    pub role: String,
-    pub joined_at: DateTime<Utc>,
 }
 
 /// Server with member count — used for server list.

@@ -18,6 +18,7 @@ struct DesktopRuntimeState {
     // Whether the system tray icon was created. On Linux this decides how the
     // window leaves the screen on close: hide it when the tray can bring it back,
     // otherwise only minimize so it is not lost on desktops without a tray host.
+    #[cfg(target_os = "linux")]
     tray_available: AtomicBool,
     pending_deep_links: Mutex<Vec<String>>,
 }
@@ -28,6 +29,7 @@ impl Default for DesktopRuntimeState {
             minimize_to_tray_on_close: AtomicBool::new(true),
             allow_close_for_update: AtomicBool::new(false),
             tray_icon_variant: AtomicBool::new(false),
+            #[cfg(target_os = "linux")]
             tray_available: AtomicBool::new(false),
             pending_deep_links: Mutex::new(Vec::new()),
         }
@@ -270,7 +272,7 @@ fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
             .args(["/C", "start", "", uri])
             .spawn()
             .map_err(|err| format!("Failed to open Windows privacy settings: {err}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -286,7 +288,7 @@ fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
             .arg(uri)
             .spawn()
             .map_err(|err| format!("Failed to open macOS privacy settings: {err}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

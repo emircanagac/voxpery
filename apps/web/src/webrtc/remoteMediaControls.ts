@@ -22,17 +22,6 @@ export function markRemoteAudioTrackSource(track: MediaStreamTrack, source: 'voi
   })
 }
 
-export function getRemoteAudioPlaybackTracks(stream: MediaStream, includeScreenShareAudio: boolean): MediaStreamTrack[] {
-  return stream
-    .getAudioTracks()
-    .filter((track) => includeScreenShareAudio || !isScreenShareAudioTrack(track))
-}
-
-export function createRemoteAudioPlaybackStream(stream: MediaStream, includeScreenShareAudio: boolean): MediaStream {
-  const tracks = getRemoteAudioPlaybackTracks(stream, includeScreenShareAudio)
-  return new MediaStream(tracks)
-}
-
 export function getRemoteMicrophoneAudioTracks(stream: MediaStream): MediaStreamTrack[] {
   return stream
     .getAudioTracks()

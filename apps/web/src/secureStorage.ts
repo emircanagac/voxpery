@@ -25,12 +25,12 @@ declare global {
   }
 }
 
-/** Tauri v2 uses __TAURI_INTERNALS__; v1 used __TAURI__. Check both so desktop is detected. Also check protocol and userAgent as bulletproof fallbacks. */
+/** Detects the desktop app: Tauri's internals or its global API (`withGlobalTauri`), with the
+ * desktop origin and user agent as fallbacks for runtimes that inject them late. */
 export function isTauri(): boolean {
   if (typeof window === 'undefined') return false
   return (
     '__TAURI_INTERNALS__' in window ||
-    '__TAURI_IPC__' in window ||
     !!window.__TAURI__ ||
     window.location.protocol === 'tauri:' ||
     window.location.hostname === 'tauri.localhost' ||

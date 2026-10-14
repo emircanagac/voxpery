@@ -4,6 +4,8 @@ import { ConnectionState, DisconnectReason, Room, RoomEvent, type RemoteParticip
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
+import { useFeatureStore } from '../stores/features'
+import type { SystemFeatures } from '../api'
 import { useLiveKitVoice } from './useLiveKitVoice'
 
 const mocks = vi.hoisted(() => ({
@@ -15,11 +17,12 @@ const mocks = vi.hoisted(() => ({
   token: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
+  turn: vi.fn(),
   rooms: [] as Room[],
 }))
 
 vi.mock('../api/webrtc', () => ({
-  webrtcApi: { getLivekitToken: mocks.token, getTurnCredentials: async () => ({ urls: [] }) },
+  webrtcApi: { getLivekitToken: mocks.token, getTurnCredentials: mocks.turn },
 }))
 vi.mock('./hooks/useAudioEngine', async importOriginal => ({
   ...await importOriginal<typeof import('./hooks/useAudioEngine')>(),
@@ -285,5 +288,25 @@ describe('LiveKit participant cue lifecycle', () => {
       room.emit(RoomEvent.Disconnected)
     })
     expect(mocks.cue).not.toHaveBeenCalled()
+  })
+})
+
+describe('LiveKit ICE configuration', () => {
+  afterEach(() => useFeatureStore.setState({ features: null }))
+
+  it('leaves ICE servers to LiveKit and asks for no TURN credentials when none are configured', async () => {
+    useFeatureStore.setState({ features: { turn_enabled: false } as SystemFeatures })
+    await join()
+    expect(mocks.turn).not.toHaveBeenCalled()
+    expect(mocks.connect.mock.calls[0][2].rtcConfig).toBeUndefined()
+  })
+
+  it('uses only this server\'s TURN when it is configured', async () => {
+    useFeatureStore.setState({ features: { turn_enabled: true } as SystemFeatures })
+    mocks.turn.mockResolvedValue({ urls: ['turn:turn.example.test:3478'], username: 'u', credential: 'c' })
+    await join()
+    expect(mocks.connect.mock.calls[0][2].rtcConfig).toEqual({
+      iceServers: [{ urls: ['turn:turn.example.test:3478'], username: 'u', credential: 'c' }],
+    })
   })
 })

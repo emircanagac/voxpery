@@ -76,9 +76,9 @@ Key columns:
 
 ### `server_members`
 
-- `server_id`, `user_id`, `role`, `joined_at`
+- `server_id`, `user_id`, `joined_at`
 - `voice_server_muted`, `voice_server_deafened` store moderator-enforced voice restrictions for the lifetime of the server membership. Voice leave, channel switches, and WebSocket reconnects do not clear them; a moderator update and its audit entries commit together.
-- Legacy `role` is bridge-level (`owner` / `member`), while effective authorization comes from role bitmasks.
+- Ownership is read only from `servers.owner_id`; authorization comes from role bitmasks. The legacy `role` column was dropped in migration `057`.
 - Migration `049` backfills missing membership in the official `voxpery` community for existing unbanned accounts. It preserves existing roles and join dates and does not add banned accounts. If the official server is first created after migration, its creation path adds existing accounts instead.
 
 ### `server_roles`
@@ -234,7 +234,7 @@ Critical multi-row writes use explicit PostgreSQL transactions and serialize com
 
 - Direct-message creation acquires a transaction-scoped advisory lock for the canonical user pair. Channel creation, both membership rows, and caller unhide then commit together, so concurrent opens resolve to one shared DM.
 - Server creation commits the server, owner membership, default text/voice channels, default category, and bootstrap roles as one unit. A failed bootstrap cannot expose a partially initialized server.
-- Member-role replacement locks the server and target membership rows, re-checks permissions on the same connection, validates requested roles in one batch, replaces assignments in bulk, updates the legacy bridge role, and writes its audit entry in one transaction.
+- Member-role replacement locks the server and target membership rows, re-checks permissions on the same connection, validates requested roles in one batch, replaces assignments in bulk, and writes its audit entry in one transaction.
 - Channel creation and deletion serialize on the same server-row lock. Text-channel deletion counts the remaining channels while holding that lock, so concurrent deletes cannot remove the final text channel.
 - Pin additions lock their server or DM channel before enforcing the 50-pin limit. Reaction additions lock their server or DM message before enforcing the 20-distinct-emoji limit.
 - Open user and message reports are protected by partial unique indexes. Concurrent duplicate submissions resolve to the existing moderation-queue item instead of creating duplicate rows.

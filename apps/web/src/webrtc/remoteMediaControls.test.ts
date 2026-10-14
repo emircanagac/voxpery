@@ -1,5 +1,4 @@
 import {
-  getRemoteAudioPlaybackTracks,
   getRemoteMicrophoneAudioTracks,
   getRemoteScreenShareAudioTracks,
   isScreenShareAudioTrack,
@@ -33,15 +32,6 @@ describe('remote media controls', () => {
     expect(isScreenShareAudioTrack(voice)).toBe(false)
     expect(isScreenShareAudioTrack(screen)).toBe(true)
     expect(isScreenShareAudioTrack(audioTrack(true))).toBe(true)
-  })
-
-  it('filters screen share audio while keeping microphone audio', () => {
-    const mic = audioTrack()
-    const screen = audioTrack(true)
-    const source = { getAudioTracks: () => [mic, screen] } as unknown as MediaStream
-
-    expect(getRemoteAudioPlaybackTracks(source, true)).toHaveLength(2)
-    expect(getRemoteAudioPlaybackTracks(source, false)).toEqual([mic])
   })
 
   it('splits microphone and screen share audio for independent playback controls', () => {

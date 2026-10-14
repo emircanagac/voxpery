@@ -38,7 +38,6 @@ use crate::{
 };
 
 // Permission bits (kept here for documentation; must stay in sync with services::permissions::Permissions).
-#[allow(dead_code)] // Used when wiring/tweaking permission checks.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;
 const PERM_BAN_MEMBERS: i64 = 1 << 5;
@@ -231,10 +230,6 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route(
                     "/{server_id}/members/{user_id}/roles",
                     get(list_member_roles).put(update_member_roles),
-                )
-                .route(
-                    "/{server_id}/members/{user_id}/role",
-                    patch(update_member_role),
                 )
                 .route("/{server_id}/members/{user_id}/ban", post(ban_member))
                 .route(
@@ -649,7 +644,7 @@ async fn create_server(
 
     // Add creator as owner member
     sqlx::query(
-        "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', NOW())",
+        "INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, NOW())",
     )
     .bind(server_id)
     .bind(claims.sub)
@@ -771,7 +766,7 @@ async fn get_server(
                   u.username,
                   u.avatar_url,
                   u.about_me,
-                  sm.role,
+                  CASE WHEN sm.user_id = $2 THEN 'owner' ELSE 'member' END AS role,
                   u.status,
                   u.created_at AS account_created_at,
                   sm.joined_at AS server_joined_at,
@@ -813,7 +808,7 @@ async fn get_server(
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
            WHERE sm.server_id = $1
-           ORDER BY sm.role ASC, u.username ASC"#,
+           ORDER BY sm.user_id = $2 ASC, u.username ASC"#,
     )
     .bind(server_id)
     .bind(server.owner_id)
@@ -1377,7 +1372,7 @@ async fn join_server(
     }
 
     sqlx::query(
-        "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())",
+        "INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, NOW())",
     )
     .bind(server.id)
     .bind(claims.sub)
@@ -1752,17 +1747,18 @@ async fn list_channel_visible_members(
                   u.username,
                   u.avatar_url,
                   u.about_me,
-                  sm.role,
+                  CASE WHEN sm.user_id = s.owner_id THEN 'owner' ELSE 'member' END AS role,
                   u.status,
                   u.created_at AS account_created_at,
                   sm.joined_at AS server_joined_at,
                   rc.color AS role_color,
                   rr.role_names AS roles,
                   CASE
-                      WHEN sm.user_id = (SELECT owner_id FROM servers WHERE id = $1) THEN -1
+                      WHEN sm.user_id = s.owner_id THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
                   END AS highest_role_position
            FROM server_members sm
+           INNER JOIN servers s ON s.id = sm.server_id
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
                SELECT sr.color
@@ -1794,7 +1790,7 @@ async fn list_channel_visible_members(
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
            WHERE sm.server_id = $1
-           ORDER BY sm.role ASC, u.username ASC"#,
+           ORDER BY sm.user_id = s.owner_id ASC, u.username ASC"#,
     )
     .bind(server_id)
     .fetch_all(&state.db)
@@ -1813,12 +1809,6 @@ async fn list_channel_visible_members(
     }
 
     Ok(Json(visible_members))
-}
-
-/// PATCH /api/servers/:server_id/members/:user_id/role — owner can make/remove admins.
-#[derive(Debug, serde::Deserialize)]
-struct UpdateMemberRoleRequest {
-    role: String,
 }
 
 /// GET /api/servers/:server_id/members/:user_id/roles — list granular roles for a member.
@@ -1903,14 +1893,14 @@ async fn update_member_roles(
         ));
     }
 
-    let target_member_role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2 FOR UPDATE",
+    let target_membership = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM server_members WHERE server_id = $1 AND user_id = $2 FOR UPDATE",
     )
     .bind(server_id)
     .bind(user_id)
     .fetch_optional(&mut *tx)
     .await?;
-    if target_member_role.is_none() {
+    if target_membership.is_none() {
         return Err(AppError::NotFound("Member not found".into()));
     }
 
@@ -2000,8 +1990,6 @@ async fn update_member_roles(
         }
     }
 
-    let is_owner = owner_id == user_id;
-
     // Replace all current roles with the provided set.
     sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2")
         .bind(server_id)
@@ -2022,17 +2010,6 @@ async fn update_member_roles(
         .await?;
     }
 
-    // TEMPORARY BRIDGE: keep legacy server_members.role as a simple owner/member flag.
-    // All non-owner users are treated as "member"; fine-grained permissions come from roles.
-    let new_legacy_role = if is_owner { "owner" } else { "member" };
-
-    sqlx::query("UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3")
-        .bind(new_legacy_role)
-        .bind(server_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
     // Audit log: record granular role changes.
     audit::log_in_transaction(
         &mut tx,
@@ -2044,7 +2021,6 @@ async fn update_member_roles(
         Some(serde_json::json!({
             "old_role_ids": old_role_ids,
             "new_role_ids": requested_role_ids,
-            "legacy_role": new_legacy_role,
         })),
     )
     .await?;
@@ -2054,11 +2030,7 @@ async fn update_member_roles(
     // Notify clients via WebSocket so member list / badges update without full reload.
     crate::ws::publish_event(
         &state,
-        WsEvent::MemberRoleUpdated {
-            server_id,
-            user_id,
-            role: new_legacy_role.to_string(),
-        },
+        WsEvent::MemberRoleUpdated { server_id, user_id },
     )
     .await;
 
@@ -2081,90 +2053,6 @@ async fn update_member_roles(
     ))
 }
 
-async fn update_member_role(
-    State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
-    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdateMemberRoleRequest>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    if body.role != "admin" && body.role != "member" {
-        return Err(AppError::Validation("Invalid role".into()));
-    }
-
-    let mut tx = state.db.begin().await?;
-    let owner_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT owner_id FROM servers WHERE id = $1 FOR NO KEY UPDATE",
-    )
-    .bind(server_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Server not found".into()))?;
-    if owner_id != claims.sub {
-        return Err(AppError::Forbidden(
-            "Only the server owner can change member roles".into(),
-        ));
-    }
-    if user_id == owner_id {
-        return Err(AppError::Validation(
-            "Cannot change the owner's role via this endpoint".into(),
-        ));
-    }
-
-    let old_role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2 FOR UPDATE",
-    )
-    .bind(server_id)
-    .bind(user_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
-
-    sqlx::query("UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3")
-        .bind(&body.role)
-        .bind(server_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    audit::log_in_transaction(
-        &mut tx,
-        claims.sub,
-        Some(server_id),
-        "member_role_change",
-        "member",
-        Some(user_id),
-        Some(serde_json::json!({ "old_role": old_role, "new_role": body.role })),
-    )
-    .await?;
-
-    tx.commit().await?;
-
-    crate::ws::publish_event(
-        &state,
-        WsEvent::MemberRoleUpdated {
-            server_id,
-            user_id,
-            role: body.role.clone(),
-        },
-    )
-    .await;
-
-    if let Err(error) = voice_revoke::revoke_invalid_voice_sessions_for_server(
-        &state,
-        server_id,
-        "member role updated",
-    )
-    .await
-    {
-        tracing::error!(
-            "Post-commit voice permission reconciliation failed for server {}: {}",
-            server_id,
-            error
-        );
-    }
-
-    Ok(Json(serde_json::json!({ "message": "Role updated" })))
-}
 
 async fn ban_member(
     State(state): State<Arc<AppState>>,
@@ -3014,17 +2902,16 @@ async fn kick_member(
     .await?;
 
     // Target must be a member.
-    let target_role: Option<String> =
-        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(user_id)
-            .fetch_optional(&state.db)
-            .await?;
-
-    let target_role = match target_role {
-        Some(r) => r,
-        None => return Err(AppError::NotFound("Member not found".into())),
-    };
+    let is_member: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await?;
+    if !is_member {
+        return Err(AppError::NotFound("Member not found".into()));
+    }
 
     if server.owner_id == user_id {
         return Err(AppError::Forbidden("Cannot kick the server owner".into()));
@@ -3057,7 +2944,7 @@ async fn kick_member(
         "member_kick",
         "member",
         Some(user_id),
-        Some(serde_json::json!({ "target_role": target_role })),
+        None,
     )
     .await?;
 

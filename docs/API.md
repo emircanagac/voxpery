@@ -121,6 +121,7 @@ Notes:
 
 - `GET /api/system/features`
   - Public integration capability flags used by web and desktop clients.
+  - `turn_enabled` is true when `TURN_URLS` is configured; voice clients request TURN credentials only then.
 - `POST /api/system/observability/events`
   - Public, rate-limited, best-effort operational event endpoint.
   - Accepts only `{ "event": "<allowlisted_code>", "client": "web|desktop" }` and rejects unknown fields.
@@ -174,7 +175,7 @@ Notes:
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
 - `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
-- Legacy compatibility: `PATCH /api/servers/:server_id/members/:user_id/role` (owner only)
+- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule.
 
 ### Moderation
 
@@ -357,6 +358,7 @@ Attachment note:
 ## WebRTC Endpoints
 
 - `GET /api/webrtc/turn-credentials`
+  - Short-lived credentials for the server's own TURN (`TURN_URLS`, `TURN_SHARED_SECRET`); empty `urls` when none is configured.
 - `GET /api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
   - Requires effective voice access (`VIEW_SERVER` + `CONNECT_VOICE` on the target channel).
   - Returns `503` with `FEATURE_DISABLED` when the voice media service is not configured.
