@@ -181,6 +181,21 @@ async fn main() {
             }
         }
     });
+    let release_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(10 * 60));
+        loop {
+            interval.tick().await;
+            if let Err(error) = voxpery_server::services::attachment_release::release_due_uploads(
+                &release_state.db,
+                &release_state.attachment_service,
+            )
+            .await
+            {
+                tracing::warn!("Releasing unused uploads failed: {error}");
+            }
+        }
+    });
 
     if let (Some(ref email), Some(ref username), Some(ref password)) = (
         &config.admin_email,

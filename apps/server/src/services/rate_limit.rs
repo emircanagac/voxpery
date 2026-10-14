@@ -26,6 +26,14 @@ redis.call('EXPIRE', key, ttl_secs)
 return 1
 "#;
 
+const SLIDING_WINDOW_COUNT_SCRIPT: &str = r#"
+local key = KEYS[1]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', tonumber(ARGV[1]))
+redis.call('ZADD', key, tonumber(ARGV[2]), ARGV[3])
+redis.call('EXPIRE', key, tonumber(ARGV[4]))
+return redis.call('ZCARD', key)
+"#;
+
 /// Longest key part kept verbatim in Redis. Longer values (only possible from unvalidated
 /// client input) are stored as a fixed-length hash so request bodies cannot grow Redis memory.
 const MAX_VERBATIM_KEY_LEN: usize = 128;
@@ -96,6 +104,28 @@ pub async fn enforce_rate_limit(
     }
 
     Ok(())
+}
+
+/// Records one event in the sliding window stored at `redis_key` and returns how many events
+/// the window now holds. Like [`enforce_rate_limit`] it runs atomically with a unique member per
+/// event, so concurrent and same-millisecond events are all counted; it never refuses.
+pub async fn record_sliding_window_event(
+    redis: &redis::Client,
+    redis_key: &str,
+    window: Duration,
+) -> redis::RedisResult<i64> {
+    let mut conn = redis.get_multiplexed_async_connection().await?;
+    let now_ms = now_epoch_millis();
+    let cutoff = now_ms.saturating_sub(window.as_millis() as i64);
+    let ttl_secs = window.as_secs().saturating_add(60).max(1);
+    redis::Script::new(SLIDING_WINDOW_COUNT_SCRIPT)
+        .key(redis_key)
+        .arg(cutoff)
+        .arg(now_ms)
+        .arg(rate_limit_member(now_ms, Uuid::new_v4()))
+        .arg(ttl_secs as i64)
+        .invoke_async(&mut conn)
+        .await
 }
 
 #[cfg(test)]
@@ -216,5 +246,35 @@ mod tests {
         let mut conn = client.get_multiplexed_async_connection().await.unwrap();
         let stored: isize = conn.zcard(rate_limit_key(&key)).await.unwrap();
         assert_eq!(stored, max as isize);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sliding_window_counts_every_concurrent_event() {
+        let Some(client) = redis_test_client() else {
+            return;
+        };
+        let key = format!("test:sliding-count:{}", Uuid::new_v4());
+        let window = Duration::from_secs(60);
+
+        let events = (0..32).map(|_| {
+            let client = client.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                record_sliding_window_event(&client, &key, window)
+                    .await
+                    .unwrap()
+            })
+        });
+        let mut counts: Vec<i64> = futures::future::join_all(events)
+            .await
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+        counts.sort_unstable();
+
+        // Each event saw a distinct count, so none collapsed into another.
+        assert_eq!(counts, (1..=32).collect::<Vec<i64>>());
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let _: () = conn.del(&key).await.unwrap();
     }
 }

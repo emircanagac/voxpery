@@ -314,11 +314,13 @@ async fn hydrate_message_attachments(
     state: &Arc<AppState>,
     messages: &mut [MessageWithAuthor],
 ) -> Result<(), AppError> {
-    for msg in messages.iter_mut() {
-        msg.attachments = state
-            .attachment_service
-            .hydrate_attachments_for_output(&state.db, &state.jwt_secret, msg.attachments.clone())
-            .await?;
+    let lists = messages.iter().map(|msg| msg.attachments.clone()).collect();
+    let hydrated = state
+        .attachment_service
+        .hydrate_attachment_lists_for_output(&state.db, &state.jwt_secret, lists)
+        .await?;
+    for (msg, attachments) in messages.iter_mut().zip(hydrated) {
+        msg.attachments = attachments;
     }
     Ok(())
 }
@@ -941,10 +943,13 @@ async fn delete_message(
         .await?;
     }
 
-    sqlx::query("DELETE FROM messages WHERE id = $1")
-        .bind(message_id)
-        .execute(&state.db)
-        .await?;
+    let attachments = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "DELETE FROM messages WHERE id = $1 RETURNING attachments",
+    )
+    .bind(message_id)
+    .fetch_optional(&state.db)
+    .await?
+    .flatten();
 
     crate::ws::publish_event(
         &state,
@@ -954,10 +959,32 @@ async fn delete_message(
         },
     )
     .await;
+    release_deleted_message_uploads(&state, attachments.as_ref()).await;
 
     Ok(Json(
         serde_json::json!({ "message": "Deleted", "id": message_id }),
     ))
+}
+
+/// Frees the files of a deleted message right away when nothing else uses them; anything
+/// skipped here is picked up by the periodic release.
+pub(crate) async fn release_deleted_message_uploads(
+    state: &AppState,
+    attachments: Option<&serde_json::Value>,
+) {
+    let ids = crate::services::attachment_release::attachment_ids(attachments);
+    if ids.is_empty() {
+        return;
+    }
+    if let Err(error) = crate::services::attachment_release::release_unused_uploads(
+        &state.db,
+        &state.attachment_service,
+        Some(&ids),
+    )
+    .await
+    {
+        tracing::warn!("Releasing a deleted message's uploads failed: {error}");
+    }
 }
 
 /// PATCH /api/messages/item/:message_id — edit a server channel message (author only).

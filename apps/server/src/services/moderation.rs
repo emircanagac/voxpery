@@ -37,13 +37,6 @@ fn moderation_key(key: &str) -> String {
     format!("moderation:{key}")
 }
 
-fn now_epoch_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
 fn has_invite_link(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     lower.contains("discord.gg/")
@@ -87,32 +80,14 @@ async fn count_sliding_window(
     key: String,
     window: Duration,
 ) -> Result<isize, AppError> {
-    let mut conn = redis
-        .get_multiplexed_async_connection()
-        .await
-        .map_err(|e| AppError::Internal(format!("Moderation Redis connection failed: {e}")))?;
-    let now_ms = now_epoch_millis();
-    let cutoff = now_ms.saturating_sub(window.as_millis() as i64);
-    let redis_key = moderation_key(&key);
-
-    let _: () = conn
-        .zrembyscore(&redis_key, "-inf", cutoff)
-        .await
-        .map_err(|e| AppError::Internal(format!("Moderation window cleanup failed: {e}")))?;
-    let _: () = conn
-        .zadd(&redis_key, now_ms, now_ms)
-        .await
-        .map_err(|e| AppError::Internal(format!("Moderation window record failed: {e}")))?;
-    let count: isize = conn
-        .zcard(&redis_key)
-        .await
-        .map_err(|e| AppError::Internal(format!("Moderation window count failed: {e}")))?;
-    let ttl_secs = window.as_secs().saturating_add(60).max(1);
-    let _: () = conn
-        .expire(&redis_key, ttl_secs as i64)
-        .await
-        .map_err(|e| AppError::Internal(format!("Moderation window expire failed: {e}")))?;
-    Ok(count)
+    let count = crate::services::rate_limit::record_sliding_window_event(
+        redis,
+        &moderation_key(&key),
+        window,
+    )
+    .await
+    .map_err(|e| AppError::Internal(format!("Moderation window record failed: {e}")))?;
+    Ok(count as isize)
 }
 
 async fn log_raid_event(

@@ -613,15 +613,12 @@ async fn list_categories(
 
     // Return categories that are visible by effective category-level permission,
     // including empty categories (important for newly created categories).
+    let snapshot =
+        permissions::ServerPermissionSnapshot::load(&state.db, server_id, Some(&[claims.sub]))
+            .await?;
     let mut visible_categories = std::collections::HashSet::new();
     for category_name in &rows {
-        let perms = permissions::get_user_category_permissions(
-            &state.db,
-            server_id,
-            category_name,
-            claims.sub,
-        )
-        .await?;
+        let perms = snapshot.category_permissions(category_name, claims.sub);
         if perms.contains(Permissions::VIEW_SERVER) {
             visible_categories.insert(category_name.clone());
         }

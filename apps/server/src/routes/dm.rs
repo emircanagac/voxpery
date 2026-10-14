@@ -266,11 +266,13 @@ async fn hydrate_dm_attachments(
     state: &Arc<AppState>,
     messages: &mut [MessageWithAuthor],
 ) -> Result<(), AppError> {
-    for msg in messages.iter_mut() {
-        msg.attachments = state
-            .attachment_service
-            .hydrate_attachments_for_output(&state.db, &state.jwt_secret, msg.attachments.clone())
-            .await?;
+    let lists = messages.iter().map(|msg| msg.attachments.clone()).collect();
+    let hydrated = state
+        .attachment_service
+        .hydrate_attachment_lists_for_output(&state.db, &state.jwt_secret, lists)
+        .await?;
+    for (msg, attachments) in messages.iter_mut().zip(hydrated) {
+        msg.attachments = attachments;
     }
     Ok(())
 }
@@ -946,17 +948,19 @@ async fn send_dm_message(
             channel_type: "dm".to_string(),
             message: message.clone(),
         };
-        if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+        if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await
+        {
             tracing::warn!("Failed to push DM event to members: {}", e);
         }
     }
     Ok(Json(message))
 }
 
+/// Sends `event` to every member's sessions, except `skip_user` (whose client already applied it).
 async fn push_dm_event_to_members(
     state: &Arc<AppState>,
     channel_id: Uuid,
-    sender_id: Uuid,
+    skip_user: Option<Uuid>,
     event: &WsEvent,
 ) -> Result<(), sqlx::Error> {
     let member_ids = sqlx::query_scalar::<_, Uuid>(
@@ -967,8 +971,7 @@ async fn push_dm_event_to_members(
     .await?;
 
     for user_id in member_ids {
-        // Don't send notification to the sender
-        if user_id == sender_id {
+        if Some(user_id) == skip_user {
             continue;
         }
         crate::ws::publish_user_event(state, user_id, event.clone()).await;
@@ -1539,7 +1542,8 @@ async fn edit_dm_message(
         channel_id,
         message: message.clone(),
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+    // The author's other sessions need the edit too.
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, None, &event).await {
         tracing::warn!("Failed to push DM edit event to members: {}", e);
     }
     Ok(Json(message))
@@ -1565,10 +1569,22 @@ async fn delete_dm_message(
         ));
     }
 
-    sqlx::query("DELETE FROM dm_messages WHERE id = $1")
-        .bind(message_id)
-        .execute(&state.db)
-        .await?;
+    let attachments = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "DELETE FROM dm_messages WHERE id = $1 RETURNING attachments",
+    )
+    .bind(message_id)
+    .fetch_optional(&state.db)
+    .await?
+    .flatten();
+
+    let event = WsEvent::MessageDeleted {
+        channel_id,
+        message_id,
+    };
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, None, &event).await {
+        tracing::warn!("Failed to push DM delete event to members: {}", e);
+    }
+    crate::routes::messages::release_deleted_message_uploads(&state, attachments.as_ref()).await;
 
     Ok(Json(
         serde_json::json!({ "message": "DM message deleted", "id": message_id }),
@@ -1667,7 +1683,7 @@ async fn add_dm_reaction(
         channel_id,
         message: message.clone(),
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await {
         tracing::warn!("Failed to push DM reaction event to members: {}", e);
     }
     Ok(Json(message))
@@ -1708,7 +1724,7 @@ async fn remove_dm_reaction(
         channel_id,
         message: message.clone(),
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, claims.sub, &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await {
         tracing::warn!("Failed to push DM reaction removal event to members: {}", e);
     }
     Ok(Json(message))

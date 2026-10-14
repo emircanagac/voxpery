@@ -852,6 +852,34 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     return () => unsub()
   }, [rememberDmMessages, subscribe, user?.id])
 
+  // Edits and deletions by any member (or this user's other sessions) apply to the cached
+  // conversation and, when it is open, to its messages, pins and search results.
+  useEffect(() => {
+    const unsub = subscribe((evt: unknown) => {
+      const e = evt as { type?: string; data?: { channel_id?: string; message_id?: string; message?: MessageWithAuthor } }
+      const updated = e?.type === 'MessageUpdated' ? e.data?.message : undefined
+      const removedId = e?.type === 'MessageDeleted' ? e.data?.message_id : undefined
+      const channelId = e?.data?.channel_id
+      if (!channelId || !(updated?.id || removedId)) return
+      const apply = <T extends MessageWithAuthor>(messages: T[]): T[] => (updated
+        ? messages.map((m) => (m.id === updated.id ? { ...m, ...updated } : m))
+        : messages.filter((m) => m.id !== removedId))
+      if (channelId !== activeDmChannelIdRef.current) {
+        const cached = cachedDmMessages(channelId)
+        if (cached) rememberDmMessages(channelId, apply(cached))
+        return
+      }
+      setDmMessages((prev) => {
+        const next = apply(prev)
+        rememberDmMessages(channelId, next)
+        return next
+      })
+      setDmPins(apply)
+      setDmSearchResults((prev) => (prev ? apply(prev) : prev))
+    })
+    return () => unsub()
+  }, [cachedDmMessages, rememberDmMessages, subscribe])
+
   // A participant's new name or avatar applies to their messages in every conversation.
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {

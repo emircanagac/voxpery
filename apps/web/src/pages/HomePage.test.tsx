@@ -98,6 +98,7 @@ vi.mock('../components/ChatArea', () => ({
       data-testid="dm-chat"
       data-loading={String(!!loading)}
       data-message-count={String(messages.length)}
+      data-message-contents={(messages as { content?: string }[]).map((message) => message.content ?? '').join('|')}
       data-message-input={messageInput}
       data-jump-message-id={jumpToMessageId ?? ''}
     >
@@ -655,6 +656,40 @@ describe('HomePage friends list', () => {
 
     expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
     expect(apiMocks.markDmRead).not.toHaveBeenCalled()
+  })
+
+  it('applies edits and deletions from other sessions to the open DM', async () => {
+    const channel = dmChannel('dm-cilo')
+    sessionStorage.setItem('voxpery-social-view', 'dm')
+    useAppStore.setState({
+      activeDmChannelId: channel.id,
+      dmChannels: [channel],
+      dmChannelIds: [channel.id],
+      socialDataReady: true,
+    })
+    apiMocks.listDmChannels.mockResolvedValue([channel])
+    apiMocks.listDmMessages.mockResolvedValue([
+      { ...dmMessage('message-kept', channel.id), content: 'Original text' },
+      { ...dmMessage('message-removed', channel.id), content: 'Soon removed' },
+    ])
+
+    renderHomePage(ROUTES.dm)
+    const chat = await screen.findByTestId('dm-chat')
+    await waitFor(() => expect(chat).toHaveAttribute('data-message-contents', 'Original text|Soon removed'))
+
+    const emit = (event: unknown) => act(() => {
+      useSocketStore.getState().listeners.forEach((listener) => listener(event))
+    })
+    emit({
+      type: 'MessageUpdated',
+      data: {
+        channel_id: channel.id,
+        message: { ...dmMessage('message-kept', channel.id), content: 'Edited text' },
+      },
+    })
+    emit({ type: 'MessageDeleted', data: { channel_id: channel.id, message_id: 'message-removed' } })
+
+    expect(chat).toHaveAttribute('data-message-contents', 'Edited text')
   })
 
   it('loads older DM pages using the oldest message and stops at the end', async () => {

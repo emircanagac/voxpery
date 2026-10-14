@@ -246,6 +246,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
   - Multi-file uploads are all-or-nothing. If validation, quota reservation, metadata persistence, or transaction commit fails, database changes are rolled back and files already written for that request are removed.
   - Retry-equivalent files from the same user reuse the existing clean attachment record and do not consume storage quota twice.
+  - Each user has 1 GB of upload storage. Files that no message uses any more (after message, channel or server deletion) are deleted and their size is returned to the quota; files that were never sent are deleted 24 hours after their last upload. See `docs/DATABASE.md`.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
