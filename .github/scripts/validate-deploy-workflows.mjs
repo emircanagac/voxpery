@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
 const failures = []
 
@@ -44,6 +44,34 @@ requireText('production deploy', deploy, 'three consecutive health checks')
 requireText('release deploy smoke', releaseSmoke, "`${WEB_BASE}/sw.js`")
 requireText('release deploy smoke', releaseSmoke, "`${WEB_BASE}/version.json`")
 requireText('release deploy smoke', releaseSmoke, 'metadata.imageTag === EXPECTED_IMAGE_TAG')
+
+// Workflow inputs are attacker-influenced text: interpolating them into a `run:` script lets
+// them inject shell commands. They must be passed through `env:` instead.
+const workflowDir = '.github/workflows'
+let workflowFiles = []
+try {
+  workflowFiles = readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name))
+} catch (error) {
+  failures.push(`Unable to list ${workflowDir}: ${String(error)}`)
+}
+for (const name of workflowFiles) {
+  const lines = read(`${workflowDir}/${name}`).split(/\r?\n/)
+  let runIndent = null
+  lines.forEach((line, index) => {
+    const indent = line.length - line.trimStart().length
+    if (runIndent !== null && line.trim() !== '' && indent <= runIndent) runIndent = null
+    const runMatch = /^(\s*)(?:-\s+)?run:\s*(.*)$/.exec(line)
+    if (runMatch) {
+      runIndent = runMatch[1].length
+      if (/^[|>]/.test(runMatch[2])) return
+    } else if (runIndent === null) {
+      return
+    }
+    if (/\$\{\{\s*(github\.event\.)?inputs\./.test(line)) {
+      failures.push(`${workflowDir}/${name}:${index + 1} interpolates a workflow input in a run script; pass it through env instead`)
+    }
+  })
+}
 
 if (failures.length > 0) {
   console.error('Deploy workflow validation failed:')
