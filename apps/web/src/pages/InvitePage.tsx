@@ -65,7 +65,7 @@ export default function InvitePage() {
         if (!user || !preview) return
         setRulesLoading(true)
         serverApi
-            .listRules(preview.id, token)
+            .listInviteRules(trimmedCode, token)
             .then((data) => {
                 setRules(data)
                 setAcceptedRules(data.length === 0)
@@ -75,7 +75,7 @@ export default function InvitePage() {
                 setAcceptedRules(true)
             })
             .finally(() => setRulesLoading(false))
-    }, [preview, user, token])
+    }, [preview, user, token, trimmedCode])
 
     const invitePath = useMemo(() => ROUTES.invite(trimmedCode || ''), [trimmedCode])
     const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`

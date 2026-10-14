@@ -102,7 +102,9 @@ Important behavior:
   - Payload sections include export metadata, account, profile summary, servers, relationships, and authored messages.
 - `DELETE /api/auth/account`
   - Body: `{ "confirm": "DELETE", "password"?: "..." }`
-  - Permanently deletes account and authored content.
+  - Permanently deletes account and authored content, including the files the account uploaded (removed from storage after the database commit).
+  - Password accounts confirm with `password`; Google-only accounts need a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise).
+  - Owned servers that still have members pass to the highest-ranked remaining member (earliest to join on a tie); servers without other members go to the deleted-account placeholder.
 
 Notes:
 
@@ -133,6 +135,9 @@ Notes:
 - `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
+- `GET /api/servers/invite/:invite_code` (public invite preview)
+- `GET /api/servers/invite/:invite_code/rules` (public; the invite code grants access to the rules shown before joining)
+- `GET /api/servers/:server_id/rules` (members only)
 - `POST /api/servers/:server_id/leave`
   - Returns `403` for the official Voxpery community (identified by its reserved `voxpery` invite code); members can leave other servers as before. Existing unbanned accounts are backfilled by migration `049`; new and returning accounts join on registration or login, including Google OAuth.
 - `GET /api/servers/:server_id/channels`
@@ -182,6 +187,7 @@ Notes:
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
 - `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
+  - Message text quoted in entries (`before_preview`, `after_preview`, `content_preview`) is omitted, with `content_hidden: true`, for channels the caller cannot view.
   - Optional exact filters: `action`, `actor_id`, `target_id`, and `channel_id`.
   - Cursor pagination uses `before=<audit-entry-id>` and `limit` from 1 to 100 (default 50).
   - Returns `{ entries, next_before }`, newest first. Pass `next_before` as the next request's `before` value.
@@ -269,6 +275,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - Active member timeouts block server-channel sends/edits and new reactions before persistence or broadcast.
 - Server-level raid protection records join bursts, new-account join bursts, message bursts, and invite spikes in moderation activity/audit logs; message and invite bursts can return `429`.
 - User and message reports are rate limited per reporter/server, deduplicated while an open report for the same target exists, and moderation report listing returns the most recent 200 entries.
+- A message can only be reported by someone who can view its channel (otherwise `404`), and the report list returns `message_excerpt: null` for channels the caller cannot view.
 
 ### Pins
 

@@ -9549,6 +9549,492 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
 }
 
 #[tokio::test]
+async fn voice_moderation_honours_voice_channel_overrides() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let livekit_app = axum::Router::new().route(
+        "/twirp/livekit.RoomService/UpdateParticipant",
+        axum::routing::post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
+            axum::Json(json!({ "sid": "PA_moderated", "identity": body["identity"] }))
+        }),
+    );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "vcowner").await;
+    let (mod_auth, mod_id, _) = register_named_user(&mut app, "vcmod").await;
+    let (target_auth, target_id, _) = register_named_user(&mut app, "vctarget").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Overrides").await;
+    for auth in [&mod_auth, &target_auth] {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/servers/join",
+            auth,
+            Some(json!({ "invite_code": invite_code })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    // A voice moderator role: view, connect and mute members.
+    let mod_role_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+         VALUES ($1, $2, 'Voice mod', NULL, 1, $3)",
+    )
+    .bind(mod_role_id)
+    .bind(server_id)
+    .bind(PERM_VIEW | PERM_CONNECT_VOICE | (1_i64 << 11))
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
+        .bind(server_id)
+        .bind(mod_id)
+        .bind(mod_role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let addr = spawn_ws_app(&state).await;
+    let mut mod_ws = connect_ws(addr, &mod_auth).await;
+    let mut target_ws = connect_ws(addr, &target_auth).await;
+    ws_send(
+        &mut target_ws,
+        json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } }),
+    )
+    .await;
+    receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    let mute_target = json!({ "type": "SetVoiceControl", "data": {
+        "target_user_id": target_id, "muted": true, "deafened": false,
+        "screen_sharing": false, "camera_on": false, "reason": "Testing overrides"
+    }});
+    let server_muted = |state: Arc<AppState>| async move {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT voice_server_muted FROM server_members WHERE server_id = $1 AND user_id = $2",
+        )
+        .bind(server_id)
+        .bind(target_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+    };
+
+    // Mute Members denied on this voice channel: the request changes nothing.
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{voice_channel_id}/overrides/{mod_role_id}"),
+        &owner_auth,
+        Some(json!({ "allow": 0, "deny": 1_i64 << 11 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "override failed: {body}");
+    ws_send(&mut mod_ws, mute_target.clone()).await;
+    ws_barrier(&mut mod_ws).await;
+    assert!(!server_muted(state.clone()).await, "a channel deny must block voice moderation");
+
+    // Without the override the same request mutes the member.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/{voice_channel_id}/overrides/{mod_role_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert!(status.is_success());
+    ws_send(&mut mod_ws, mute_target).await;
+    ws_barrier(&mut mod_ws).await;
+    assert!(server_muted(state.clone()).await, "server-level Mute Members applies again");
+}
+
+#[tokio::test]
+async fn server_rules_are_for_members_or_invite_holders_only() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "rulesowner").await;
+    let (stranger_auth, _, _) = register_named_user(&mut app, "rulesstranger").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Rules").await;
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/rules"),
+        &owner_auth,
+        Some(json!({ "rule_text": "Be kind to each other" })),
+    )
+    .await;
+    assert!(status.is_success(), "create rule failed: {body}");
+    let rules_uri = format!("/api/servers/{server_id}/rules");
+
+    let (status, rules) = api_json(&mut app, "GET", &rules_uri, &owner_auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rules[0]["rule_text"], "Be kind to each other");
+    let (status, _) = api_json(&mut app, "GET", &rules_uri, &stranger_auth, None).await;
+    assert!(
+        status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND,
+        "a non-member must not read the rules by server id (got {status})"
+    );
+    let (status, _) = oneshot(
+        &mut app,
+        Request::builder().uri(&rules_uri).body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Someone holding the invite sees the rules before joining.
+    let (status, invite_rules) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/invite/{invite_code}/rules"),
+        &stranger_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(invite_rules[0]["rule_text"], "Be kind to each other");
+    let (status, _) = api_json(
+        &mut app,
+        "GET",
+        "/api/servers/invite/not-a-real-code/rules",
+        &stranger_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn reports_and_audit_log_do_not_quote_channels_the_viewer_cannot_see() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "quoteowner").await;
+    let (insider_auth, insider_id, _) = register_named_user(&mut app, "quoteinsider").await;
+    let (outsider_auth, _, _) = register_named_user(&mut app, "quoteoutsider").await;
+    let (moderator_auth, moderator_id, _) = register_named_user(&mut app, "quotemod").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Quotes").await;
+    for auth in [&insider_auth, &outsider_auth, &moderator_auth] {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/servers/join",
+            auth,
+            Some(json!({ "invite_code": invite_code })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &owner_auth,
+        Some(json!({ "server_id": server_id, "name": "staff-only", "channel_type": "text" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create channel failed: {channel}");
+    let private_channel_id = channel["id"].as_str().unwrap().to_string();
+
+    // Everyone is denied the private channel; an "Insider" role may view it; the moderator role
+    // has Ban Members and View Audit Log but no access to that channel.
+    let insert_role = |name: &'static str, permissions: i64| {
+        let state = state.clone();
+        async move {
+            let id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+                 VALUES ($1, $2, $3, NULL, 1, $4)",
+            )
+            .bind(id)
+            .bind(server_id)
+            .bind(name)
+            .bind(permissions)
+            .execute(&state.db)
+            .await
+            .unwrap();
+            id
+        }
+    };
+    let insider_role = insert_role("Insider", PERM_VIEW | PERM_SEND).await;
+    let moderator_role = insert_role("Report reviewer", PERM_VIEW | PERM_BAN | (1_i64 << 6)).await;
+    for (user_id, role_id) in [(insider_id, insider_role), (moderator_id, moderator_role)] {
+        sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
+            .bind(server_id)
+            .bind(user_id)
+            .bind(role_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+    }
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    for (role_id, allow, deny) in [(everyone_id, 0, PERM_VIEW), (insider_role, PERM_VIEW, 0)] {
+        let (status, body) = api_json(
+            &mut app,
+            "PUT",
+            &format!("/api/channels/{private_channel_id}/overrides/{role_id}"),
+            &owner_auth,
+            Some(json!({ "allow": allow, "deny": deny })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "override failed: {body}");
+    }
+
+    let (status, message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{private_channel_id}"),
+        &owner_auth,
+        Some(json!({ "content": "staff secret plan" })),
+    )
+    .await;
+    assert!(status.is_success(), "send failed: {message}");
+    let message_id = message["id"].as_str().unwrap().to_string();
+    let report = json!({ "message_id": message_id, "reason": "other" });
+
+    // Someone who cannot see the channel cannot report (or probe) the message.
+    let report_uri = format!("/api/servers/{server_id}/reports/message");
+    let (status, _) = api_json(&mut app, "POST", &report_uri, &outsider_auth, Some(report.clone())).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, body) = api_json(&mut app, "POST", &report_uri, &insider_auth, Some(report)).await;
+    assert!(status.is_success(), "an insider can report it: {body}");
+
+    // The moderator handles the report without seeing the quoted text; the owner sees it.
+    let reports_uri = format!("/api/servers/{server_id}/reports");
+    let (status, reports) = api_json(&mut app, "GET", &reports_uri, &moderator_auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(reports[0]["message_excerpt"].is_null(), "excerpt must be hidden: {reports}");
+    let (_, reports) = api_json(&mut app, "GET", &reports_uri, &owner_auth, None).await;
+    assert_eq!(reports[0]["message_excerpt"], "staff secret plan");
+
+    // Edit previews in the audit log follow the same rule.
+    let (status, _) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/messages/item/{message_id}"),
+        &owner_auth,
+        Some(json!({ "content": "staff secret plan v2" })),
+    )
+    .await;
+    assert!(status.is_success());
+    let audit_uri = format!("/api/servers/{server_id}/audit-log?action=message_edit");
+    let (status, page) = api_json(&mut app, "GET", &audit_uri, &moderator_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "audit log failed: {page}");
+    let details = &page["entries"][0]["details"];
+    assert!(details["before_preview"].is_null() && details["after_preview"].is_null(), "{details}");
+    assert_eq!(details["content_hidden"], true);
+    let (_, page) = api_json(&mut app, "GET", &audit_uri, &owner_auth, None).await;
+    assert_eq!(page["entries"][0]["details"]["after_preview"], "staff secret plan v2");
+}
+
+#[tokio::test]
+async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let password = test_credential("leaving");
+    let (owner_token, owner_id) = register_user(
+        &mut app,
+        &format!("leaving-{uid}@example.com"),
+        &format!("leaving_{}", uid.as_u128() % 1_000_000),
+        password,
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (senior_auth, senior_id, _) = register_named_user(&mut app, "heirsenior").await;
+    let (junior_auth, _, _) = register_named_user(&mut app, "heirjunior").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Inherited").await;
+    // The junior member joins first, but the senior member holds a higher role.
+    for auth in [&junior_auth, &senior_auth] {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/servers/join",
+            auth,
+            Some(json!({ "invite_code": invite_code })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let role_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+         VALUES ($1, $2, 'Heir', NULL, 0, $3)",
+    )
+    .bind(role_id)
+    .bind(server_id)
+    .bind(PERM_VIEW)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
+        .bind(server_id)
+        .bind(senior_id)
+        .bind(role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (solo_server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Solo").await;
+
+    // An uploaded file that must leave the disk with the account.
+    let boundary = format!("----voxperydelete{uid}");
+    let upload_body = [
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"mine.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .into_bytes(),
+        b"my private notes".to_vec(),
+        format!("\r\n--{boundary}--\r\n").into_bytes(),
+    ]
+    .concat();
+    let (status, body) = oneshot(
+        &mut app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/attachments/upload")
+            .header("Authorization", &owner_auth)
+            .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+            .body(Body::from(upload_body))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "upload failed: {}", String::from_utf8_lossy(&body));
+    let storage_key: String =
+        sqlx::query_scalar("SELECT storage_key FROM uploaded_attachments WHERE user_id = $1")
+            .bind(owner_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert!(state.attachment_service.open_local_attachment_file(&storage_key).await.is_ok());
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &owner_auth,
+        Some(json!({ "confirm": "DELETE", "password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    assert!(
+        state.attachment_service.open_local_attachment_file(&storage_key).await.is_err(),
+        "the uploaded file must be removed from disk"
+    );
+    let owner_of = |state: Arc<AppState>, id: Uuid| async move {
+        sqlx::query_scalar::<_, Uuid>("SELECT owner_id FROM servers WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
+    };
+    assert_eq!(
+        owner_of(state.clone(), server_id).await,
+        senior_id,
+        "the highest-ranked member becomes the owner"
+    );
+    let solo_owner = owner_of(state.clone(), solo_server_id).await;
+    assert_ne!(solo_owner, owner_id, "an empty server goes to the deleted-account placeholder");
+    let (status, roles) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/roles"),
+        &senior_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the new owner manages the server: {roles}");
+}
+
+#[tokio::test]
+async fn google_only_account_deletion_needs_a_recent_sign_in() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (_, user_id, _) = register_named_user(&mut app, "googleleaver").await;
+    sqlx::query("UPDATE users SET password_hash = 'oauth', google_id = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(format!("google-{user_id}"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    let token_issued = |seconds_ago: i64| {
+        let now = chrono::Utc::now().timestamp();
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &json!({
+                "sub": user_id,
+                "username": username,
+                "iat": now - seconds_ago,
+                "exp": now + 3600,
+                "ver": 0
+            }),
+            &jsonwebtoken::EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+        )
+        .unwrap()
+    };
+    let body = json!({ "confirm": "DELETE" });
+    let (status, error) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &format!("Bearer {}", token_issued(60 * 60)),
+        Some(body.clone()),
+    )
+    .await;
+    assert_ne!(status, StatusCode::OK, "an hour-old Google session cannot delete the account");
+    assert_eq!(error["code"], "REAUTH_REQUIRED", "{error}");
+    let (status, response) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &format!("Bearer {}", token_issued(30)),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a fresh Google sign-in can delete it: {response}");
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

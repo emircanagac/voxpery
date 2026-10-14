@@ -234,6 +234,10 @@ export const serverApi = {
     listRules: (serverId: string, token?: AuthToken) =>
         apiFetch<ServerRule[]>(`/api/servers/${serverId}/rules`, { token }),
 
+    /** Rules shown on an invite page before joining; the invite code grants access. */
+    listInviteRules: (inviteCode: string, token?: AuthToken) =>
+        apiFetch<ServerRule[]>(`/api/servers/invite/${encodeURIComponent(inviteCode)}/rules`, { token }),
+
     createRule: (serverId: string, ruleText: string, token: AuthToken) =>
         apiFetch<ServerRule>(`/api/servers/${serverId}/rules`, {
             method: 'POST',

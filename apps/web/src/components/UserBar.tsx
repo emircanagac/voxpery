@@ -278,6 +278,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteNeedsGoogleSignIn, setDeleteNeedsGoogleSignIn] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateResult | null>(null)
   const updatesManagedExternally = updateInfo?.available === false && updateInfo.managedExternally === true
   const [updateChecked, setUpdateChecked] = useState(false)
@@ -1417,6 +1418,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     if (isTauri() && !token) return
     setDeleteSubmitting(true)
     setDeleteError(null)
+    setDeleteNeedsGoogleSignIn(false)
     try {
       await authApi.deleteAccount(
         {
@@ -1430,7 +1432,13 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       logout()
       navigate(ROUTES.login, { replace: true })
     } catch (err: unknown) {
-      setDeleteError(getAuthErrorMessage(err).message || 'Could not process account deletion request.')
+      const { message, code } = getAuthErrorMessage(err)
+      if (code === 'REAUTH_REQUIRED' && isGoogleOnlyAccount) {
+        setDeleteNeedsGoogleSignIn(true)
+        setDeleteError('Sign in with Google again, then return here to delete your account.')
+      } else {
+        setDeleteError(message || 'Could not process account deletion request.')
+      }
     } finally {
       setDeleteSubmitting(false)
     }
@@ -2670,6 +2678,11 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 </div>
               </div>
               {deleteError && <div className="pw-error">{deleteError}</div>}
+              {deleteNeedsGoogleSignIn && (
+                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
+                  Sign in with Google again
+                </button>
+              )}
             </div>
             <footer className="pw-modal-footer">
               <button

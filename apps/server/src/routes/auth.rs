@@ -3533,7 +3533,15 @@ async fn delete_my_account(
         .ok_or(AppError::NotFound("User not found".into()))?;
 
     let is_oauth_only = user.google_id.is_some() && user.password_hash == "oauth";
-    if !is_oauth_only {
+    if is_oauth_only {
+        // Like the data export: an old session alone must not be able to delete the account.
+        let now = chrono::Utc::now().timestamp().max(0) as usize;
+        if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
+            return Err(AppError::ReauthenticationRequired(
+                "Sign in with Google again before deleting your account".into(),
+            ));
+        }
+    } else {
         let password = body
             .password
             .as_deref()
@@ -3552,6 +3560,57 @@ async fn delete_my_account(
 
     let mut tx = state.db.begin().await?;
     let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
+
+    // Files are removed from disk after the commit; the rows go with the user.
+    let uploaded_storage_keys = sqlx::query_scalar::<_, String>(
+        "SELECT storage_key FROM uploaded_attachments WHERE user_id = $1 AND storage_backend = 'local'",
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // A server that still has members goes to the highest-ranked one (the earliest to join on
+    // a tie), so it stays manageable; only servers left without members go to the placeholder.
+    let owned_server_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM servers WHERE owner_id = $1 FOR UPDATE",
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut transferred_server_ids = Vec::new();
+    for server_id in owned_server_ids {
+        let successor = sqlx::query_scalar::<_, Uuid>(
+            r#"SELECT sm.user_id
+               FROM server_members sm
+               LEFT JOIN server_member_roles smr
+                 ON smr.server_id = sm.server_id AND smr.user_id = sm.user_id
+               LEFT JOIN server_roles sr
+                 ON sr.id = smr.role_id AND LOWER(sr.name) <> 'everyone'
+               WHERE sm.server_id = $1 AND sm.user_id NOT IN ($2, $3)
+               GROUP BY sm.user_id, sm.joined_at
+               ORDER BY MIN(sr.position) ASC NULLS LAST, sm.joined_at ASC, sm.user_id ASC
+               LIMIT 1"#,
+        )
+        .bind(server_id)
+        .bind(claims.sub)
+        .bind(deleted_placeholder_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(successor) = successor else {
+            continue;
+        };
+        sqlx::query("UPDATE servers SET owner_id = $1 WHERE id = $2")
+            .bind(successor)
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE server_members SET role = 'owner' WHERE server_id = $1 AND user_id = $2")
+            .bind(server_id)
+            .bind(successor)
+            .execute(&mut *tx)
+            .await?;
+        transferred_server_ids.push(server_id);
+    }
 
     sqlx::query("UPDATE servers SET owner_id = $1 WHERE owner_id = $2")
         .bind(deleted_placeholder_id)
@@ -3648,6 +3707,19 @@ async fn delete_my_account(
         .await?;
 
     tx.commit().await?;
+
+    for storage_key in &uploaded_storage_keys {
+        if let Err(error) = state
+            .attachment_service
+            .delete_local_file_by_storage_key(storage_key)
+            .await
+        {
+            tracing::warn!("Attachment file cleanup after account deletion failed: {error}");
+        }
+    }
+    for server_id in transferred_server_ids {
+        crate::ws::publish_event(&state, WsEvent::ServerRolesUpdated { server_id }).await;
+    }
 
     if let Some(token) = token_from_request(&headers, &state.cookie_name) {
         let _ =
