@@ -6,6 +6,7 @@ pub mod avatar_images;
 pub mod client_ip;
 pub mod email;
 pub mod idempotency;
+pub mod image_proxy_grant;
 pub mod jwt_blacklist;
 pub mod message_content;
 pub mod moderation;

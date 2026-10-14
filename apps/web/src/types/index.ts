@@ -30,6 +30,7 @@ export interface ServerInvitePreview {
     description?: string;
     invite_code: string;
     member_count: number;
+    icon_grant?: string | null;
 }
 
 export interface Channel {

@@ -55,7 +55,7 @@ async fn main() {
         // Postgres is only reachable on the Compose network and loopback, and changing the
         // password of an existing volume needs a manual step, so this warns instead.
         tracing::warn!(
-            "DATABASE_URL still uses the .env.example database password; change POSTGRES_PASSWORD (see docs/DEPLOYMENT.md)"
+            "DATABASE_URL still uses a .env.example database password; change it (see docs/DEPLOYMENT.md)"
         );
     }
 

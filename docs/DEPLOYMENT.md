@@ -23,13 +23,21 @@ cp .env.example .env
 
 Edit `.env` and set strong production values at minimum:
 
-- `POSTGRES_PASSWORD`, `JWT_SECRET` and `LIVEKIT_API_SECRET`: generate each separately, for
+- `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `JWT_SECRET` and `LIVEKIT_API_SECRET`: generate
+  each separately, for
   example with `openssl rand -hex 32`. The server refuses to start while `JWT_SECRET`,
   `LIVEKIT_API_SECRET` or a configured `TURN_SHARED_SECRET` is a `CHANGE_ME` placeholder, empty
   or shorter than 32 characters, and the log names the variable to fix. It warns (but starts)
   when `DATABASE_URL` still contains the example database password, because the database keeps
   the password it was created with: change it with `ALTER ROLE <user> WITH PASSWORD '...'` inside
   the database container, then update `POSTGRES_PASSWORD` and restart.
+- Database roles: `POSTGRES_USER`/`POSTGRES_PASSWORD` is the superuser created with the
+  database volume; Compose uses it only to set up roles and for backups. The server connects
+  as `POSTGRES_APP_USER` (default `voxpery_app`), a role without superuser, role-creation or
+  database-creation rights that owns the application tables. The one-shot
+  `postgres-app-role` service creates or updates that role and applies
+  `POSTGRES_APP_PASSWORD` before every server start, and Compose does not start the server if
+  it fails (placeholder or shorter than 16 characters).
 - `LIVEKIT_API_KEY`: replace the `devkey` default with your own key name.
 - `LIVEKIT_NODE_IP` (server public IPv4)
 - Optional seed admin (`ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`): created at startup
@@ -218,6 +226,13 @@ git pull
 docker compose up -d --build
 ```
 
+Upgrading an installation created before the separate database role: add
+`POSTGRES_APP_PASSWORD` (and optionally `POSTGRES_APP_USER`) to `.env`, then run the update
+above. `docker compose config` fails until it is set. On the first start the
+`postgres-app-role` service creates the role and moves ownership of the existing tables from
+the superuser to it; check it with `docker compose logs postgres-app-role`. Backups and
+restores keep running as `POSTGRES_USER`.
+
 ## 7) Prebuilt Images (Optional, Recommended for Production)
 
 You can prebuild and push images, then let Compose pull them during deploy instead of rebuilding on the server.
@@ -365,6 +380,9 @@ Restore (explicit confirmation required):
 ```bash
 RESTORE_CONFIRM=YES ./scripts/ops/db_restore.sh backups/postgres/<backup-file>.sql.gz
 ```
+
+A restore runs as `POSTGRES_USER` and then re-runs the `postgres-app-role` service so the
+restored tables belong to the server's role again.
 
 Dry-run restore validation:
 

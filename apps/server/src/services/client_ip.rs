@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::http::{header::HeaderName, HeaderMap};
 use ipnet::IpNet;
@@ -66,14 +66,36 @@ fn single_ip_header(headers: &HeaderMap, name: HeaderName) -> Option<IpAddr> {
         .map(normalize_ip)
 }
 
+/// One hop of a forwarded chain: a bare address, `ip:port` or `[ipv6]:port`.
+fn parse_forwarded_hop(hop: &str) -> Option<IpAddr> {
+    hop.parse::<IpAddr>()
+        .ok()
+        .or_else(|| hop.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
+}
+
 fn forwarded_for_client_ip(headers: &HeaderMap, trusted: &TrustedProxySet) -> Option<IpAddr> {
-    let raw = headers.get(X_FORWARDED_FOR)?.to_str().ok()?;
-    raw.split(',')
-        .rev()
-        .map(str::trim)
-        .filter_map(|candidate| candidate.parse::<IpAddr>().ok())
-        .map(normalize_ip)
-        .find(|candidate| !trusted.contains(candidate))
+    // A proxy may add its own header line instead of extending the first one, so read every
+    // line in order as one chain.
+    let mut hops = Vec::new();
+    for value in headers.get_all(X_FORWARDED_FOR) {
+        hops.extend(
+            value
+                .to_str()
+                .ok()?
+                .split(',')
+                .map(str::trim)
+                .filter(|hop| !hop.is_empty()),
+        );
+    }
+    // Walk back from the trusted edge. A hop that is not an address cannot be attributed, so
+    // stop there rather than skip it and believe whatever the client wrote further left.
+    for hop in hops.iter().rev() {
+        let ip = normalize_ip(parse_forwarded_hop(hop)?);
+        if !trusted.contains(&ip) {
+            return Some(ip);
+        }
+    }
+    None
 }
 
 /// Resolve the rate-limit identity for a request. Forwarded headers are ignored
@@ -167,6 +189,34 @@ mod tests {
             )
             .as_deref(),
             Some("2001:db8::20")
+        );
+    }
+
+    #[test]
+    fn reads_every_forwarded_header_and_proxy_ports() {
+        let trusted = TrustedProxySet::parse(Some("10.0.0.0/8")).unwrap();
+        let peer = Some("10.0.0.2".parse().unwrap());
+        // The client's own header comes first; the proxy appended a second line.
+        let mut split = HeaderMap::new();
+        split.append("x-forwarded-for", HeaderValue::from_static("203.0.113.66"));
+        split.append("x-forwarded-for", HeaderValue::from_static("198.51.100.8, 10.0.0.9"));
+        assert_eq!(resolve_client_ip(&split, peer, &trusted).as_deref(), Some("198.51.100.8"));
+
+        let with_ports = headers(&[("x-forwarded-for", "198.51.100.8:51234, [2001:db8::1]:443")]);
+        assert_eq!(
+            resolve_client_ip(&with_ports, peer, &trusted).as_deref(),
+            Some("2001:db8::1")
+        );
+    }
+
+    #[test]
+    fn stops_at_an_unparseable_hop_instead_of_trusting_the_client_side() {
+        let trusted = TrustedProxySet::parse(Some("10.0.0.0/8")).unwrap();
+        let headers = headers(&[("x-forwarded-for", "203.0.113.66, unknown, 10.0.0.9")]);
+        assert_eq!(
+            resolve_client_ip(&headers, Some("10.0.0.2".parse().unwrap()), &trusted).as_deref(),
+            Some("10.0.0.2"),
+            "the spoofable left-hand value must not be used"
         );
     }
 

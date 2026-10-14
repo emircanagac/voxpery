@@ -28,6 +28,27 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot: creates the non-superuser role the server connects with and gives it the
+  # application tables, then exits. Re-runs before every server start.
+  postgres-app-role:
+    image: postgres:16.15-alpine3.24
+    container_name: voxpery-db-app-role
+    restart: "no"
+    entrypoint: ["sh", "/usr/local/bin/db_app_role.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-voxpery}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      PGDATABASE: ${POSTGRES_DB:-voxpery}
+      APP_DB_USER: ${POSTGRES_APP_USER:-voxpery_app}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env}
+    volumes:
+      - ./scripts/ops/db_app_role.sh:/usr/local/bin/db_app_role.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
   redis:
     image: redis:7.4.11-alpine
     container_name: voxpery-redis
@@ -89,12 +110,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-voxpery}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-voxpery}
+      DATABASE_URL: postgres://${POSTGRES_APP_USER:-voxpery_app}:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-voxpery}
       ATTACHMENTS_LOCAL_DIR: /home/voxpery/attachments
       LIVEKIT_API_URL: http://livekit:7880
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-app-role:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       livekit:

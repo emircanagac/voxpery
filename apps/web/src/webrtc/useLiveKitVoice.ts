@@ -18,7 +18,8 @@ import {
   type TrackPublishOptions,
   type VideoCodec,
 } from 'livekit-client'
-import { webrtcApi } from '../api'
+// Imported directly so voice-only API calls stay out of the startup bundle.
+import { webrtcApi } from '../api/webrtc'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'

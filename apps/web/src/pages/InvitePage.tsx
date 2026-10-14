@@ -123,7 +123,7 @@ export default function InvitePage() {
                         <div className="invite-preview-server">
                             <div className="invite-preview-icon">
                                 {preview.icon_url ? (
-                                    <img src={resolveServerIconUrl(preview.icon_url) ?? ''} alt={preview.name} className="invite-preview-icon-image" />
+                                    <img src={resolveServerIconUrl(preview.icon_url, preview.icon_grant) ?? ''} alt={preview.name} className="invite-preview-icon-image" />
                                 ) : (
                                     getServerInitial(preview.name)
                                 )}

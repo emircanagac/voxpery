@@ -18,8 +18,7 @@ const mocks = vi.hoisted(() => ({
   rooms: [] as Room[],
 }))
 
-vi.mock('../api', async importOriginal => ({
-  ...await importOriginal<typeof import('../api')>(),
+vi.mock('../api/webrtc', () => ({
   webrtcApi: { getLivekitToken: mocks.token, getTurnCredentials: async () => ({ urls: [] }) },
 }))
 vi.mock('./hooks/useAudioEngine', async importOriginal => ({

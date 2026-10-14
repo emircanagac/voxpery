@@ -1940,6 +1940,8 @@ struct GoogleOAuthDesktopExchangeRequest {
 /// POST /api/auth/google/desktop-exchange — exchange short-lived desktop OAuth code for JWT.
 async fn google_oauth_desktop_exchange(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<GoogleOAuthDesktopExchangeRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     if !state.google_oauth_enabled {
@@ -1948,14 +1950,30 @@ async fn google_oauth_desktop_exchange(
         ));
     }
 
-    desktop_auth_exchange(State(state), Json(body)).await
+    desktop_auth_exchange(State(state), connect_info, headers, Json(body)).await
 }
 
 /// Exchange any PKCE-bound desktop handoff, independently of OAuth configuration.
 async fn desktop_auth_exchange(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<GoogleOAuthDesktopExchangeRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    if let Some(ip) = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    ) {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:desktop_exchange_ip:{ip}"),
+            20,
+            Duration::from_secs(60),
+            "Too many sign-in attempts. Please wait and try again.",
+        )
+        .await?;
+    }
     let code = body.code.trim();
     if code.len() != 32 || !code.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::Validation("Invalid desktop OAuth code".into()));
@@ -2468,6 +2486,7 @@ struct SessionRow {
 struct SessionResponse {
     user: UserPublic,
     legal_consent: LegalConsentStatus,
+    image_proxy: crate::services::image_proxy_grant::ImageProxyGrant,
 }
 
 /// Read user and legal status from one row snapshot; never mutate acknowledgement.
@@ -2494,6 +2513,10 @@ async fn get_session(
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
         Json(SessionResponse {
+            image_proxy: crate::services::image_proxy_grant::current_user_grant(
+                &state.jwt_secret,
+                row.user.id,
+            ),
             user: UserPublic::from(row.user),
             legal_consent: LegalConsentStatus::new(!row.legal_current),
         }),
@@ -2926,6 +2949,8 @@ async fn request_email_verification(
 /// POST /api/auth/email/confirm
 async fn confirm_email_verification(
     State(state): State<Arc<AppState>>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(body): Json<ConfirmEmailVerificationRequest>,
 ) -> Result<Json<ConfirmEmailVerificationResponse>, AppError> {
     if !state.email_verification_enabled {
@@ -2934,10 +2959,31 @@ async fn confirm_email_verification(
         ));
     }
 
+    if let Some(ip) = extract_client_ip(
+        &state,
+        &headers,
+        connect_info.as_ref().map(|Extension(info)| info),
+    ) {
+        enforce_rate_limit(
+            &state.redis,
+            format!("auth:email_confirm_ip:{ip}"),
+            10,
+            Duration::from_secs(60),
+            "Too many verification attempts. Please wait and try again.",
+        )
+        .await?;
+    }
+
     let token = body.token.trim();
     if token.is_empty() {
         return Err(AppError::Validation(
             "Verification token is required".into(),
+        ));
+    }
+    // Verification tokens are UUIDs; anything else cannot match and never reaches the database.
+    if Uuid::parse_str(token).is_err() {
+        return Err(AppError::Validation(
+            "Invalid email verification token".into(),
         ));
     }
 

@@ -54,7 +54,7 @@ Important behavior:
 - `GET /api/auth/me`
   - The authenticated user includes `created_at` for the own-profile membership date. This field is not added to the WebSocket broadcast profile.
 - `GET /api/auth/session`
-  - Authenticated startup snapshot: `{ user: UserPublic, legal_consent: { required, current_terms_version, current_privacy_notice_version, current_kvkk_notice_version } }`. Supports the web cookie and desktop Bearer token, returns `Cache-Control: no-store`, and never records acknowledgement.
+  - Authenticated startup snapshot: `{ user: UserPublic, legal_consent: { required, current_terms_version, current_privacy_notice_version, current_kvkk_notice_version }, image_proxy: { grant, expires_at } }`. `image_proxy` is the grant the client appends to image proxy URLs (see Image Proxy Endpoint). Supports the web cookie and desktop Bearer token, returns `Cache-Control: no-store`, and never records acknowledgement.
   - Available even when acknowledgement is missing so the client can display the form. Missing/revoked credentials return `401`; protected application routes retain their independent legal gate. `/me` keeps its existing response for compatibility.
 - `GET /api/auth/legal-documents`
   - Public current Terms, Privacy Notice, and KVKK version metadata; no account status or invented acceptance.
@@ -114,7 +114,8 @@ Notes:
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
 - `email/request-verification` issues a fresh verification token, optionally for a new address (`{ "email", "current_password" }`). A different address needs the current password, or for a Google-only account a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). The account email does not change until the link is confirmed; the pending address is kept with the token.
 - `email/confirm` returns 409 when another account took the pending address after the link was sent.
-- `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
+- `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session. Tokens that are not UUIDs return `400` without a lookup, and confirmations are rate-limited per client IP.
+- `desktop-exchange` (and the Google-specific exchange) are rate-limited per client IP in addition to the single-use PKCE code.
 
 ## System Endpoints
 
@@ -136,6 +137,7 @@ Notes:
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
 - `GET /api/servers/invite/:invite_code` (public invite preview)
+  - Includes `icon_grant` when the server has an `icon_url`: an image proxy grant valid for that icon only, so visitors who are not signed in can see it.
 - `GET /api/servers/invite/:invite_code/rules` (public; the invite code grants access to the rules shown before joining)
 - `GET /api/servers/:server_id/rules` (members only)
 - `POST /api/servers/:server_id/leave`
@@ -251,12 +253,15 @@ are unchanged. Category names in URL path segments must be percent-encoded
 
 ## Image Proxy Endpoint
 
-- `GET /api/images/avatar?url=<encoded-https-url>`
+- `GET /api/images/grant` (auth required)
+  - Returns `{ grant, expires_at }` (Unix seconds) with `Cache-Control: no-store`. The session snapshot carries the first grant; clients refresh it while they stay open. A grant is valid for 12 to 24 hours and stays the same within each 12-hour window, so proxy URLs remain cacheable.
+- `GET /api/images/avatar?url=<encoded-https-url>&grant=<grant>`
   - Proxies third-party avatar images so viewers do not request user-supplied image hosts directly.
+  - Requires a server-signed `grant`: a signed-in user's grant from the session snapshot or `/api/images/grant`, or a grant bound to that exact URL (invite preview icons). Requests without a valid grant return `401` before anything is fetched. `<img>` requests cannot send the desktop Bearer token, so the grant travels in the URL.
   - Accepts only public `https://` URLs, rejects redirects, local/private host resolution, unsupported content types, and images over 3 MB.
   - Returns `image/jpeg`, `image/png`, `image/gif`, or `image/webp` with cache headers and `X-Content-Type-Options: nosniff`.
-- `GET /api/images/remote?url=<encoded-https-url>`
-  - Uses the same SSRF, MIME, size, redirect, cache, and rate-limit controls for remote server icons and inline GIF/sticker previews.
+- `GET /api/images/remote?url=<encoded-https-url>&grant=<grant>`
+  - Uses the same grant, SSRF, MIME, size, redirect, cache, and rate-limit controls for remote server icons and inline GIF/sticker previews.
   - Intended for user-controlled remote media that should render without exposing viewer IP/user-agent to the original host.
 
 ## Message Endpoints (Server Channels)
