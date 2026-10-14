@@ -110,7 +110,8 @@ Notes:
 - `forgot-password` always returns a generic success message to prevent account enumeration.
 - Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
-- `email/request-verification` can optionally change the current account email and issues a fresh verification token.
+- `email/request-verification` issues a fresh verification token, optionally for a new address (`{ "email", "current_password" }`). A different address needs the current password, or for a Google-only account a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). The account email does not change until the link is confirmed; the pending address is kept with the token.
+- `email/confirm` returns 409 when another account took the pending address after the link was sent.
 - `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
 
 ## System Endpoints

@@ -41,7 +41,7 @@ Voxpery is still growing. Larger platforms have broader integrations and more ma
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
 cp .env.example .env
-# Replace every CHANGE_ME value in .env before starting.
+# Replace every CHANGE_ME value in .env (openssl rand -hex 32) before starting.
 docker compose config >/dev/null
 docker compose up -d --build
 ```

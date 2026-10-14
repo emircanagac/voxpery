@@ -897,6 +897,8 @@ struct SetPasswordRequest {
 #[derive(Debug, serde::Deserialize)]
 struct RequestEmailVerificationRequest {
     email: Option<String>,
+    /// Required to change the address of an account that has a password.
+    current_password: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1372,17 +1374,29 @@ pub async fn ensure_seed_admin(
         );
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
-    if password.len() < 8 {
-        tracing::warn!("Seed admin password must be at least 8 characters; skipping seed");
-        return Ok(None);
-    }
-    let existing_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1")
-        .bind(email)
-        .fetch_optional(db)
-        .await?;
-    if let Some(id) = existing_id {
-        tracing::info!("Seed admin user already exists (email), skipping create");
+    let weak_password = crate::is_weak_seed_admin_password(password);
+    let existing = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, password_hash FROM users WHERE email = $1",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await?;
+    if let Some((id, password_hash)) = existing {
+        // An account seeded earlier may still have the example password everyone can read.
+        if weak_password && verify_password(password, &password_hash).unwrap_or(false) {
+            tracing::error!(
+                "The seed admin account still uses the weak ADMIN_PASSWORD from .env; sign in and change its password"
+            );
+        } else {
+            tracing::info!("Seed admin user already exists (email), skipping create");
+        }
         return Ok(Some(id));
+    }
+    if weak_password {
+        tracing::warn!(
+            "ADMIN_PASSWORD is the .env.example placeholder or shorter than 12 characters; the seed admin was not created"
+        );
+        return Ok(None);
     }
     let password_hash = hash_password(password)?;
     let id = Uuid::new_v4();
@@ -1744,7 +1758,7 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
         if let Ok(data) = jsonwebtoken::decode::<Claims>(
             &token,
             &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-            &jsonwebtoken::Validation::default(),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         ) {
             if crate::services::jwt_blacklist::blacklist_until_exp(
                 &state.redis,
@@ -1979,7 +1993,7 @@ async fn desktop_auth_exchange(
     let claims = jsonwebtoken::decode::<Claims>(
         &token,
         &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-        &jsonwebtoken::Validation::default(),
+        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
     )
     .map_err(|_| AppError::Unauthorized)?
     .claims;
@@ -2806,6 +2820,29 @@ async fn request_email_verification(
 
     let email_changed = next_email != user.email;
     if email_changed {
+        // A session alone must not be enough to move the account to another address: that
+        // address could then reset the password and take the account over.
+        if user.password_hash == "oauth" {
+            let now = chrono::Utc::now().timestamp().max(0) as usize;
+            if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
+                return Err(AppError::ReauthenticationRequired(
+                    "Sign in with Google again before changing your email address".into(),
+                ));
+            }
+        } else {
+            let password = body
+                .current_password
+                .as_deref()
+                .filter(|password| !password.is_empty())
+                .ok_or_else(|| {
+                    AppError::Validation(
+                        "Enter your current password to change your email address".into(),
+                    )
+                })?;
+            if !verify_password(password, &user.password_hash)? {
+                return Err(AppError::InvalidCredentials);
+            }
+        }
         let taken = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) AND id <> $2",
         )
@@ -2839,22 +2876,16 @@ async fn request_email_verification(
     .execute(&state.db)
     .await?;
 
-    let updated = if email_changed {
-        sqlx::query_as::<_, User>(
-            r#"UPDATE users
-               SET email = $1, email_verified = FALSE
-               WHERE id = $2
-               RETURNING *"#,
-        )
-        .bind(&next_email)
-        .bind(claims.sub)
-        .fetch_one(&state.db)
-        .await?
-    } else if !user.email_verified {
-        user
-    } else {
+    // The new address only replaces the current one once its link is confirmed; until then
+    // it waits in the verification token.
+    if !email_changed && user.email_verified {
+        sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+            .bind(claims.sub)
+            .execute(&state.db)
+            .await?;
         return Ok(Json(UserPublic::from(user)));
-    };
+    }
+    let updated = user;
 
     let (Some(host), Some(smtp_user), Some(smtp_pass)) =
         (&state.smtp_host, &state.smtp_user, &state.smtp_password)
@@ -2871,7 +2902,7 @@ async fn request_email_verification(
         token_plain
     );
     if let Err(e) = crate::services::email::send_email_verification_email(
-        &updated.email,
+        &next_email,
         &verify_link,
         host,
         smtp_user,
@@ -2942,6 +2973,19 @@ async fn confirm_email_verification(
     }
 
     let mut tx = state.db.begin().await?;
+    // Another account may have taken the pending address since the link was sent.
+    let taken = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) AND id <> $2",
+    )
+    .bind(&row.email)
+    .bind(row.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if taken > 0 {
+        return Err(AppError::Conflict(
+            "That email address is already in use".into(),
+        ));
+    }
     let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
            SET email = $1, email_verified = TRUE

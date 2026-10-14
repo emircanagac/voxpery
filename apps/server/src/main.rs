@@ -8,7 +8,8 @@ use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use voxpery_server::{
-    build_app, config, routes, validate_optional_integration_config, validate_security_config, ws,
+    build_app, config, database_url_has_placeholder, routes, validate_optional_integration_config,
+    validate_secret_config, validate_security_config, ws,
     AppState,
 };
 
@@ -41,6 +42,21 @@ async fn main() {
     if let Err(msg) = validate_optional_integration_config(&config) {
         tracing::error!("Invalid optional integration configuration: {}", msg);
         return;
+    }
+    if let Err(msg) = validate_secret_config(&[
+        ("JWT_SECRET", Some(config.jwt_secret.as_str())),
+        ("LIVEKIT_API_SECRET", config.livekit_api_secret.as_deref()),
+        ("TURN_SHARED_SECRET", config.turn_shared_secret.as_deref()),
+    ]) {
+        tracing::error!("Refusing to start with insecure secrets: {}", msg);
+        return;
+    }
+    if database_url_has_placeholder(&config.database_url) {
+        // Postgres is only reachable on the Compose network and loopback, and changing the
+        // password of an existing volume needs a manual step, so this warns instead.
+        tracing::warn!(
+            "DATABASE_URL still uses the .env.example database password; change POSTGRES_PASSWORD (see docs/DEPLOYMENT.md)"
+        );
     }
 
     let db = PgPoolOptions::new()

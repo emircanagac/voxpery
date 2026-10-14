@@ -224,10 +224,11 @@ export const authApi = {
             body: { email },
         }),
 
-    requestEmailVerification: (token: string | null, email?: string) =>
+    /** Changing to another address needs `currentPassword` (password accounts) or a recent Google sign-in. */
+    requestEmailVerification: (token: string | null, email?: string, currentPassword?: string) =>
         apiFetch<UserPublic>('/api/auth/email/request-verification', {
             method: 'POST',
-            body: email ? { email } : {},
+            body: email ? { email, ...(currentPassword ? { current_password: currentPassword } : {}) } : {},
             token: token ?? undefined,
         }),
 

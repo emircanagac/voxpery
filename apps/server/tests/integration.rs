@@ -9311,6 +9311,244 @@ async fn only_authors_edit_their_messages_and_dm_peers_cannot_delete_them() {
 }
 
 #[tokio::test]
+async fn hiding_a_channel_stops_message_delivery_without_waiting_for_the_permission_cache() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "cacheowner").await;
+    let (member_auth, _, _) = register_named_user(&mut app, "cachemember").await;
+    let (server_id, channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Cache").await;
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers/join",
+        &member_auth,
+        Some(json!({ "invite_code": invite_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let addr = spawn_ws_app(&state).await;
+    let mut member_ws = connect_ws(addr, &member_auth).await;
+    ws_subscribe(&mut member_ws, &[channel_id]).await;
+
+    // The first delivery caches "may view" for this connection.
+    let visible = format!("visible-{}", Uuid::new_v4());
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &owner_auth,
+        Some(json!({ "content": visible })),
+    )
+    .await;
+    assert!(status.is_success());
+    let delivered = receive_ws_event(&mut member_ws, "NewMessage").await;
+    assert!(delivered.to_string().contains(&visible));
+
+    // Hiding the channel publishes ServerChannelsUpdated, which clears the cache, so the next
+    // message is withheld well before the cache would expire on its own.
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{channel_id}/overrides/{everyone_id}"),
+        &owner_auth,
+        Some(json!({ "allow": 0, "deny": PERM_VIEW })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "override failed: {body}");
+    let hidden = format!("hidden-{}", Uuid::new_v4());
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &owner_auth,
+        Some(json!({ "content": hidden })),
+    )
+    .await;
+    assert!(status.is_success());
+    assert_no_ws_event_mentioning(
+        &mut member_ws,
+        "NewMessage",
+        &hidden,
+        std::time::Duration::from_millis(1500),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn seed_admin_is_never_created_with_the_example_password() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (_, state) = setup_app().await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let email = format!("seed-{suffix}@example.com");
+    let username = format!("seed_{}", &suffix[..8]);
+
+    let skipped = voxpery_server::routes::auth::ensure_seed_admin(
+        &state.db,
+        &email,
+        &username,
+        "CHANGE_ME_TO_A_STRONG_ADMIN_PASSWORD",
+    )
+    .await
+    .unwrap();
+    assert_eq!(skipped, None, "the placeholder password must not create an account");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = $1")
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    let created = voxpery_server::routes::auth::ensure_seed_admin(
+        &state.db,
+        &email,
+        &username,
+        test_credential("seed-admin"),
+    )
+    .await
+    .unwrap()
+    .expect("a strong password creates the seed admin");
+    // An existing account is still returned (it may own the default server) whatever the
+    // configured password is; a weak one only produces a warning.
+    let again = voxpery_server::routes::auth::ensure_seed_admin(
+        &state.db,
+        &email,
+        &username,
+        "CHANGE_ME_TO_A_STRONG_ADMIN_PASSWORD",
+    )
+    .await
+    .unwrap();
+    assert_eq!(again, Some(created));
+}
+
+#[tokio::test]
+async fn changing_email_needs_the_password_and_waits_for_confirmation() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app_with_auth_features(true, true).await;
+    let uid = Uuid::new_v4();
+    let email = format!("mail-{uid}@example.com");
+    let password = test_credential("mail");
+    let (token, user_id) = register_user(
+        &mut app,
+        &email,
+        &format!("mail_{}", uid.as_u128() % 1_000_000),
+        password,
+    )
+    .await;
+    let auth = format!("Bearer {token}");
+    let next_email = format!("next-{uid}@example.com");
+    let stored_email = |state: Arc<AppState>| async move {
+        sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
+    };
+
+    // A session alone cannot move the account to another address.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/auth/email/request-verification",
+        &auth,
+        Some(json!({ "email": next_email })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "the current password is required");
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/auth/email/request-verification",
+        &auth,
+        Some(json!({ "email": next_email, "current_password": "not-the-password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "a wrong password is refused");
+
+    // With the password the request goes through to delivery (no SMTP in tests), but the
+    // account keeps its address until the new one is confirmed.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/auth/email/request-verification",
+        &auth,
+        Some(json!({ "email": next_email, "current_password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(stored_email(state.clone()).await, email, "the address must not change before confirmation");
+    let pending: String =
+        sqlx::query_scalar("SELECT email FROM email_verification_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(pending, next_email, "the new address waits in the verification token");
+
+    // Confirming the link applies it, unless another account took the address meanwhile.
+    let confirm_with_token = |state: Arc<AppState>, pending_email: String| async move {
+        let plain = Uuid::new_v4().to_string();
+        sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(user_id)
+        .bind(pending_email)
+        .bind(token_hash_base64(&plain))
+        .bind(chrono::Utc::now() + chrono::Duration::hours(1))
+        .execute(&state.db)
+        .await
+        .unwrap();
+        plain
+    };
+    let (_, other_id) = register_user(
+        &mut app,
+        &format!("taken-{uid}@example.com"),
+        &format!("taken_{}", uid.as_u128() % 1_000_000),
+        test_credential("taken"),
+    )
+    .await;
+    let _ = other_id;
+    let plain = confirm_with_token(state.clone(), format!("taken-{uid}@example.com")).await;
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/auth/email/confirm",
+        "",
+        Some(json!({ "token": plain })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "an address taken meanwhile is not applied");
+
+    let plain = confirm_with_token(state.clone(), next_email.clone()).await;
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/auth/email/confirm",
+        "",
+        Some(json!({ "token": plain })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "confirm failed: {body}");
+    assert_eq!(stored_email(state.clone()).await, next_email);
+}
+
+#[tokio::test]
 async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
