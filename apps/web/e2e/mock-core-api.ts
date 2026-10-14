@@ -665,6 +665,17 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  const inviteRulesMatch = pathname.match(/^\/api\/servers\/invite\/([^/]+)\/rules$/)
+  if (inviteRulesMatch && method === 'GET') {
+    const server = findInviteServer(state, decodeURIComponent(inviteRulesMatch[1] ?? ''))
+    if (!server) {
+      await json(route, { error: 'Invalid invite code' }, 404)
+      return
+    }
+    await json(route, getServerRules(state, server.id))
+    return
+  }
+
   const invitePreviewMatch = pathname.match(/^\/api\/servers\/invite\/([^/]+)$/)
   if (invitePreviewMatch && method === 'GET') {
     const inviteCode = decodeURIComponent(invitePreviewMatch[1] ?? '')

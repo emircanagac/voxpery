@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 import { resolveServerIconUrl, serverApi } from '../api'
+import { listInviteRules } from '../api/inviteRules'
 import type { ServerRule } from '../api/contracts'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
@@ -64,8 +65,7 @@ export default function InvitePage() {
     useEffect(() => {
         if (!user || !preview) return
         setRulesLoading(true)
-        serverApi
-            .listRules(preview.id, token)
+        listInviteRules(trimmedCode, token)
             .then((data) => {
                 setRules(data)
                 setAcceptedRules(data.length === 0)
@@ -75,7 +75,7 @@ export default function InvitePage() {
                 setAcceptedRules(true)
             })
             .finally(() => setRulesLoading(false))
-    }, [preview, user, token])
+    }, [preview, user, token, trimmedCode])
 
     const invitePath = useMemo(() => ROUTES.invite(trimmedCode || ''), [trimmedCode])
     const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`

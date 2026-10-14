@@ -21,7 +21,9 @@ use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
-use crate::services::permissions::{get_user_server_permissions, Permissions};
+use crate::services::permissions::{
+    get_user_channel_permissions, Permissions,
+};
 use crate::services::redact::ShortId;
 use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
@@ -38,6 +40,23 @@ async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uu
         .await
         .ok()
         .flatten()
+}
+
+/// Voice moderation permissions an actor holds in a voice channel. Voice moderation follows
+/// explicit permissions independently of role position (see docs/VOICE_SYSTEM.md), but they
+/// are read from the channel so channel and category overrides apply.
+async fn voice_moderator_permissions(
+    db: &sqlx::PgPool,
+    channel_id: Uuid,
+    actor_id: Uuid,
+) -> Option<Permissions> {
+    match get_user_channel_permissions(db, channel_id, actor_id).await {
+        Ok(perms) => Some(perms),
+        Err(e) => {
+            tracing::warn!("Voice moderation permission lookup failed: {}", e);
+            None
+        }
+    }
 }
 
 async fn voice_channel_context(db: &sqlx::PgPool, channel_id: Uuid) -> Option<(Uuid, String)> {
@@ -1504,21 +1523,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 };
 
-                                let perms = match get_user_server_permissions(
-                                    &recv_state.db,
-                                    target_server_id,
-                                    user_id,
-                                )
+                                let Some(perms) = voice_moderator_permissions(&recv_state.db, target_channel_id, user_id)
                                 .await
-                                {
-                                    Ok(p) => p,
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "DisconnectVoiceMember permission lookup failed: {}",
-                                            e
-                                        );
-                                        continue;
-                                    }
+                                else {
+                                    continue;
                                 };
 
                                 let can_disconnect = perms.contains(Permissions::MUTE_MEMBERS)
@@ -1659,29 +1667,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 }
 
-                                let perms = match get_user_server_permissions(
-                                    &recv_state.db,
-                                    source_server_id,
-                                    user_id,
-                                )
+                                let Some(perms) = voice_moderator_permissions(&recv_state.db, source_channel_id, user_id)
                                 .await
-                                {
-                                    Ok(perms) => perms,
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "MoveVoiceMember permission lookup failed: {}",
-                                            e
-                                        );
-                                        send_voice_move_result(
-                                            &client_tx,
-                                            request_id,
-                                            target_user_id,
-                                            channel_id,
-                                            false,
-                                            "Voice move permissions could not be verified.",
-                                        );
-                                        continue;
-                                    }
+                                else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "You cannot move this member.",
+                                    );
+                                    continue;
                                 };
                                 if !perms.contains(Permissions::MOVE_MEMBERS)
                                     && !perms.contains(Permissions::MANAGE_SERVER)
@@ -1818,21 +1815,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         continue;
                                     };
 
-                                    let perms = match get_user_server_permissions(
-                                        &recv_state.db,
-                                        target_server_id,
-                                        user_id,
-                                    )
+                                    let Some(perms) = voice_moderator_permissions(&recv_state.db, target_channel_id, user_id)
                                     .await
-                                    {
-                                        Ok(p) => p,
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                "SetVoiceControl permission lookup failed: {}",
-                                                e
-                                            );
-                                            continue;
-                                        }
+                                    else {
+                                        continue;
                                     };
 
                                     let can_mute = perms.contains(Permissions::MUTE_MEMBERS)

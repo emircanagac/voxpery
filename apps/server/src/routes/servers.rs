@@ -7,7 +7,7 @@ use axum::{
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::{Postgres, QueryBuilder};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{net::SocketAddr, time::Duration};
 use uuid::Uuid;
@@ -209,7 +209,7 @@ struct UpdateAutoModRuleRequest {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/invite/{invite_code}", get(get_invite_preview))
-        .route("/{server_id}/rules", get(list_server_rules))
+        .route("/invite/{invite_code}/rules", get(list_invite_rules))
         .merge(
             Router::new()
                 .route("/", get(list_servers).post(create_server))
@@ -257,7 +257,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     "/{server_id}/automod-rules/{rule_id}",
                     patch(update_automod_rule).delete(delete_automod_rule),
                 )
-                .route("/{server_id}/rules", post(create_server_rule))
+                .route(
+                    "/{server_id}/rules",
+                    get(list_server_rules).post(create_server_rule),
+                )
                 .route(
                     "/{server_id}/onboarding",
                     get(get_server_onboarding_guide).patch(update_server_onboarding_guide),
@@ -1269,6 +1272,32 @@ async fn get_audit_log(
         .await?;
     let has_more = entries.len() > limit as usize;
     entries.truncate(limit as usize);
+    let mut access = ChannelReadAccess::new(claims.sub);
+    for entry in &mut entries {
+        let channel_id = entry.channel_id.or_else(|| {
+            entry
+                .details
+                .as_ref()
+                .and_then(|details| details.get("channel_id"))
+                .and_then(|value| value.as_str())
+                .and_then(|value| Uuid::parse_str(value).ok())
+        });
+        let Some(channel_id) = channel_id else {
+            continue;
+        };
+        if access.allows(&state.db, channel_id).await {
+            continue;
+        }
+        if let Some(serde_json::Value::Object(details)) = entry.details.as_mut() {
+            let mut hidden = false;
+            for key in QUOTED_CONTENT_KEYS {
+                hidden |= details.remove(key).is_some();
+            }
+            if hidden {
+                details.insert("content_hidden".into(), serde_json::Value::Bool(true));
+            }
+        }
+    }
     let next_before = if has_more {
         entries.last().map(|entry| entry.id)
     } else {
@@ -2687,6 +2716,14 @@ async fn report_message(
     .ok_or(AppError::NotFound("Message not found".into()))?;
 
     let (reported_user_id, channel_id, message_excerpt) = row;
+    // A message in a channel the reporter cannot see is reported as missing, so the endpoint
+    // neither confirms it exists nor copies its text into the report.
+    if !permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub)
+        .await?
+        .contains(Permissions::VIEW_SERVER)
+    {
+        return Err(AppError::NotFound("Message not found".into()));
+    }
     if reported_user_id == claims.sub {
         return Err(AppError::Validation(
             "Cannot report your own message".into(),
@@ -2718,6 +2755,47 @@ async fn report_message(
         "Report already submitted"
     };
     Ok(Json(serde_json::json!({ "message": message })))
+}
+
+/// Audit fields that quote message text.
+const QUOTED_CONTENT_KEYS: [&str; 3] = ["before_preview", "after_preview", "content_preview"];
+
+/// Whether a moderator may read message text quoted from a channel. Each distinct channel is
+/// checked once per request.
+struct ChannelReadAccess {
+    user_id: Uuid,
+    known: HashMap<Uuid, bool>,
+}
+
+impl ChannelReadAccess {
+    fn new(user_id: Uuid) -> Self {
+        Self {
+            user_id,
+            known: HashMap::new(),
+        }
+    }
+
+    async fn allows(&mut self, db: &sqlx::PgPool, channel_id: Uuid) -> bool {
+        if let Some(allowed) = self.known.get(&channel_id) {
+            return *allowed;
+        }
+        let allowed = match permissions::get_user_channel_permissions(db, channel_id, self.user_id)
+            .await
+        {
+            Ok(perms) if perms.contains(Permissions::VIEW_SERVER) => true,
+            // A deleted channel no longer restricts who may read what was quoted from it.
+            Ok(_) => sqlx::query_scalar::<_, bool>(
+                "SELECT NOT EXISTS (SELECT 1 FROM channels WHERE id = $1)",
+            )
+            .bind(channel_id)
+            .fetch_one(db)
+            .await
+            .unwrap_or(false),
+            Err(_) => false,
+        };
+        self.known.insert(channel_id, allowed);
+        allowed
+    }
 }
 
 async fn list_reports(
@@ -2780,6 +2858,16 @@ async fn list_reports(
     .bind(REPORT_LIST_LIMIT)
     .fetch_all(&state.db)
     .await?;
+
+    let mut rows = rows;
+    let mut access = ChannelReadAccess::new(claims.sub);
+    for row in &mut rows {
+        if let Some(channel_id) = row.channel_id {
+            if !access.allows(&state.db, channel_id).await {
+                row.message_excerpt = None;
+            }
+        }
+    }
 
     Ok(Json(rows))
 }
@@ -3191,11 +3279,43 @@ async fn update_server_onboarding_guide(
     Ok(Json(guide))
 }
 
-/// GET /api/servers/:server_id/rules — list server rules (public for invite preview).
+/// GET /api/servers/:server_id/rules — list server rules (members only).
 async fn list_server_rules(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Path(server_id): Path<Uuid>,
 ) -> Result<Json<Vec<ServerRule>>, AppError> {
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::VIEW_SERVER,
+    )
+    .await?;
+    load_server_rules(&state, server_id).await.map(Json)
+}
+
+/// GET /api/servers/invite/:invite_code/rules — rules shown on an invite page before joining;
+/// the invite code is what grants access.
+async fn list_invite_rules(
+    State(state): State<Arc<AppState>>,
+    Path(invite_code): Path<String>,
+) -> Result<Json<Vec<ServerRule>>, AppError> {
+    let code = invite_code.trim();
+    if code.is_empty() || code.len() > 32 {
+        return Err(AppError::Validation(
+            "Invite code must be 1-32 characters".into(),
+        ));
+    }
+    let server_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE invite_code = $1")
+        .bind(code)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Invalid invite code".into()))?;
+    load_server_rules(&state, server_id).await.map(Json)
+}
+
+async fn load_server_rules(state: &AppState, server_id: Uuid) -> Result<Vec<ServerRule>, AppError> {
     let rules = sqlx::query_as::<_, ServerRule>(
         r#"SELECT id, server_id, rule_text, position, created_at
            FROM server_rules
@@ -3206,7 +3326,7 @@ async fn list_server_rules(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(rules))
+    Ok(rules)
 }
 
 /// POST /api/servers/:server_id/rules — create a server rule (owner only).
