@@ -1,8 +1,7 @@
 pub const MAX_MESSAGE_CHARACTERS: usize = 4000;
 
 pub fn exceeds_message_limit(content: &str) -> bool {
-    content.len() > MAX_MESSAGE_CHARACTERS * 4
-        || content.chars().count() > MAX_MESSAGE_CHARACTERS
+    content.len() > MAX_MESSAGE_CHARACTERS * 4 || content.chars().count() > MAX_MESSAGE_CHARACTERS
 }
 
 #[cfg(test)]

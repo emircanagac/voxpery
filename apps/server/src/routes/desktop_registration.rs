@@ -132,11 +132,18 @@ fn page(
         })
         .unwrap_or_default();
     let captcha_script = if state.turnstile_site_key.is_some() {
-        format!("<script nonce=\"{nonce}\">{}</script>", include_str!("desktop_registration_captcha.js"))
+        format!(
+            "<script nonce=\"{nonce}\">{}</script>",
+            include_str!("desktop_registration_captcha.js")
+        )
     } else {
         String::new()
     };
-    let captcha_disabled = if state.turnstile_site_key.is_some() { "disabled" } else { "" };
+    let captcha_disabled = if state.turnstile_site_key.is_some() {
+        "disabled"
+    } else {
+        ""
+    };
     let html = format!(
         r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Create your Voxpery account</title>
 <style nonce="{nonce}">*{{box-sizing:border-box}}body{{margin:0;padding:16px;font:16px system-ui;background:#171925;color:#f1f3f8;min-height:100vh;display:grid;place-items:center}}main{{max-width:520px;width:100%;background:#202a4b;padding:16px;border-radius:8px}}h1{{margin-top:0}}p{{line-height:1.5;color:#bdc9e3}}label{{display:block;margin:16px 0 6px;font-weight:700;font-size:13px}}input[type=text],input[type=email],input[type=password]{{display:block;width:100%;min-height:44px;padding:10px;border:1px solid #44577f;border-radius:6px;background:#0e1b2d;color:#fff;font:inherit}}.check{{display:flex;gap:10px;align-items:flex-start;font-weight:400;font-size:14px}}.check input{{margin-top:4px}}a{{color:#9abdfb}}button{{min-height:46px;width:100%;margin-top:18px;padding:12px;background:#376bcc;color:white;border:0;border-radius:6px;font:inherit;font-weight:700;cursor:pointer}}.error{{color:#ffb4b4}}.cf-turnstile{{margin-top:18px;min-width:0}}</style>
@@ -308,8 +315,7 @@ pub(super) async fn complete(
         ));
     }
 
-    let user = match create_account(&state, &headers, connect_info.as_ref(), &form, &mut tx).await
-    {
+    let user = match create_account(&state, &headers, connect_info.as_ref(), &form, &mut tx).await {
         Ok(user) => user,
         Err(error) => {
             drop(tx);
@@ -467,7 +473,9 @@ mod tests {
     fn account_created_page_points_to_sign_in_without_codes_or_scripts() {
         let response = account_created_page();
         assert_eq!(response.headers()["cache-control"], "no-store");
-        let csp = response.headers()["content-security-policy"].to_str().unwrap();
+        let csp = response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
         assert!(csp.contains("default-src 'none'") && !csp.contains("script-src"));
     }
 

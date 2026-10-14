@@ -11,17 +11,21 @@ pub const DATA_EXPORT_REAUTH_MAX_AGE_SECS: usize = 10 * 60;
 pub const DATA_EXPORT_MAX_ARCHIVE_BYTES: i64 = 256 * 1024 * 1024;
 
 pub async fn cleanup_expired_google_registrations(db: &PgPool) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query("DELETE FROM pending_google_registrations WHERE expires_at <= NOW()")
-        .execute(db)
-        .await?
-        .rows_affected())
+    Ok(
+        sqlx::query("DELETE FROM pending_google_registrations WHERE expires_at <= NOW()")
+            .execute(db)
+            .await?
+            .rows_affected(),
+    )
 }
 
 pub async fn cleanup_expired_desktop_registrations(db: &PgPool) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query("DELETE FROM pending_desktop_registrations WHERE expires_at <= NOW()")
-        .execute(db)
-        .await?
-        .rows_affected())
+    Ok(
+        sqlx::query("DELETE FROM pending_desktop_registrations WHERE expires_at <= NOW()")
+            .execute(db)
+            .await?
+            .rows_affected(),
+    )
 }
 
 pub fn validate_current_legal_documents(

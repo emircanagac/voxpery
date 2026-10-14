@@ -412,14 +412,18 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 mod tests {
     use super::{
         config::Config, database_url_has_placeholder, is_weak_seed_admin_password,
-        should_sanitize_client_error, validate_optional_integration_config,
-        validate_secret_config, validate_security_config,
+        should_sanitize_client_error, validate_optional_integration_config, validate_secret_config,
+        validate_security_config,
     };
 
     #[test]
     fn refuses_placeholder_empty_and_short_secrets() {
         let strong = "0123456789abcdef0123456789abcdef";
-        assert!(validate_secret_config(&[("JWT_SECRET", Some(strong)), ("TURN_SHARED_SECRET", None)]).is_ok());
+        assert!(validate_secret_config(&[
+            ("JWT_SECRET", Some(strong)),
+            ("TURN_SHARED_SECRET", None)
+        ])
+        .is_ok());
         for (value, reason) in [
             ("CHANGE_ME_TO_A_STRONG_RANDOM_SECRET", "placeholder"),
             ("change_me_but_lowercase_and_long_enough", "placeholder"),
@@ -427,12 +431,21 @@ mod tests {
             ("short-secret", "shorter than 32"),
         ] {
             let error = validate_secret_config(&[("JWT_SECRET", Some(value))]).unwrap_err();
-            assert!(error.contains("JWT_SECRET") && error.contains(reason), "{value}: {error}");
-            assert!(!error.contains(value.trim()) || value.trim().is_empty(), "never echo the secret");
+            assert!(
+                error.contains("JWT_SECRET") && error.contains(reason),
+                "{value}: {error}"
+            );
+            assert!(
+                !error.contains(value.trim()) || value.trim().is_empty(),
+                "never echo the secret"
+            );
         }
         let error = validate_secret_config(&[
             ("JWT_SECRET", Some("short")),
-            ("LIVEKIT_API_SECRET", Some("CHANGE_ME_TO_A_STRONG_32_PLUS_CHAR_SECRET")),
+            (
+                "LIVEKIT_API_SECRET",
+                Some("CHANGE_ME_TO_A_STRONG_32_PLUS_CHAR_SECRET"),
+            ),
         ])
         .unwrap_err();
         assert!(error.contains("JWT_SECRET") && error.contains("LIVEKIT_API_SECRET"));
@@ -443,8 +456,12 @@ mod tests {
         assert!(database_url_has_placeholder(
             "postgres://voxpery:CHANGE_ME_TO_A_STRONG_DATABASE_PASSWORD@postgres:5432/voxpery"
         ));
-        assert!(!database_url_has_placeholder("postgres://voxpery:k8Hq2pX9@postgres:5432/voxpery"));
-        assert!(is_weak_seed_admin_password("CHANGE_ME_TO_A_STRONG_ADMIN_PASSWORD"));
+        assert!(!database_url_has_placeholder(
+            "postgres://voxpery:k8Hq2pX9@postgres:5432/voxpery"
+        ));
+        assert!(is_weak_seed_admin_password(
+            "CHANGE_ME_TO_A_STRONG_ADMIN_PASSWORD"
+        ));
         assert!(is_weak_seed_admin_password("short-pass"));
         assert!(!is_weak_seed_admin_password("a-long-admin-passphrase"));
     }

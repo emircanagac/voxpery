@@ -184,7 +184,9 @@ mod tests {
         let html = frame_html("site\"key", "https://tauri.localhost", &nonce);
         assert!(html.contains("const parentOrigin = \"https://tauri.localhost\";"));
         assert!(html.contains("data-sitekey=\"site&quot;key\""));
-        assert!(html.contains("postMessage({ source: \"voxpery-captcha\", ...message }, parentOrigin)"));
+        assert!(
+            html.contains("postMessage({ source: \"voxpery-captcha\", ...message }, parentOrigin)")
+        );
         assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
     }
 }

@@ -14,4 +14,3 @@ pub struct Channel {
     pub position: i32,
     pub created_at: DateTime<Utc>,
 }
-

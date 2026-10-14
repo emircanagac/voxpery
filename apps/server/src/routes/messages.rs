@@ -13,9 +13,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
-        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser,
-        MessageWithAuthor,
-        SendMessageRequest,
+        EditMessageRequest, MessageAuthor, MessageQuery, MessageReactionSummary,
+        MessageReactionUser, MessageWithAuthor, SendMessageRequest,
     },
     services::{
         automod,
@@ -343,15 +342,14 @@ async fn get_messages(
     }
 
     let rows: Vec<MessageRow> = if let Some(around) = query.around {
-        let cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)> = sqlx::query_as(
-            "SELECT created_at, id FROM messages WHERE channel_id = $1 AND id = $2",
-        )
-        .bind(channel_id)
-        .bind(around)
-        .fetch_optional(&state.db)
-        .await?;
-        let (created_at, target_id) = cursor
-            .ok_or_else(|| AppError::NotFound("Message not found in this channel".into()))?;
+        let cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)> =
+            sqlx::query_as("SELECT created_at, id FROM messages WHERE channel_id = $1 AND id = $2")
+                .bind(channel_id)
+                .bind(around)
+                .fetch_optional(&state.db)
+                .await?;
+        let (created_at, target_id) =
+            cursor.ok_or_else(|| AppError::NotFound("Message not found in this channel".into()))?;
         let around_rows = sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
                       u.id as user_id, u.username, u.avatar_url,
@@ -379,7 +377,9 @@ async fn get_messages(
         .fetch_all(&state.db)
         .await?;
         if !around_rows.iter().any(|row| row.id == around) {
-            return Err(AppError::NotFound("Message not found in this channel".into()));
+            return Err(AppError::NotFound(
+                "Message not found in this channel".into(),
+            ));
         }
         around_rows
     } else if let Some(before) = query.before {
@@ -468,7 +468,12 @@ async fn search_messages(
     .await?;
 
     let term = query.q.as_deref().unwrap_or("").trim();
-    let author = query.from.as_deref().unwrap_or("").trim().trim_start_matches('@');
+    let author = query
+        .from
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('@');
     let has_attachment = query.has_attachment.unwrap_or(false);
     if term.is_empty() && author.is_empty() && !has_attachment {
         return Ok(Json(vec![]));
@@ -813,8 +818,10 @@ async fn send_message(
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
-        automod::log_blocked_message(&state.db, claims.sub, server_id, channel_id, &matched, &content)
-            .await?;
+        automod::log_blocked_message(
+            &state.db, claims.sub, server_id, channel_id, &matched, &content,
+        )
+        .await?;
         return Err(AppError::Forbidden(format!(
             "Message blocked by AutoMod rule: {}",
             matched.rule_name
@@ -1033,8 +1040,10 @@ async fn edit_message(
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
-        automod::log_blocked_message(&state.db, claims.sub, server_id, channel_id, &matched, &content)
-            .await?;
+        automod::log_blocked_message(
+            &state.db, claims.sub, server_id, channel_id, &matched, &content,
+        )
+        .await?;
         return Err(AppError::Forbidden(format!(
             "Message blocked by AutoMod rule: {}",
             matched.rule_name

@@ -16,8 +16,7 @@ use crate::{
         MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser, MessageWithAuthor,
     },
     services::{
-        idempotency::normalize_client_request_id,
-        message_content::exceeds_message_limit,
+        idempotency::normalize_client_request_id, message_content::exceeds_message_limit,
         rate_limit::enforce_rate_limit,
     },
     ws::WsEvent,
@@ -863,12 +862,8 @@ async fn send_dm_message(
             ));
         }
         let mut message: MessageWithAuthor = row.into();
-        attach_dm_message_reactions(
-            &state.db,
-            std::slice::from_mut(&mut message),
-            claims.sub,
-        )
-        .await?;
+        attach_dm_message_reactions(&state.db, std::slice::from_mut(&mut message), claims.sub)
+            .await?;
         message.attachments = state
             .attachment_service
             .hydrate_attachments_for_output(
@@ -918,14 +913,9 @@ async fn send_dm_message(
         let request_id = client_request_id.as_deref().ok_or_else(|| {
             AppError::Internal("DM insert returned no row without an idempotency key".into())
         })?;
-        let row = find_dm_message_by_client_request_id(
-            &state,
-            channel_id,
-            claims.sub,
-            request_id,
-        )
-        .await?
-        .ok_or_else(|| AppError::Internal("Idempotent DM replay was not found".into()))?;
+        let row = find_dm_message_by_client_request_id(&state, channel_id, claims.sub, request_id)
+            .await?
+            .ok_or_else(|| AppError::Internal("Idempotent DM replay was not found".into()))?;
         if row.content != content || row.attachments != normalized_attachments {
             return Err(AppError::Conflict(
                 "client_request_id was already used for a different DM message".into(),
@@ -1222,7 +1212,11 @@ async fn remove_group_dm_member(
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    let remaining: Vec<Uuid> = members.iter().copied().filter(|id| *id != user_id).collect();
+    let remaining: Vec<Uuid> = members
+        .iter()
+        .copied()
+        .filter(|id| *id != user_id)
+        .collect();
     if remaining.is_empty() {
         sqlx::query("DELETE FROM dm_channels WHERE id = $1")
             .bind(channel_id)
@@ -1310,7 +1304,12 @@ async fn search_dm_messages(
     .await?;
 
     let term = query.q.as_deref().unwrap_or("").trim();
-    let author = query.from.as_deref().unwrap_or("").trim().trim_start_matches('@');
+    let author = query
+        .from
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('@');
     let has_attachment = query.has_attachment.unwrap_or(false);
     if term.is_empty() && author.is_empty() && !has_attachment {
         return Ok(Json(vec![]));

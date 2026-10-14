@@ -763,11 +763,8 @@ impl AttachmentService {
         } = prepared;
 
         let now = chrono::Utc::now();
-        let storage_key = LocalAttachmentStorageKey::new(
-            now.year() as u16,
-            now.month() as u8,
-            Uuid::new_v4(),
-        );
+        let storage_key =
+            LocalAttachmentStorageKey::new(now.year() as u16, now.month() as u8, Uuid::new_v4());
         let key = storage_key.storage_key(&self.key_prefix);
         let path = self.resolve_local_path(storage_key);
         if let Some(parent) = path.parent() {
@@ -1542,7 +1539,10 @@ mod tests {
             format!("attachments/2026/13/{object_id}"),
             format!("attachments/26/05/{object_id}"),
             "attachments/2026/05/not-a-uuid".to_string(),
-            format!("attachments/2026/05/{}", object_id.to_string().to_uppercase()),
+            format!(
+                "attachments/2026/05/{}",
+                object_id.to_string().to_uppercase()
+            ),
         ] {
             assert!(
                 LocalAttachmentStorageKey::parse(&key, "attachments").is_err(),
@@ -1590,8 +1590,7 @@ mod tests {
         let storage_key = format!("attachments/2026/08/{}", Uuid::new_v4());
         let parsed_key = LocalAttachmentStorageKey::parse(&storage_key, "attachments")
             .expect("generated storage key");
-        let linked_path = service
-            .resolve_local_path(parsed_key);
+        let linked_path = service.resolve_local_path(parsed_key);
         fs::create_dir_all(linked_path.parent().expect("storage parent"))
             .await
             .expect("storage parent");
@@ -1677,12 +1676,9 @@ mod tests {
             b"PK\x03\x04archive"
         )
         .is_err());
-        assert!(validate_upload_content(
-            "startup.ps1",
-            "text/plain",
-            b"Write-Host 'payload'"
-        )
-        .is_err());
+        assert!(
+            validate_upload_content("startup.ps1", "text/plain", b"Write-Host 'payload'").is_err()
+        );
     }
 
     #[test]
@@ -1748,9 +1744,11 @@ mod tests {
         assert!(Uuid::parse_str(object_id).is_ok());
         let parsed_key = LocalAttachmentStorageKey::parse(&stored.storage_key, "attachments")
             .expect("stored key");
-        let stored_path = service
-            .resolve_local_path(parsed_key);
-        assert_eq!(fs::read(&stored_path).await.expect("stored bytes"), b"hello");
+        let stored_path = service.resolve_local_path(parsed_key);
+        assert_eq!(
+            fs::read(&stored_path).await.expect("stored bytes"),
+            b"hello"
+        );
         let mut sibling_entries = fs::read_dir(stored_path.parent().expect("storage parent"))
             .await
             .expect("storage directory");
@@ -1769,7 +1767,9 @@ mod tests {
         let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&test_root).await.expect("test root");
         let target_path = test_root.join("existing-directory");
-        fs::create_dir(&target_path).await.expect("conflicting target");
+        fs::create_dir(&target_path)
+            .await
+            .expect("conflicting target");
 
         let error = write_file_atomically(&target_path, b"temporary payload")
             .await

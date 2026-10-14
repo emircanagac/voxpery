@@ -47,10 +47,10 @@ use crate::{
 mod captcha_frame;
 #[path = "desktop_registration.rs"]
 mod desktop_registration;
-#[path = "registration_pages.rs"]
-mod registration_pages;
 #[path = "google_registration.rs"]
 mod google_registration;
+#[path = "registration_pages.rs"]
+mod registration_pages;
 
 /// Build Set-Cookie value for auth token (httpOnly, SameSite=Lax; Secure when configured).
 fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
@@ -502,7 +502,10 @@ mod oauth_pkce_tests {
         assert!(html.contains("<script nonce=\"test-nonce\">"));
         assert!(html.contains("You are signed in"));
         assert!(html.contains("&quot;&lt;/script&gt;"));
-        assert!(!html.contains("id=\"sign-in-code\""), "malformed codes are never shown");
+        assert!(
+            !html.contains("id=\"sign-in-code\""),
+            "malformed codes are never shown"
+        );
         assert!(html.contains("\\u003c/script\\u003e"));
         assert!(!html.contains("<script>alert(1)</script>"));
     }
@@ -553,7 +556,9 @@ mod oauth_pkce_tests {
     #[test]
     fn linking_google_identity_keeps_only_verified_local_passwords() {
         let sql = crate::services::auth::LINK_GOOGLE_IDENTITY_SQL;
-        assert!(sql.contains("password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END"));
+        assert!(sql.contains(
+            "password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END"
+        ));
         assert!(sql.contains("token_version = token_version + 1"));
     }
 
@@ -1375,12 +1380,11 @@ pub async fn ensure_seed_admin(
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
     let weak_password = crate::is_weak_seed_admin_password(password);
-    let existing = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, password_hash FROM users WHERE email = $1",
-    )
-    .bind(email)
-    .fetch_optional(db)
-    .await?;
+    let existing =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
+            .bind(email)
+            .fetch_optional(db)
+            .await?;
     if let Some((id, password_hash)) = existing {
         // An account seeded earlier may still have the example password everyone can read.
         if weak_password && verify_password(password, &password_hash).unwrap_or(false) {
@@ -3617,12 +3621,11 @@ async fn delete_my_account(
 
     // A server that still has members goes to the highest-ranked one (the earliest to join on
     // a tie), so it stays manageable; only servers left without members go to the placeholder.
-    let owned_server_ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM servers WHERE owner_id = $1 FOR UPDATE",
-    )
-    .bind(claims.sub)
-    .fetch_all(&mut *tx)
-    .await?;
+    let owned_server_ids =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE owner_id = $1 FOR UPDATE")
+            .bind(claims.sub)
+            .fetch_all(&mut *tx)
+            .await?;
     let mut transferred_server_ids = Vec::new();
     for server_id in owned_server_ids {
         let successor = sqlx::query_scalar::<_, Uuid>(

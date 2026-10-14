@@ -2028,11 +2028,7 @@ async fn update_member_roles(
     tx.commit().await?;
 
     // Notify clients via WebSocket so member list / badges update without full reload.
-    crate::ws::publish_event(
-        &state,
-        WsEvent::MemberRoleUpdated { server_id, user_id },
-    )
-    .await;
+    crate::ws::publish_event(&state, WsEvent::MemberRoleUpdated { server_id, user_id }).await;
 
     if let Err(error) = voice_revoke::revoke_invalid_voice_sessions_for_server(
         &state,
@@ -2052,7 +2048,6 @@ async fn update_member_roles(
         serde_json::json!({ "message": "Member roles updated" }),
     ))
 }
-
 
 async fn ban_member(
     State(state): State<Arc<AppState>>,
@@ -2663,20 +2658,19 @@ impl ChannelReadAccess {
         if let Some(allowed) = self.known.get(&channel_id) {
             return *allowed;
         }
-        let allowed = match permissions::get_user_channel_permissions(db, channel_id, self.user_id)
-            .await
-        {
-            Ok(perms) if perms.contains(Permissions::VIEW_SERVER) => true,
-            // A deleted channel no longer restricts who may read what was quoted from it.
-            Ok(_) => sqlx::query_scalar::<_, bool>(
-                "SELECT NOT EXISTS (SELECT 1 FROM channels WHERE id = $1)",
-            )
-            .bind(channel_id)
-            .fetch_one(db)
-            .await
-            .unwrap_or(false),
-            Err(_) => false,
-        };
+        let allowed =
+            match permissions::get_user_channel_permissions(db, channel_id, self.user_id).await {
+                Ok(perms) if perms.contains(Permissions::VIEW_SERVER) => true,
+                // A deleted channel no longer restricts who may read what was quoted from it.
+                Ok(_) => sqlx::query_scalar::<_, bool>(
+                    "SELECT NOT EXISTS (SELECT 1 FROM channels WHERE id = $1)",
+                )
+                .bind(channel_id)
+                .fetch_one(db)
+                .await
+                .unwrap_or(false),
+                Err(_) => false,
+            };
         self.known.insert(channel_id, allowed);
         allowed
     }

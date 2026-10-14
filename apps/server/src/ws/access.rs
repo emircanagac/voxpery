@@ -29,8 +29,9 @@ impl ChannelAccessCache {
     pub fn insert(&mut self, channel_id: Uuid, allowed: bool, now: Instant) {
         // Drop expired entries now and then so a long session does not grow without bound.
         if self.entries.len() >= 256 {
-            self.entries
-                .retain(|_, (_, checked_at)| now.duration_since(*checked_at) < CHANNEL_ACCESS_CACHE_TTL);
+            self.entries.retain(|_, (_, checked_at)| {
+                now.duration_since(*checked_at) < CHANNEL_ACCESS_CACHE_TTL
+            });
         }
         self.entries.insert(channel_id, (allowed, now));
     }
@@ -159,11 +160,22 @@ mod cache_tests {
         let start = Instant::now();
         assert_eq!(cache.get(channel, start), None);
         cache.insert(channel, true, start);
-        assert_eq!(cache.get(channel, start + Duration::from_secs(1)), Some(true));
-        assert_eq!(cache.get(channel, start + CHANNEL_ACCESS_CACHE_TTL), None, "results expire");
+        assert_eq!(
+            cache.get(channel, start + Duration::from_secs(1)),
+            Some(true)
+        );
+        assert_eq!(
+            cache.get(channel, start + CHANNEL_ACCESS_CACHE_TTL),
+            None,
+            "results expire"
+        );
         cache.insert(channel, false, start);
         cache.clear();
-        assert_eq!(cache.get(channel, start), None, "a permission event clears every result");
+        assert_eq!(
+            cache.get(channel, start),
+            None,
+            "a permission event clears every result"
+        );
     }
 
     #[test]
@@ -173,8 +185,14 @@ mod cache_tests {
         let start = Instant::now();
         assert!(throttle.allow(general, true, start));
         assert!(!throttle.allow(general, true, start + Duration::from_secs(1)));
-        assert!(throttle.allow(general, false, start + Duration::from_secs(1)), "a stop still goes out");
-        assert!(throttle.allow(random, true, start + Duration::from_secs(1)), "other channels are separate");
+        assert!(
+            throttle.allow(general, false, start + Duration::from_secs(1)),
+            "a stop still goes out"
+        );
+        assert!(
+            throttle.allow(random, true, start + Duration::from_secs(1)),
+            "other channels are separate"
+        );
         assert!(throttle.allow(general, true, start + TYPING_RELAY_INTERVAL));
     }
 }

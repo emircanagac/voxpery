@@ -37,13 +37,19 @@ fn entry<R: Runtime>(app: &AppHandle<R>, payload: &OptionsRequest) -> Result<Ent
 }
 
 #[command]
-async fn get_item<R: Runtime>(app: AppHandle<R>, payload: OptionsRequest) -> Result<GetItemResponse, String> {
+async fn get_item<R: Runtime>(
+    app: AppHandle<R>,
+    payload: OptionsRequest,
+) -> Result<GetItemResponse, String> {
     let data = entry(&app, &payload)?.get_password().ok();
     Ok(GetItemResponse { data })
 }
 
 #[command]
-async fn set_item<R: Runtime>(app: AppHandle<R>, payload: OptionsRequest) -> Result<Option<String>, String> {
+async fn set_item<R: Runtime>(
+    app: AppHandle<R>,
+    payload: OptionsRequest,
+) -> Result<Option<String>, String> {
     let data = payload.data.clone().ok_or("Data not found")?;
     entry(&app, &payload)?
         .set_password(&data)
@@ -52,7 +58,10 @@ async fn set_item<R: Runtime>(app: AppHandle<R>, payload: OptionsRequest) -> Res
 }
 
 #[command]
-async fn remove_item<R: Runtime>(app: AppHandle<R>, payload: OptionsRequest) -> Result<bool, String> {
+async fn remove_item<R: Runtime>(
+    app: AppHandle<R>,
+    payload: OptionsRequest,
+) -> Result<bool, String> {
     match entry(&app, &payload)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(true),
         Err(_) => Err("Secure storage could not remove the value".to_string()),

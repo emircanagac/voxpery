@@ -26,7 +26,9 @@ pub async fn apply(mut response: Response) -> Response {
     let allows_listed_ancestors = headers
         .get("content-security-policy")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|csp| csp.contains("frame-ancestors ") && !csp.contains("frame-ancestors 'none'"));
+        .is_some_and(|csp| {
+            csp.contains("frame-ancestors ") && !csp.contains("frame-ancestors 'none'")
+        });
     if !allows_listed_ancestors {
         headers.insert(
             HeaderName::from_static("x-frame-options"),

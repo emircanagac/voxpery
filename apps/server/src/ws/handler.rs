@@ -21,9 +21,7 @@ use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{claims_match_current_token_version, Claims};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
-use crate::services::permissions::{
-    get_user_channel_permissions, Permissions,
-};
+use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::services::redact::ShortId;
 use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
@@ -573,7 +571,10 @@ async fn can_receive_subscribed_channel_event(
 
 /// Whether `user_id` can currently view `channel_id` (membership and channel permissions).
 async fn can_view_channel(db: &sqlx::PgPool, user_id: Uuid, channel_id: Uuid) -> bool {
-    matches!(can_subscribe_to_channel(db, user_id, channel_id).await, Ok(true))
+    matches!(
+        can_subscribe_to_channel(db, user_id, channel_id).await,
+        Ok(true)
+    )
 }
 
 /// Voice events reveal who is in which channel, so each recipient only receives the parts
@@ -1523,7 +1524,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 };
 
-                                let Some(perms) = voice_moderator_permissions(&recv_state.db, target_channel_id, user_id)
+                                let Some(perms) = voice_moderator_permissions(
+                                    &recv_state.db,
+                                    target_channel_id,
+                                    user_id,
+                                )
                                 .await
                                 else {
                                     continue;
@@ -1667,7 +1672,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     continue;
                                 }
 
-                                let Some(perms) = voice_moderator_permissions(&recv_state.db, source_channel_id, user_id)
+                                let Some(perms) = voice_moderator_permissions(
+                                    &recv_state.db,
+                                    source_channel_id,
+                                    user_id,
+                                )
                                 .await
                                 else {
                                     send_voice_move_result(
@@ -1815,7 +1824,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         continue;
                                     };
 
-                                    let Some(perms) = voice_moderator_permissions(&recv_state.db, target_channel_id, user_id)
+                                    let Some(perms) = voice_moderator_permissions(
+                                        &recv_state.db,
+                                        target_channel_id,
+                                        user_id,
+                                    )
                                     .await
                                     else {
                                         continue;
