@@ -236,6 +236,58 @@ pub fn validate_security_config(
     Ok(())
 }
 
+/// Shortest accepted signing secret (`openssl rand -hex 32` gives 64 characters).
+const MIN_SIGNING_SECRET_LEN: usize = 32;
+
+/// The `.env.example` placeholder marker; a value containing it was never changed.
+const ENV_EXAMPLE_PLACEHOLDER: &str = "CHANGE_ME";
+
+fn has_env_example_placeholder(value: &str) -> bool {
+    value.to_ascii_uppercase().contains(ENV_EXAMPLE_PLACEHOLDER)
+}
+
+fn insecure_secret_reason(value: &str) -> Option<&'static str> {
+    let value = value.trim();
+    if value.is_empty() {
+        Some("is empty")
+    } else if has_env_example_placeholder(value) {
+        Some("still has the .env.example placeholder")
+    } else if value.len() < MIN_SIGNING_SECRET_LEN {
+        Some("is shorter than 32 characters")
+    } else {
+        None
+    }
+}
+
+/// Refuses secrets anyone could know or guess: with a known `JWT_SECRET` or LiveKit secret,
+/// anyone can sign tokens for any account. `None` means the secret is not configured.
+pub fn validate_secret_config(secrets: &[(&str, Option<&str>)]) -> Result<(), String> {
+    let problems: Vec<String> = secrets
+        .iter()
+        .filter_map(|(name, value)| {
+            let reason = insecure_secret_reason((*value)?)?;
+            Some(format!("{name} {reason}"))
+        })
+        .collect();
+    if problems.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{}. Generate each with `openssl rand -hex 32` and set it in .env (see docs/DEPLOYMENT.md).",
+        problems.join("; ")
+    ))
+}
+
+/// True when the connection string still carries the `.env.example` database password.
+pub fn database_url_has_placeholder(database_url: &str) -> bool {
+    has_env_example_placeholder(database_url)
+}
+
+/// True when a seed admin password must not be used: the placeholder, or under 12 characters.
+pub fn is_weak_seed_admin_password(password: &str) -> bool {
+    password.chars().count() < 12 || has_env_example_placeholder(password)
+}
+
 async fn observe_backend_server_errors(
     State(state): State<Arc<AppState>>,
     request: Request,
@@ -359,9 +411,43 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::{
-        config::Config, should_sanitize_client_error, validate_optional_integration_config,
-        validate_security_config,
+        config::Config, database_url_has_placeholder, is_weak_seed_admin_password,
+        should_sanitize_client_error, validate_optional_integration_config,
+        validate_secret_config, validate_security_config,
     };
+
+    #[test]
+    fn refuses_placeholder_empty_and_short_secrets() {
+        let strong = "0123456789abcdef0123456789abcdef";
+        assert!(validate_secret_config(&[("JWT_SECRET", Some(strong)), ("TURN_SHARED_SECRET", None)]).is_ok());
+        for (value, reason) in [
+            ("CHANGE_ME_TO_A_STRONG_RANDOM_SECRET", "placeholder"),
+            ("change_me_but_lowercase_and_long_enough", "placeholder"),
+            ("   ", "is empty"),
+            ("short-secret", "shorter than 32"),
+        ] {
+            let error = validate_secret_config(&[("JWT_SECRET", Some(value))]).unwrap_err();
+            assert!(error.contains("JWT_SECRET") && error.contains(reason), "{value}: {error}");
+            assert!(!error.contains(value.trim()) || value.trim().is_empty(), "never echo the secret");
+        }
+        let error = validate_secret_config(&[
+            ("JWT_SECRET", Some("short")),
+            ("LIVEKIT_API_SECRET", Some("CHANGE_ME_TO_A_STRONG_32_PLUS_CHAR_SECRET")),
+        ])
+        .unwrap_err();
+        assert!(error.contains("JWT_SECRET") && error.contains("LIVEKIT_API_SECRET"));
+    }
+
+    #[test]
+    fn flags_placeholder_database_and_admin_passwords() {
+        assert!(database_url_has_placeholder(
+            "postgres://voxpery:CHANGE_ME_TO_A_STRONG_DATABASE_PASSWORD@postgres:5432/voxpery"
+        ));
+        assert!(!database_url_has_placeholder("postgres://voxpery:k8Hq2pX9@postgres:5432/voxpery"));
+        assert!(is_weak_seed_admin_password("CHANGE_ME_TO_A_STRONG_ADMIN_PASSWORD"));
+        assert!(is_weak_seed_admin_password("short-pass"));
+        assert!(!is_weak_seed_admin_password("a-long-admin-passphrase"));
+    }
 
     #[test]
     fn rejects_wildcard_cors() {

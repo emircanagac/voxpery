@@ -60,6 +60,8 @@ export interface MockCoreState {
   emailVerificationRequestCount: number
   emailVerificationConfirmCountByToken: Record<string, number>
   emailVerificationRequestDelayMs: number
+  /** An address change waiting for its confirmation link. */
+  pendingEmail: string | null
   validEmailVerificationTokens: string[]
   forgotPasswordRequestCount: number
   resetPasswordRequestCount: number
@@ -362,6 +364,7 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     emailVerificationRequestCount: 0,
     emailVerificationConfirmCountByToken: {},
     emailVerificationRequestDelayMs: 0,
+    pendingEmail: null,
     validEmailVerificationTokens: ['valid-email-token'],
     forgotPasswordRequestCount: 0,
     resetPasswordRequestCount: 0,
@@ -623,13 +626,16 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     if (state.emailVerificationRequestDelayMs > 0) {
       await delay(state.emailVerificationRequestDelayMs)
     }
-    const body = parseJsonBody<{ email?: string }>(request)
-    if (body.email?.trim()) {
-      state.user = {
-        ...state.user,
-        email: body.email.trim().toLowerCase(),
-        email_verified: false,
+    const body = parseJsonBody<{ email?: string; current_password?: string }>(request)
+    const nextEmail = body.email?.trim().toLowerCase()
+    // Like the server: another address needs the current password and only applies once
+    // its confirmation link is opened.
+    if (nextEmail && nextEmail !== state.user.email.toLowerCase()) {
+      if (!body.current_password) {
+        await json(route, { error: 'Enter your current password to change your email address' }, 400)
+        return
       }
+      state.pendingEmail = nextEmail
     }
     await json(route, state.user)
     return

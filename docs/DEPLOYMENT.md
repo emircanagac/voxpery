@@ -23,11 +23,19 @@ cp .env.example .env
 
 Edit `.env` and set strong production values at minimum:
 
-- `POSTGRES_PASSWORD`
-- `JWT_SECRET`
-- `LIVEKIT_API_SECRET`
+- `POSTGRES_PASSWORD`, `JWT_SECRET` and `LIVEKIT_API_SECRET`: generate each separately, for
+  example with `openssl rand -hex 32`. The server refuses to start while `JWT_SECRET`,
+  `LIVEKIT_API_SECRET` or a configured `TURN_SHARED_SECRET` is a `CHANGE_ME` placeholder, empty
+  or shorter than 32 characters, and the log names the variable to fix. It warns (but starts)
+  when `DATABASE_URL` still contains the example database password, because the database keeps
+  the password it was created with: change it with `ALTER ROLE <user> WITH PASSWORD '...'` inside
+  the database container, then update `POSTGRES_PASSWORD` and restart.
+- `LIVEKIT_API_KEY`: replace the `devkey` default with your own key name.
 - `LIVEKIT_NODE_IP` (server public IPv4)
-- `ADMIN_PASSWORD`
+- Optional seed admin (`ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`): created at startup
+  only when all three are set and the password is not a placeholder or shorter than 12
+  characters. If an existing seed admin still uses the example password, the server logs an
+  error until it is changed.
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
 - Keep every web origin that sends cookie-authenticated writes in `CORS_ORIGINS`; the

@@ -263,6 +263,33 @@ test.describe('mocked auth and account regressions', () => {
     expect(state.emailVerificationRequestCount).toBe(1)
   })
 
+  test('asks for the current password and keeps the old email until the new one is confirmed', { tag: '@core' }, async ({ page }) => {
+    const state = createMockCoreState({
+      features: AUTH_FEATURES,
+      user: { ...createMockCoreState().user, email: 'localuser@example.test', email_verified: true, has_password: true },
+    })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    const settings = page.locator('.user-settings-modal')
+    await settings.locator('.user-setting-row').filter({ has: page.getByText('Email address', { exact: true }) })
+      .getByRole('button', { name: 'Change', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Change email', exact: true })
+    await expect(dialog.getByLabel('Current password')).toHaveCount(0)
+    await dialog.getByLabel('Email address').fill('new-address@example.test')
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(dialog.getByText('Enter your current password to change your email address.')).toBeVisible()
+    expect(state.emailVerificationRequestCount).toBe(0)
+
+    await dialog.getByLabel('Current password').fill('current-password')
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.locator('.toast-item', { hasText: 'Your email changes after you open it.' })).toBeVisible()
+    await expect(dialog).toHaveCount(0)
+    expect(state.pendingEmail).toBe('new-address@example.test')
+    await expect(settings.getByText(/localuser@example\.test/)).toBeVisible()
+  })
+
   test('confirms an email verification token once and keeps the success state', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       features: AUTH_FEATURES,

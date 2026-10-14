@@ -303,6 +303,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [usernameCheckFailed, setUsernameCheckFailed] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailEdit, setEmailEdit] = useState('')
+  const [emailPassword, setEmailPassword] = useState('')
+  const [emailNeedsGoogleSignIn, setEmailNeedsGoogleSignIn] = useState(false)
   const [emailSaving, setEmailSaving] = useState(false)
   const [emailVerificationSending, setEmailVerificationSending] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -645,6 +647,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     setEmailError(null)
     setShowEmailModal(false)
     setEmailEdit('')
+    setEmailPassword('')
+    setEmailNeedsGoogleSignIn(false)
   }, [])
 
   const closePasswordModal = useCallback(() => {
@@ -1447,12 +1451,12 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     }
   }
 
-  const requestEmailVerification = async (nextEmail?: string) => {
+  const requestEmailVerification = async (nextEmail?: string, currentPassword?: string) => {
     if (isTauri() && !token) return
     if (!emailVerificationEnabled) {
       throw new Error('FEATURE_DISABLED:Email verification is disabled on this server.')
     }
-    const updated = await authApi.requestEmailVerification(token ?? null, nextEmail)
+    const updated = await authApi.requestEmailVerification(token ?? null, nextEmail, currentPassword)
     setUser(updated)
     return updated
   }
@@ -1463,20 +1467,34 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       setEmailError('Enter a valid email address.')
       return
     }
+    const changing = trimmed !== (user?.email ?? '').toLowerCase()
+    if (changing && !isGoogleOnlyAccount && !emailPassword) {
+      setEmailError('Enter your current password to change your email address.')
+      return
+    }
     setEmailSaving(true)
     setEmailError(null)
+    setEmailNeedsGoogleSignIn(false)
     try {
-      const updated = await requestEmailVerification(trimmed)
+      const updated = await requestEmailVerification(trimmed, changing ? emailPassword : undefined)
       closeEmailModal()
       pushToast({
         level: 'info',
-        title: updated?.email_verified ? 'Email already verified' : 'Verification email sent',
-        message: updated?.email_verified
-          ? 'Your email address is already verified.'
-          : `We sent a verification link to ${trimmed}.`,
+        title: !changing && updated?.email_verified ? 'Email already verified' : 'Verification email sent',
+        message: changing
+          ? `We sent a confirmation link to ${trimmed}. Your email changes after you open it.`
+          : updated?.email_verified
+            ? 'Your email address is already verified.'
+            : `We sent a verification link to ${trimmed}.`,
       })
     } catch (err: unknown) {
-      setEmailError(getEmailVerificationErrorMessage(err))
+      const { code } = getAuthErrorMessage(err)
+      if (code === 'REAUTH_REQUIRED' && isGoogleOnlyAccount) {
+        setEmailNeedsGoogleSignIn(true)
+        setEmailError('Sign in with Google again, then return here to change your email.')
+      } else {
+        setEmailError(getEmailVerificationErrorMessage(err))
+      }
       setEmailSaving(false)
     }
   }
@@ -2700,8 +2718,31 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 {!isValidEmailAddress(emailEdit) && emailEdit.trim().length > 0 && (
                   <div className="pw-hint pw-hint-warn">Enter a valid email address</div>
                 )}
-                {emailError && <div className="pw-error">{emailError}</div>}
               </div>
+              {!isGoogleOnlyAccount && emailEdit.trim().toLowerCase() !== (user?.email ?? '').toLowerCase() && (
+                <div className="pw-field-wrap">
+                  <label className="user-setting-title" htmlFor="email-current-password">Current password</label>
+                  <div className="pw-input-wrap">
+                    <input
+                      id="email-current-password"
+                      type="password"
+                      className="pw-input"
+                      value={emailPassword}
+                      onChange={(e) => {
+                        setEmailPassword(e.target.value)
+                        setEmailError(null)
+                      }}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                </div>
+              )}
+              {emailError && <div className="pw-error">{emailError}</div>}
+              {emailNeedsGoogleSignIn && (
+                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
+                  Sign in with Google again
+                </button>
+              )}
             </div>
             <footer className="pw-modal-footer">
               <button

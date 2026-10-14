@@ -27,6 +27,7 @@ use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
 use crate::ws::access::{
     can_join_voice_channel, can_subscribe_to_channel, subscribable_channel_candidates,
+    ChannelAccessCache, TypingThrottle,
 };
 use crate::{AppState, PendingVoiceMove};
 
@@ -522,6 +523,7 @@ async fn can_receive_subscribed_channel_event(
     db: &sqlx::PgPool,
     user_id: Uuid,
     subscribed_channels: &tokio::sync::RwLock<HashSet<Uuid>>,
+    access_cache: &mut ChannelAccessCache,
     channel_id: Uuid,
 ) -> bool {
     let is_subscribed = { subscribed_channels.read().await.contains(&channel_id) };
@@ -529,9 +531,15 @@ async fn can_receive_subscribed_channel_event(
         return false;
     }
 
+    let now = std::time::Instant::now();
+    if let Some(allowed) = access_cache.get(channel_id, now) {
+        return allowed;
+    }
     match can_subscribe_to_channel(db, user_id, channel_id).await {
-        Ok(true) => true,
-        Ok(false) => false,
+        Ok(allowed) => {
+            access_cache.insert(channel_id, allowed, now);
+            allowed
+        }
         Err(e) => {
             tracing::warn!(
                 "WS event authorization re-check failed for user {} channel {}: {}",
@@ -748,11 +756,11 @@ async fn validate_ws_token(
         }
     }
 
-    use jsonwebtoken::{decode, DecodingKey, Validation};
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
     let claims = decode::<crate::middleware::auth::Claims>(
         token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-        &Validation::default(),
+        &Validation::new(Algorithm::HS256),
     )
     .ok()?
     .claims;
@@ -865,6 +873,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
 
     // Task: forward broadcast events to this client (if subscribed) + server-side keepalive
     let send_task = tokio::spawn(async move {
+        let mut access_cache = ChannelAccessCache::default();
         // Server-side WebSocket keepalive: detect stale connections (laptop sleep, network
         // drop without FIN) that would otherwise linger for minutes until OS TCP timeout.
         let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -905,10 +914,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         Ok(ev) => ev,
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("Broadcast receiver lagged by {} events (user {})", n, ShortId(user_id));
+                            // A skipped event may have changed permissions.
+                            access_cache.clear();
                             continue;
                         }
                         Err(_) => break,
                     };
+                    // Role, channel and membership changes can change what this user may see.
+                    if matches!(
+                        &event,
+                        WsEvent::MemberJoined { .. }
+                            | WsEvent::MemberLeft { .. }
+                            | WsEvent::MemberRoleUpdated { .. }
+                            | WsEvent::ServerRolesUpdated { .. }
+                            | WsEvent::ServerChannelsUpdated { .. }
+                    ) {
+                        access_cache.clear();
+                    }
                     let is_own_voice_event = matches!(
                         &event,
                         WsEvent::VoiceStateUpdate { user_id: affected_user_id, .. }
@@ -928,6 +950,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 &send_state.db,
                                 user_id,
                                 &sub_channels,
+                                &mut access_cache,
                                 *channel_id,
                             )
                             .await
@@ -1028,6 +1051,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                 }
                 // Events from direct channel (targeted to this user)
                 Some(event) = rx.recv() => {
+                    // Direct events include DM membership and server removal notices.
+                    access_cache.clear();
                     match serde_json::to_string(&event) {
                         Ok(json) => {
                             if !matches!(
@@ -1056,6 +1081,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     let recv_claims = claims.clone();
     let recv_token = token.clone();
     let recv_task = tokio::spawn(async move {
+        let mut typing_throttle = TypingThrottle::default();
         loop {
             let msg = match tokio::time::timeout(WS_CLIENT_IDLE_TIMEOUT, ws_receiver.next()).await {
                 Ok(Some(Ok(msg))) => msg,
@@ -1245,6 +1271,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 channel_id,
                                 is_typing,
                             } => {
+                                if !typing_throttle.allow(
+                                    channel_id,
+                                    is_typing,
+                                    std::time::Instant::now(),
+                                ) {
+                                    continue;
+                                }
                                 if let Ok(true) =
                                     can_subscribe_to_channel(&recv_state.db, user_id, channel_id)
                                         .await
