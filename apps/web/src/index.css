@@ -7550,6 +7550,12 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-secondary);
 }
 
+.custom-server-hint {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .custom-server-confirm {
   margin-top: 12px;
   font-size: 13px;

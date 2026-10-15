@@ -96,7 +96,7 @@ Optional integrations note:
 - Set `FRONTEND_URL` to the public web origin, for example `https://voxpery.com`, so email links do not depend on `CORS_ORIGINS` ordering.
 - The official server image prefers IPv4 for outbound SMTP resolution. This avoids IPv6-only DNS answers causing `Network is unreachable` on hosts or Docker networks without IPv6 routing.
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
-- Desktop app: users of the official desktop app connect to your server through "Advanced: custom server" on the sign-in screen, or Settings > Desktop > Server, by entering your API address (for example `https://api.example.com`). The app checks `/api/system/features` and asks the user to confirm they trust the server; it stays on your server across updates.
+- Desktop app: users of the official desktop app connect to your server through "Advanced: custom server" on the sign-in screen, or Settings > Desktop > Server, by entering your website address (for example `https://chat.example.com`) or your API address (for example `https://api.example.com`). The web image serves `/.well-known/voxpery/client` with the API origin from `VITE_API_URL`, so the website address works when the API is on another host; keep that path reachable at your public reverse proxy. The app checks `/api/system/features` and asks the user to confirm they trust the server; it stays on your server across updates.
   - Serve the API over HTTPS; `http` is accepted only for localhost and private networks.
   - Set `LIVEKIT_WS_URL` to your public LiveKit address, so desktop voice can reach it.
   - Add the API host to your Turnstile hostname list if you use CAPTCHA.

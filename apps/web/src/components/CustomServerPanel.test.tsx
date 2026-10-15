@@ -57,6 +57,20 @@ describe('CustomServerPanel', () => {
     expect(await screen.findByText(/This address is not encrypted/)).toBeInTheDocument()
   })
 
+  it('names the website when it pointed to the server', async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'desktop_custom_server') return null
+      if (command === 'desktop_probe_custom_server') return { ...checkedServer, siteOrigin: 'https://example.org' }
+      return undefined
+    })
+    render(<CustomServerPanel variant="settings" />)
+    expect(await screen.findByText("The server's website or its API address.")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Self-hosted server address'), { target: { value: 'https://example.org' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check' }))
+    expect(await screen.findByText(/named by/)).toHaveTextContent('named by https://example.org')
+    expect(screen.getByText(/Found a Voxpery server at/)).toHaveTextContent('https://chat.example.org')
+  })
+
   it('returns to voxpery.com from a custom server', async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === 'desktop_custom_server') return checkedServer

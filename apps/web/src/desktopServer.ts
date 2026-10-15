@@ -8,6 +8,8 @@ export type DesktopServer = {
   voiceOrigin: string | null
   /** True for `http` servers (local and private networks only). */
   insecure: boolean
+  /** The website the user entered, when it pointed to a different API address. */
+  siteOrigin?: string | null
 }
 
 async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -26,7 +28,7 @@ export function getDesktopServer(): Promise<DesktopServer | null> {
   return invokeDesktop<DesktopServer | null>('desktop_custom_server')
 }
 
-/** Checks that `address` is an allowed Voxpery server; stores nothing. */
+/** Checks that `address` (a Voxpery API, or a website that names one) is an allowed server; stores nothing. */
 export async function checkDesktopServer(address: string): Promise<DesktopServer> {
   try {
     return await invokeDesktop<DesktopServer>('desktop_probe_custom_server', { address })
