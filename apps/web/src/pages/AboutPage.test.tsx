@@ -1,19 +1,15 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { releaseApi } from '../api'
+import { releaseApi } from '../api/releases'
 import { useAuthStore } from '../stores/auth'
 import AboutPage from './AboutPage'
 
-vi.mock('../api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../api')>()
-  return {
-    ...actual,
-    releaseApi: {
-      getLatest: vi.fn(),
-    },
-  }
-})
+vi.mock('../api/releases', () => ({
+  releaseApi: {
+    getLatest: vi.fn(),
+  },
+}))
 
 beforeEach(() => {
   vi.mocked(window.matchMedia).mockImplementation(query => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() }))

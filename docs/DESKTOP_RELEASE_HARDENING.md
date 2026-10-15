@@ -44,6 +44,34 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Release preflight rejects missing `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, or `media-src 'self' blob:` directives.
 - If local backend access is needed for development, it must live in a dev-only config and never ship in the default release capability set.
 - Voxpery development uses `apps/desktop/src-tauri/tauri.dev.conf.json` together with `cargo tauri dev --config tauri.dev.conf.json` for local backend connectivity.
+- Capabilities:
+  - `tauri.conf.json` enables only the `default` capability (`app.security.capabilities: ["default"]`), so the release `gen/schemas/capabilities.json` contains only `default`.
+  - The development capability (`dev-local-api`, HTTP access to the local backend) is inlined in `tauri.dev.conf.json`. No file in `capabilities/` may grant loopback targets or remote origins.
+  - `validate-security-policies.mjs` enforces all three rules.
+  - `default` is a local capability: the bundled app is served from the runtime's own scheme URL (`https://tauri.localhost` on Windows and Linux CEF, `tauri://localhost` on macOS), and Tauri treats that origin as local. In development, the `devUrl` counts as local.
+  - Check on each platform that sign-in, keyring persistence, the updater and HTTP requests work in an installed release build.
+
+## 2.1.0) Desktop Platform Decision
+
+Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macOS and Linux, with every Tauri crate pinned to an exact version.
+
+- Why Tauri 3 alpha: Linux needs WebRTC for voice, and system WebKitGTK builds ship without it. Chromium through `tauri-runtime-cef` exists only in Tauri 3. Windows and macOS stay on their system webviews through `tauri-runtime-wry`.
+- Considered: Tauri 2 stable for Windows and macOS with Tauri 3 only on Linux. Rejected for now: one crate cannot depend on two Tauri major versions without duplicating the app shell, plugins, capability schemas and release pipeline per platform, which doubles maintenance and the manual QA gate. Windows and macOS have run on Tauri 3 alpha since the Linux CEF move (#409) without platform-specific regressions.
+- Revisit when any of these happens:
+  - Tauri 3 reaches beta or stable: move all crates and JS packages together.
+  - An alpha regression on Windows or macOS has no workaround: re-evaluate a split.
+  - WebKitGTK ships WebRTC in the supported distributions: re-evaluate CEF on Linux.
+- Upgrade policy: upgrade `tauri`, `tauri-build`, the runtimes and all plugins in one change. Run the full manual QA gate (section 5) on all three platforms before release, and the Linux checks in 2.1.1.
+- JavaScript packages: the web app uses `@tauri-apps/api` and plugin packages 2.x, while the Rust crates are 3.0.0 alphas, and 3.0.0 alpha JS packages exist on npm. The JS packages only wrap IPC calls, and every call the app makes has worked unchanged on all three platforms since v0.4.0:
+  - `core` invoke, `window`, `event`, `app` version
+  - the HTTP plugin fetch, updater check and install, process relaunch
+  - deep-link URLs, global shortcuts, autostart, opener
+  - the app's own `desktop_*` and `secure-storage` commands
+
+  Section 5 exercises each of these. Move the JS packages to 3.x together with the next Tauri crate upgrade and verify the same list. A plugin whose command changes would otherwise fail only at runtime.
+- Upstream issues tracked:
+  - tauri-apps/tauri#16251: the Linux CEF webview loses X11 keyboard focus; worked around by `src/linux_focus.rs`, see 2.1.1.
+  - The `glib` 0.18 advisory (#242): `glib` 0.18 comes in through `gtk` 0.18, which Tauri's menu crate `muda` 0.20 uses. It needs an upstream move to newer gtk-rs crates and stays documented until then.
 
 ## 2.1.1) Linux Tauri Runtime And Packaging
 
@@ -75,6 +103,37 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Screens without the app header (sign-in, loading, legal pages) get `DesktopWindowChrome`: a 36px draggable strip with the same window buttons, hidden as soon as the app header is shown. On Linux it also adds thin resize borders, because the CEF runtime gives a frameless window no system borders; Windows and macOS keep their native resize borders and window shadow.
 - The close button sends the normal close request, so "Keep running in tray on close" still applies. The capability grants only the window commands this needs: `start-dragging`, `internal-toggle-maximize`, `minimize`, `toggle-maximize`, `close` and `start-resize-dragging`.
 - Verify on each platform: drag from the header and the sign-in strip, double-click to maximize and restore, edge resizing (Linux on GNOME and KDE, X11 and Wayland), minimize/maximize/close, close-to-tray, and Windows snapping by dragging to screen edges (the Windows 11 snap layouts flyout on the maximize button is not available with custom buttons).
+
+## 2.1.3) Custom Server (Self-Hosted Backends)
+
+The desktop app connects to voxpery.com by default. A self-hosted Voxpery server can be chosen under "Advanced: custom server" on the sign-in screen or in Settings. Most users never see it.
+
+Design (the security model, enforced in Rust):
+
+- **Address:**
+  - The user enters the server address. Only an origin is accepted: no path, query, credentials or fragment.
+  - `https` is required. `http` is accepted only for `localhost`, loopback, private IPv4 (10/8, 172.16/12, 192.168/16), unique-local or link-local IPv6, and `.local` names, and the UI shows a warning.
+- **Probe:** before anything is stored, the desktop process itself (not the webview) fetches `<origin>/api/system/features`:
+  - redirects off, 8-second timeout, 64 KB limit;
+  - the response must be a Voxpery feature object.
+  - Its `voice_url` (`LIVEKIT_WS_URL`) gives the voice origin, which must follow the same scheme rules.
+- **Consent:** the user must tick that they trust the server. The confirming command probes the server again, so the webview cannot store an address that was not checked.
+- **Storage:** the choice is stored in `custom-server.json` in the app configuration directory. It survives updates, and the updater keeps using the official release feed.
+- **Applying the choice (on restart):**
+  - The HTTP plugin gets a runtime capability for that origin only.
+  - The main window's CSP adds the API and voice origins to `connect-src`, and the API origin to `frame-src` and `img-src`.
+  - The web app reads the API base from an initialization script.
+  - "Use voxpery.com" removes the file and restarts.
+- **Sessions:** the keyring account for each stored item includes the active server (`voxpery-auth-token@https://chat.example.org`).
+  - Rust chooses the account, and the plugin accepts only the app's two known keys.
+  - The webview therefore can never read or send another server's token.
+- **Build-time alternative:** `VITE_API_URL` and the release CSP can still be changed for a custom build, but such a build is replaced by the official one on its first update. The setting above is the supported way.
+- **Verify on Windows, macOS and Linux, each with voxpery.com, a custom `https` server and `http://localhost`:**
+  - sign in with email and with Google;
+  - the session persists after a restart;
+  - switching back keeps the other server's session separate;
+  - messages, WebSocket, voice and screen sharing, and attachments work;
+  - the updater works and keeps the setting.
 
 ## 2.2) Microphone Shortcut Validation
 

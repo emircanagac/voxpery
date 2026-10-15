@@ -8,7 +8,7 @@
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{command, AppHandle, Runtime};
+use tauri::{command, AppHandle, Manager, Runtime};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,18 +22,27 @@ struct GetItemResponse {
     data: Option<String>,
 }
 
+/// The only items the web app stores: its session token and tokens awaiting revocation.
+const ALLOWED_KEYS: [&str; 2] = ["voxpery-auth-token", "voxpery-pending-revocations"];
+
 fn entry<R: Runtime>(app: &AppHandle<R>, payload: &OptionsRequest) -> Result<Entry, String> {
     let key = payload
         .prefixed_key
         .as_deref()
-        .filter(|key| !key.is_empty())
+        .filter(|key| ALLOWED_KEYS.contains(key))
         .ok_or("Key not found")?;
     let service = app
         .config()
         .product_name
         .clone()
         .ok_or("Product name is missing")?;
-    Entry::new(&service, key).map_err(|_| "Secure storage is unavailable".to_string())
+    // The active server is part of the account, so a session never leaves its own server.
+    let active = app.try_state::<crate::custom_server::ActiveServer>();
+    let account = crate::custom_server::keyring_account(
+        key,
+        active.as_ref().and_then(|state| state.0.as_ref()),
+    );
+    Entry::new(&service, &account).map_err(|_| "Secure storage is unavailable".to_string())
 }
 
 #[command]

@@ -119,6 +119,7 @@ export interface SystemFeatures {
     password_reset_enabled: boolean
     observability_enabled: boolean
     turn_enabled?: boolean
+    voice_url?: string | null
 }
 
 export interface ServerDetail extends Server {

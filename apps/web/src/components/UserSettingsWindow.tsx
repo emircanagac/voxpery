@@ -36,6 +36,7 @@ import {
 import type { VoiceDeviceOption } from '../voiceDevices'
 import { formatGlobalMuteShortcut } from '../globalMuteShortcut'
 import type { ToastItem } from '../stores/toast'
+import CustomServerPanel from './CustomServerPanel'
 import {
   footerStatusLabel,
   getInitial,
@@ -852,6 +853,16 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                         {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
                       </button>
                     )}
+                  </div>
+                </div>
+                <div className="user-setting-row user-setting-row--stacked">
+                  <div>
+                    <div className="user-setting-title">Server</div>
+                    <div className="user-setting-desc">
+                      Voxpery connects to voxpery.com. You can connect to a self-hosted Voxpery server instead;
+                      your account and sign-in there are separate.
+                    </div>
+                    <CustomServerPanel variant="settings" />
                   </div>
                 </div>
                 {desktopAutostartSupported && (

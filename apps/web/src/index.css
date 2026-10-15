@@ -7525,6 +7525,59 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-secondary);
 }
 
+.custom-server-panel {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.custom-server-panel > label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.custom-server-panel .auth-sign-in-code-toggle {
+  margin: 4px 0 0;
+  padding-inline: 0;
+}
+
+.custom-server-current {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.custom-server-confirm {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.custom-server-confirm p {
+  margin: 0 0 8px;
+}
+
+.custom-server-warning {
+  color: var(--text-warning);
+}
+
+.custom-server-trust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.user-setting-row--stacked > div {
+  flex: 1;
+}
+
 .auth-footer {
   text-align: center;
   margin-top: 16px;

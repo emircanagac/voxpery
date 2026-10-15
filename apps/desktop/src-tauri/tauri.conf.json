@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Voxpery",
         "width": 1280,
         "height": 800,
@@ -42,7 +43,8 @@
         "base-uri": "'none'",
         "form-action": "'self'",
         "frame-ancestors": "'none'"
-      }
+      },
+      "capabilities": ["default"]
     }
   },
   "bundle": {

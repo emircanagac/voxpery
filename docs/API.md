@@ -122,6 +122,7 @@ Notes:
 - `GET /api/system/features`
   - Public integration capability flags used by web and desktop clients.
   - `turn_enabled` is true when `TURN_URLS` is configured; voice clients request TURN credentials only then.
+  - `voice_url` is the public LiveKit address (`LIVEKIT_WS_URL`), or `null`. The desktop app reads it when a user connects to a self-hosted server, to allow that voice origin.
 - `POST /api/system/observability/events`
   - Public, rate-limited, best-effort operational event endpoint.
   - Accepts only `{ "event": "<allowlisted_code>", "client": "web|desktop" }` and rejects unknown fields.
