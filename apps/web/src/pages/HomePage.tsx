@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
-import { Activity, ArrowRight, Check, Clock3, Compass, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Plus, Search, Send, Settings, UserMinus, UserPlus, UserRound, Users, X } from 'lucide-react'
+import { Activity, Check, Clock3, Compass, Inbox, MessageCircle, MessageSquarePlus, MoreHorizontal, Pin, Plus, Search, Send, Settings, UserMinus, UserPlus, UserRound, Users, X } from 'lucide-react'
 import {
   attachmentApi,
   dmApi,
@@ -13,7 +13,8 @@ import {
   type FriendRequest,
   type MessageWithAuthor,
 } from '../api'
-import ChatArea from '../components/ChatArea'
+import OnboardingCard from '../components/OnboardingCard'
+import DmConversation from '../components/DmConversation'
 import SocialInfoPanel from '../components/SocialInfoPanel'
 import '../styles/friends.css'
 import useViewportMenu from '../useViewportMenu'
@@ -43,7 +44,6 @@ import {
 } from '../messageDrafts'
 import { type SocialView, getPersistedSocialView, setPersistedSocialView } from '../socialView'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
-import { createReplyContentSnippet } from '../replyPreview'
 import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
 import { ROUTES } from '../routes'
 import {
@@ -100,40 +100,6 @@ type SocialContextMenu = {
   y: number
   trigger?: HTMLElement
   horizontalBoundary?: HTMLElement | null
-}
-
-function OnboardingCard({
-  title,
-  description,
-  actions,
-  actionsLayout = 'default',
-}: {
-  title: string
-  description: string
-  actions: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary'; icon?: ReactNode }>
-  actionsLayout?: 'default' | 'equal'
-}) {
-  return (
-    <div className="home-onboarding-card">
-      <div className="home-onboarding-copy">
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-      <div className={`home-onboarding-actions ${actionsLayout === 'equal' ? 'home-onboarding-actions--equal' : ''}`}>
-        {actions.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            className={`home-onboarding-btn ${action.variant === 'secondary' ? 'home-onboarding-btn--secondary' : ''}`}
-            onClick={action.onClick}
-          >
-            {action.icon}
-            <span>{action.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 export default function HomePage({ isMessagesView = true }: { isMessagesView?: boolean }) {
@@ -1818,142 +1784,60 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
             </>
           )}
 
-          {view === 'dm' && (() => {
-            const dmChannel = activeDmChannelId ? storeDmChannels.find((c) => c.id === activeDmChannelId) : null
-            if (showSocialBootstrapLoading) {
-              return (
-                <div className="home-dm-chat">
-                  <div className="home-list-skeleton" aria-hidden="true" style={{ padding: 24 }}>
-                    <div className="home-list-skeleton-row" />
-                    <div className="home-list-skeleton-row" />
-                    <div className="home-list-skeleton-row" />
-                  </div>
-                </div>
-              )
-            }
-            if (!dmChannel) {
-              return (
-                <div className="home-dm-chat">
-                  <div className="welcome-screen" style={{ padding: 24 }}>
-                    <OnboardingCard
-                      title="Start a conversation"
-                      description={
-                        friends.length > 0
-                          ? 'Pick a friend from the sidebar or jump back to Friends to start your first DM.'
-                          : 'You need at least one friend before you can start a DM.'
-                      }
-                      actions={[
-                        {
-                          label: friends.length > 0 ? 'Open friends' : 'Add a friend',
-                          onClick: () => {
-                            setView('friends')
-                            setPersistedSocialView('friends')
-                            setFriendsFilter(friends.length > 0 ? 'all' : 'requests')
-                          },
-                          icon: <Users size={14} />,
-                        },
-                        {
-                          label: voxperyServer ? 'Open community' : 'Join community',
-                          onClick: () => {
-                            void openOfficialCommunity()
-                          },
-                          variant: 'secondary',
-                          icon: <ArrowRight size={14} />,
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
-              )
-            }
-            const isGroupDm = !!dmChannel.is_group
-            const groupMembers = dmChannel.members ?? []
-            const syntheticChannel = {
-              id: dmChannel.id,
-              server_id: '',
-              name: dmChannel.peer_username,
-              channel_type: 'text' as const,
-              position: 0,
-              description: isGroupDm ? `${groupMembers.length} members` : null,
-            }
-            const dmMentionUsers = isGroupDm
-              ? groupMembers.map((member) => ({ user_id: member.id, username: member.username, avatar_url: member.avatar_url, status: member.status }))
-              : [
-                  { user_id: dmChannel.peer_id, username: dmChannel.peer_username, avatar_url: dmChannel.peer_avatar_url, status: dmChannel.peer_status },
-                  ...(user ? [{ user_id: user.id, username: user.username, avatar_url: user.avatar_url ?? null, status: user.status }] : []),
-                ]
-            return (
-              <ChatArea
-                activeChannel={syntheticChannel}
-                messages={displayedDmMessages}
-                hasMoreOlder={dmHasMoreOlder}
-                loadingOlder={dmLoadingOlder}
-                onLoadOlder={loadOlderDmMessages}
-                loading={(!dmConversationReady || isNotificationHistoryPending)
-                  && (displayedDmMessages.length === 0 || isNotificationHistoryPending)}
-                unreadDividerCount={dmUnreadDividerCount}
-                draftAttachments={dmDraftAttachments}
-                messageInput={dmInput}
-                onPickAttachments={handleDmAttachmentPick}
-                onRemoveAttachment={(index) => setDmDraftAttachments((prev) => prev.filter((_, i) => i !== index))}
-                onRetryAttachment={handleRetryDmAttachment}
-                onMessageInputChange={handleDmInputChange}
-                onSendMessage={handleSendDm}
-                onRetryMessage={handleRetryDmMessage}
-                onDeleteMessage={setDeleteDmConfirmMessageId}
-                editingMessageId={editingDmMessageId}
-                editingContent={editingDmContent}
-                onEditMessage={(msg) => {
-                  setEditingDmMessageId(msg.id)
-                  setEditingDmContent(msg.contentToEdit ?? msg.content)
-                }}
-                onEditingContentChange={setEditingDmContent}
-                onSaveEdit={saveDmEdit}
-                onCancelEdit={() => {
-                  setEditingDmMessageId(null)
-                  setEditingDmContent('')
-                }}
-                currentUserId={user?.id ?? null}
-                isDm
-                mentionUsers={dmMentionUsers}
-                replyingTo={replyingToDm}
-                onCancelReply={() => setReplyingToDm(null)}
-                onReplyToMessage={(msg) => {
-                  const username = msg.author?.username ?? 'User'
-                  const snippet = createReplyContentSnippet(msg.content)
-                  setReplyingToDm({ id: msg.id, username, contentSnippet: snippet })
-                }}
-                isViewActive={isMessagesView}
-                searchQuery={dmSearch}
-                onSearchChange={setDmSearch}
-                pinnedMessages={dmPins}
-                onPinMessage={handlePinDmMessage}
-                onUnpinMessage={handleUnpinDmMessage}
-                onToggleReaction={handleToggleDmReaction}
-                emptyStateTitle={isGroupDm ? `Welcome to ${dmChannel.peer_username}` : `Start your conversation with ${dmChannel.peer_username}`}
-                emptyStateDescription={isGroupDm ? 'This is the beginning of this group conversation.' : 'This is the beginning of your direct message history.'}
-                headerActions={isGroupDm ? (
-                  <button
-                    type="button"
-                    className="chat-header-member-btn"
-                    onClick={() => setGroupDmDialog({ kind: 'settings', channelId: dmChannel.id })}
-                    title="Group settings"
-                    aria-label="Group settings"
-                  >
-                    <Settings size={17} />
-                  </button>
-                ) : undefined}
-                jumpToMessageId={notificationJumpMessageId
-                  ?? (dmSearchJump?.channelId === activeDmChannelId ? dmSearchJump.messageId : null)}
-                onJumpToMessageHandled={notificationJumpMessageId ? handleDmNotificationAnchorVisible : () => setDmSearchJump(null)}
-                searchResults={dmSearch.trim() ? dmSearchResults : null}
-                searchScopeLabel="this conversation"
-                onGoToSearchResult={(messageId) => { void goToDmSearchResult(messageId) }}
-                searchJumpingMessageId={dmSearchJumpLoadingId}
-                onOpenInviteLink={(code) => navigate(ROUTES.invite(code))}
-              />
-            )
-          })()}
+          {view === 'dm' && (
+            <DmConversation
+              {...{
+                activeDmChannelId,
+                storeDmChannels,
+                showSocialBootstrapLoading,
+                friends,
+                setView,
+                setFriendsFilter,
+                voxperyServer,
+                openOfficialCommunity,
+                user,
+                displayedDmMessages,
+                dmHasMoreOlder,
+                dmLoadingOlder,
+                loadOlderDmMessages,
+                dmConversationReady,
+                isNotificationHistoryPending,
+                dmUnreadDividerCount,
+                dmDraftAttachments,
+                dmInput,
+                handleDmAttachmentPick,
+                setDmDraftAttachments,
+                handleRetryDmAttachment,
+                handleDmInputChange,
+                handleSendDm,
+                handleRetryDmMessage,
+                setDeleteDmConfirmMessageId,
+                editingDmMessageId,
+                editingDmContent,
+                setEditingDmMessageId,
+                setEditingDmContent,
+                saveDmEdit,
+                replyingToDm,
+                setReplyingToDm,
+                isMessagesView,
+                dmSearch,
+                setDmSearch,
+                dmPins,
+                handlePinDmMessage,
+                handleUnpinDmMessage,
+                handleToggleDmReaction,
+                setGroupDmDialog,
+                notificationJumpMessageId,
+                dmSearchJump,
+                handleDmNotificationAnchorVisible,
+                setDmSearchJump,
+                dmSearchResults,
+                goToDmSearchResult,
+                dmSearchJumpLoadingId,
+                navigate,
+              }}
+            />
+          )}
         </div>
       </section>
 
