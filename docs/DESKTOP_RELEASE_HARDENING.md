@@ -118,6 +118,7 @@ Design (the security model, enforced in Rust):
   - redirects off, 8-second timeout, 64 KB limit;
   - the response must be a Voxpery feature object.
   - Its `voice_url` (`LIVEKIT_WS_URL`) gives the voice origin, which must follow the same scheme rules.
+- **Website addresses:** when the address is not a Voxpery API, the app reads `<origin>/.well-known/voxpery/client` (`{"api_base_url": "..."}`, served by the web image from `VITE_API_URL`) with the same limits. The named API must pass the address rules, may not drop from `https` to `http`, and is then probed like a typed API. The trust prompt shows both the website and the API origin, and only the API origin is stored.
 - **Consent:** the user must tick that they trust the server. The confirming command probes the server again, so the webview cannot store an address that was not checked.
 - **Storage:** the choice is stored in `custom-server.json` in the app configuration directory. It survives updates, and the updater keeps using the official release feed.
 - **Applying the choice (on restart):**

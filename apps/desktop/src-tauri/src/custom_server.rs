@@ -4,6 +4,9 @@
 //! (`https`, or `http` only for local and private-network hosts), the server must answer
 //! `/api/system/features` like a Voxpery server, and the user must confirm they trust it. It takes
 //! effect on the next start, when the HTTP scope, the CSP and the API base are derived from it.
+//!
+//! Users may enter the website address instead of the API: when the address is not an API, the
+//! website's `/.well-known/voxpery/client` names it, and that API passes the same checks.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -17,6 +20,9 @@ use tauri::{AppHandle, Manager, Runtime, Url};
 const SETTINGS_FILE: &str = "custom-server.json";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_PROBE_BYTES: usize = 64 * 1024;
+const DISCOVERY_PATH: &str = "/.well-known/voxpery/client";
+const NOT_VOXPERY: &str = "This address is not a Voxpery server. Enter the server's website, such as https://chat.example.org, or its API address, such as https://api.example.org";
+const UNREACHABLE: &str = "Could not reach the server. Check the address and your connection";
 
 /// The server chosen by the user; `None` in [`ActiveServer`] means voxpery.com.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +45,8 @@ pub struct ServerView {
     pub voice_origin: Option<String>,
     /// True for `http` servers, which the UI must warn about.
     pub insecure: bool,
+    /// The website the user entered, when it named a different API origin.
+    pub site_origin: Option<String>,
 }
 
 impl From<&CustomServer> for ServerView {
@@ -47,6 +55,7 @@ impl From<&CustomServer> for ServerView {
             insecure: server.api_origin.starts_with("http:"),
             api_origin: server.api_origin.clone(),
             voice_origin: server.voice_origin.clone(),
+            site_origin: None,
         }
     }
 }
@@ -140,7 +149,32 @@ fn parse_features(body: &[u8]) -> Result<Option<String>, String> {
     }
 }
 
-async fn probe(api_origin: &str) -> Result<CustomServer, String> {
+/// Reads a website's `/.well-known/voxpery/client` and returns the API origin it names. The API
+/// follows the usual address rules and may not drop from `https` to `http`.
+fn parse_discovery(body: &[u8], site_origin: &str) -> Result<String, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| NOT_VOXPERY.to_string())?;
+    let api = value
+        .get("api_base_url")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| NOT_VOXPERY.to_string())?;
+    let api_origin = normalize_api_origin(api).map_err(|_| {
+        "This website names a Voxpery server address that is not allowed".to_string()
+    })?;
+    if site_origin.starts_with("https:") && !api_origin.starts_with("https:") {
+        return Err("This website names an unencrypted Voxpery server".into());
+    }
+    Ok(api_origin)
+}
+
+enum Fetched {
+    Body(Vec<u8>),
+    /// The host answered, but not with a success status.
+    NotFound,
+}
+
+/// GET with redirects off, a timeout and a size cap; nothing else is followed or trusted.
+async fn fetch(url: &str) -> Result<Fetched, String> {
     use tauri_plugin_http::reqwest;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -148,12 +182,12 @@ async fn probe(api_origin: &str) -> Result<CustomServer, String> {
         .build()
         .map_err(|_| "Could not check the server".to_string())?;
     let mut response = client
-        .get(format!("{api_origin}/api/system/features"))
+        .get(url)
         .send()
         .await
-        .map_err(|_| "Could not reach the server".to_string())?;
+        .map_err(|_| UNREACHABLE.to_string())?;
     if !response.status().is_success() {
-        return Err("This address is not a Voxpery server".into());
+        return Ok(Fetched::NotFound);
     }
     let mut body = Vec::new();
     while let Some(chunk) = response
@@ -163,13 +197,39 @@ async fn probe(api_origin: &str) -> Result<CustomServer, String> {
     {
         body.extend_from_slice(&chunk);
         if body.len() > MAX_PROBE_BYTES {
-            return Err("This address is not a Voxpery server".into());
+            return Err(NOT_VOXPERY.into());
         }
     }
-    Ok(CustomServer {
-        api_origin: api_origin.to_string(),
-        voice_origin: parse_features(&body)?,
-    })
+    Ok(Fetched::Body(body))
+}
+
+async fn probe(api_origin: &str) -> Result<CustomServer, String> {
+    match fetch(&format!("{api_origin}/api/system/features")).await? {
+        Fetched::Body(body) => Ok(CustomServer {
+            api_origin: api_origin.to_string(),
+            voice_origin: parse_features(&body)?,
+        }),
+        Fetched::NotFound => Err(NOT_VOXPERY.into()),
+    }
+}
+
+/// Finds the Voxpery server for an address the user entered: the address itself when it is an
+/// API, otherwise the API its website names. Returns the server and, for a website, its origin.
+async fn resolve(origin: &str) -> Result<(CustomServer, Option<String>), String> {
+    let direct = match probe(origin).await {
+        Ok(server) => return Ok((server, None)),
+        Err(error) if error == UNREACHABLE => return Err(error),
+        Err(error) => error,
+    };
+    let api_origin = match fetch(&format!("{origin}{DISCOVERY_PATH}")).await? {
+        Fetched::Body(body) => parse_discovery(&body, origin)?,
+        Fetched::NotFound => return Err(direct),
+    };
+    if api_origin == origin {
+        return Err(direct);
+    }
+    let server = probe(&api_origin).await?;
+    Ok((server, Some(origin.to_string())))
 }
 
 fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
@@ -269,11 +329,16 @@ pub fn desktop_custom_server(state: tauri::State<'_, ActiveServer>) -> Option<Se
     state.0.as_ref().map(ServerView::from)
 }
 
-/// Checks an address the user typed; nothing is stored.
+/// Checks an address the user typed (a Voxpery API or a website that names one); nothing is
+/// stored.
 #[tauri::command]
 pub async fn desktop_probe_custom_server(address: String) -> Result<ServerView, String> {
     let origin = normalize_api_origin(&address)?;
-    probe(&origin).await.map(|server| ServerView::from(&server))
+    let (server, site_origin) = resolve(&origin).await?;
+    Ok(ServerView {
+        site_origin,
+        ..ServerView::from(&server)
+    })
 }
 
 /// Stores the server (checked again here) after the user confirmed they trust it, or returns
@@ -290,7 +355,7 @@ pub async fn desktop_set_custom_server<R: Runtime>(
                 return Err("Confirm that you trust this server first".into());
             }
             let origin = normalize_api_origin(&address)?;
-            Some(probe(&origin).await?)
+            Some(resolve(&origin).await?.0)
         }
         None => None,
     };
@@ -357,6 +422,123 @@ mod tests {
         assert!(parse_features(br#"{"status":"ok"}"#).is_err());
         let public_plain_voice = br#"{"google_oauth_enabled":false,"password_reset_enabled":true,"email_verification_enabled":false,"voice_url":"ws://livekit.example.org"}"#;
         assert!(parse_features(public_plain_voice).is_err());
+    }
+
+    #[test]
+    fn reads_the_api_a_website_names() {
+        let named = |api: &str| format!(r#"{{"api_base_url":"{api}"}}"#).into_bytes();
+        assert_eq!(
+            parse_discovery(
+                &named("https://api.example.org/"),
+                "https://chat.example.org"
+            )
+            .unwrap(),
+            "https://api.example.org"
+        );
+        assert_eq!(
+            parse_discovery(&named("http://localhost:3001"), "http://localhost:5173").unwrap(),
+            "http://localhost:3001"
+        );
+        for (body, site) in [
+            (b"<!doctype html>".to_vec(), "https://chat.example.org"),
+            (
+                br#"{"api":"https://api.example.org"}"#.to_vec(),
+                "https://chat.example.org",
+            ),
+            (
+                named("https://api.example.org/v1"),
+                "https://chat.example.org",
+            ),
+            (named("http://api.example.org"), "https://chat.example.org"),
+            // A public website may not send the app to a local, unencrypted address.
+            (named("http://localhost:3001"), "https://chat.example.org"),
+            (named("javascript:alert(1)"), "https://chat.example.org"),
+        ] {
+            assert!(parse_discovery(&body, site).is_err(), "{site}");
+        }
+    }
+
+    /// Serves canned answers on 127.0.0.1: `(path, status, body)`; other paths get 404.
+    fn serve(routes: Vec<(&'static str, u16, String)>) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(&stream);
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).is_err() {
+                    continue;
+                }
+                let path = request_line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("/")
+                    .to_string();
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                    line.clear();
+                }
+                let (status, body) = routes
+                    .iter()
+                    .find(|(route, _, _)| *route == path)
+                    .map(|(_, status, body)| (*status, body.clone()))
+                    .unwrap_or((404, String::new()));
+                let _ = (&stream).write_all(
+                    format!(
+                        "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+        origin
+    }
+
+    const FEATURES: &str = r#"{"google_oauth_enabled":false,"password_reset_enabled":true,"email_verification_enabled":false}"#;
+
+    #[test]
+    fn finds_the_server_from_its_website_or_its_api() {
+        let api = serve(vec![("/api/system/features", 200, FEATURES.into())]);
+        let site = serve(vec![(
+            "/.well-known/voxpery/client",
+            200,
+            format!(r#"{{"api_base_url":"{api}"}}"#),
+        )]);
+        let (server, site_origin) = tauri::async_runtime::block_on(resolve(&api)).unwrap();
+        assert_eq!(
+            (server.api_origin.as_str(), site_origin),
+            (api.as_str(), None)
+        );
+        let (server, site_origin) = tauri::async_runtime::block_on(resolve(&site)).unwrap();
+        assert_eq!(server.api_origin, api);
+        assert_eq!(site_origin.as_deref(), Some(site.as_str()));
+    }
+
+    #[test]
+    fn explains_why_an_address_is_not_a_server() {
+        // A single-page website answers every path with its HTML page.
+        let spa = serve(vec![
+            ("/api/system/features", 200, "<!doctype html>".into()),
+            ("/.well-known/voxpery/client", 200, "<!doctype html>".into()),
+        ]);
+        let empty = serve(Vec::new());
+        // An empty discovery file is refused.
+        let blank = serve(vec![("/.well-known/voxpery/client", 200, String::new())]);
+        for origin in [spa, empty] {
+            let error = tauri::async_runtime::block_on(resolve(&origin)).unwrap_err();
+            assert_eq!(error, NOT_VOXPERY, "{origin}");
+        }
+        assert!(tauri::async_runtime::block_on(resolve(&blank)).is_err());
+        let closed = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}", listener.local_addr().unwrap())
+        };
+        assert_eq!(
+            tauri::async_runtime::block_on(resolve(&closed)).unwrap_err(),
+            UNREACHABLE
+        );
     }
 
     #[test]

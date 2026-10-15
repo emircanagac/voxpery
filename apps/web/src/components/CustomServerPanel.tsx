@@ -82,6 +82,9 @@ export default function CustomServerPanel({ variant }: Props) {
         </button>
       )}
       <label htmlFor={`custom-server-address-${variant}`}>Self-hosted server address</label>
+      <p className="custom-server-hint" id={`custom-server-hint-${variant}`}>
+        The server's website or its API address.
+      </p>
       <div className="auth-sign-in-code-row">
         <input
           id={`custom-server-address-${variant}`}
@@ -93,6 +96,7 @@ export default function CustomServerPanel({ variant }: Props) {
             setTrusted(false)
           }}
           onKeyDown={onKeyDown}
+          aria-describedby={`custom-server-hint-${variant}`}
           placeholder="https://chat.example.org"
           autoComplete="off"
           spellCheck={false}
@@ -104,8 +108,9 @@ export default function CustomServerPanel({ variant }: Props) {
       {checked && (
         <div className="custom-server-confirm">
           <p>
-            Found a Voxpery server at <strong>{checked.apiOrigin}</strong>. Your account, messages, files and voice
-            go to this server and its owner, not to voxpery.com. Only connect to servers you trust.
+            Found a Voxpery server at <strong>{checked.apiOrigin}</strong>
+            {checked.siteOrigin && <> (named by <strong>{checked.siteOrigin}</strong>)</>}. Your account, messages,
+            files and voice go to this server and its owner, not to voxpery.com. Only connect to servers you trust.
           </p>
           {checked.insecure && (
             <p className="custom-server-warning" role="alert">

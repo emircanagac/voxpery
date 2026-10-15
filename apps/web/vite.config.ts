@@ -17,6 +17,30 @@ function releaseMetadataPlugin(imageTag: string): Plugin {
   }
 }
 
+// Desktop apps accept this site's address for a custom server: the file names the API origin
+// (Matrix `.well-known` style), so users need not know the API host.
+function serverDiscoveryPlugin(apiUrl: string | undefined): Plugin | null {
+  let apiOrigin: string
+  try {
+    const url = new URL(apiUrl ?? '')
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    apiOrigin = url.origin
+  } catch {
+    return null
+  }
+  return {
+    name: 'server-discovery',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '.well-known/voxpery/client',
+        source: `${JSON.stringify({ api_base_url: apiOrigin })}
+`,
+      })
+    },
+  }
+}
+
 // In production, remove worklet path so main bundle has no dependency on it (no extra 5 kB chunk).
 function rnnoiseProdStripPlugin() {
   return {
@@ -44,9 +68,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     envDir: '../../',
-    plugins: [react(), releaseMetadataPlugin(appVersion), mode === 'production' ? rnnoiseProdStripPlugin() : null].filter(
-      Boolean
-    ),
+    plugins: [
+      react(),
+      releaseMetadataPlugin(appVersion),
+      serverDiscoveryPlugin(env.VITE_API_URL),
+      mode === 'production' ? rnnoiseProdStripPlugin() : null,
+    ].filter(Boolean),
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       ...(mode === 'production' ? { __RNNOISE_PROCESSOR_URL__: JSON.stringify(RNNOISE_WORKLET_URL) } : {}),
