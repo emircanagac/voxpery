@@ -64,7 +64,7 @@ export default function UnifiedLayout() {
   const isFriendsOrDm = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
   const isServerView = location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
 
-  // Keep the image proxy grant fresh while the app stays open; it changes twice a day.
+  // Keep the image proxy grant fresh while the app stays open; it changes every two hours.
   useEffect(() => {
     if (!userId) return
     const timer = window.setInterval(() => {

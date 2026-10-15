@@ -649,3 +649,57 @@ mod icon_tests {
         assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
     }
 }
+
+#[cfg(test)]
+mod ipc_access_tests {
+    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::test::{get_ipc_response, mock_builder, INVOKE_KEY};
+    use tauri::webview::InvokeRequest;
+
+    fn request(cmd: &str, frame_url: &str) -> InvokeRequest {
+        InvokeRequest {
+            cmd: cmd.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: frame_url.parse().unwrap(),
+            body: InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.to_string(),
+        }
+    }
+
+    #[test]
+    fn app_commands_answer_only_the_bundled_app() {
+        let app = mock_builder()
+            .invoke_handler(tauri::generate_handler![
+                crate::custom_server::desktop_custom_server,
+                crate::custom_server::desktop_set_custom_server
+            ])
+            .manage(crate::custom_server::ActiveServer(None))
+            .build(tauri::generate_context!(test = true))
+            .expect("the test app builds");
+        let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        // The bundled app (`tauri://localhost` in the mock runtime) may call its commands.
+        assert!(get_ipc_response(
+            &main,
+            request("desktop_custom_server", "tauri://localhost/")
+        )
+        .is_ok());
+
+        // A remote page inside the window, such as a custom server's captcha frame, may not.
+        for frame in [
+            "https://chat.example.org/api/auth/captcha-frame",
+            "https://api.voxpery.com/api/auth/captcha-frame",
+        ] {
+            for cmd in ["desktop_custom_server", "desktop_set_custom_server"] {
+                assert!(
+                    get_ipc_response(&main, request(cmd, frame)).is_err(),
+                    "{cmd} must be refused for {frame}"
+                );
+            }
+        }
+    }
+}

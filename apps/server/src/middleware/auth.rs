@@ -20,6 +20,9 @@ pub struct Claims {
     pub iat: usize, // issued at
     #[serde(default)]
     pub ver: i64, // token version snapshot
+    /// Random id of this sign-in; tokens issued before v0.4.6 have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jti: Option<String>,
 }
 
 /// Extract JWT from Cookie header (e.g. "voxpery_token=eyJ..."). Supports cookie-based auth for web.
