@@ -243,8 +243,7 @@ pub async fn record_join_raid_signal(
     .fetch_one(db)
     .await?;
 
-    if join_count >= 10
-        && try_mark_raid_cooldown(redis, server_id, "join_burst", None, 300).await?
+    if join_count >= 10 && try_mark_raid_cooldown(redis, server_id, "join_burst", None, 300).await?
     {
         log_raid_event(
             db,

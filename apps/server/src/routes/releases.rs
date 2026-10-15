@@ -123,9 +123,7 @@ async fn fetch_latest_release(state: &AppState) -> Result<LatestReleaseResponse,
     })
 }
 
-fn installable_assets<'a>(
-    assets: &'a [GithubReleaseAsset],
-) -> impl Iterator<Item = &'a GithubReleaseAsset> {
+fn installable_assets(assets: &[GithubReleaseAsset]) -> impl Iterator<Item = &GithubReleaseAsset> {
     assets.iter().filter(|asset| {
         let name = asset.name.to_ascii_lowercase();
         !name.ends_with(".sig")

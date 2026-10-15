@@ -333,10 +333,7 @@ async fn get_attachment_content(
     .await?;
     enforce_rate_limit(
         &state.redis,
-        format!(
-            "attachments:content:item:{}:{}",
-            claims.sub, attachment_id
-        ),
+        format!("attachments:content:item:{}:{}", claims.sub, attachment_id),
         ATTACHMENT_CONTENT_ITEM_RATE_LIMIT_MAX,
         ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW,
         "Attachment content rate limit exceeded. Please retry shortly.",

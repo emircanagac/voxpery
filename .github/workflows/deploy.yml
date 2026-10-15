@@ -61,12 +61,17 @@ jobs:
       - name: Resolve target
         id: target
         shell: bash
+        # Inputs reach the script as environment variables, never as interpolated shell text.
+        env:
+          INPUT_RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_GIT_REF: ${{ inputs.git_ref }}
         run: |
           set -euo pipefail
 
-          RELEASE_CHANNEL="${{ inputs.release_channel }}"
-          IMAGE_TAG="${{ inputs.image_tag }}"
-          GIT_REF="${{ inputs.git_ref }}"
+          RELEASE_CHANNEL="${INPUT_RELEASE_CHANNEL}"
+          IMAGE_TAG="${INPUT_IMAGE_TAG}"
+          GIT_REF="${INPUT_GIT_REF}"
           BUILD_CANDIDATE="false"
 
           git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"

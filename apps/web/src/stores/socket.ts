@@ -1,9 +1,10 @@
 import { create } from 'zustand'
-import { createWebSocket } from '../api'
+import { createWebSocket, type WsEvent } from '../api'
 import { reportObservabilityEvent } from '../observability'
 import { createSecureRandomFraction } from '../secureId'
 
-type WsListener = (data: unknown) => void
+/** Receives each parsed server event; narrow on `type` for typed `data`. */
+type WsListener = (event: WsEvent) => void
 type ReconnectListener = () => void
 
 const AUTH_EXPIRED_CLOSE_CODE = 4001

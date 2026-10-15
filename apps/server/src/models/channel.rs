@@ -14,12 +14,3 @@ pub struct Channel {
     pub position: i32,
     pub created_at: DateTime<Utc>,
 }
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub struct CreateChannelRequest {
-    pub name: String,
-    pub description: Option<String>,
-    pub channel_type: Option<String>,
-    pub category: Option<String>,
-}

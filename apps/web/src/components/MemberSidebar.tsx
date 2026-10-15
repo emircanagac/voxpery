@@ -15,7 +15,7 @@ import useViewportMenu from '../useViewportMenu'
 import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 
 interface MemberItemProps {
-    member: MemberProfileMember
+    member: MemberProfileMember & { highest_role_position?: number }
     isOwner: boolean
     isServerOwner: boolean
     currentUserId?: string
@@ -24,10 +24,11 @@ interface MemberItemProps {
     canBanAsRole: boolean
     canTimeoutAsRole: boolean
     canManageRoles: boolean
-    myRole: string
+    /** The viewer's highest role position as the server reports it (owner -1, lower outranks). */
+    myRolePosition: number
     interactive: boolean
     onProfile: (member: MemberProfileMember, isServerOwner: boolean) => void
-    onContextMenu: (position: { x: number; y: number }, trigger: HTMLElement, fromKeyboard: boolean, member: MemberItemProps['member'], canMakeAdmin: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
+    onContextMenu: (position: { x: number; y: number }, trigger: HTMLElement, fromKeyboard: boolean, member: MemberItemProps['member'], canEditRoles: boolean, canAddFriend: boolean, canSendDm: boolean, canTimeout: boolean, canKick: boolean, canBan: boolean, canReport: boolean) => void
 }
 
 const MemberItem = memo(function MemberItem({
@@ -40,7 +41,7 @@ const MemberItem = memo(function MemberItem({
     canBanAsRole,
     canTimeoutAsRole,
     canManageRoles,
-    myRole,
+    myRolePosition,
     interactive,
     onProfile,
     onContextMenu,
@@ -57,31 +58,27 @@ const MemberItem = memo(function MemberItem({
         : (isOnline ? 'member-name' : 'member-name member-name--default-offline')
 
     const canManageOwnerSelf = isOwner && member.user_id === currentUserId
-    const canManageNonOwnerTarget =
-        !isServerOwner &&
-        member.role !== 'owner' &&
-        (isOwner || canManageRoles)
-    const canMakeAdmin = canManageOwnerSelf || canManageNonOwnerTarget
+    const canManageNonOwnerTarget = !isServerOwner && (isOwner || canManageRoles)
+    const canEditRoles = canManageOwnerSelf || canManageNonOwnerTarget
+    // Same rule as the server: moderation needs a strictly higher role than the target.
+    const outranksTarget = myRolePosition < (member.highest_role_position ?? Number.MAX_SAFE_INTEGER)
     const canAddFriend = member.user_id !== currentUserId && !isFriend
     const canSendDm = member.user_id !== currentUserId
     const canKick =
         canKickAsRole &&
         !isServerOwner &&
         member.user_id !== currentUserId &&
-        member.role !== 'owner' &&
-        (myRole === 'owner' || member.role === 'member')
+        outranksTarget
     const canBan =
         canBanAsRole &&
         !isServerOwner &&
         member.user_id !== currentUserId &&
-        member.role !== 'owner' &&
-        (myRole === 'owner' || member.role === 'member')
+        outranksTarget
     const canTimeout =
         canTimeoutAsRole &&
         !isServerOwner &&
         member.user_id !== currentUserId &&
-        member.role !== 'owner' &&
-        (myRole === 'owner' || member.role === 'member')
+        outranksTarget
     const canReport = member.user_id !== currentUserId
     const showContextMenu = interactive
 
@@ -95,7 +92,7 @@ const MemberItem = memo(function MemberItem({
             onContextMenu={(e) => {
                 if (!showContextMenu) return
                 e.preventDefault()
-                onContextMenu({ x: e.clientX, y: e.clientY }, e.currentTarget, false, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
+                onContextMenu({ x: e.clientX, y: e.clientY }, e.currentTarget, false, member, canEditRoles, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
             }}
             onKeyDown={(e) => {
                 if (!showContextMenu || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey))) return
@@ -105,7 +102,7 @@ const MemberItem = memo(function MemberItem({
                     return
                 }
                 const rect = e.currentTarget.getBoundingClientRect()
-                onContextMenu({ x: rect.left, y: rect.bottom }, e.currentTarget, true, member, canMakeAdmin, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
+                onContextMenu({ x: rect.left, y: rect.bottom }, e.currentTarget, true, member, canEditRoles, canAddFriend, canSendDm, canTimeout, canKick, canBan, canReport)
             }}
         >
             <div className={`member-avatar avatar-status-${status(member) as StatusValue}`} title={statusLabel(member.status || 'offline')}>
@@ -199,7 +196,7 @@ export default function MemberSidebar({
         y: number
         trigger: HTMLElement
         horizontalBoundary: HTMLElement | null
-        canMakeAdmin: boolean
+        canEditRoles: boolean
         canAddFriend: boolean
         canSendDm: boolean
         canTimeout: boolean
@@ -227,7 +224,9 @@ export default function MemberSidebar({
     const menuKeyboardRef = useRef(false)
 
     const isOwner = !!(user && activeServer && activeServer.owner_id === user.id)
-    const myRole = members.find((m) => m.user_id === user?.id)?.role ?? 'member'
+    const myRolePosition = isOwner
+        ? -1
+        : members.find((m) => m.user_id === user?.id)?.highest_role_position ?? Number.MAX_SAFE_INTEGER
     const canKickAsRole = isOwner || canKickMembers
     const canBanAsRole = isOwner || canBanMembers
     const canTimeoutAsRole = isOwner || canTimeoutMembers
@@ -547,7 +546,7 @@ export default function MemberSidebar({
         trigger: HTMLElement,
         fromKeyboard: boolean,
         member: MemberItemProps['member'],
-        canMakeAdmin: boolean,
+        canEditRoles: boolean,
         canAddFriend: boolean,
         canSendDm: boolean,
         canTimeout: boolean,
@@ -568,7 +567,7 @@ export default function MemberSidebar({
             y: position.y,
             trigger,
             horizontalBoundary: trigger.closest<HTMLElement>('.member-sidebar'),
-            canMakeAdmin,
+            canEditRoles,
             canAddFriend,
             canSendDm,
             canTimeout,
@@ -583,13 +582,13 @@ export default function MemberSidebar({
     const status = (m: { status?: string | null }) => (m.status || 'offline').toLowerCase()
     const isOnline = (m: { status?: string | null }) =>
         status(m) === 'online' || status(m) === 'dnd'
-    const roleOrder = (r: string) => (r === 'owner' ? 0 : r === 'admin' ? 1 : 2)
     const membersForSidebar =
         activeChannel && activeChannel.channel_type === 'text' && activeChannelId
             ? (channelMembersById[activeChannelId] ?? members)
             : members
     const byRoleThenName = (a: (typeof membersForSidebar)[0], b: (typeof membersForSidebar)[0]) =>
-        roleOrder(a.role) - roleOrder(b.role) || a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
+        Number(b.user_id === activeServer.owner_id) - Number(a.user_id === activeServer.owner_id)
+        || a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
     const onlineMembers = membersForSidebar.filter(isOnline).sort(byRoleThenName)
     const offlineMembers = membersForSidebar.filter((m) => !isOnline(m)).sort(byRoleThenName)
     const friendUsernames = new Set(friends.map((f) => f.username.toLowerCase()))
@@ -613,7 +612,7 @@ export default function MemberSidebar({
                             canBanAsRole={canBanAsRole}
                             canTimeoutAsRole={canTimeoutAsRole}
                             canManageRoles={canManageRoles}
-                            myRole={myRole}
+                            myRolePosition={myRolePosition}
                             interactive={interactive}
                             onProfile={openProfile}
                             onContextMenu={handleContextMenu}
@@ -639,7 +638,7 @@ export default function MemberSidebar({
                             canBanAsRole={canBanAsRole}
                             canTimeoutAsRole={canTimeoutAsRole}
                             canManageRoles={canManageRoles}
-                            myRole={myRole}
+                            myRolePosition={myRolePosition}
                             interactive={interactive}
                             onProfile={openProfile}
                             onContextMenu={handleContextMenu}
@@ -694,7 +693,7 @@ export default function MemberSidebar({
                             Send DM
                         </button>
                     )}
-                    {contextMenu.canMakeAdmin && (
+                    {contextMenu.canEditRoles && (
                         <button
                             type="button"
                             className="server-context-menu-item"

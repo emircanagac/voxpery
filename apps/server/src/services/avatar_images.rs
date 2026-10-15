@@ -59,7 +59,10 @@ fn embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<Ipv4Addr> {
         return Some(v4);
     }
     // IPv4-compatible ::a.b.c.d (the loopback/unspecified forms are handled as IPv6).
-    if segments[..6].iter().all(|segment| *segment == 0) && !v6.is_loopback() && !v6.is_unspecified() {
+    if segments[..6].iter().all(|segment| *segment == 0)
+        && !v6.is_loopback()
+        && !v6.is_unspecified()
+    {
         return Some(from_segments(segments[6], segments[7]));
     }
     if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2..6].iter().all(|s| *s == 0) {
@@ -204,7 +207,12 @@ mod tests {
             let ip: IpAddr = blocked.parse().unwrap();
             assert!(is_private_or_local_ip(&ip), "{blocked} must be blocked");
         }
-        for public in ["::ffff:8.8.8.8", "2606:4700:4700::1111", "8.8.8.8", "64:ff9b::808:808"] {
+        for public in [
+            "::ffff:8.8.8.8",
+            "2606:4700:4700::1111",
+            "8.8.8.8",
+            "64:ff9b::808:808",
+        ] {
             let ip: IpAddr = public.parse().unwrap();
             assert!(!is_private_or_local_ip(&ip), "{public} must stay allowed");
         }

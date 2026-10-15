@@ -23,6 +23,7 @@ import { webrtcApi } from '../api/webrtc'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
+import { useFeatureStore } from '../stores/features'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
 import {
   resumeVoiceAudioContext,
@@ -1261,23 +1262,22 @@ export function useLiveKitVoice() {
       remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
       remoteScreenStopCueTimersRef.current.clear()
 
-      const iceServers: RTCIceServer[] = [
-        { urls: ['stun:stun.l.google.com:19302'] },
-        { urls: ['stun:stun1.l.google.com:19302'] },
-      ]
-
-      // Optional: Add TURN servers only if configured in .env
-      try {
-        const turnCreds = await webrtcApi.getTurnCredentials(token ?? null)
-        if (turnCreds.urls && turnCreds.urls.length > 0) {
-          iceServers.push({
-            urls: turnCreds.urls,
-            username: turnCreds.username,
-            credential: turnCreds.credential,
-          })
+      // ICE servers come from LiveKit's join response. Setting them here replaces that list, so
+      // it is done only when this server runs its own TURN, and never with third-party STUN.
+      let iceServers: RTCIceServer[] | undefined
+      if (useFeatureStore.getState().features?.turn_enabled) {
+        try {
+          const turnCreds = await webrtcApi.getTurnCredentials(token ?? null)
+          if (turnCreds.urls && turnCreds.urls.length > 0) {
+            iceServers = [{
+              urls: turnCreds.urls,
+              username: turnCreds.username,
+              credential: turnCreds.credential,
+            }]
+          }
+        } catch {
+          // Without TURN credentials, LiveKit's own ICE servers are used.
         }
-      } catch {
-        // Ignore TURN errors in dev
       }
       joinTiming.mark('turnMs')
       ensureCurrentJoin()
@@ -1468,7 +1468,7 @@ export function useLiveKitVoice() {
         // Selective media rules immediately unsubscribe unwatched screen
         // shares and hidden video without racing required voice audio.
         autoSubscribe: LIVEKIT_AUTO_SUBSCRIBE,
-        rtcConfig: { iceServers },
+        rtcConfig: iceServers ? { iceServers } : undefined,
       })
       let connectionTimer: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<never>((_, reject) => {

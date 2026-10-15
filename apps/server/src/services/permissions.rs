@@ -94,9 +94,11 @@ pub async fn get_user_server_permissions_on_connection(
     server_id: Uuid,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
-    Ok(member_server_permissions_on_connection(db, server_id, user_id)
-        .await?
-        .unwrap_or_else(Permissions::empty))
+    Ok(
+        member_server_permissions_on_connection(db, server_id, user_id)
+            .await?
+            .unwrap_or_else(Permissions::empty),
+    )
 }
 
 /// Server-level permissions, or `None` when the user is neither the owner nor a member.
@@ -482,7 +484,12 @@ impl ServerPermissionSnapshot {
             .filter(|(_, _, is_everyone)| !is_everyone)
             .map(|(_, bits, _)| *bits);
         let mut perms = Permissions::empty();
-        for bits in self.everyone_roles.iter().map(|(_, bits)| *bits).chain(assigned) {
+        for bits in self
+            .everyone_roles
+            .iter()
+            .map(|(_, bits)| *bits)
+            .chain(assigned)
+        {
             if let Some(p) = Permissions::from_bits(bits) {
                 perms |= p;
             }

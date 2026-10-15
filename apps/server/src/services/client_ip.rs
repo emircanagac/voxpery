@@ -199,8 +199,14 @@ mod tests {
         // The client's own header comes first; the proxy appended a second line.
         let mut split = HeaderMap::new();
         split.append("x-forwarded-for", HeaderValue::from_static("203.0.113.66"));
-        split.append("x-forwarded-for", HeaderValue::from_static("198.51.100.8, 10.0.0.9"));
-        assert_eq!(resolve_client_ip(&split, peer, &trusted).as_deref(), Some("198.51.100.8"));
+        split.append(
+            "x-forwarded-for",
+            HeaderValue::from_static("198.51.100.8, 10.0.0.9"),
+        );
+        assert_eq!(
+            resolve_client_ip(&split, peer, &trusted).as_deref(),
+            Some("198.51.100.8")
+        );
 
         let with_ports = headers(&[("x-forwarded-for", "198.51.100.8:51234, [2001:db8::1]:443")]);
         assert_eq!(

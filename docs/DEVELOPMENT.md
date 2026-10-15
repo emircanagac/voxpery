@@ -196,11 +196,13 @@ in [NETWORK_USAGE_BENCHMARK.md](NETWORK_USAGE_BENCHMARK.md).
 
 Runs on `push` and `pull_request`:
 
-- `Secret Scan (gitleaks)` (containerized CLI), on every run
+- `Secret Scan (gitleaks)` (containerized CLI), on every run, together with the migration history and the WebSocket event contract check (`.github/scripts/check-ws-event-sync.mjs`: the web `WsEventDataMap` must list the same events and payload fields as the server's `WsEvent`)
 - `Detect Changes` decides which build checks a change needs (`.github/scripts/ci-changes.mjs`, covered by `ci-changes.test.mjs`)
-- `Backend` (`cargo check`, then unit and integration tests against isolated PostgreSQL and Redis services)
+- `Backend` (`cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, then unit and integration tests against isolated PostgreSQL and Redis services)
 - `Frontend` (`npm ci`, lint, tests, `scripts/tests` and `.github/scripts` regressions, Playwright smoke coverage, production build, and the initial JavaScript budget check)
-- `Desktop` (Ubuntu 24.04 with GTK 4: Linux launcher validation, then `cargo check --locked` and `cargo test --locked` for the Tauri app against a placeholder frontend; the Linux build compiles the CEF runtime), so desktop compile errors fail the PR instead of the release build
+- `Desktop` (Ubuntu 24.04 with GTK 4: Linux launcher validation, then `cargo fmt --check`, `cargo check --locked`, `cargo clippy --locked -- -D warnings` and `cargo test --locked` for the Tauri app against a placeholder frontend; the Linux build compiles the CEF runtime), so desktop compile errors fail the PR instead of the release build
+
+Rust sources keep mixed CRLF/LF line endings, so the format checks run on a copy with LF endings: only formatting fails them. Run `cargo fmt` before pushing Rust changes and keep the original line endings of untouched lines.
 
 Backend service containers pull pinned PostgreSQL and Redis versions from Docker Official Images on Amazon ECR Public (`public.ecr.aws/docker/library/`). This avoids Docker Hub pull quotas without requiring registry secrets, including for fork pull requests. Keep version tags pinned when updating these images.
 

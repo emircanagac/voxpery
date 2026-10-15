@@ -108,9 +108,19 @@ mod tests {
         let (grant, exp) = user_grant(SECRET, Uuid::new_v4(), NOW);
         assert!(exp - NOW > GRANT_WINDOW_SECS && exp - NOW <= 2 * GRANT_WINDOW_SECS);
         assert!(verify(SECRET, &grant, IMAGE, NOW));
-        assert!(verify(SECRET, &grant, "https://other.example.com/b.gif", exp));
+        assert!(verify(
+            SECRET,
+            &grant,
+            "https://other.example.com/b.gif",
+            exp
+        ));
         assert!(!verify(SECRET, &grant, IMAGE, exp + 1));
-        assert!(!verify("another-secret-with-at-least-32-chars", &grant, IMAGE, NOW));
+        assert!(!verify(
+            "another-secret-with-at-least-32-chars",
+            &grant,
+            IMAGE,
+            NOW
+        ));
     }
 
     #[test]
@@ -127,7 +137,12 @@ mod tests {
     fn image_grants_cover_only_their_image() {
         let grant = image_grant(SECRET, IMAGE, NOW);
         assert!(verify(SECRET, &grant, IMAGE, NOW));
-        assert!(!verify(SECRET, &grant, "https://cdn.example.com/b.png", NOW));
+        assert!(!verify(
+            SECRET,
+            &grant,
+            "https://cdn.example.com/b.png",
+            NOW
+        ));
     }
 
     #[test]
@@ -137,7 +152,14 @@ mod tests {
         let sig = grant.rsplit('.').next().unwrap();
         let other_user = format!("u.{}.{exp}.{sig}", Uuid::new_v4().simple());
         let later = format!("u.{}.{}.{sig}", user.simple(), exp + GRANT_WINDOW_SECS);
-        for bad in [other_user.as_str(), later.as_str(), "", "u", "i.1.x", "x.1.2.3"] {
+        for bad in [
+            other_user.as_str(),
+            later.as_str(),
+            "",
+            "u",
+            "i.1.x",
+            "x.1.2.3",
+        ] {
             assert!(!verify(SECRET, bad, IMAGE, NOW), "{bad}");
         }
         // A grant from the far future is refused even when correctly signed.

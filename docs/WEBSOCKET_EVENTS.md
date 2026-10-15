@@ -153,6 +153,8 @@ Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be diffe
 
 ## Server -> Client Events
 
+The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth. The web client mirrors it as the typed union `WsEvent` / `WsEventDataMap` in `apps/web/src/types/index.ts`, and CI (`.github/scripts/check-ws-event-sync.mjs`) fails when event names or payload fields differ.
+
 ### Channel/Message
 
 - `NewMessage`

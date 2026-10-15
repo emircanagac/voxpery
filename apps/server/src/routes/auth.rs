@@ -47,10 +47,10 @@ use crate::{
 mod captcha_frame;
 #[path = "desktop_registration.rs"]
 mod desktop_registration;
-#[path = "registration_pages.rs"]
-mod registration_pages;
 #[path = "google_registration.rs"]
 mod google_registration;
+#[path = "registration_pages.rs"]
+mod registration_pages;
 
 /// Build Set-Cookie value for auth token (httpOnly, SameSite=Lax; Secure when configured).
 fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
@@ -502,7 +502,10 @@ mod oauth_pkce_tests {
         assert!(html.contains("<script nonce=\"test-nonce\">"));
         assert!(html.contains("You are signed in"));
         assert!(html.contains("&quot;&lt;/script&gt;"));
-        assert!(!html.contains("id=\"sign-in-code\""), "malformed codes are never shown");
+        assert!(
+            !html.contains("id=\"sign-in-code\""),
+            "malformed codes are never shown"
+        );
         assert!(html.contains("\\u003c/script\\u003e"));
         assert!(!html.contains("<script>alert(1)</script>"));
     }
@@ -553,7 +556,9 @@ mod oauth_pkce_tests {
     #[test]
     fn linking_google_identity_keeps_only_verified_local_passwords() {
         let sql = crate::services::auth::LINK_GOOGLE_IDENTITY_SQL;
-        assert!(sql.contains("password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END"));
+        assert!(sql.contains(
+            "password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END"
+        ));
         assert!(sql.contains("token_version = token_version + 1"));
     }
 
@@ -1234,7 +1239,7 @@ async fn register(
         "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($2)",
     )
     .bind(&email)
-    .bind(&username)
+    .bind(username)
     .fetch_one(&state.db)
     .await?;
 
@@ -1258,7 +1263,7 @@ async fn register(
            RETURNING *"#,
     )
     .bind(Uuid::new_v4())
-    .bind(&username)
+    .bind(username)
     .bind(&email)
     .bind(&password_hash)
     .bind(CURRENT_TERMS_VERSION)
@@ -1375,12 +1380,11 @@ pub async fn ensure_seed_admin(
         return Err(AppError::Validation("Invalid seed admin username".into()));
     }
     let weak_password = crate::is_weak_seed_admin_password(password);
-    let existing = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, password_hash FROM users WHERE email = $1",
-    )
-    .bind(email)
-    .fetch_optional(db)
-    .await?;
+    let existing =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
+            .bind(email)
+            .fetch_optional(db)
+            .await?;
     if let Some((id, password_hash)) = existing {
         // An account seeded earlier may still have the example password everyone can read.
         if weak_password && verify_password(password, &password_hash).unwrap_or(false) {
@@ -1405,7 +1409,7 @@ pub async fn ensure_seed_admin(
            VALUES ($1, $2, $3, $4, 'online', NOW())"#,
     )
     .bind(id)
-    .bind(&username)
+    .bind(username)
     .bind(email)
     .bind(&password_hash)
     .execute(db)
@@ -1439,7 +1443,7 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .await?;
 
         sqlx::query(
-            "INSERT INTO server_members (server_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', NOW())",
+            "INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, NOW())",
         )
         .bind(server_id)
         .bind(owner_id)
@@ -1495,8 +1499,8 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .await?;
 
         sqlx::query(
-            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-               SELECT $1, u.id, 'member', NOW()
+            r#"INSERT INTO server_members (server_id, user_id, joined_at)
+               SELECT $1, u.id, NOW()
                FROM users u
                WHERE NOT EXISTS (
                    SELECT 1 FROM server_bans b WHERE b.server_id = $1 AND b.user_id = u.id
@@ -1528,8 +1532,8 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         ensure_default_onboarding_guide(db, server_id).await?;
 
         sqlx::query(
-            r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-               SELECT $1, $2, 'member', NOW()
+            r#"INSERT INTO server_members (server_id, user_id, joined_at)
+               SELECT $1, $2, NOW()
                WHERE NOT EXISTS (
                    SELECT 1 FROM server_bans WHERE server_id = $1 AND user_id = $2
                )
@@ -2744,7 +2748,7 @@ async fn update_profile(
             let taken = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM users WHERE lower(username) = lower($1) AND id <> $2",
             )
-            .bind(&username)
+            .bind(username)
             .bind(claims.sub)
             .fetch_one(&state.db)
             .await?;
@@ -3298,7 +3302,7 @@ async fn export_my_data(
     let memberships = sqlx::query_as::<_, ExportMembershipRow>(
         r#"SELECT s.name AS server_name,
                   sm.joined_at,
-                  sm.role
+                  CASE WHEN s.owner_id = sm.user_id THEN 'owner' ELSE 'member' END AS role
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            WHERE sm.user_id = $1
@@ -3617,12 +3621,11 @@ async fn delete_my_account(
 
     // A server that still has members goes to the highest-ranked one (the earliest to join on
     // a tie), so it stays manageable; only servers left without members go to the placeholder.
-    let owned_server_ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM servers WHERE owner_id = $1 FOR UPDATE",
-    )
-    .bind(claims.sub)
-    .fetch_all(&mut *tx)
-    .await?;
+    let owned_server_ids =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE owner_id = $1 FOR UPDATE")
+            .bind(claims.sub)
+            .fetch_all(&mut *tx)
+            .await?;
     let mut transferred_server_ids = Vec::new();
     for server_id in owned_server_ids {
         let successor = sqlx::query_scalar::<_, Uuid>(
@@ -3650,11 +3653,6 @@ async fn delete_my_account(
             .bind(server_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE server_members SET role = 'owner' WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(successor)
-            .execute(&mut *tx)
-            .await?;
         transferred_server_ids.push(server_id);
     }
 
@@ -3664,12 +3662,11 @@ async fn delete_my_account(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        r#"INSERT INTO server_members (server_id, user_id, role, joined_at)
-           SELECT id, $1, 'owner', NOW()
+        r#"INSERT INTO server_members (server_id, user_id, joined_at)
+           SELECT id, $1, NOW()
            FROM servers
            WHERE owner_id = $1
-           ON CONFLICT (server_id, user_id)
-           DO UPDATE SET role = 'owner'"#,
+           ON CONFLICT (server_id, user_id) DO NOTHING"#,
     )
     .bind(deleted_placeholder_id)
     .execute(&mut *tx)

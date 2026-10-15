@@ -35,7 +35,7 @@ Screen-share tiles carry an explicit `screen` media kind and use `object-fit: co
 1. User clicks voice channel
 2. Frontend requests LiveKit token: `GET /api/webrtc/livekit-token?channel_id=...`
 3. Backend mints JWT with `room`, `identity`, `canPublish`, `canSubscribe`
-4. Frontend creates `Room`, connects with token
+4. Frontend creates `Room`, connects with token. ICE servers come from LiveKit's join response; the client contacts no third-party STUN server. Only when the server sets `TURN_URLS` (`turn_enabled` in `GET /api/system/features`) does the client fetch `GET /api/webrtc/turn-credentials` and use that TURN server instead.
 5. Frontend publishes mic track -> LiveKit forwards to all room participants
 6. Frontend subscribes to all remote tracks automatically
 

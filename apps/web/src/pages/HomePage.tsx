@@ -855,11 +855,11 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   // Edits and deletions by any member (or this user's other sessions) apply to the cached
   // conversation and, when it is open, to its messages, pins and search results.
   useEffect(() => {
-    const unsub = subscribe((evt: unknown) => {
-      const e = evt as { type?: string; data?: { channel_id?: string; message_id?: string; message?: MessageWithAuthor } }
-      const updated = e?.type === 'MessageUpdated' ? e.data?.message : undefined
-      const removedId = e?.type === 'MessageDeleted' ? e.data?.message_id : undefined
-      const channelId = e?.data?.channel_id
+    const unsub = subscribe((event) => {
+      if (event?.type !== 'MessageUpdated' && event?.type !== 'MessageDeleted') return
+      const updated = event.type === 'MessageUpdated' ? event.data?.message : undefined
+      const removedId = event.type === 'MessageDeleted' ? event.data?.message_id : undefined
+      const channelId = event.data?.channel_id
       if (!channelId || !(updated?.id || removedId)) return
       const apply = <T extends MessageWithAuthor>(messages: T[]): T[] => (updated
         ? messages.map((m) => (m.id === updated.id ? { ...m, ...updated } : m))

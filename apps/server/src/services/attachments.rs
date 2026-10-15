@@ -303,6 +303,8 @@ impl AttachmentService {
         .await
     }
 
+    // Mirrors the configuration fields one to one; a parameter struct would only rename them.
+    #[allow(clippy::too_many_arguments)]
     async fn new_local(
         local_dir: PathBuf,
         key_prefix: String,
@@ -761,11 +763,8 @@ impl AttachmentService {
         } = prepared;
 
         let now = chrono::Utc::now();
-        let storage_key = LocalAttachmentStorageKey::new(
-            now.year() as u16,
-            now.month() as u8,
-            Uuid::new_v4(),
-        );
+        let storage_key =
+            LocalAttachmentStorageKey::new(now.year() as u16, now.month() as u8, Uuid::new_v4());
         let key = storage_key.storage_key(&self.key_prefix);
         let path = self.resolve_local_path(storage_key);
         if let Some(parent) = path.parent() {
@@ -1206,8 +1205,10 @@ fn detect_iso_base_media_kind(bytes: &[u8]) -> Option<DetectedAttachmentKind> {
 
 fn contains_aligned_brand(haystack: &[u8], needles: &[&[u8; 4]]) -> bool {
     haystack
-        .chunks_exact(4)
-        .any(|brand| needles.iter().any(|needle| brand == needle.as_slice()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|brand| needles.contains(&brand))
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
@@ -1249,34 +1250,6 @@ fn image_format_for_metadata_strip(content_type: &str) -> Option<image::ImageFor
 enum ScanResult {
     Clean,
     Infected(String),
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn sanitize_file_name(input: &str) -> String {
-    let fallback = "file.bin".to_string();
-    let candidate = input.trim();
-    if candidate.is_empty() {
-        return fallback;
-    }
-
-    let sanitized = candidate
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string();
-
-    if sanitized.is_empty() {
-        fallback
-    } else {
-        sanitized
-    }
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -1533,12 +1506,6 @@ mod tests {
     }
 
     #[test]
-    fn sanitizes_filename() {
-        assert_eq!(sanitize_file_name("my image?.png"), "my_image_.png");
-        assert_eq!(sanitize_file_name(""), "file.bin");
-    }
-
-    #[test]
     fn storage_key_validation_rejects_path_escape_inputs() {
         for key in [
             "",
@@ -1574,7 +1541,10 @@ mod tests {
             format!("attachments/2026/13/{object_id}"),
             format!("attachments/26/05/{object_id}"),
             "attachments/2026/05/not-a-uuid".to_string(),
-            format!("attachments/2026/05/{}", object_id.to_string().to_uppercase()),
+            format!(
+                "attachments/2026/05/{}",
+                object_id.to_string().to_uppercase()
+            ),
         ] {
             assert!(
                 LocalAttachmentStorageKey::parse(&key, "attachments").is_err(),
@@ -1622,8 +1592,7 @@ mod tests {
         let storage_key = format!("attachments/2026/08/{}", Uuid::new_v4());
         let parsed_key = LocalAttachmentStorageKey::parse(&storage_key, "attachments")
             .expect("generated storage key");
-        let linked_path = service
-            .resolve_local_path(parsed_key);
+        let linked_path = service.resolve_local_path(parsed_key);
         fs::create_dir_all(linked_path.parent().expect("storage parent"))
             .await
             .expect("storage parent");
@@ -1709,12 +1678,9 @@ mod tests {
             b"PK\x03\x04archive"
         )
         .is_err());
-        assert!(validate_upload_content(
-            "startup.ps1",
-            "text/plain",
-            b"Write-Host 'payload'"
-        )
-        .is_err());
+        assert!(
+            validate_upload_content("startup.ps1", "text/plain", b"Write-Host 'payload'").is_err()
+        );
     }
 
     #[test]
@@ -1780,9 +1746,11 @@ mod tests {
         assert!(Uuid::parse_str(object_id).is_ok());
         let parsed_key = LocalAttachmentStorageKey::parse(&stored.storage_key, "attachments")
             .expect("stored key");
-        let stored_path = service
-            .resolve_local_path(parsed_key);
-        assert_eq!(fs::read(&stored_path).await.expect("stored bytes"), b"hello");
+        let stored_path = service.resolve_local_path(parsed_key);
+        assert_eq!(
+            fs::read(&stored_path).await.expect("stored bytes"),
+            b"hello"
+        );
         let mut sibling_entries = fs::read_dir(stored_path.parent().expect("storage parent"))
             .await
             .expect("storage directory");
@@ -1801,7 +1769,9 @@ mod tests {
         let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&test_root).await.expect("test root");
         let target_path = test_root.join("existing-directory");
-        fs::create_dir(&target_path).await.expect("conflicting target");
+        fs::create_dir(&target_path)
+            .await
+            .expect("conflicting target");
 
         let error = write_file_atomically(&target_path, b"temporary payload")
             .await

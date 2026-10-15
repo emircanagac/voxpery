@@ -524,6 +524,8 @@ async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_
     assert_eq!(status, StatusCode::OK);
     let features: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(features["observability_enabled"], true);
+    // Without TURN_URLS, voice uses LiveKit's own ICE servers.
+    assert_eq!(features["turn_enabled"], false);
 
     let valid = Request::builder()
         .method("POST")
@@ -6318,15 +6320,6 @@ async fn concurrent_member_role_replacements_leave_one_complete_state() {
     .await
     .unwrap();
     assert_eq!(roles_after_rejection, assigned_role_ids);
-
-    let legacy_role: String =
-        sqlx::query_scalar("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(member_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
-    assert_eq!(legacy_role, "member");
 }
 
 #[tokio::test]
@@ -7719,7 +7712,13 @@ async fn desktop_registration_rerenders_fixable_errors_without_echoing_passwords
     let (mut app, state) = setup_app().await;
     let taken_email = format!("{}@example.test", Uuid::new_v4());
     let taken_username = format!("taken_{}", &Uuid::new_v4().simple().to_string()[..20]);
-    register_user(&mut app, &taken_email, &taken_username, test_credential("taken")).await;
+    register_user(
+        &mut app,
+        &taken_email,
+        &taken_username,
+        test_credential("taken"),
+    )
+    .await;
     let (cookie, csrf, hash, _) =
         desktop_registration_fixture(&app, &state, "voxpery://auth").await;
     let email = format!("{}@example.test", Uuid::new_v4());
@@ -7802,7 +7801,9 @@ async fn desktop_registration_enforces_captcha_and_shared_registration_limits() 
             state.auth_rate_limit_max,
             std::time::Duration::from_secs(state.auth_rate_limit_window_secs),
             "Test registration limit",
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     }
     let (status, html) = oneshot(
         &mut app,
@@ -7920,10 +7921,7 @@ async fn api_json(
 }
 
 /// Registers a user and returns (Authorization header value, user id, password).
-async fn register_named_user(
-    app: &mut axum::Router,
-    label: &str,
-) -> (String, Uuid, &'static str) {
+async fn register_named_user(app: &mut axum::Router, label: &str) -> (String, Uuid, &'static str) {
     let suffix = Uuid::new_v4();
     let password = test_credential(label);
     let (token, user_id) = register_user(
@@ -7989,13 +7987,15 @@ async fn grant_role_with_permissions(
     .execute(&state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
-        .bind(server_id)
-        .bind(user_id)
-        .bind(role_id)
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)",
+    )
+    .bind(server_id)
+    .bind(user_id)
+    .bind(role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
     role_id
 }
 
@@ -8055,7 +8055,11 @@ async fn ws_send(stream: &mut TestWs, value: serde_json::Value) {
 
 /// Sends a Ping and waits for its Pong: earlier client messages on this socket are processed.
 async fn ws_barrier(stream: &mut TestWs) {
-    ws_send(stream, json!({ "type": "Ping", "data": { "sent_at_ms": 1 } })).await;
+    ws_send(
+        stream,
+        json!({ "type": "Ping", "data": { "sent_at_ms": 1 } }),
+    )
+    .await;
     receive_ws_event(stream, "Pong").await;
 }
 
@@ -8883,7 +8887,11 @@ async fn friends_only_users_can_be_answered_in_dms_they_wrote_in() {
         Some(send("hello first")),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "no reply before the friends-only user writes");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "no reply before the friends-only user writes"
+    );
 
     // Once they have written, the reply goes through.
     let (status, body) = api_json(
@@ -8894,7 +8902,10 @@ async fn friends_only_users_can_be_answered_in_dms_they_wrote_in() {
         Some(send("hi there")),
     )
     .await;
-    assert!(status.is_success(), "friends-only user could not write: {body}");
+    assert!(
+        status.is_success(),
+        "friends-only user could not write: {body}"
+    );
     let (status, body) = api_json(
         &mut app,
         "POST",
@@ -8903,7 +8914,10 @@ async fn friends_only_users_can_be_answered_in_dms_they_wrote_in() {
         Some(send("hi back")),
     )
     .await;
-    assert!(status.is_success(), "reply to a DM the friends-only user wrote in failed: {body}");
+    assert!(
+        status.is_success(),
+        "reply to a DM the friends-only user wrote in failed: {body}"
+    );
 
     // Writing in one conversation is not consent for strangers in general.
     let (stranger_auth, _, _) = register_named_user(&mut app, "stranger").await;
@@ -8919,7 +8933,11 @@ async fn friends_only_users_can_be_answered_in_dms_they_wrote_in() {
 }
 
 async fn befriend(state: &AppState, one: Uuid, other: Uuid) {
-    let (a, b) = if one < other { (one, other) } else { (other, one) };
+    let (a, b) = if one < other {
+        (one, other)
+    } else {
+        (other, one)
+    };
     sqlx::query("INSERT INTO friendships (user_a, user_b) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(a)
         .bind(b)
@@ -8943,11 +8961,19 @@ async fn upload_text_file(app: &mut axum::Router, auth: &str, name: &str, bytes:
         .method("POST")
         .uri("/api/attachments/upload")
         .header("Authorization", auth)
-        .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
         .body(Body::from(body))
         .unwrap();
     let (status, body) = oneshot(app, request).await;
-    assert_eq!(status, StatusCode::OK, "upload failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "upload failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let uploaded: serde_json::Value = serde_json::from_slice(&body).unwrap();
     uploaded[0]["id"].as_str().unwrap().parse().unwrap()
 }
@@ -9023,16 +9049,40 @@ async fn unused_uploads_are_released_and_their_quota_returned() {
     let second = send_with_attachment(&mut app, &auth, channel_id, shared).await;
     age_upload(&state, shared, false).await;
     let used_before = storage_used(&state, user_id).await;
-    let (status, _) =
-        api_json(&mut app, "DELETE", &format!("/api/messages/item/{first}"), &auth, None).await;
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{first}"),
+        &auth,
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
-    let (_, check_at) = upload_release_state(&state, shared).await.expect("still in use");
-    assert!(check_at.is_none(), "a file in use waits for its next message deletion");
-    let (status, _) =
-        api_json(&mut app, "DELETE", &format!("/api/messages/item/{second}"), &auth, None).await;
+    let (_, check_at) = upload_release_state(&state, shared)
+        .await
+        .expect("still in use");
+    assert!(
+        check_at.is_none(),
+        "a file in use waits for its next message deletion"
+    );
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{second}"),
+        &auth,
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(upload_release_state(&state, shared).await.is_none(), "unused file must be released");
-    assert!(state.attachment_service.open_local_attachment_file(&shared_key).await.is_err());
+    assert!(
+        upload_release_state(&state, shared).await.is_none(),
+        "unused file must be released"
+    );
+    assert!(state
+        .attachment_service
+        .open_local_attachment_file(&shared_key)
+        .await
+        .is_err());
     assert_eq!(
         storage_used(&state, user_id).await,
         used_before - b"shared release bytes".len() as i64
@@ -9055,11 +9105,17 @@ async fn unused_uploads_are_released_and_their_quota_returned() {
     // Uploading the same file again reuses the upload and restarts its grace period.
     let reused = upload_text_file(&mut app, &auth, "again.txt", b"reuse bytes").await;
     age_upload(&state, reused, true).await;
-    assert_eq!(upload_text_file(&mut app, &auth, "again.txt", b"reuse bytes").await, reused);
+    assert_eq!(
+        upload_text_file(&mut app, &auth, "again.txt", b"reuse bytes").await,
+        reused
+    );
     release_unused_uploads(&state.db, &state.attachment_service, Some(&[reused]))
         .await
         .unwrap();
-    assert!(upload_release_state(&state, reused).await.is_some(), "a fresh re-upload is kept");
+    assert!(
+        upload_release_state(&state, reused).await.is_some(),
+        "a fresh re-upload is kept"
+    );
 
     // Messages removed with their channel mark their files for the next check.
     let cascaded = upload_text_file(&mut app, &auth, "cascade.txt", b"cascade bytes").await;
@@ -9076,7 +9132,10 @@ async fn unused_uploads_are_released_and_their_quota_returned() {
         .await
         .unwrap();
     let (_, check_at) = upload_release_state(&state, cascaded).await.unwrap();
-    assert!(check_at.is_some(), "deleting messages must queue their files");
+    assert!(
+        check_at.is_some(),
+        "deleting messages must queue their files"
+    );
     let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[cascaded]))
         .await
         .unwrap();
@@ -9089,7 +9148,11 @@ async fn unused_uploads_are_released_and_their_quota_returned() {
     .fetch_one(&state.db)
     .await
     .unwrap();
-    assert_eq!(storage_used(&state, user_id).await, remaining, "quota matches the files left");
+    assert_eq!(
+        storage_used(&state, user_id).await,
+        remaining,
+        "quota matches the files left"
+    );
 }
 
 #[tokio::test]
@@ -9107,7 +9170,13 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
     let (server_id, general_id, invite_code) =
         create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Snapshot").await;
     let mut users = vec![owner_id];
-    for label in ["snapplain", "snapstaff", "snapmuted", "snapadmin", "snapweird"] {
+    for label in [
+        "snapplain",
+        "snapstaff",
+        "snapmuted",
+        "snapadmin",
+        "snapweird",
+    ] {
         let (auth, user_id, _) = register_named_user(&mut app, label).await;
         join_with_invite(&mut app, &auth, &invite_code).await;
         users.push(user_id);
@@ -9135,13 +9204,15 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
             .execute(&state.db)
             .await
             .unwrap();
-            sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
-                .bind(server_id)
-                .bind(member)
-                .bind(role_id)
-                .execute(&state.db)
-                .await
-                .unwrap();
+            sqlx::query(
+                "INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)",
+            )
+            .bind(server_id)
+            .bind(member)
+            .bind(role_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
             role_id
         }
     };
@@ -9149,7 +9220,12 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
     let muted_role = add_role("Snap muted", 0, muted_id).await;
     add_role("Snap admin", Permissions::MANAGE_SERVER.bits(), admin_id).await;
     // Unknown bits make a role's permissions unreadable, so it grants nothing.
-    add_role("Snap weird", (1 << 40) | Permissions::MANAGE_CHANNELS.bits(), weird_id).await;
+    add_role(
+        "Snap weird",
+        (1 << 40) | Permissions::MANAGE_CHANNELS.bits(),
+        weird_id,
+    )
+    .await;
     let everyone_role: Uuid = sqlx::query_scalar(
         "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone'",
     )
@@ -9158,13 +9234,19 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
     .await
     .unwrap();
 
-    sqlx::query("INSERT INTO server_channel_categories (server_id, name, position) VALUES ($1, 'Staff', 1)")
-        .bind(server_id)
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO server_channel_categories (server_id, name, position) VALUES ($1, 'Staff', 1)",
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
     let mut channels = vec![general_id];
-    for (name, category) in [("staff-chat", Some("Staff")), ("padded", Some("  Staff ")), ("news", None)] {
+    for (name, category) in [
+        ("staff-chat", Some("Staff")),
+        ("padded", Some("  Staff ")),
+        ("news", None),
+    ] {
         let channel_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at) VALUES ($1, $2, $3, 'text', $4, 3, NOW())",
@@ -9198,7 +9280,12 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
         (news, staff_role, send, 0),
         (news, muted_role, 0, view),
         // Allowing a server-wide power per channel has no effect.
-        (staff_chat, muted_role, view | Permissions::MANAGE_SERVER.bits(), 0),
+        (
+            staff_chat,
+            muted_role,
+            view | Permissions::MANAGE_SERVER.bits(),
+            0,
+        ),
         (staff_chat, staff_role, 0, pins),
     ] {
         sqlx::query(
@@ -9213,7 +9300,9 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
         .unwrap();
     }
 
-    let everyone = ServerPermissionSnapshot::load(&state.db, server_id, None).await.unwrap();
+    let everyone = ServerPermissionSnapshot::load(&state.db, server_id, None)
+        .await
+        .unwrap();
     for &user_id in &users {
         let single = ServerPermissionSnapshot::load(&state.db, server_id, Some(&[user_id]))
             .await
@@ -9234,12 +9323,25 @@ async fn permission_snapshot_matches_per_user_permission_checks() {
         }
     }
     // The fixture exercises distinct outcomes, not only empty or full permissions.
-    assert!(!everyone.channel_permissions(staff_chat, users[1]).contains(Permissions::VIEW_SERVER));
-    assert!(everyone.channel_permissions(staff_chat, staff_id).contains(Permissions::VIEW_SERVER));
-    assert!(everyone.channel_permissions(staff_chat, muted_id).contains(Permissions::VIEW_SERVER));
-    assert!(!everyone.channel_permissions(news, muted_id).contains(Permissions::VIEW_SERVER));
-    assert!(everyone.channel_permissions(news, staff_id).contains(Permissions::SEND_MESSAGES));
-    assert_eq!(everyone.channel_permissions(news, outsider_id), Permissions::empty());
+    assert!(!everyone
+        .channel_permissions(staff_chat, users[1])
+        .contains(Permissions::VIEW_SERVER));
+    assert!(everyone
+        .channel_permissions(staff_chat, staff_id)
+        .contains(Permissions::VIEW_SERVER));
+    assert!(everyone
+        .channel_permissions(staff_chat, muted_id)
+        .contains(Permissions::VIEW_SERVER));
+    assert!(!everyone
+        .channel_permissions(news, muted_id)
+        .contains(Permissions::VIEW_SERVER));
+    assert!(everyone
+        .channel_permissions(news, staff_id)
+        .contains(Permissions::SEND_MESSAGES));
+    assert_eq!(
+        everyone.channel_permissions(news, outsider_id),
+        Permissions::empty()
+    );
 }
 
 #[tokio::test]
@@ -9273,8 +9375,14 @@ async fn dm_edits_and_deletions_reach_every_member_session() {
     let (author_auth, author_id, _) = register_named_user(&mut app, "dmauthor").await;
     let (peer_auth, peer_id, _) = register_named_user(&mut app, "dmpeer").await;
     befriend(&state, author_id, peer_id).await;
-    let (status, channel) =
-        api_json(&mut app, "POST", &format!("/api/dm/channels/{peer_id}"), &author_auth, None).await;
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{peer_id}"),
+        &author_auth,
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{channel}");
     let channel_id = channel["id"].as_str().unwrap().to_string();
     let (status, message) = api_json(
@@ -9351,7 +9459,11 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
         Some(json!({ "member_ids": [amy_id] })),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "a group needs at least two friends");
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a group needs at least two friends"
+    );
     let (status, _) = api_json(
         &mut app,
         "POST",
@@ -9385,7 +9497,11 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
     for (auth, expected) in [(&amy_auth, true), (&stranger_auth, false)] {
         let (status, list) = api_json(&mut app, "GET", "/api/dm/channels", auth, None).await;
         assert_eq!(status, StatusCode::OK);
-        let listed = list.as_array().unwrap().iter().any(|c| c["id"] == json!(group_id));
+        let listed = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == json!(group_id));
         assert_eq!(listed, expected);
     }
 
@@ -9421,7 +9537,10 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(renamed["name"].is_null(), "an empty name falls back to member names");
+    assert!(
+        renamed["name"].is_null(),
+        "an empty name falls back to member names"
+    );
     let (status, _) = api_json(
         &mut app,
         "POST",
@@ -9470,12 +9589,17 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let new_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM dm_channels WHERE id = $1")
-        .bind(Uuid::parse_str(&group_id).unwrap())
-        .fetch_one(&state.db)
-        .await
-        .unwrap();
-    assert_eq!(new_owner, Some(amy_id), "the longest-standing member becomes owner");
+    let new_owner: Option<Uuid> =
+        sqlx::query_scalar("SELECT owner_id FROM dm_channels WHERE id = $1")
+            .bind(Uuid::parse_str(&group_id).unwrap())
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        new_owner,
+        Some(amy_id),
+        "the longest-standing member becomes owner"
+    );
     let (status, _) = api_json(
         &mut app,
         "GET",
@@ -9484,7 +9608,11 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "a former member loses access");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a former member loses access"
+    );
 
     // Groups never stand in for the one-to-one DM between two of their members.
     let (status, direct) = api_json(
@@ -9512,7 +9640,10 @@ async fn oversized_websocket_messages_close_the_connection() {
     let mut ws = connect_ws(addr, &auth).await;
 
     // Over the 256 KB limit: the server stops reading instead of buffering it.
-    let oversized = format!("{{\"type\":\"Ping\",\"data\":{{\"pad\":\"{}\"}}}}", "x".repeat(300 * 1024));
+    let oversized = format!(
+        "{{\"type\":\"Ping\",\"data\":{{\"pad\":\"{}\"}}}}",
+        "x".repeat(300 * 1024)
+    );
     let _ = ws.send(WsMessage::Text(oversized.into())).await;
     let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
@@ -9602,9 +9733,12 @@ async fn password_reset_tokens_work_once_even_under_concurrent_use() {
     let (mut app, state) = setup_app_with_auth_features(false, true).await;
     let (_, user_id, _) = register_named_user(&mut app, "resetonce").await;
 
-    let token =
-        seed_password_reset_token(&state, user_id, chrono::Utc::now() + chrono::Duration::hours(1))
-            .await;
+    let token = seed_password_reset_token(
+        &state,
+        user_id,
+        chrono::Utc::now() + chrono::Duration::hours(1),
+    )
+    .await;
     let (mut first_app, mut second_app) = (app.clone(), app.clone());
     let first = reset_password_request(&token, test_credential("first"));
     let second = reset_password_request(&token, test_credential("second"));
@@ -9619,16 +9753,25 @@ async fn password_reset_tokens_work_once_even_under_concurrent_use() {
         [StatusCode::OK, StatusCode::BAD_REQUEST],
         "exactly one concurrent reset may use the token"
     );
-    let (status, _) =
-        oneshot(&mut app, reset_password_request(&token, test_credential("third"))).await;
+    let (status, _) = oneshot(
+        &mut app,
+        reset_password_request(&token, test_credential("third")),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "a used token is rejected");
 
     // An expired token is refused and removed.
-    let expired =
-        seed_password_reset_token(&state, user_id, chrono::Utc::now() - chrono::Duration::minutes(1))
-            .await;
-    let (status, _) =
-        oneshot(&mut app, reset_password_request(&expired, test_credential("late"))).await;
+    let expired = seed_password_reset_token(
+        &state,
+        user_id,
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
+    let (status, _) = oneshot(
+        &mut app,
+        reset_password_request(&expired, test_credential("late")),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let remaining: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1")
@@ -9672,11 +9815,33 @@ async fn only_authors_edit_their_messages_and_dm_peers_cannot_delete_them() {
     assert!(status.is_success(), "send failed: {message}");
     let message_id = message["id"].as_str().unwrap().to_string();
     let item = format!("/api/messages/item/{message_id}");
-    let (status, _) = api_json(&mut app, "PATCH", &item, &other_auth, Some(json!({ "content": "hijacked" }))).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "a member cannot edit someone else's message");
+    let (status, _) = api_json(
+        &mut app,
+        "PATCH",
+        &item,
+        &other_auth,
+        Some(json!({ "content": "hijacked" })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a member cannot edit someone else's message"
+    );
     let (status, _) = api_json(&mut app, "DELETE", &item, &other_auth, None).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "a member without Manage Messages cannot delete it");
-    let (status, edited) = api_json(&mut app, "PATCH", &item, &author_auth, Some(json!({ "content": "edited" }))).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a member without Manage Messages cannot delete it"
+    );
+    let (status, edited) = api_json(
+        &mut app,
+        "PATCH",
+        &item,
+        &author_auth,
+        Some(json!({ "content": "edited" })),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "the author can edit: {edited}");
 
     // Direct message: the other participant cannot edit or delete it either.
@@ -9700,11 +9865,29 @@ async fn only_authors_edit_their_messages_and_dm_peers_cannot_delete_them() {
     )
     .await;
     assert!(status.is_success(), "DM send failed: {dm_message}");
-    let dm_item = format!("/api/dm/messages/item/{}", dm_message["id"].as_str().unwrap());
-    let (status, _) = api_json(&mut app, "PATCH", &dm_item, &other_auth, Some(json!({ "content": "hijacked" }))).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "the peer cannot edit a DM they did not write");
+    let dm_item = format!(
+        "/api/dm/messages/item/{}",
+        dm_message["id"].as_str().unwrap()
+    );
+    let (status, _) = api_json(
+        &mut app,
+        "PATCH",
+        &dm_item,
+        &other_auth,
+        Some(json!({ "content": "hijacked" })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the peer cannot edit a DM they did not write"
+    );
     let (status, _) = api_json(&mut app, "DELETE", &dm_item, &other_auth, None).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "the peer cannot delete a DM they did not write");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the peer cannot delete a DM they did not write"
+    );
     let (status, _) = api_json(&mut app, "DELETE", &dm_item, &author_auth, None).await;
     assert!(status.is_success(), "the author can delete their DM");
 }
@@ -9798,7 +9981,10 @@ async fn seed_admin_is_never_created_with_the_example_password() {
     )
     .await
     .unwrap();
-    assert_eq!(skipped, None, "the placeholder password must not create an account");
+    assert_eq!(
+        skipped, None,
+        "the placeholder password must not create an account"
+    );
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = $1")
         .bind(&email)
         .fetch_one(&state.db)
@@ -9864,7 +10050,11 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
         Some(json!({ "email": next_email })),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "the current password is required");
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "the current password is required"
+    );
     let (status, _) = api_json(
         &mut app,
         "POST",
@@ -9873,7 +10063,11 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
         Some(json!({ "email": next_email, "current_password": "not-the-password" })),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "a wrong password is refused");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a wrong password is refused"
+    );
 
     // With the password the request goes through to delivery (no SMTP in tests), but the
     // account keeps its address until the new one is confirmed.
@@ -9886,14 +10080,21 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(stored_email(state.clone()).await, email, "the address must not change before confirmation");
+    assert_eq!(
+        stored_email(state.clone()).await,
+        email,
+        "the address must not change before confirmation"
+    );
     let pending: String =
         sqlx::query_scalar("SELECT email FROM email_verification_tokens WHERE user_id = $1")
             .bind(user_id)
             .fetch_one(&state.db)
             .await
             .unwrap();
-    assert_eq!(pending, next_email, "the new address waits in the verification token");
+    assert_eq!(
+        pending, next_email,
+        "the new address waits in the verification token"
+    );
 
     // Confirming the link applies it, unless another account took the address meanwhile.
     let confirm_with_token = |state: Arc<AppState>, pending_email: String| async move {
@@ -9932,7 +10133,11 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
         Some(json!({ "token": plain })),
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT, "an address taken meanwhile is not applied");
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "an address taken meanwhile is not applied"
+    );
 
     let plain = confirm_with_token(state.clone(), next_email.clone()).await;
     let (status, body) = api_json(
@@ -9955,9 +10160,11 @@ async fn voice_moderation_honours_voice_channel_overrides() {
     };
     let livekit_app = axum::Router::new().route(
         "/twirp/livekit.RoomService/UpdateParticipant",
-        axum::routing::post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
-            axum::Json(json!({ "sid": "PA_moderated", "identity": body["identity"] }))
-        }),
+        axum::routing::post(
+            |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                axum::Json(json!({ "sid": "PA_moderated", "identity": body["identity"] }))
+            },
+        ),
     );
     let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let livekit_addr = livekit_listener.local_addr().unwrap();
@@ -9977,7 +10184,8 @@ async fn voice_moderation_honours_voice_channel_overrides() {
     let (mod_auth, mod_id, _) = register_named_user(&mut app, "vcmod").await;
     let (target_auth, target_id, _) = register_named_user(&mut app, "vctarget").await;
     let (server_id, _, invite_code) =
-        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Overrides").await;
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Overrides")
+            .await;
     for auth in [&mod_auth, &target_auth] {
         let (status, _) = api_json(
             &mut app,
@@ -10001,13 +10209,15 @@ async fn voice_moderation_honours_voice_channel_overrides() {
     .execute(&state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
-        .bind(server_id)
-        .bind(mod_id)
-        .bind(mod_role_id)
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)",
+    )
+    .bind(server_id)
+    .bind(mod_id)
+    .bind(mod_role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
     let voice_channel_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
     )
@@ -10052,7 +10262,10 @@ async fn voice_moderation_honours_voice_channel_overrides() {
     assert_eq!(status, StatusCode::OK, "override failed: {body}");
     ws_send(&mut mod_ws, mute_target.clone()).await;
     ws_barrier(&mut mod_ws).await;
-    assert!(!server_muted(state.clone()).await, "a channel deny must block voice moderation");
+    assert!(
+        !server_muted(state.clone()).await,
+        "a channel deny must block voice moderation"
+    );
 
     // Without the override the same request mutes the member.
     let (status, _) = api_json(
@@ -10066,7 +10279,10 @@ async fn voice_moderation_honours_voice_channel_overrides() {
     assert!(status.is_success());
     ws_send(&mut mod_ws, mute_target).await;
     ws_barrier(&mut mod_ws).await;
-    assert!(server_muted(state.clone()).await, "server-level Mute Members applies again");
+    assert!(
+        server_muted(state.clone()).await,
+        "server-level Mute Members applies again"
+    );
 }
 
 #[tokio::test]
@@ -10101,7 +10317,10 @@ async fn server_rules_are_for_members_or_invite_holders_only() {
     );
     let (status, _) = oneshot(
         &mut app,
-        Request::builder().uri(&rules_uri).body(Body::empty()).unwrap(),
+        Request::builder()
+            .uri(&rules_uri)
+            .body(Body::empty())
+            .unwrap(),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -10186,13 +10405,15 @@ async fn reports_and_audit_log_do_not_quote_channels_the_viewer_cannot_see() {
     let insider_role = insert_role("Insider", PERM_VIEW | PERM_SEND).await;
     let moderator_role = insert_role("Report reviewer", PERM_VIEW | PERM_BAN | (1_i64 << 6)).await;
     for (user_id, role_id) in [(insider_id, insider_role), (moderator_id, moderator_role)] {
-        sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
-            .bind(server_id)
-            .bind(user_id)
-            .bind(role_id)
-            .execute(&state.db)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)",
+        )
+        .bind(server_id)
+        .bind(user_id)
+        .bind(role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
     }
     let everyone_id = everyone_role_id(&state, server_id).await;
     for (role_id, allow, deny) in [(everyone_id, 0, PERM_VIEW), (insider_role, PERM_VIEW, 0)] {
@@ -10221,7 +10442,14 @@ async fn reports_and_audit_log_do_not_quote_channels_the_viewer_cannot_see() {
 
     // Someone who cannot see the channel cannot report (or probe) the message.
     let report_uri = format!("/api/servers/{server_id}/reports/message");
-    let (status, _) = api_json(&mut app, "POST", &report_uri, &outsider_auth, Some(report.clone())).await;
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &report_uri,
+        &outsider_auth,
+        Some(report.clone()),
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, body) = api_json(&mut app, "POST", &report_uri, &insider_auth, Some(report)).await;
     assert!(status.is_success(), "an insider can report it: {body}");
@@ -10230,7 +10458,10 @@ async fn reports_and_audit_log_do_not_quote_channels_the_viewer_cannot_see() {
     let reports_uri = format!("/api/servers/{server_id}/reports");
     let (status, reports) = api_json(&mut app, "GET", &reports_uri, &moderator_auth, None).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(reports[0]["message_excerpt"].is_null(), "excerpt must be hidden: {reports}");
+    assert!(
+        reports[0]["message_excerpt"].is_null(),
+        "excerpt must be hidden: {reports}"
+    );
     let (_, reports) = api_json(&mut app, "GET", &reports_uri, &owner_auth, None).await;
     assert_eq!(reports[0]["message_excerpt"], "staff secret plan");
 
@@ -10248,10 +10479,16 @@ async fn reports_and_audit_log_do_not_quote_channels_the_viewer_cannot_see() {
     let (status, page) = api_json(&mut app, "GET", &audit_uri, &moderator_auth, None).await;
     assert_eq!(status, StatusCode::OK, "audit log failed: {page}");
     let details = &page["entries"][0]["details"];
-    assert!(details["before_preview"].is_null() && details["after_preview"].is_null(), "{details}");
+    assert!(
+        details["before_preview"].is_null() && details["after_preview"].is_null(),
+        "{details}"
+    );
     assert_eq!(details["content_hidden"], true);
     let (_, page) = api_json(&mut app, "GET", &audit_uri, &owner_auth, None).await;
-    assert_eq!(page["entries"][0]["details"]["after_preview"], "staff secret plan v2");
+    assert_eq!(
+        page["entries"][0]["details"]["after_preview"],
+        "staff secret plan v2"
+    );
 }
 
 #[tokio::test]
@@ -10298,13 +10535,15 @@ async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
     .execute(&state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
-        .bind(server_id)
-        .bind(senior_id)
-        .bind(role_id)
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)",
+    )
+    .bind(server_id)
+    .bind(senior_id)
+    .bind(role_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
     let (solo_server_id, _, _) =
         create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Solo").await;
 
@@ -10325,19 +10564,31 @@ async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
             .method("POST")
             .uri("/api/attachments/upload")
             .header("Authorization", &owner_auth)
-            .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(upload_body))
             .unwrap(),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "upload failed: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "upload failed: {}",
+        String::from_utf8_lossy(&body)
+    );
     let storage_key: String =
         sqlx::query_scalar("SELECT storage_key FROM uploaded_attachments WHERE user_id = $1")
             .bind(owner_id)
             .fetch_one(&state.db)
             .await
             .unwrap();
-    assert!(state.attachment_service.open_local_attachment_file(&storage_key).await.is_ok());
+    assert!(state
+        .attachment_service
+        .open_local_attachment_file(&storage_key)
+        .await
+        .is_ok());
 
     let (status, body) = api_json(
         &mut app,
@@ -10349,7 +10600,11 @@ async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
     .await;
     assert_eq!(status, StatusCode::OK, "delete failed: {body}");
     assert!(
-        state.attachment_service.open_local_attachment_file(&storage_key).await.is_err(),
+        state
+            .attachment_service
+            .open_local_attachment_file(&storage_key)
+            .await
+            .is_err(),
         "the uploaded file must be removed from disk"
     );
     let owner_of = |state: Arc<AppState>, id: Uuid| async move {
@@ -10365,7 +10620,10 @@ async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
         "the highest-ranked member becomes the owner"
     );
     let solo_owner = owner_of(state.clone(), solo_server_id).await;
-    assert_ne!(solo_owner, owner_id, "an empty server goes to the deleted-account placeholder");
+    assert_ne!(
+        solo_owner, owner_id,
+        "an empty server goes to the deleted-account placeholder"
+    );
     let (status, roles) = api_json(
         &mut app,
         "GET",
@@ -10374,7 +10632,11 @@ async fn deleting_an_account_removes_its_files_and_hands_its_servers_on() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "the new owner manages the server: {roles}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the new owner manages the server: {roles}"
+    );
 }
 
 #[tokio::test]
@@ -10420,7 +10682,11 @@ async fn google_only_account_deletion_needs_a_recent_sign_in() {
         Some(body.clone()),
     )
     .await;
-    assert_ne!(status, StatusCode::OK, "an hour-old Google session cannot delete the account");
+    assert_ne!(
+        status,
+        StatusCode::OK,
+        "an hour-old Google session cannot delete the account"
+    );
     assert_eq!(error["code"], "REAUTH_REQUIRED", "{error}");
     let (status, response) = api_json(
         &mut app,
@@ -10430,7 +10696,11 @@ async fn google_only_account_deletion_needs_a_recent_sign_in() {
         Some(body),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "a fresh Google sign-in can delete it: {response}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a fresh Google sign-in can delete it: {response}"
+    );
 }
 
 #[tokio::test]
@@ -10465,17 +10735,32 @@ async fn image_proxy_serves_only_server_signed_grants() {
     };
 
     // The session snapshot and the refresh endpoint hand signed-in clients a grant.
-    let (status, body) = oneshot(&mut app, get("/api/auth/session".into(), Some(&auth_header))).await;
+    let (status, body) = oneshot(
+        &mut app,
+        get("/api/auth/session".into(), Some(&auth_header)),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let user_grant = session["image_proxy"]["grant"].as_str().unwrap().to_string();
-    assert!(session["image_proxy"]["expires_at"].as_i64().unwrap() > chrono::Utc::now().timestamp());
+    let user_grant = session["image_proxy"]["grant"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        session["image_proxy"]["expires_at"].as_i64().unwrap() > chrono::Utc::now().timestamp()
+    );
     let (status, _) = oneshot(&mut app, get("/api/images/grant".into(), None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    let (status, body) = oneshot(&mut app, get("/api/images/grant".into(), Some(&auth_header))).await;
+    let (status, body) = oneshot(
+        &mut app,
+        get("/api/images/grant".into(), Some(&auth_header)),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let refreshed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(refreshed["grant"].as_str().is_some_and(|grant| !grant.is_empty()));
+    assert!(refreshed["grant"]
+        .as_str()
+        .is_some_and(|grant| !grant.is_empty()));
 
     // Without a valid grant nothing is fetched, even for signed-in callers.
     let image = "https://cdn.example.com/a.png";
@@ -10488,25 +10773,38 @@ async fn image_proxy_serves_only_server_signed_grants() {
         assert_eq!(status, StatusCode::UNAUTHORIZED, "grant {grant:?}");
     }
     // A valid grant passes the check; this URL then fails validation without any fetch.
-    let (status, _) = oneshot(&mut app, get(proxy("https://127.0.0.1/a.png", Some(&user_grant)), None)).await;
+    let (status, _) = oneshot(
+        &mut app,
+        get(proxy("https://127.0.0.1/a.png", Some(&user_grant)), None),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     // Invite previews carry a grant for the server icon only.
     let (_, _, invite_code) =
-        create_server_with_default_text_channel(&mut app, &state, &auth_header, "Icon server").await;
+        create_server_with_default_text_channel(&mut app, &state, &auth_header, "Icon server")
+            .await;
     sqlx::query("UPDATE servers SET icon_url = $1 WHERE invite_code = $2")
         .bind(image)
         .bind(&invite_code)
         .execute(&state.db)
         .await
         .unwrap();
-    let (status, body) =
-        oneshot(&mut app, get(format!("/api/servers/invite/{invite_code}"), None)).await;
+    let (status, body) = oneshot(
+        &mut app,
+        get(format!("/api/servers/invite/{invite_code}"), None),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let preview: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let icon_grant = preview["icon_grant"].as_str().unwrap();
     let now = chrono::Utc::now().timestamp();
-    assert!(image_proxy_grant::verify(&state.jwt_secret, icon_grant, image, now));
+    assert!(image_proxy_grant::verify(
+        &state.jwt_secret,
+        icon_grant,
+        image,
+        now
+    ));
     assert!(!image_proxy_grant::verify(
         &state.jwt_secret,
         icon_grant,
@@ -10515,7 +10813,10 @@ async fn image_proxy_serves_only_server_signed_grants() {
     ));
     let (status, _) = oneshot(
         &mut app,
-        get(proxy("https://cdn.example.com/other.png", Some(icon_grant)), None),
+        get(
+            proxy("https://cdn.example.com/other.png", Some(icon_grant)),
+            None,
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -10540,8 +10841,15 @@ async fn email_confirmation_and_desktop_exchange_are_rate_limited_per_ip() {
         .await;
     });
     // Start from a clean per-IP budget for this address.
-    let mut redis = state.redis.get_multiplexed_async_connection().await.unwrap();
-    for key in ["auth:email_confirm_ip:127.0.0.1", "auth:desktop_exchange_ip:127.0.0.1"] {
+    let mut redis = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    for key in [
+        "auth:email_confirm_ip:127.0.0.1",
+        "auth:desktop_exchange_ip:127.0.0.1",
+    ] {
         let _: () = redis::AsyncCommands::del(&mut redis, key).await.unwrap();
     }
     let client = reqwest::Client::new();
@@ -10554,7 +10862,9 @@ async fn email_confirmation_and_desktop_exchange_are_rate_limited_per_ip() {
     };
 
     // A token that is not a UUID is refused before any lookup.
-    let response = post("/api/auth/email/confirm", json!({ "token": "not-a-token" })).await.unwrap();
+    let response = post("/api/auth/email/confirm", json!({ "token": "not-a-token" }))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let mut statuses = Vec::new();
@@ -10605,7 +10915,14 @@ async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     let voice_channel_id = voice_channel_of(&state, server_id).await;
     let everyone_id = everyone_role_id(&state, server_id).await;
     // Explicit Everyone allows on both channels: these must still only apply to members.
-    put_channel_override_row(&state, text_channel_id, everyone_id, PERM_VIEW | PERM_SEND, 0).await;
+    put_channel_override_row(
+        &state,
+        text_channel_id,
+        everyone_id,
+        PERM_VIEW | PERM_SEND,
+        0,
+    )
+    .await;
     put_channel_override_row(
         &state,
         voice_channel_id,
@@ -10623,9 +10940,13 @@ async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
     }
     for user_id in [leaver_id, kicked_id, banned_id] {
         assert!(
-            voxpery_server::ws::access::can_subscribe_to_channel(&state.db, user_id, text_channel_id)
-                .await
-                .unwrap(),
+            voxpery_server::ws::access::can_subscribe_to_channel(
+                &state.db,
+                user_id,
+                text_channel_id
+            )
+            .await
+            .unwrap(),
             "members can view the channel before removal"
         );
     }
@@ -10682,15 +11003,23 @@ async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
             "{label} user must not keep channel permissions: {channel_perms:?}"
         );
         assert!(
-            !voxpery_server::ws::access::can_subscribe_to_channel(&state.db, user_id, text_channel_id)
-                .await
-                .unwrap(),
+            !voxpery_server::ws::access::can_subscribe_to_channel(
+                &state.db,
+                user_id,
+                text_channel_id
+            )
+            .await
+            .unwrap(),
             "{label} user must not subscribe to the channel"
         );
         assert!(
-            !voxpery_server::ws::access::can_join_voice_channel(&state.db, user_id, voice_channel_id)
-                .await
-                .unwrap(),
+            !voxpery_server::ws::access::can_join_voice_channel(
+                &state.db,
+                user_id,
+                voice_channel_id
+            )
+            .await
+            .unwrap(),
             "{label} user must not join voice"
         );
         let (status, _) = api_json(
@@ -10763,7 +11092,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "content": "member message" })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "member message failed: {member_message}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "member message failed: {member_message}"
+    );
     let member_message_id = member_message["id"].as_str().unwrap().to_string();
     let (status, _) = api_json(
         &mut app,
@@ -10773,7 +11106,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager cannot delete others' messages yet");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager cannot delete others' messages yet"
+    );
 
     // Role creation, ordering and assignment are owner-only.
     let (status, body) = api_json(
@@ -10784,7 +11121,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "name": "Escalated", "permissions": PERM_MANAGE_SERVER, "color": null })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager created a role: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager created a role: {body}"
+    );
     let role_ids: Vec<String> = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) <> 'everyone' ORDER BY position",
     )
@@ -10804,7 +11145,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "role_ids": role_ids })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager reordered roles: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager reordered roles: {body}"
+    );
     let (status, body) = api_json(
         &mut app,
         "PUT",
@@ -10813,7 +11158,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "role_ids": [manager_role_id] })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager assigned a role: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager assigned a role: {body}"
+    );
     let (status, body) = api_json(
         &mut app,
         "PUT",
@@ -10822,7 +11171,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "role_ids": [] })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager changed their own roles: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager changed their own roles: {body}"
+    );
 
     // Channel and category permission overrides are owner-only, including for one's own role.
     let (status, body) = api_json(
@@ -10833,7 +11186,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager edited a channel override: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager edited a channel override: {body}"
+    );
     let (status, _) = api_json(
         &mut app,
         "DELETE",
@@ -10842,7 +11199,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager gained message moderation");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager gained message moderation"
+    );
     let (status, body) = api_json(
         &mut app,
         "POST",
@@ -10861,7 +11222,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager edited a category override: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager edited a category override: {body}"
+    );
     put_channel_override_row(&state, text_channel_id, manager_role_id, 0, 0).await;
     let (status, body) = api_json(
         &mut app,
@@ -10871,7 +11236,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "manager deleted a channel override: {body}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "manager deleted a channel override: {body}"
+    );
 
     // The owner keeps every management path.
     let (status, created) = api_json(
@@ -10882,7 +11251,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "name": "Message moderators", "permissions": PERM_VIEW | PERM_SEND | PERM_MANAGE_MESSAGES, "color": null })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "owner role create failed: {created}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner role create failed: {created}"
+    );
     let moderator_role_id = created["id"].as_str().unwrap().to_string();
     let (status, body) = api_json(
         &mut app,
@@ -10892,7 +11265,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "role_ids": [manager_role_id, moderator_role_id] })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "owner role assignment failed: {body}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner role assignment failed: {body}"
+    );
     let (status, body) = api_json(
         &mut app,
         "PUT",
@@ -10901,7 +11278,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "owner channel override failed: {body}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner channel override failed: {body}"
+    );
     let (status, body) = api_json(
         &mut app,
         "PUT",
@@ -10910,7 +11291,11 @@ async fn only_the_owner_manages_roles_and_permission_overrides() {
         Some(json!({ "allow": PERM_SEND, "deny": 0 })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "owner category override failed: {body}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "owner category override failed: {body}"
+    );
 
     // Moderators keep the daily powers they were given.
     let (status, body) = api_json(
@@ -10933,8 +11318,7 @@ async fn channel_overrides_only_carry_channel_scoped_permissions() {
     let (mut app, state) = setup_app().await;
     let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
     let (server_id, text_channel_id, invite_code) =
-        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Scope Guild")
-            .await;
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Scope Guild").await;
     let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
     join_with_invite(&mut app, &member_auth, &invite_code).await;
     let everyone_id = everyone_role_id(&state, server_id).await;
@@ -10971,7 +11355,10 @@ async fn channel_overrides_only_carry_channel_scoped_permissions() {
     )
     .await
     .unwrap();
-    assert!(perms.bits() & PERM_VIEW != 0, "channel-scoped allow still applies");
+    assert!(
+        perms.bits() & PERM_VIEW != 0,
+        "channel-scoped allow still applies"
+    );
     assert_eq!(
         perms.bits() & (PERM_MANAGE_ROLES | PERM_KICK | PERM_BAN),
         0,
@@ -11000,8 +11387,7 @@ async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
     };
 
     // Someone registered this address first but never proved they own it.
-    let (_, unverified_id, unverified_password) =
-        register_named_user(&mut app, "unverified").await;
+    let (_, unverified_id, unverified_password) = register_named_user(&mut app, "unverified").await;
     let unverified_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
         .bind(unverified_id)
         .fetch_one(&state.db)
@@ -11025,13 +11411,12 @@ async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
         StatusCode::UNAUTHORIZED,
         "an unproven local password must not survive the Google link"
     );
-    let (verified_flag, has_google): (bool, bool) = sqlx::query_as(
-        "SELECT email_verified, google_id IS NOT NULL FROM users WHERE id = $1",
-    )
-    .bind(unverified_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap();
+    let (verified_flag, has_google): (bool, bool) =
+        sqlx::query_as("SELECT email_verified, google_id IS NOT NULL FROM users WHERE id = $1")
+            .bind(unverified_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
     assert!(verified_flag && has_google);
 
     // A local account whose email was already verified keeps its password.
@@ -11054,7 +11439,11 @@ async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
     .await
     .unwrap();
     let (status, _) = oneshot(&mut app, login(verified_email, verified_password)).await;
-    assert_eq!(status, StatusCode::OK, "verified owners keep password login");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "verified owners keep password login"
+    );
 }
 
 #[tokio::test]
@@ -11120,8 +11509,7 @@ async fn livekit_rejoin_and_permission_changes_remove_unauthorized_participants(
 
     let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
     let (server_id, _, invite_code) =
-        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Guild")
-            .await;
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Guild").await;
     let voice_channel_id = voice_channel_of(&state, server_id).await;
     let (kicked_auth, kicked_id, _) = register_named_user(&mut app, "kicked").await;
     let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
@@ -11155,7 +11543,12 @@ async fn livekit_rejoin_and_permission_changes_remove_unauthorized_participants(
         .body(Body::from(joined))
         .unwrap();
     let (status, body) = oneshot(&mut app, request).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
     assert_eq!(
         removed.lock().await.as_slice(),
         [kicked_id.to_string()],
@@ -11259,20 +11652,34 @@ async fn desktop_captcha_frame_is_embeddable_only_by_the_desktop_app() {
             .body(Body::empty())
             .unwrap()
     };
-    let response = app.clone().oneshot(frame("https://tauri.localhost")).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(frame("https://tauri.localhost"))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let headers = response.headers().clone();
     let csp = headers["content-security-policy"].to_str().unwrap();
-    assert!(csp.contains("frame-ancestors https://tauri.localhost;"), "{csp}");
+    assert!(
+        csp.contains("frame-ancestors https://tauri.localhost;"),
+        "{csp}"
+    );
     assert!(csp.contains("script-src 'nonce-"));
-    assert!(headers.get("x-frame-options").is_none(), "the CSP allowlist governs framing");
+    assert!(
+        headers.get("x-frame-options").is_none(),
+        "the CSP allowlist governs framing"
+    );
     assert_eq!(headers["cache-control"], "no-store");
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8(body.to_vec()).unwrap();
     assert!(html.contains("data-sitekey=\"test-public-site-key\""));
     assert!(html.contains("const parentOrigin = \"https://tauri.localhost\";"));
 
-    for rejected in ["https://evil.example", "https://tauri.localhost.evil.example", ""] {
+    for rejected in [
+        "https://evil.example",
+        "https://tauri.localhost.evil.example",
+        "",
+    ] {
         let response = app.clone().oneshot(frame(rejected)).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{rejected}");
         assert_eq!(response.headers()["x-frame-options"], "DENY");

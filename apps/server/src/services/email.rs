@@ -1,11 +1,11 @@
 use crate::errors::AppError;
-use lettre::Message;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::{
     authentication::{Credentials, DEFAULT_MECHANISMS},
     client::{AsyncSmtpConnection, TlsParameters},
     extension::ClientId,
 };
+use lettre::Message;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     time::Duration,

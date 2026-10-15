@@ -38,10 +38,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/grant",
-            get(get_image_proxy_grant).route_layer(middleware::from_fn_with_state(
-                state.clone(),
-                require_auth,
-            )),
+            get(get_image_proxy_grant)
+                .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/avatar", get(proxy_avatar))
         .route("/remote", get(proxy_remote_image))
@@ -260,11 +258,20 @@ mod tests {
             headers.insert("x-forwarded-for", HeaderValue::from_str(ip).unwrap());
             headers
         };
-        assert_eq!(client_ip(&trusted, &forwarded("203.0.113.5"), Some(&proxy)), "203.0.113.5");
-        assert_eq!(client_ip(&trusted, &forwarded("198.51.100.7"), Some(&proxy)), "198.51.100.7");
+        assert_eq!(
+            client_ip(&trusted, &forwarded("203.0.113.5"), Some(&proxy)),
+            "203.0.113.5"
+        );
+        assert_eq!(
+            client_ip(&trusted, &forwarded("198.51.100.7"), Some(&proxy)),
+            "198.51.100.7"
+        );
         // Without a trusted proxy the forwarded header is ignored.
         let direct = Extension(ConnectInfo("192.0.2.9:443".parse::<SocketAddr>().unwrap()));
-        assert_eq!(client_ip(&trusted, &forwarded("203.0.113.5"), Some(&direct)), "192.0.2.9");
+        assert_eq!(
+            client_ip(&trusted, &forwarded("203.0.113.5"), Some(&direct)),
+            "192.0.2.9"
+        );
     }
 
     #[tokio::test]

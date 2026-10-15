@@ -37,6 +37,8 @@ pub async fn for_channel(
     Ok(row.map(|(muted, deafened)| ServerVoiceModeration { muted, deafened }))
 }
 
+// Each argument is an independent part of one moderation decision taken by the caller.
+#[allow(clippy::too_many_arguments)]
 pub async fn set_for_member(
     db: &PgPool,
     actor_id: Uuid,

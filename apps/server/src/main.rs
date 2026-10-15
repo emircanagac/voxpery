@@ -9,8 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use voxpery_server::{
     build_app, config, database_url_has_placeholder, routes, validate_optional_integration_config,
-    validate_secret_config, validate_security_config, ws,
-    AppState,
+    validate_secret_config, validate_security_config, ws, AppState,
 };
 
 #[tokio::main]

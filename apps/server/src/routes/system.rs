@@ -27,6 +27,8 @@ pub struct SystemFeaturesResponse {
     pub email_verification_required: bool,
     pub password_reset_enabled: bool,
     pub observability_enabled: bool,
+    /// True when this server hands out its own TURN credentials for voice.
+    pub turn_enabled: bool,
 }
 
 pub fn router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -43,6 +45,10 @@ async fn get_features(State(state): State<Arc<AppState>>) -> Json<SystemFeatures
         email_verification_required: state.email_verification_required,
         password_reset_enabled: state.password_reset_enabled,
         observability_enabled: state.observability_enabled,
+        turn_enabled: state
+            .turn_urls
+            .as_deref()
+            .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
     })
 }
 

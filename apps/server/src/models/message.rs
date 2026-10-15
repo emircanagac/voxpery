@@ -3,18 +3,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Message {
-    pub id: Uuid,
-    pub channel_id: Uuid,
-    pub user_id: Uuid,
-    pub content: String,
-    pub attachments: Option<serde_json::Value>,
-    pub edited_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageReactionSummary {
     pub emoji: String,
