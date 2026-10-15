@@ -34,6 +34,9 @@ const rawBytes = initialFiles.reduce((total, file) => total + file.rawBytes, 0)
 const gzipBytes = initialFiles.reduce((total, file) => total + file.gzipBytes, 0)
 const rawBudgetBytes = 350 * 1024
 const gzipBudgetBytes = 120 * 1024
+// Warn while there is still room, so a change that nearly fills the budget is seen before the
+// next one fails CI.
+const warnBelowHeadroom = 0.05
 const forbiddenPreloads = [
   /\/livekit-[^/]+\.js$/,
   /\/tauri-[^/]+\.js$/,
@@ -41,6 +44,8 @@ const forbiddenPreloads = [
   /\/rnnoise-[^/]+\.js$/,
   /\/AppShell-[^/]+\.js$/,
   /\/UnifiedLayout-[^/]+\.js$/,
+  // Icons belong with the screens that use them; one shared icon chunk loads every icon at startup.
+  /\/lucide-[^/]+\.js$/,
 ]
 
 const failures = []
@@ -60,6 +65,14 @@ for (const file of initialFiles) {
 console.log(`Initial JavaScript: ${formatKiB(rawBytes)} raw / ${formatKiB(gzipBytes)} gzip across ${initialFiles.length} files.`)
 for (const file of initialFiles) {
   console.log(`- ${file.url}: ${formatKiB(file.rawBytes)} raw / ${formatKiB(file.gzipBytes)} gzip`)
+}
+for (const [label, used, budget] of [['raw', rawBytes, rawBudgetBytes], ['gzip', gzipBytes, gzipBudgetBytes]]) {
+  const headroom = budget - used
+  console.log(`Headroom (${label}): ${formatKiB(headroom)} of ${formatKiB(budget)}.`)
+  if (headroom >= 0 && headroom < budget * warnBelowHeadroom) {
+    const message = `initial JavaScript leaves only ${formatKiB(headroom)} of the ${label} budget; lazy-load what the first screen does not need`
+    console.log(process.env.GITHUB_ACTIONS ? `::warning title=Initial bundle::${message}` : `Warning: ${message}`)
+  }
 }
 
 if (failures.length > 0) {

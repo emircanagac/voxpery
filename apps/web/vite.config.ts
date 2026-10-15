@@ -77,7 +77,8 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules')) {
               // Keep in worklet entry chunk (do not split into vendor)
               if (id.includes('rnnoise-wasm')) return undefined
-              if (id.includes('lucide-react')) return 'lucide'
+              // Icons go with the chunks that use them, so the first screen loads only its own.
+              if (id.includes('lucide-react')) return undefined
               if (id.includes('@tauri-apps')) return 'tauri'
               // Precise matching for core React libraries to avoid circular dependencies
               if (
