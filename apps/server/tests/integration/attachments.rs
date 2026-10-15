@@ -700,18 +700,17 @@ async fn image_proxy_serves_only_server_signed_grants() {
     let preview: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let icon_grant = preview["icon_grant"].as_str().unwrap();
     let now = chrono::Utc::now().timestamp();
+    assert_eq!(
+        image_proxy_grant::verify(&state.jwt_secret, icon_grant, image, now),
+        Some(image_proxy_grant::VerifiedGrant::Image)
+    );
     assert!(image_proxy_grant::verify(
-        &state.jwt_secret,
-        icon_grant,
-        image,
-        now
-    ));
-    assert!(!image_proxy_grant::verify(
         &state.jwt_secret,
         icon_grant,
         "https://cdn.example.com/other.png",
         now
-    ));
+    )
+    .is_none());
     let (status, _) = oneshot(
         &mut app,
         get(
@@ -721,4 +720,129 @@ async fn image_proxy_serves_only_server_signed_grants() {
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn image_grants_end_with_the_session() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let email = format!("imgend-{uid}@example.com");
+    let password = test_credential("image-grant-end");
+    let (first_token, _) = register_user(
+        &mut app,
+        &email,
+        &format!("imgend_{}", uid.as_u128() % 1_000_000),
+        password,
+    )
+    .await;
+    let request =
+        |method: &str, uri: &str, token: Option<&str>, body: Option<serde_json::Value>| {
+            let mut builder = Request::builder().method(method).uri(uri);
+            if let Some(token) = token {
+                builder = builder.header("Authorization", format!("Bearer {token}"));
+            }
+            match body {
+                Some(body) => builder
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+                None => builder.body(Body::empty()).unwrap(),
+            }
+        };
+    // A valid grant passes the check and the private address then fails validation (400);
+    // a refused grant is 401 before anything else happens.
+    let proxy_status = |grant: &str| {
+        request(
+            "GET",
+            &format!(
+                "/api/images/remote?url={}&grant={}",
+                urlencoding::encode("https://127.0.0.1/a.png"),
+                urlencoding::encode(grant)
+            ),
+            None,
+            None,
+        )
+    };
+    let grant_for = |body: &[u8]| -> String {
+        let value: serde_json::Value = serde_json::from_slice(body).unwrap();
+        value["grant"].as_str().unwrap().to_string()
+    };
+
+    let second_token = {
+        let (status, body) = oneshot(
+            &mut app,
+            request(
+                "POST",
+                "/api/auth/login",
+                None,
+                Some(json!({ "identifier": email, "password": password })),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        value["token"].as_str().unwrap().to_string()
+    };
+    let (_, body) = oneshot(
+        &mut app,
+        request("GET", "/api/images/grant", Some(&first_token), None),
+    )
+    .await;
+    let first_grant = grant_for(&body);
+    let (_, body) = oneshot(
+        &mut app,
+        request("GET", "/api/images/grant", Some(&second_token), None),
+    )
+    .await;
+    let second_grant = grant_for(&body);
+    for grant in [&first_grant, &second_grant] {
+        let (status, _) = oneshot(&mut app, proxy_status(grant)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // Logging out ends that sign-in's grants only, even for sign-ins in the same second.
+    let (status, _) = oneshot(
+        &mut app,
+        request("POST", "/api/auth/logout", Some(&first_token), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = oneshot(&mut app, proxy_status(&first_grant)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "grant of the logged-out sign-in"
+    );
+    let (status, _) = oneshot(&mut app, proxy_status(&second_grant)).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "grant of the other sign-in"
+    );
+
+    // A password change ends every grant of the account.
+    let (status, _) = oneshot(
+        &mut app,
+        request(
+            "POST",
+            "/api/auth/change-password",
+            Some(&second_token),
+            Some(json!({
+                "old_password": password,
+                "new_password": test_credential("image-grant-end-new")
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = oneshot(&mut app, proxy_status(&second_grant)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "grant after password change"
+    );
 }
