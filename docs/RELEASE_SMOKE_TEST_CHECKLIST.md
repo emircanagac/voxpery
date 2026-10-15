@@ -26,13 +26,21 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.5 preparation (not release sign-off)
+### v0.4.6 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.5`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.6`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.5` and `voxpery/voxpery-web:v0.4.5`, the embedded web badge/build tag, desktop version `0.4.5`, the `Voxpery_0.4.5_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.6` and `voxpery/voxpery-web:v0.4.6`, the embedded web badge/build tag, desktop version `0.4.6`, the `Voxpery_0.4.6_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.6 checks
+
+- [ ] Desktop (Windows, macOS, Linux, installed release builds): settings, tray-on-close, deep links, update install, media permission settings, keyboard refocus and the custom server panel still work now that the app's own commands need an `allow-*` permission in `default`.
+- [ ] Desktop custom server: entering `https://voxpery.com` (website) and `https://api.voxpery.com` (API) both find the server; the trust prompt names the website; an unreachable address and a site without a Voxpery server show their own messages. `https://voxpery.com/.well-known/voxpery/client` returns the API origin as JSON after deploy.
+- [ ] Images through the image proxy keep loading during a long session (grants now refresh every 2 hours); after logout, and after a password change on another device, old proxy URLs return 401.
+- [ ] The release's `latest.json` is written by the `updater-manifest` job and lists `windows-x86_64`, `linux-x86_64`, `darwin-aarch64` and `darwin-x86_64` (with their `-nsis`, `-deb`, `-rpm` and `-app` keys); no platform job failed on it.
+- [ ] The first page loads normally on desktop and mobile web, and icons on every screen render (icons now load with their screens).
 
 ### v0.4.5 checks
 
