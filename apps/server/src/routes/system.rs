@@ -29,6 +29,8 @@ pub struct SystemFeaturesResponse {
     pub observability_enabled: bool,
     /// True when this server hands out its own TURN credentials for voice.
     pub turn_enabled: bool,
+    /// Public LiveKit address (`LIVEKIT_WS_URL`); desktop clients allow it for custom servers.
+    pub voice_url: Option<String>,
 }
 
 pub fn router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -49,6 +51,7 @@ async fn get_features(State(state): State<Arc<AppState>>) -> Json<SystemFeatures
             .turn_urls
             .as_deref()
             .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
+        voice_url: state.livekit_ws_url.clone(),
     })
 }
 

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Security updates.
 
+### Added
+- Desktop: connect to a self-hosted Voxpery server from "Advanced: custom server" on the sign-in screen or in Settings > Desktop. The app checks the server, asks you to confirm you trust it, keeps a separate sign-in per server, and can switch back to voxpery.com.
+
 ### Changed
 - Self-hosting: the server no longer starts with the example `JWT_SECRET` or `LIVEKIT_API_SECRET` from `.env.example`, or with secrets shorter than 32 characters; the log names the value to change. The example admin account is now optional and is not created with the example password.
 - Self-hosting: the server now connects to PostgreSQL as a separate role without superuser rights. Add `POSTGRES_APP_PASSWORD` to `.env` before updating; existing tables move to the new role on the first start (see `docs/DEPLOYMENT.md`).

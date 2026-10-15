@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { Download, Globe2, Server, ShieldCheck } from 'lucide-react'
-import { releaseApi, type LatestReleaseResponse } from '../api'
+import type { LatestReleaseResponse } from '../api'
+// Imported directly so the About page's API call stays out of the startup bundle.
+import { releaseApi } from '../api/releases'
 import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 import { useCompactLayout } from '../hooks/useCompactLayout'

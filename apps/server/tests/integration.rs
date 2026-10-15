@@ -526,6 +526,7 @@ async fn privacy_safe_observability_is_feature_gated_and_accepts_only_the_fixed_
     assert_eq!(features["observability_enabled"], true);
     // Without TURN_URLS, voice uses LiveKit's own ICE servers.
     assert_eq!(features["turn_enabled"], false);
+    assert!(features.get("voice_url").is_some(), "desktop custom servers read the voice origin");
 
     let valid = Request::builder()
         .method("POST")

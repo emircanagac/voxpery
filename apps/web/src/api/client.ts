@@ -1,7 +1,21 @@
 import { isTauri } from '../secureStorage'
 
+declare global {
+    interface Window {
+        /** Set by the desktop shell before any script runs when a self-hosted server is chosen. */
+        __VOXPERY_DESKTOP_SERVER__?: { apiBase?: string }
+    }
+}
+
+/**
+ * API origin of the self-hosted server the desktop app was started for, if any. The desktop shell
+ * validates it and defines it (read-only) before any page script runs.
+ */
+export const desktopServerApiBase = (): string | undefined =>
+    typeof window === 'undefined' ? undefined : window.__VOXPERY_DESKTOP_SERVER__?.apiBase
+
 // Prefer localhost so cookie is sent after Google OAuth when frontend is at localhost:5173 (same host).
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_BASE = desktopServerApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3001'
 export const LEGAL_CONSENT_REQUIRED_EVENT = 'voxpery-legal-consent-required'
 
 function isLoopbackHostname(hostname: string): boolean {

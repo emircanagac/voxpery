@@ -11,6 +11,7 @@ import { setPersistedSocialView } from '../socialView'
 import { googleOAuthErrorMessage, resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import DesktopSignInCode from '../components/DesktopSignInCode'
+import CustomServerPanel from '../components/CustomServerPanel'
 
 function GoogleLogoIcon() {
     return (
@@ -178,6 +179,8 @@ export default function LoginPage() {
                         {isTauri() && <DesktopSignInCode />}
                     </>
                 )}
+
+                {isTauri() && <CustomServerPanel variant="login" />}
 
                 <div className="auth-footer">
                     Don't have an account?{' '}

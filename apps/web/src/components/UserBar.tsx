@@ -97,6 +97,7 @@ import {
   registerDesktopGlobalPushToTalk,
   setGlobalPushToTalkCaptureActive,
 } from '../globalPushToTalk'
+import CustomServerPanel from './CustomServerPanel'
 
 const VOXPERY_RELEASES_URL = 'https://github.com/emircanagac/voxpery/releases/latest'
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
@@ -2265,6 +2266,16 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                             {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
                           </button>
                         )}
+                      </div>
+                    </div>
+                    <div className="user-setting-row user-setting-row--stacked">
+                      <div>
+                        <div className="user-setting-title">Server</div>
+                        <div className="user-setting-desc">
+                          Voxpery connects to voxpery.com. You can connect to a self-hosted Voxpery server instead;
+                          your account and sign-in there are separate.
+                        </div>
+                        <CustomServerPanel variant="settings" />
                       </div>
                     </div>
                     {desktopAutostartSupported && (

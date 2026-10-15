@@ -1,9 +1,10 @@
+import { desktopServerApiBase } from './api/client'
 import { isTauri } from './secureStorage'
 
 const INVITE_PATH = /^\/invite\/([A-Za-z0-9_-]{1,32})\/?$/
 
 function deriveInviteBaseFromApiEnv(): string | null {
-  const apiRaw = (import.meta.env.VITE_API_URL ?? '').trim()
+  const apiRaw = (desktopServerApiBase() ?? import.meta.env.VITE_API_URL ?? '').trim()
   if (!apiRaw) return null
 
   try {

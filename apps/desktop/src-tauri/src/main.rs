@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
+mod custom_server;
 #[cfg(target_os = "linux")]
 mod linux_focus;
 mod secure_storage;
@@ -343,7 +344,10 @@ fn main() {
             desktop_update_unread_feedback,
             desktop_open_media_permission_settings,
             desktop_refocus_webview_keyboard,
-            desktop_update_channel
+            desktop_update_channel,
+            custom_server::desktop_custom_server,
+            custom_server::desktop_probe_custom_server,
+            custom_server::desktop_set_custom_server
         ]);
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -396,6 +400,46 @@ fn main() {
                     .build(),
             )
             .setup(|app| {
+                // The main window is created here (config `create: false`) so a custom server
+                // can extend its CSP and API base before the app's scripts run.
+                let custom = custom_server::load(app.handle());
+                if let Some(server) = &custom {
+                    app.add_capability(
+                        tauri::ipc::CapabilityBuilder::new("custom-server")
+                            .window("main")
+                            .permission_scoped(
+                                "http:default",
+                                vec![serde_json::json!({ "url": format!("{}/**", server.api_origin) })],
+                                Vec::<serde_json::Value>::new(),
+                            ),
+                    )?;
+                }
+                app.manage(custom_server::ActiveServer(custom.clone()));
+                let main_config = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|window| window.label == "main")
+                    .cloned()
+                    .ok_or("main window configuration is missing")?;
+                let mut main_builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &main_config)?;
+                if let Some(server) = custom {
+                    main_builder = main_builder
+                        .initialization_script(custom_server::initialization_script(&server))
+                        .on_web_resource_request(move |_request, response| {
+                            let extended = response
+                                .headers()
+                                .get("Content-Security-Policy")
+                                .and_then(|value| value.to_str().ok())
+                                .map(|csp| custom_server::extend_csp(csp, &server));
+                            if let Some(Ok(value)) = extended.map(|csp| tauri::http::HeaderValue::from_str(&csp)) {
+                                response.headers_mut().insert("Content-Security-Policy", value);
+                            }
+                        });
+                }
+                main_builder.build()?;
+
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                     Some(vec!["--autostart"]),

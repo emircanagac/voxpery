@@ -104,6 +104,37 @@ Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macO
 - The close button sends the normal close request, so "Keep running in tray on close" still applies. The capability grants only the window commands this needs: `start-dragging`, `internal-toggle-maximize`, `minimize`, `toggle-maximize`, `close` and `start-resize-dragging`.
 - Verify on each platform: drag from the header and the sign-in strip, double-click to maximize and restore, edge resizing (Linux on GNOME and KDE, X11 and Wayland), minimize/maximize/close, close-to-tray, and Windows snapping by dragging to screen edges (the Windows 11 snap layouts flyout on the maximize button is not available with custom buttons).
 
+## 2.1.3) Custom Server (Self-Hosted Backends)
+
+The desktop app connects to voxpery.com by default. A self-hosted Voxpery server can be chosen under "Advanced: custom server" on the sign-in screen or in Settings. Most users never see it.
+
+Design (the security model, enforced in Rust):
+
+- **Address:**
+  - The user enters the server address. Only an origin is accepted: no path, query, credentials or fragment.
+  - `https` is required. `http` is accepted only for `localhost`, loopback, private IPv4 (10/8, 172.16/12, 192.168/16), unique-local or link-local IPv6, and `.local` names, and the UI shows a warning.
+- **Probe:** before anything is stored, the desktop process itself (not the webview) fetches `<origin>/api/system/features`:
+  - redirects off, 8-second timeout, 64 KB limit;
+  - the response must be a Voxpery feature object.
+  - Its `voice_url` (`LIVEKIT_WS_URL`) gives the voice origin, which must follow the same scheme rules.
+- **Consent:** the user must tick that they trust the server. The confirming command probes the server again, so the webview cannot store an address that was not checked.
+- **Storage:** the choice is stored in `custom-server.json` in the app configuration directory. It survives updates, and the updater keeps using the official release feed.
+- **Applying the choice (on restart):**
+  - The HTTP plugin gets a runtime capability for that origin only.
+  - The main window's CSP adds the API and voice origins to `connect-src`, and the API origin to `frame-src` and `img-src`.
+  - The web app reads the API base from an initialization script.
+  - "Use voxpery.com" removes the file and restarts.
+- **Sessions:** the keyring account for each stored item includes the active server (`voxpery-auth-token@https://chat.example.org`).
+  - Rust chooses the account, and the plugin accepts only the app's two known keys.
+  - The webview therefore can never read or send another server's token.
+- **Build-time alternative:** `VITE_API_URL` and the release CSP can still be changed for a custom build, but such a build is replaced by the official one on its first update. The setting above is the supported way.
+- **Verify on Windows, macOS and Linux, each with voxpery.com, a custom `https` server and `http://localhost`:**
+  - sign in with email and with Google;
+  - the session persists after a restart;
+  - switching back keeps the other server's session separate;
+  - messages, WebSocket, voice and screen sharing, and attachments work;
+  - the updater works and keeps the setting.
+
 ## 2.2) Microphone Shortcut Validation
 
 - Toggle microphone mute accepts bare physical letter/digit keys and F1-F24; supported space/arrow/punctuation codes require a modifier. Modifier-only keys, Escape, mouse buttons, numpad and unsupported special keys are not assigned. Escape cancels recording. Keyboard layout labels may differ from the stored physical key code.
