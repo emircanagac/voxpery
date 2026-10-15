@@ -1205,8 +1205,10 @@ fn detect_iso_base_media_kind(bytes: &[u8]) -> Option<DetectedAttachmentKind> {
 
 fn contains_aligned_brand(haystack: &[u8], needles: &[&[u8; 4]]) -> bool {
     haystack
-        .chunks_exact(4)
-        .any(|brand| needles.iter().any(|needle| brand == needle.as_slice()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|brand| needles.contains(&brand))
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

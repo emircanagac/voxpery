@@ -706,13 +706,7 @@ async fn delete_category(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
-        .and_then(|target| {
-            if target.eq_ignore_ascii_case(category) {
-                None
-            } else {
-                Some(target)
-            }
-        })
+        .filter(|target| !target.eq_ignore_ascii_case(category))
         .unwrap_or_else(|| "General".to_string());
 
     // Never move channels back into the same category being deleted.

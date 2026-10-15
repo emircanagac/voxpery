@@ -958,11 +958,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                             if *affected_user_id == user_id
                     );
                     let should_send = match &event {
-                        WsEvent::NewMessage {
-                            channel_id,
-                            channel_type: _,
-                            ..
-                        }
+                        WsEvent::NewMessage { channel_id, .. }
                         | WsEvent::Typing { channel_id, .. }
                         | WsEvent::MessageDeleted { channel_id, .. }
                         | WsEvent::MessageUpdated { channel_id, .. } => {
