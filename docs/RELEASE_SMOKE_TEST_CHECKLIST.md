@@ -26,13 +26,23 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.4 preparation (not release sign-off)
+### v0.4.5 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.4`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.5`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.4` and `voxpery/voxpery-web:v0.4.4`, the embedded web badge/build tag, desktop version `0.4.4`, the `Voxpery_0.4.4_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.5` and `voxpery/voxpery-web:v0.4.5`, the embedded web badge/build tag, desktop version `0.4.5`, the `Voxpery_0.4.5_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.5 checks
+
+- [ ] Production `.env` has `POSTGRES_APP_PASSWORD` before the deploy (without it the deploy stops at `docker compose config`); after the first start, `docker compose logs postgres-app-role` shows the role is ready, the server connects as that role, and the other production secrets pass the startup checks.
+- [ ] Migrations `054`–`057` apply on a copy of production data: pins keep their author field nullable, old attachment references get their ids, the GIN indexes build, and `server_members.role` is dropped; channel, member, message and attachment views still load.
+- [ ] Deleting a message with a file frees upload quota (after the 24-hour grace for fresh uploads); deleted and edited DMs update at once for the other member and the author's other device.
+- [ ] Desktop (Windows, macOS, Linux, installed release builds): sign-in, keyring session after restart, updater, HTTP requests, deep links, voice and screen sharing work with only the `default` capability and the main window created in code.
+- [ ] Desktop custom server on each platform with a custom `https` server and `http://localhost`: check, trust, restart, email and Google sign-in, voice; switching back to voxpery.com keeps both sessions separate; the setting survives an update.
+- [ ] Voice joins without Google STUN from mobile data and a corporate or other NAT network on real devices.
+- [ ] Member list shows kick, ban and timeout only for members the viewer outranks.
 
 ### v0.4.4 checks
 
