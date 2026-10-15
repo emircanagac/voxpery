@@ -166,6 +166,7 @@ This policy is enforced in release preflight validation.
 Before publishing or announcing a desktop release:
 
 - `latest.json` must be uploaded to the same GitHub Release as the installer artifacts.
+- The platform builds do not write `latest.json` (`includeUpdaterJson: false`). The `updater-manifest` job builds it once from the release's `.sig` files after every platform finished (`.github/scripts/build-updater-manifest.mjs`), and a tag release fails there if Windows, Linux or macOS is missing. Re-running a failed platform job re-runs this job too.
 - The `latest.json` version must match the Git tag and desktop app version.
 - Every updater asset referenced by `latest.json` must have a matching `.sig` file.
 - Artifact URLs in `latest.json` must point to release assets for the same version, not draft-only, private, temporary, or older release URLs.
