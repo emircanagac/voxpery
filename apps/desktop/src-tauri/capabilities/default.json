@@ -34,6 +34,16 @@
                 "secure-storage:default",
                 "opener:allow-default-urls",
                 "opener:allow-open-url",
+                "allow-desktop-set-minimize-to-tray-on-close",
+                "allow-desktop-prepare-for-update-install",
+                "allow-desktop-take-pending-deep-links",
+                "allow-desktop-update-unread-feedback",
+                "allow-desktop-open-media-permission-settings",
+                "allow-desktop-refocus-webview-keyboard",
+                "allow-desktop-update-channel",
+                "allow-desktop-custom-server",
+                "allow-desktop-probe-custom-server",
+                "allow-desktop-set-custom-server",
                 {
                     "identifier": "http:default",
                     "allow": [

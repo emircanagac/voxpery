@@ -71,6 +71,7 @@ pub fn generate_token(
         exp: (now + chrono::Duration::seconds(expiration_secs)).timestamp() as usize,
         iat: now.timestamp() as usize,
         ver: token_version,
+        jti: Some(Uuid::new_v4().simple().to_string()),
     };
 
     encode(

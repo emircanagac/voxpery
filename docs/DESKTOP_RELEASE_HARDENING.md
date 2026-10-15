@@ -49,6 +49,7 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
   - The development capability (`dev-local-api`, HTTP access to the local backend) is inlined in `tauri.dev.conf.json`. No file in `capabilities/` may grant loopback targets or remote origins.
   - `validate-security-policies.mjs` enforces all three rules.
   - `default` is a local capability: the bundled app is served from the runtime's own scheme URL (`https://tauri.localhost` on Windows and Linux CEF, `tauri://localhost` on macOS), and Tauri treats that origin as local. In development, the `devUrl` counts as local.
+  - The app's own commands (`desktop_*`) are listed in `build.rs` (`AppManifest::commands`), so Tauri checks them against capabilities like plugin commands. `default` grants each one with an `allow-*` permission. Pages from other origins inside the window, such as a server's captcha frame, have no capability and are refused; `ipc_access_tests` in `src/main.rs` covers this. A new command must be added to both `build.rs` and `default.json`, or the app refuses it.
   - Check on each platform that sign-in, keyring persistence, the updater and HTTP requests work in an installed release build.
 
 ## 2.1.0) Desktop Platform Decision

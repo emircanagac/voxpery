@@ -56,20 +56,27 @@ async fn get_image_proxy_grant(
         [(header::CACHE_CONTROL, "no-store")],
         Json(image_proxy_grant::current_user_grant(
             &state.jwt_secret,
-            claims.sub,
+            &claims,
         )),
     )
 }
 
-fn has_valid_grant(state: &AppState, query: &ImageProxyQuery) -> bool {
-    query.grant.as_deref().is_some_and(|grant| {
-        image_proxy_grant::verify(
-            &state.jwt_secret,
-            grant,
-            &query.url,
-            chrono::Utc::now().timestamp(),
-        )
-    })
+async fn has_valid_grant(state: &AppState, query: &ImageProxyQuery) -> bool {
+    let Some(grant) = query.grant.as_deref() else {
+        return false;
+    };
+    match image_proxy_grant::verify(
+        &state.jwt_secret,
+        grant,
+        &query.url,
+        chrono::Utc::now().timestamp(),
+    ) {
+        Some(image_proxy_grant::VerifiedGrant::Image) => true,
+        Some(image_proxy_grant::VerifiedGrant::User(session)) => {
+            image_proxy_grant::session_is_active(&state.db, &state.redis, &session).await
+        }
+        None => false,
+    }
 }
 
 /// Rate-limit identity: behind a trusted reverse proxy this is the forwarded client address,
@@ -161,7 +168,7 @@ async fn proxy_remote_image_with_label(
     label: &'static str,
 ) -> Result<Response, AppError> {
     // Only addresses this server signed are fetched, so the proxy is not an open image fetcher.
-    if !has_valid_grant(&state, &query) {
+    if !has_valid_grant(&state, &query).await {
         return Err(AppError::Unauthorized);
     }
     enforce_rate_limit(

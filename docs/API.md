@@ -257,7 +257,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 ## Image Proxy Endpoint
 
 - `GET /api/images/grant` (auth required)
-  - Returns `{ grant, expires_at }` (Unix seconds) with `Cache-Control: no-store`. The session snapshot carries the first grant; clients refresh it while they stay open. A grant is valid for 12 to 24 hours and stays the same within each 12-hour window, so proxy URLs remain cacheable.
+  - Returns `{ grant, expires_at }` (Unix seconds) with `Cache-Control: no-store`. The session snapshot carries the first grant; clients refresh it while they stay open. A grant is valid for 2 to 4 hours and stays the same within each 2-hour window, so proxy URLs remain cacheable. It belongs to the sign-in it was issued to: the proxy refuses it after that sign-in logs out, and after a password change or account deletion.
 - `GET /api/images/avatar?url=<encoded-https-url>&grant=<grant>`
   - Proxies third-party avatar images so viewers do not request user-supplied image hosts directly.
   - Requires a server-signed `grant`: a signed-in user's grant from the session snapshot or `/api/images/grant`, or a grant bound to that exact URL (invite preview icons). Requests without a valid grant return `401` before anything is fetched. `<img>` requests cannot send the desktop Bearer token, so the grant travels in the URL.

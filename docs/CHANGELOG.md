@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### Fixed
 - Desktop: "Advanced: custom server" now accepts the server's website address (for example `https://voxpery.com`) as well as its API address, and explains why an address does not work.
+=======
+### Security
+- Security updates.
+>>>>>>> origin/main
 
 ## [0.4.5] - 2026-10-15
 

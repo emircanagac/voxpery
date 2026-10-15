@@ -35,6 +35,10 @@ tauri-runtime-cef = "=3.0.0-alpha.5"
 cef = { version = "=152.3.0", default-features = false }
 x11-dl = "=2.21.0"
 
+[dev-dependencies]
+# Mock runtime for the IPC access tests.
+tauri = { version = "=3.0.0-alpha.4", features = ["tray-icon", "test"] }
+
 [build-dependencies]
 tauri-build = { version = "=3.0.0-alpha.3", features = [] }
 

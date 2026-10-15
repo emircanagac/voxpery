@@ -1764,14 +1764,17 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
             &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
             &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         ) {
-            if crate::services::jwt_blacklist::blacklist_until_exp(
+            let revoked = crate::services::jwt_blacklist::blacklist_until_exp(
                 &state.redis,
                 &token,
                 data.claims.exp,
             )
             .await
-            .is_err()
-            {
+            .is_ok()
+                && crate::services::image_proxy_grant::revoke_session(&state.redis, &data.claims)
+                    .await
+                    .is_ok();
+            if !revoked {
                 // Do not claim logout succeeded while the bearer token remains valid, but
                 // still end the browser session so a reload cannot silently restore it.
                 return (
@@ -2519,7 +2522,7 @@ async fn get_session(
         Json(SessionResponse {
             image_proxy: crate::services::image_proxy_grant::current_user_grant(
                 &state.jwt_secret,
-                row.user.id,
+                &claims,
             ),
             user: UserPublic::from(row.user),
             legal_consent: LegalConsentStatus::new(!row.legal_current),
