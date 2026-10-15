@@ -174,6 +174,8 @@ jobs:
           args: ${{ matrix.args }}
           # The desktop crate is on Tauri 3; build with the matching CLI.
           tauriScript: npx --yes @tauri-apps/cli@3.0.0-alpha.4
+          # latest.json is written once by the updater-manifest job; jobs updating it in parallel raced.
+          includeUpdaterJson: false
 
       - name: Validate desktop artifacts
         run: node .github/scripts/validate-desktop-artifacts.mjs
@@ -186,6 +188,37 @@ jobs:
           path: apps/desktop/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 3
+
+  updater-manifest:
+    name: Publish the updater manifest
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+
+      - name: Sync desktop version metadata
+        run: node .github/scripts/sync-desktop-version.mjs
+
+      # Built from the signatures of every bundle on the release, after all platforms uploaded.
+      - name: Build and upload latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATER_NOTES: 'Desktop release. Download the installer for your platform below.'
+          UPDATER_REQUIRE: ${{ (github.event_name == 'push' || github.event.inputs.platform == 'all') && 'windows,linux,darwin' || '' }}
+        run: |
+          version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          gh release download "v$version" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' --dir sigs
+          node .github/scripts/build-updater-manifest.mjs sigs latest.json
+          gh release upload "v$version" latest.json --clobber --repo "$GITHUB_REPOSITORY"
 
   flatpak:
     name: Linux Flatpak bundle
