@@ -1,9 +1,9 @@
-<div align="center">
-
-<h1>
+<h1 align="center">
   <img src="docs/assets/voxpery-readme-logo.svg" alt="" width="140" height="96" /><br />
   Voxpery
 </h1>
+
+<div align="center">
 
 **Open-source chat, voice, and screen sharing for communities that want control.**
 
