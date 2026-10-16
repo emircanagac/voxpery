@@ -45,7 +45,7 @@ sha2 = "0.10"
 unicode-normalization = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 ipnet = "=2.12.2"
-zip = { version = "6", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
