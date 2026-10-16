@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Desktop: "Advanced: custom server" now accepts the server's website address (for example `https://voxpery.com`) as well as its API address, and explains why an address does not work.
+- Images no longer disappear for a while after a Google-only account sets a password on the web.
 
 ### Changed
 - The web app loads less JavaScript when it first opens.
