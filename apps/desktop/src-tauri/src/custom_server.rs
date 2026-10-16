@@ -84,6 +84,10 @@ fn allows_plain_http(url: &Url) -> bool {
     }
 }
 
+fn is_local_origin(origin: &str) -> bool {
+    Url::parse(origin).is_ok_and(|url| allows_plain_http(&url))
+}
+
 /// Reduces user input to an origin. `secure`/`plain` are the accepted schemes for this kind of
 /// address (`https`/`http` for the API, `wss`/`ws` for voice); the plain one only for local hosts.
 fn normalize_origin(input: &str, secure: &str, plain: &str) -> Result<String, String> {
@@ -163,6 +167,11 @@ fn parse_discovery(body: &[u8], site_origin: &str) -> Result<String, String> {
     })?;
     if site_origin.starts_with("https:") && !api_origin.starts_with("https:") {
         return Err("This website names an unencrypted Voxpery server".into());
+    }
+    // Only a site on this computer or the local network may point to a local or private address,
+    // so a public website cannot make the app contact hosts inside the user's network.
+    if is_local_origin(&api_origin) && !is_local_origin(site_origin) {
+        return Err("This website names a Voxpery server on a private network".into());
     }
     Ok(api_origin)
 }
@@ -439,6 +448,11 @@ mod tests {
             parse_discovery(&named("http://localhost:3001"), "http://localhost:5173").unwrap(),
             "http://localhost:3001"
         );
+        // A site on the local network may name an API there too.
+        assert_eq!(
+            parse_discovery(&named("https://192.168.1.20"), "https://nas.local").unwrap(),
+            "https://192.168.1.20"
+        );
         for (body, site) in [
             (b"<!doctype html>".to_vec(), "https://chat.example.org"),
             (
@@ -450,8 +464,13 @@ mod tests {
                 "https://chat.example.org",
             ),
             (named("http://api.example.org"), "https://chat.example.org"),
-            // A public website may not send the app to a local, unencrypted address.
+            // A public website may not send the app to a local or private address.
             (named("http://localhost:3001"), "https://chat.example.org"),
+            (named("https://localhost:3001"), "https://chat.example.org"),
+            (named("https://192.168.1.20"), "https://chat.example.org"),
+            (named("https://10.0.0.5:8443"), "https://chat.example.org"),
+            (named("https://[::1]"), "https://chat.example.org"),
+            (named("https://nas.local"), "https://chat.example.org"),
             (named("javascript:alert(1)"), "https://chat.example.org"),
         ] {
             assert!(parse_discovery(&body, site).is_err(), "{site}");
