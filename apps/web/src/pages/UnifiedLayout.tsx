@@ -8,8 +8,8 @@ import { useSocketStore } from '../stores/socket'
 import UnifiedSidebar from '../components/UnifiedSidebar'
 import HomePage from './HomePage'
 import AppLayout from './AppLayout'
-import { friendApi, setImageProxyGrant } from '../api'
-import { apiFetch } from '../api/client'
+import { friendApi } from '../api'
+import { refreshImageProxyGrant } from '../api/imageProxyGrantRefresh'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { ROUTES } from '../routes'
@@ -68,8 +68,7 @@ export default function UnifiedLayout() {
   useEffect(() => {
     if (!userId) return
     const timer = window.setInterval(() => {
-      void apiFetch<{ grant: string }>('/api/images/grant', { token: token ?? undefined })
-        .then(({ grant }) => setImageProxyGrant(grant)).catch(() => {})
+      void refreshImageProxyGrant(token).catch(() => {})
     }, IMAGE_PROXY_GRANT_REFRESH_MS)
     return () => window.clearInterval(timer)
   }, [userId, token])

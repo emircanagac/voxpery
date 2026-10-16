@@ -12,6 +12,7 @@ import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl, resolveAvatarUrl } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
+import { refreshImageProxyGrant } from '../api/imageProxyGrantRefresh'
 import { useSocketStore } from '../stores/socket'
 import {
   DEFAULT_SPEAKING_PRESET,
@@ -2268,6 +2269,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                       const auth = await authApi.setPassword(pwNew, token ?? null)
                       if (token) await setAuth(auth.token, auth.user)
                       else setUser(auth.user)
+                      // Setting a password ends the old token version, and with it the image grant.
+                      void refreshImageProxyGrant(token ? auth.token : null).catch(() => {})
                       setPwSuccess(true)
                       setPwOld(''); setPwNew(''); setPwConfirm('')
                       setTimeout(() => {
