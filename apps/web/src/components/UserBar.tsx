@@ -1,4 +1,4 @@
-import { Settings, Eye, EyeOff, Lock, Download, Trash2, ChevronsUpDown } from 'lucide-react'
+import { Settings, ChevronsUpDown } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
@@ -12,7 +12,6 @@ import { useToastStore } from '../stores/toast'
 import { isTauri } from '../secureStorage'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl, resolveAvatarUrl } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
-import { refreshImageProxyGrant } from '../api/imageProxyGrantRefresh'
 import { useSocketStore } from '../stores/socket'
 import {
   DEFAULT_SPEAKING_PRESET,
@@ -103,6 +102,9 @@ import {
   type SettingsSection,
   type VoiceDeviceMenu,
 } from './userSettingsShared'
+import AccountCredentialDialogs from './AccountCredentialDialogs'
+import AccountDataDialogs from './AccountDataDialogs'
+import { isValidEmailAddress } from './accountValidation'
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const DEFAULT_INPUT_VOLUME = 80
@@ -131,43 +133,6 @@ function statusDescription(status: 'online' | 'dnd' | 'invisible') {
   if (status === 'dnd') return 'You will not receive notifications.'
   if (status === 'invisible') return 'You appear offline to others.'
   return null
-}
-
-function hasOnlyUsernameChars(value: string) {
-  if (value.length === 0) return false
-  for (let i = 0; i < value.length; i += 1) {
-    const ch = value[i]
-    const code = value.charCodeAt(i)
-    const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
-    const isDigit = code >= 48 && code <= 57
-    if (!isLetter && !isDigit && ch !== '_' && ch !== '.') return false
-  }
-  return true
-}
-
-function hasUsernameBoundarySeparator(value: string) {
-  return value.startsWith('_') || value.startsWith('.') || value.endsWith('_') || value.endsWith('.')
-}
-
-function hasUsernameConsecutiveSeparator(value: string) {
-  for (let i = 1; i < value.length; i += 1) {
-    const prev = value[i - 1]
-    const curr = value[i]
-    if ((prev === '_' || prev === '.') && (curr === '_' || curr === '.')) return true
-  }
-  return false
-}
-
-function isValidUsername(value: string) {
-  if (value.length < 3 || !hasOnlyUsernameChars(value)) return false
-  if (hasUsernameBoundarySeparator(value)) return false
-  return !hasUsernameConsecutiveSeparator(value)
-}
-
-function isValidEmailAddress(value: string) {
-  const trimmed = value.trim()
-  const atIndex = trimmed.indexOf('@')
-  return trimmed.length <= 255 && atIndex > 0 && atIndex < trimmed.length - 1
 }
 
 function getEmailVerificationErrorMessage(err: unknown) {
@@ -1817,488 +1782,85 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
           }}
         />
       ), document.body)}
-      {showExportModal && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={closeExportModal}>
-          <div ref={exportModalRef} className="modal pw-modal data-export-modal" role="dialog" aria-modal="true" aria-labelledby="data-export-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
-            <header className="pw-modal-header">
-              <Download size={20} className="pw-modal-icon" />
-              <h2 id="data-export-title">Create data export</h2>
-              <p className="pw-modal-subtitle">
-                This ZIP can contain private messages and files. It is not encrypted; store it securely and delete it when no longer needed.
-              </p>
-            </header>
-            <div className="pw-change-form">
-              {isGoogleOnlyAccount ? (
-                <p className="user-setting-desc">
-                  A Google sign-in from the last 10 minutes is required. If this request is rejected, re-authenticate and try once more.
-                </p>
-              ) : (
-                <div className="pw-field-wrap">
-                  <label className="user-setting-title" htmlFor="export-password">Current password</label>
-                  <div className="pw-input-wrap">
-                    <Lock size={14} className="pw-input-icon" />
-                    <input
-                      id="export-password"
-                      type="password"
-                      className="pw-input"
-                      value={exportPassword}
-                      onChange={(event) => setExportPassword(event.target.value)}
-                      autoComplete="current-password"
-                    />
-                  </div>
-                </div>
-              )}
-              <p className="user-setting-desc">
-                For a complete KVKK/GDPR access request, follow the formal request process in the Privacy Notice.
-              </p>
-              {exportError && <div className="pw-error">{exportError}</div>}
-            </div>
-            <footer className="pw-modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={closeExportModal}>
-                Cancel
-              </button>
-              {isGoogleOnlyAccount && exportError && (
-                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
-                  Sign in with Google
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={exportingData || (!isGoogleOnlyAccount && !exportPassword.trim())}
-                onClick={() => void exportMyData()}
-              >
-                {exportingData ? 'Creating…' : 'Download ZIP'}
-              </button>
-            </footer>
-          </div>
-        </div>
-      ), document.body)}
-      {showDeleteModal && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={closeDeleteModal}>
-          <div ref={deleteModalRef} className="modal pw-modal delete-account-modal" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-            <header className="pw-modal-header">
-              <Trash2 size={20} className="pw-modal-icon" />
-              <h2 id="delete-account-title">Delete account</h2>
-              <p className="pw-modal-subtitle delete-account-danger-note">
-                This action permanently deletes your account. This cannot be undone.
-              </p>
-            </header>
-            <div className="pw-change-form">
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="delete-password">Current password</label>
-                <div className="pw-input-wrap delete-account-input-wrap">
-                  <Lock size={14} className="pw-input-icon" />
-                  <input
-                    id="delete-password"
-                    type="password"
-                    className="pw-input"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    placeholder="Required for password-based accounts"
-                    autoComplete="current-password"
-                  />
-                </div>
-              </div>
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="delete-confirm">Type DELETE to confirm</label>
-                <div className="pw-input-wrap delete-account-input-wrap">
-                  <Trash2 size={14} className="pw-input-icon" />
-                  <input
-                    id="delete-confirm"
-                    type="text"
-                    className="pw-input"
-                    value={deleteConfirm}
-                    onChange={(e) => setDeleteConfirm(e.target.value)}
-                    placeholder="DELETE"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className={`delete-account-confirm-hint ${deleteConfirm.trim() === 'DELETE' ? 'is-valid' : ''}`}>
-                  {deleteConfirm.trim() === 'DELETE' ? 'Confirmation text is valid.' : 'Type DELETE exactly to enable the action.'}
-                </div>
-              </div>
-              {deleteError && <div className="pw-error">{deleteError}</div>}
-              {deleteNeedsGoogleSignIn && (
-                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
-                  Sign in with Google again
-                </button>
-              )}
-            </div>
-            <footer className="pw-modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={closeDeleteModal}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={deleteSubmitting || deleteConfirm.trim() !== 'DELETE'}
-                onClick={() => void submitDeleteAccount()}
-              >
-                {deleteSubmitting ? 'Processing…' : 'Delete account'}
-              </button>
-            </footer>
-          </div>
-        </div>
-      ), document.body)}
-      {showEmailModal && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={() => closeEmailModal()}>
-          <div ref={emailModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-email-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-            <header className="pw-modal-header">
-              <h2 id="change-email-title">Change email</h2>
-              <p className="pw-modal-subtitle">Update your sign-in email address and verify the new address.</p>
-            </header>
-            <div className="pw-change-form">
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="email-new">Email address</label>
-                <div className="pw-input-wrap">
-                  <input
-                    id="email-new"
-                    type="email"
-                    className="pw-input"
-                    placeholder="name@example.com"
-                    value={emailEdit}
-                    onChange={(e) => {
-                      setEmailEdit(e.target.value)
-                      setEmailError(null)
-                    }}
-                    autoComplete="email"
-                  />
-                </div>
-                {!isValidEmailAddress(emailEdit) && emailEdit.trim().length > 0 && (
-                  <div className="pw-hint pw-hint-warn">Enter a valid email address</div>
-                )}
-              </div>
-              {!isGoogleOnlyAccount && emailEdit.trim().toLowerCase() !== (user?.email ?? '').toLowerCase() && (
-                <div className="pw-field-wrap">
-                  <label className="user-setting-title" htmlFor="email-current-password">Current password</label>
-                  <div className="pw-input-wrap">
-                    <input
-                      id="email-current-password"
-                      type="password"
-                      className="pw-input"
-                      value={emailPassword}
-                      onChange={(e) => {
-                        setEmailPassword(e.target.value)
-                        setEmailError(null)
-                      }}
-                      autoComplete="current-password"
-                    />
-                  </div>
-                </div>
-              )}
-              {emailError && <div className="pw-error">{emailError}</div>}
-              {emailNeedsGoogleSignIn && (
-                <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
-                  Sign in with Google again
-                </button>
-              )}
-            </div>
-            <footer className="pw-modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => closeEmailModal()}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={emailSaving || !isValidEmailAddress(emailEdit)}
-                onClick={() => void submitEmailChange()}
-              >
-                {emailSaving ? 'Saving…' : 'Save'}
-              </button>
-            </footer>
-          </div>
-        </div>
-      ), document.body)}
-      {showUsernameModal && typeof document !== 'undefined' && createPortal((() => {
-        const changedAt = user?.username_changed_at ? new Date(user.username_changed_at).getTime() : null
-        const nextAllowedMs = changedAt ? changedAt + 7 * 24 * 60 * 60 * 1000 : null
-        const cannotChangeYet = nextAllowedMs != null && Date.now() < nextAllowedMs
-        const nextAllowedDate = nextAllowedMs != null ? new Date(nextAllowedMs) : null
-        return (
-        <div className="modal-overlay" onClick={() => closeUsernameModal()}>
-          <div ref={usernameModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-username-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-            <header className="pw-modal-header">
-              <h2 id="change-username-title">Change username</h2>
-              <p className="pw-modal-subtitle">3–32 characters, letters, numbers, underscores, and periods.</p>
-              <p className="pw-modal-subtitle" style={{ marginTop: 4, fontSize: 13 }}>
-                You can only change your username once every 7 days.
-                {cannotChangeYet && nextAllowedDate && (
-                  <> Next change allowed: <strong>{nextAllowedDate.toLocaleDateString('en-US', { dateStyle: 'long' })}</strong>.</>
-                )}
-              </p>
-            </header>
-            <div className="pw-change-form">
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="username-new">New username</label>
-                <div className="pw-input-wrap">
-                  <input
-                    id="username-new"
-                    type="text"
-                    className="pw-input"
-                    placeholder="e.g. myname"
-                    value={usernameEdit}
-                    disabled={cannotChangeYet}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setUsernameEdit(v)
-                      setUsernameError(null)
-                      if (v.trim() === user?.username) {
-                        setUsernameAvailable(true)
-                        return
-                      }
-                      if (!isValidUsername(v.trim())) {
-                        setUsernameAvailable(null)
-                        setUsernameChecking(false)
-                        setUsernameCheckFailed(false)
-                        return
-                      }
-                      setUsernameCheckFailed(false)
-                      if (usernameCheckTimeoutRef.current) clearTimeout(usernameCheckTimeoutRef.current)
-                      usernameCheckTimeoutRef.current = setTimeout(() => {
-                        usernameCheckTimeoutRef.current = null
-                        setUsernameChecking(true)
-                        authApi.checkUsername(v.trim(), token ?? null)
-                          .then((r) => {
-                            setUsernameAvailable(r.available)
-                            setUsernameCheckFailed(false)
-                          })
-                          .catch(() => {
-                            setUsernameAvailable(true)
-                            setUsernameCheckFailed(true)
-                          })
-                          .finally(() => setUsernameChecking(false))
-                      }, 300)
-                    }}
-                    onBlur={() => {
-                      const v = usernameEdit.trim()
-                      if (isValidUsername(v) && v.toLowerCase() !== user?.username?.toLowerCase()) {
-                        setUsernameChecking(true)
-                        setUsernameCheckFailed(false)
-                        authApi.checkUsername(v, token ?? null)
-                          .then((r) => {
-                            setUsernameAvailable(r.available)
-                            setUsernameCheckFailed(false)
-                          })
-                          .catch(() => {
-                            setUsernameAvailable(true)
-                            setUsernameCheckFailed(true)
-                          })
-                          .finally(() => setUsernameChecking(false))
-                      }
-                    }}
-                    minLength={3}
-                    maxLength={32}
-                    autoComplete="off"
-                  />
-                </div>
-                {usernameEdit.length > 0 && usernameEdit.length < 3 && (
-                  <div className="pw-hint pw-hint-warn">At least 3 characters</div>
-                )}
-                {usernameEdit.length >= 3 && !hasOnlyUsernameChars(usernameEdit) && (
-                  <div className="pw-hint pw-hint-warn">Only letters, numbers, underscores, and periods</div>
-                )}
-                {usernameEdit.length >= 3 && hasOnlyUsernameChars(usernameEdit) && hasUsernameBoundarySeparator(usernameEdit) && (
-                  <div className="pw-hint pw-hint-warn">Cannot start or end with '_' or '.'</div>
-                )}
-                {usernameEdit.length >= 3 && hasOnlyUsernameChars(usernameEdit) && !hasUsernameBoundarySeparator(usernameEdit) && hasUsernameConsecutiveSeparator(usernameEdit) && (
-                  <div className="pw-hint pw-hint-warn">Cannot contain consecutive '_' or '.'</div>
-                )}
-                {isValidUsername(usernameEdit) && usernameChecking && (
-                  <div className="pw-hint">Checking availability…</div>
-                )}
-                {isValidUsername(usernameEdit) && !usernameChecking && usernameAvailable === false && (
-                  <div className="pw-hint pw-hint-warn">Username already taken</div>
-                )}
-                {isValidUsername(usernameEdit) && !usernameChecking && usernameAvailable === true && !usernameCheckFailed && (
-                  <div className="pw-hint pw-hint-ok">Available</div>
-                )}
-                {isValidUsername(usernameEdit) && usernameCheckFailed && (
-                  <div className="pw-hint pw-hint-warn">Could not verify. You can try Save.</div>
-                )}
-                {usernameError && <div className="pw-error">{usernameError}</div>}
-              </div>
-            </div>
-            <footer className="pw-modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => closeUsernameModal()}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={cannotChangeYet || usernameSaving || !isValidUsername(usernameEdit.trim()) || usernameEdit.trim() === user?.username || usernameAvailable !== true}
-                onClick={async () => {
-                  const v = usernameEdit.trim()
-                  if (v === user?.username || v.length < 3) return
-                  setUsernameSaving(true)
-                  setUsernameError(null)
-                  try {
-                    const updated = await authApi.updateProfile({ username: v }, token ?? null)
-                    if (usernameCheckTimeoutRef.current) {
-                      clearTimeout(usernameCheckTimeoutRef.current)
-                      usernameCheckTimeoutRef.current = null
-                    }
-                    setUser(updated)
-                    closeUsernameModal()
-                  } catch (err: unknown) {
-                    const msg = getAuthErrorMessage(err).message || 'Could not update username'
-                    setUsernameError(msg)
-                    if (/already taken|taken/i.test(msg)) setUsernameAvailable(false)
-                  } finally {
-                    setUsernameSaving(false)
-                  }
-                }}
-              >
-                {usernameSaving ? 'Saving…' : 'Save'}
-              </button>
-            </footer>
-          </div>
-        </div>
-        ); })(), document.body)}
-      {showPwModal && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onClick={() => closePasswordModal()}>
-          <div ref={passwordModalRef} className="modal pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-            <header className="pw-modal-header">
-              <Lock size={20} className="pw-modal-icon" />
-              <h2 id="change-password-title">{isGoogleOnlyAccount ? 'Set password' : 'Change password'}</h2>
-              <p className="pw-modal-subtitle">
-                {isGoogleOnlyAccount
-                  ? 'Set a password so you can sign in with email and password too.'
-                  : 'You will be logged out after changing your password.'}
-              </p>
-            </header>
-            <div className="pw-change-form">
-              {!isGoogleOnlyAccount && (
-                <div className="pw-field-wrap">
-                  <label className="user-setting-title" htmlFor="pw-old">Current password</label>
-                  <div className="pw-input-wrap">
-                    <Lock size={14} className="pw-input-icon" />
-                    <input
-                      id="pw-old"
-                      type={pwShowOld ? 'text' : 'password'}
-                      className="pw-input"
-                      placeholder="Enter current password"
-                      value={pwOld}
-                      onChange={(e) => { setPwOld(e.target.value); setPwError(null); setPwSuccess(false) }}
-                      autoComplete="current-password"
-                    />
-                    <button type="button" className="pw-eye-btn" onClick={() => setPwShowOld(v => !v)} tabIndex={-1} aria-label="Toggle visibility">
-                      {pwShowOld ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="pw-new">New password</label>
-                <div className="pw-input-wrap">
-                  <Lock size={14} className="pw-input-icon" />
-                  <input
-                    id="pw-new"
-                    type={pwShowNew ? 'text' : 'password'}
-                    className="pw-input"
-                    placeholder="Min. 8 characters"
-                    value={pwNew}
-                    onChange={(e) => { setPwNew(e.target.value); setPwError(null); setPwSuccess(false) }}
-                    autoComplete="new-password"
-                  />
-                  <button type="button" className="pw-eye-btn" onClick={() => setPwShowNew(v => !v)} tabIndex={-1} aria-label="Toggle visibility">
-                    {pwShowNew ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-                {pwNew.length > 0 && pwNew.length < 8 && (
-                  <div className="pw-hint pw-hint-warn">Password must be at least 8 characters</div>
-                )}
-                {pwNew.length >= 8 && (
-                  <div className="pw-hint pw-hint-ok">Looks good!</div>
-                )}
-              </div>
-              <div className="pw-field-wrap">
-                <label className="user-setting-title" htmlFor="pw-confirm">Confirm new password</label>
-                <div className="pw-input-wrap">
-                  <Lock size={14} className="pw-input-icon" />
-                  <input
-                    id="pw-confirm"
-                    type={pwShowNew ? 'text' : 'password'}
-                    className="pw-input"
-                    placeholder="Repeat new password"
-                    value={pwConfirm}
-                    onChange={(e) => { setPwConfirm(e.target.value); setPwError(null); setPwSuccess(false) }}
-                    autoComplete="new-password"
-                  />
-                </div>
-                {pwConfirm.length > 0 && pwNew !== pwConfirm && (
-                  <div className="pw-hint pw-hint-warn">Passwords do not match</div>
-                )}
-              </div>
-              {pwError && <div className="pw-error">{pwError}</div>}
-              {pwSuccess && (
-                <div className="pw-success">
-                  {isGoogleOnlyAccount ? 'Password set successfully.' : 'Password changed! Redirecting to login…'}
-                </div>
-              )}
-            </div>
-            <footer className="pw-modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => closePasswordModal()}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={pwSaving || pwNew.length < 8 || pwNew !== pwConfirm || (!isGoogleOnlyAccount && !pwOld)}
-                onClick={async () => {
-                  setPwSaving(true)
-                  setPwError(null)
-                  try {
-                    if (isGoogleOnlyAccount) {
-                      const auth = await authApi.setPassword(pwNew, token ?? null)
-                      if (token) await setAuth(auth.token, auth.user)
-                      else setUser(auth.user)
-                      // Setting a password ends the old token version, and with it the image grant.
-                      void refreshImageProxyGrant(token ? auth.token : null).catch(() => {})
-                      setPwSuccess(true)
-                      setPwOld(''); setPwNew(''); setPwConfirm('')
-                      setTimeout(() => {
-                        closePasswordModal()
-                      }, 900)
-                    } else {
-                      await authApi.changePassword(pwOld, pwNew, token ?? null)
-                      setPwSuccess(true)
-                      setPwOld(''); setPwNew(''); setPwConfirm('')
-                      setTimeout(() => {
-                        handleLogout()
-                      }, 1500)
-                    }
-                  } catch (err: unknown) {
-                    const errorObj = err as Record<string, Record<string, Record<string, string>>>
-                    const msg = errorObj?.response?.data?.message || (err as Error)?.message || (isGoogleOnlyAccount ? 'Set password failed' : 'Password change failed')
-                    setPwError(msg)
-                  } finally {
-                    setPwSaving(false)
-                  }
-                }}
-              >
-                {pwSaving ? (isGoogleOnlyAccount ? 'Saving…' : 'Changing…') : 'Confirm'}
-              </button>
-            </footer>
-          </div>
-        </div>
-      ), document.body)}
+      <AccountDataDialogs
+        closeDeleteModal={closeDeleteModal}
+        closeEmailModal={closeEmailModal}
+        closeExportModal={closeExportModal}
+        deleteConfirm={deleteConfirm}
+        deleteError={deleteError}
+        deleteModalRef={deleteModalRef}
+        deleteNeedsGoogleSignIn={deleteNeedsGoogleSignIn}
+        deletePassword={deletePassword}
+        deleteSubmitting={deleteSubmitting}
+        emailEdit={emailEdit}
+        emailError={emailError}
+        emailModalRef={emailModalRef}
+        emailNeedsGoogleSignIn={emailNeedsGoogleSignIn}
+        emailPassword={emailPassword}
+        emailSaving={emailSaving}
+        exportError={exportError}
+        exportModalRef={exportModalRef}
+        exportMyData={exportMyData}
+        exportPassword={exportPassword}
+        exportingData={exportingData}
+        isGoogleOnlyAccount={isGoogleOnlyAccount}
+        reauthenticateGoogleForExport={reauthenticateGoogleForExport}
+        setDeleteConfirm={setDeleteConfirm}
+        setDeletePassword={setDeletePassword}
+        setEmailEdit={setEmailEdit}
+        setEmailError={setEmailError}
+        setEmailPassword={setEmailPassword}
+        setExportPassword={setExportPassword}
+        showDeleteModal={showDeleteModal}
+        showEmailModal={showEmailModal}
+        showExportModal={showExportModal}
+        submitDeleteAccount={submitDeleteAccount}
+        submitEmailChange={submitEmailChange}
+        user={user}
+      />
+      <AccountCredentialDialogs
+        closePasswordModal={closePasswordModal}
+        closeUsernameModal={closeUsernameModal}
+        handleLogout={handleLogout}
+        isGoogleOnlyAccount={isGoogleOnlyAccount}
+        passwordModalRef={passwordModalRef}
+        pwConfirm={pwConfirm}
+        pwError={pwError}
+        pwNew={pwNew}
+        pwOld={pwOld}
+        pwSaving={pwSaving}
+        pwShowNew={pwShowNew}
+        pwShowOld={pwShowOld}
+        pwSuccess={pwSuccess}
+        setAuth={setAuth}
+        setPwConfirm={setPwConfirm}
+        setPwError={setPwError}
+        setPwNew={setPwNew}
+        setPwOld={setPwOld}
+        setPwSaving={setPwSaving}
+        setPwShowNew={setPwShowNew}
+        setPwShowOld={setPwShowOld}
+        setPwSuccess={setPwSuccess}
+        setUser={setUser}
+        setUsernameAvailable={setUsernameAvailable}
+        setUsernameCheckFailed={setUsernameCheckFailed}
+        setUsernameChecking={setUsernameChecking}
+        setUsernameEdit={setUsernameEdit}
+        setUsernameError={setUsernameError}
+        setUsernameSaving={setUsernameSaving}
+        showPwModal={showPwModal}
+        showUsernameModal={showUsernameModal}
+        token={token}
+        user={user}
+        usernameAvailable={usernameAvailable}
+        usernameCheckFailed={usernameCheckFailed}
+        usernameCheckTimeoutRef={usernameCheckTimeoutRef}
+        usernameChecking={usernameChecking}
+        usernameEdit={usernameEdit}
+        usernameError={usernameError}
+        usernameModalRef={usernameModalRef}
+        usernameSaving={usernameSaving}
+      />
     </div>
   )
 }
