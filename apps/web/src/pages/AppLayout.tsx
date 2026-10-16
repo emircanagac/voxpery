@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { useNavigate } from 'react-router'
@@ -9,23 +9,15 @@ import { useSocketStore } from '../stores/socket'
 import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi, friendApi, type MessageWithAuthor, type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest, type WsEvent } from '../api'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
-import ChannelSettingsModal from '../components/ChannelSettingsModal'
-import ModalSurface from '../components/ModalSurface'
-import ProfileAvatarEditor from '../components/ProfileAvatarEditor'
 import { useDialogFocus } from '../hooks/useDialogFocus'
-import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
-import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
-import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
-import ServerSettingsSafety, { type SafetySettingsTab } from '../components/ServerSettingsSafety'
+import { type SafetySettingsTab } from '../components/ServerSettingsSafety'
 import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
 import { joinVoiceChannelFromNavigation } from '../components/voiceChannelNavigation'
 import { shouldShowServerWelcomeGuide } from '../serverWelcomeGuideVisibility'
-import ServerRolesSidebar from '../components/ServerRolesSidebar'
-import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
-import { AlertTriangle, LayoutDashboard, ListChecks, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
     applyUploadedDraftAttachments,
@@ -57,15 +49,11 @@ import { createSecureId } from '../secureId'
 import { ROUTES } from '../routes'
 import { resolveInviteBaseUrl } from '../inviteLinks'
 import { handleVoiceMemberMoveRequested } from '../webrtc/voiceMemberMove'
-
-type UiMessage = MessageWithAuthor & {
-    clientId?: string
-    clientStatus?: 'sending' | 'failed'
-    clientError?: string
-}
-
-type ServerSettingsLocalTab = 'overview' | 'roles' | 'rules' | 'safety' | 'audit' | 'danger'
-type ServerSettingsOpenTab = ServerSettingsLocalTab | SafetySettingsTab
+import type { UiMessage, ServerSettingsLocalTab, ServerSettingsOpenTab } from './appLayoutModel'
+import { isSafetySettingsTab, normalizeServerSettingsTab, MESSAGE_PAGE_SIZE, REPORT_REASONS, PERM_VIEW_SERVER, PERM_MANAGE_SERVER, PERM_MANAGE_ROLES, PERM_MANAGE_CHANNELS, PERM_KICK_MEMBERS, PERM_BAN_MEMBERS, PERM_VIEW_AUDIT_LOG, PERM_SEND_MESSAGES, PERM_MANAGE_MESSAGES, PERM_MANAGE_PINS, PERM_CONNECT_VOICE, PERM_MUTE_MEMBERS, PERM_DEAFEN_MEMBERS, PERM_MOVE_MEMBERS, validateChannelNameInput, validateCategoryNameInput, validateChannelDescriptionInput, parseInviteInput, compareChannelsForSidebar, getStoredChannelId, setStoredChannelId, isWelcomeGuideDismissed, dismissWelcomeGuide, messageMentionsUser } from './appLayoutModel'
+import ServerSettingsModal from './ServerSettingsModal'
+import ServerCreationDialogs from './ServerCreationDialogs'
+import ServerConfirmDialogs from './ServerConfirmDialogs'
 
 export interface AppLayoutProps {
     /** When true, do not render ServerSidebar (used inside UnifiedLayout which has its own sidebar). */
@@ -75,208 +63,6 @@ export interface AppLayoutProps {
     serverDialogTriggerRef?: RefObject<HTMLElement | null>
 }
 
-const SERVER_SETTINGS_SECTION_META = {
-    overview: {
-        eyebrow: 'Workspace',
-        title: 'Overview',
-        hint: 'Update your server identity, invite flow, and core presentation.',
-    },
-    roles: {
-        eyebrow: 'Access Control',
-        title: 'Roles',
-        hint: 'Shape permissions, moderation powers, and the hierarchy your members see.',
-    },
-    rules: {
-        eyebrow: 'Community',
-        title: 'Community',
-        hint: 'Give new members a clear starting point, then set expectations with server rules.',
-    },
-    audit: {
-        eyebrow: 'Moderation',
-        title: 'Audit Log',
-        hint: 'Review important changes and actions taken across the server.',
-    },
-    safety: {
-        eyebrow: 'Safety',
-        title: 'Safety',
-        hint: 'Review reports, configure moderation filters, and manage bans in one place.',
-    },
-    danger: {
-        eyebrow: 'Ownership',
-        title: 'Danger Zone',
-        hint: 'Destructive actions live here. Review carefully before continuing.',
-    },
-} as const
-
-function isSafetySettingsTab(tab: ServerSettingsOpenTab): tab is SafetySettingsTab {
-    return tab === 'reports' || tab === 'automod' || tab === 'bans'
-}
-
-function normalizeServerSettingsTab(tab: ServerSettingsOpenTab): ServerSettingsLocalTab {
-    return isSafetySettingsTab(tab) ? 'safety' : tab
-}
-
-/** Page size for message list (pagination). Must match backend max (100) or less. */
-const MESSAGE_PAGE_SIZE = 50
-const CHANNEL_NAME_MAX = 32
-const CATEGORY_NAME_MAX = 32
-const CHANNEL_DESCRIPTION_MAX = 120
-const WELCOME_GUIDE_DISMISSED_STORAGE_KEY = 'voxpery-dismissed-welcome-guides'
-const REPORT_REASONS = [
-    { value: 'spam', label: 'Spam' },
-    { value: 'harassment', label: 'Harassment' },
-    { value: 'inappropriate_content', label: 'Inappropriate content' },
-    { value: 'impersonation', label: 'Impersonation' },
-    { value: 'other', label: 'Other' },
-] as const
-
-// Permission bit masks (must stay in sync with backend Permissions flags).
-const PERM_VIEW_SERVER = 1 << 0
-const PERM_MANAGE_SERVER = 1 << 1
-const PERM_MANAGE_ROLES = 1 << 2
-const PERM_MANAGE_CHANNELS = 1 << 3
-const PERM_KICK_MEMBERS = 1 << 4
-const PERM_BAN_MEMBERS = 1 << 5
-const PERM_VIEW_AUDIT_LOG = 1 << 6
-const PERM_SEND_MESSAGES = 1 << 7
-const PERM_MANAGE_MESSAGES = 1 << 8
-const PERM_MANAGE_PINS = 1 << 9
-const PERM_CONNECT_VOICE = 1 << 10
-const PERM_MUTE_MEMBERS = 1 << 11
-const PERM_DEAFEN_MEMBERS = 1 << 12
-const PERM_MOVE_MEMBERS = 1 << 13
-
-const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
-
-function validateChannelNameInput(raw: string): string | null {
-    const value = raw.trim()
-    if (!value) return 'Channel name is required.'
-    if (Array.from(value).length > CHANNEL_NAME_MAX) {
-        return `Channel name must be ${CHANNEL_NAME_MAX} characters or fewer.`
-    }
-    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
-        return "Channel name can only include letters, numbers, spaces, '#', '-' and '_'."
-    }
-    if (value.includes('  ')) {
-        return 'Channel name cannot contain consecutive spaces.'
-    }
-    return null
-}
-
-function validateCategoryNameInput(raw: string): string | null {
-    const value = raw.trim()
-    if (!value) return 'Category name is required.'
-    if (Array.from(value).length > CATEGORY_NAME_MAX) {
-        return `Category name must be ${CATEGORY_NAME_MAX} characters or fewer.`
-    }
-    if (!/^[\p{L}\p{N}_ #-]+$/u.test(value)) {
-        return "Category name can only include letters, numbers, spaces, '#', '-' and '_'."
-    }
-    if (value.includes('  ')) {
-        return 'Category name cannot contain consecutive spaces.'
-    }
-    return null
-}
-
-function validateChannelDescriptionInput(raw: string): string | null {
-    const value = raw.trim()
-    if (!value) return null
-    if (Array.from(value).length > CHANNEL_DESCRIPTION_MAX) {
-        return `Channel description must be ${CHANNEL_DESCRIPTION_MAX} characters or fewer.`
-    }
-    return null
-}
-
-function parseInviteInput(raw: string): string {
-    const value = raw.trim()
-    if (!value) return ''
-
-    const directMatch = value.match(/(?:^|\/)invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
-    if (directMatch?.[1]) return directMatch[1]
-
-    try {
-        const url = new URL(value)
-        const pathMatch = url.pathname.match(/\/invite\/([A-Za-z0-9_-]{1,32})\/?$/i)
-        if (pathMatch?.[1]) return pathMatch[1]
-    } catch {
-        // Not a full URL; treat as a raw invite code.
-    }
-
-    return value
-}
-
-function channelTypeOrder(type: Channel['channel_type']): number {
-    return type === 'text' ? 0 : 1
-}
-
-function compareChannelsForSidebar(a: Channel, b: Channel): number {
-    const aCat = a.category ?? 'Channels'
-    const bCat = b.category ?? 'Channels'
-    if (aCat !== bCat) return aCat.localeCompare(bCat)
-    const typeDiff = channelTypeOrder(a.channel_type) - channelTypeOrder(b.channel_type)
-    if (typeDiff !== 0) return typeDiff
-    return a.position - b.position
-}
-
-function getStoredChannelId(serverId: string): string | null {
-    try {
-        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
-        if (!raw) return null
-        const map = JSON.parse(raw) as Record<string, string>
-        return map[serverId] || null
-    } catch {
-        return null
-    }
-}
-
-function setStoredChannelId(serverId: string, channelId: string | null) {
-    try {
-        const raw = sessionStorage.getItem(LAST_CHANNELS_STORAGE_KEY)
-        const map = raw ? (JSON.parse(raw) as Record<string, string>) : {}
-        if (channelId) map[serverId] = channelId
-        else delete map[serverId]
-        sessionStorage.setItem(LAST_CHANNELS_STORAGE_KEY, JSON.stringify(map))
-    } catch {
-        // ignore
-    }
-}
-
-function getDismissedWelcomeGuideIds(): Set<string> {
-    try {
-        const raw = localStorage.getItem(WELCOME_GUIDE_DISMISSED_STORAGE_KEY)
-        const ids = raw ? JSON.parse(raw) : []
-        return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [])
-    } catch {
-        return new Set()
-    }
-}
-
-function isWelcomeGuideDismissed(serverId: string): boolean {
-    return getDismissedWelcomeGuideIds().has(serverId)
-}
-
-function dismissWelcomeGuide(serverId: string) {
-    try {
-        const ids = getDismissedWelcomeGuideIds()
-        ids.add(serverId)
-        localStorage.setItem(WELCOME_GUIDE_DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(ids)))
-    } catch {
-        // ignore
-    }
-}
-
-function escapeMentionPattern(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function messageMentionsUser(content: string | undefined, username: string | undefined): boolean {
-    if (!content) return false
-    const normalized = content.toLowerCase()
-    if (normalized.includes('@all') || normalized.includes('@everyone')) return true
-    if (!username) return false
-    const pattern = new RegExp(`(^|\\s)@${escapeMentionPattern(username)}(?=\\s|$)`, 'i')
-    return pattern.test(content)
-}
 
 export default function AppLayout({ skipServerSidebar = false, isViewActive, serverDialogTriggerRef: externalServerDialogTriggerRef }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -3486,1080 +3272,228 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
 
             {createPortal(
                 <>
-                    {/* Create Server Modal */}
-                    {showCreateServer && (
-                        <div
-                            className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
-                            onClick={() => {
-                                if (isCreatingServer) return
-                                setShowCreateServer(false)
-                                setCreateServerError(null)
-                                createServerRequestIdRef.current = null
-                            }}
-                        >
-                            <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="create-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
-                                <h2 id="create-server-dialog-title">Create a Server</h2>
-                                {createServerError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createServerError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Server Name</label>
-                                    <input
-                                        type="text"
-                                        value={newServerName}
-                                        onChange={(e) => {
-                                            setNewServerName(e.target.value)
-                                            createServerRequestIdRef.current = null
-                                        }}
-                                        placeholder="My Awesome Server"
-                                        autoFocus
-                                        disabled={isCreatingServer}
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Description <span style={{ opacity: 0.6 }}>(optional)</span></label>
-                                    <input
-                                        type="text"
-                                        value={newServerDescription}
-                                        onChange={(e) => {
-                                            setNewServerDescription(e.target.value)
-                                            createServerRequestIdRef.current = null
-                                        }}
-                                        placeholder="What's this server about?"
-                                        maxLength={500}
-                                        disabled={isCreatingServer}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        disabled={isCreatingServer}
-                                        onClick={() => {
-                                            if (isCreatingServer) return
-                                            setShowCreateServer(false)
-                                            setCreateServerError(null)
-                                        }}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button type="submit" className="btn btn-primary" disabled={isCreatingServer || !newServerName.trim()}>
-                                        {isCreatingServer ? 'Creating...' : 'Create'}
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {/* Join Server Modal */}
-                    {showJoinServer && (
-                        <div className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`} onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>
-                            <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="join-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
-                                <h2 id="join-server-dialog-title">Join a Server</h2>
-                                {joinServerError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Invite link or code</label>
-                                    <input
-                                        type="text"
-                                        value={inviteCode}
-                                        onChange={(e) => setInviteCode(e.target.value)}
-                                        placeholder="Paste an invite link or short code"
-                                        autoFocus
-                                        required
-                                    />
-                                    <div className="form-hint">Invite links are preferred. Short codes still work.</div>
-                                </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowJoinServer(false); setJoinServerError(null); }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary" disabled={!parseInviteInput(inviteCode)}>Join</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {/* Create Channel Modal */}
-                    {showCreateChannel && activeServerId && (
-                        <div className="modal-overlay" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>
-                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Channel" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
-                                <h2>Create Channel</h2>
-                                {createChannelError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createChannelError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Channel name</label>
-                                    <input
-                                        type="text"
-                                        value={createChannelName}
-                                        onChange={(e) => setCreateChannelName(e.target.value)}
-                                        placeholder="e.g. general"
-                                        required
-                                        maxLength={CHANNEL_NAME_MAX}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Channel type</label>
-                                    <div className="channel-type-selector">
-                                        <button
-                                            type="button"
-                                            className={`channel-type-option ${createChannelType === 'text' ? 'channel-type-option--selected' : ''}`}
-                                            onClick={() => setCreateChannelType('text')}
-                                        >
-                                            <MessageSquare size={24} strokeWidth={1.8} />
-                                            <span className="channel-type-option__label">Text</span>
-                                            <span className="channel-type-option__desc">Chat and share files</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className={`channel-type-option ${createChannelType === 'voice' ? 'channel-type-option--selected' : ''}`}
-                                            onClick={() => setCreateChannelType('voice')}
-                                        >
-                                            <Mic size={24} strokeWidth={1.8} />
-                                            <span className="channel-type-option__label">Voice</span>
-                                            <span className="channel-type-option__desc">Talk with voice</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label>Category (optional, default: GENERAL)</label>
-                                    <input
-                                        type="text"
-                                        value={createChannelCategory}
-                                        onChange={(e) => setCreateChannelCategory(e.target.value)}
-                                        placeholder="GENERAL"
-                                        list="channel-category-suggestions"
-                                        maxLength={CATEGORY_NAME_MAX}
-                                    />
-                                    <datalist id="channel-category-suggestions">
-                                        {channelCategorySuggestions.map((category) => (
-                                            <option key={category} value={category} />
-                                        ))}
-                                        </datalist>
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Description (optional)</label>
-                                        <textarea
-                                            value={createChannelDescription}
-                                            onChange={(e) => setCreateChannelDescription(e.target.value)}
-                                            placeholder="What is this channel for?"
-                                            maxLength={CHANNEL_DESCRIPTION_MAX}
-                                            rows={3}
-                                        />
-                                    </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateChannel(false); setCreateChannelError(null); setCreateChannelCategory(''); setCreateChannelDescription('') }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Create Channel</button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-
-                    {/* Create Category Modal */}
-                    {showCreateCategory && activeServerId && (
-                        <div className="modal-overlay" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null) }}>
-                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Category" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
-                                <h2>Create Category</h2>
-                                {createCategoryError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{createCategoryError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Category name</label>
-                                    <input
-                                        type="text"
-                                        value={createCategoryName}
-                                        onChange={(e) => setCreateCategoryName(e.target.value)}
-                                        placeholder="e.g. Squad 1"
-                                        required
-                                        maxLength={CATEGORY_NAME_MAX}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateCategory(false); setCreateCategoryError(null); }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Create Category</button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-
-                    {/* Rename Channel Modal */}
-                    {showRenameChannel && (
-                        <div className="modal-overlay" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>
-                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Edit Channel" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
-                                <h2>Edit Channel</h2>
-                                {renameChannelError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{renameChannelError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Channel Name</label>
-                                    <input
-                                        type="text"
-                                        value={renameChannelName}
-                                        onChange={(e) => setRenameChannelName(e.target.value)}
-                                        placeholder="new-channel-name"
-                                        required
-                                        maxLength={CHANNEL_NAME_MAX}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Description</label>
-                                    <textarea
-                                        value={renameChannelDescription}
-                                        onChange={(e) => setRenameChannelDescription(e.target.value)}
-                                        placeholder="What is this channel for?"
-                                        rows={3}
-                                        maxLength={CHANNEL_DESCRIPTION_MAX}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameChannel(false); setRenameChannelError(null); setRenameChannelId(null); setRenameChannelDescription('') }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Save</button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
+                    <ServerCreationDialogs
+                      activeServerId={activeServerId}
+                      channelCategorySuggestions={channelCategorySuggestions}
+                      channelDialogReturnFocusRef={channelDialogReturnFocusRef}
+                      createCategoryError={createCategoryError}
+                      createCategoryName={createCategoryName}
+                      createChannelCategory={createChannelCategory}
+                      createChannelDescription={createChannelDescription}
+                      createChannelError={createChannelError}
+                      createChannelName={createChannelName}
+                      createChannelType={createChannelType}
+                      createServerError={createServerError}
+                      createServerRequestIdRef={createServerRequestIdRef}
+                      handleCreateCategory={handleCreateCategory}
+                      handleCreateChannel={handleCreateChannel}
+                      handleCreateServer={handleCreateServer}
+                      handleJoinServer={handleJoinServer}
+                      handleRenameChannel={handleRenameChannel}
+                      inviteCode={inviteCode}
+                      isCreatingServer={isCreatingServer}
+                      isMobileViewport={isMobileViewport}
+                      joinServerError={joinServerError}
+                      newServerDescription={newServerDescription}
+                      newServerName={newServerName}
+                      renameChannelDescription={renameChannelDescription}
+                      renameChannelError={renameChannelError}
+                      renameChannelName={renameChannelName}
+                      serverDialogRef={serverDialogRef}
+                      setCreateCategoryError={setCreateCategoryError}
+                      setCreateCategoryName={setCreateCategoryName}
+                      setCreateChannelCategory={setCreateChannelCategory}
+                      setCreateChannelDescription={setCreateChannelDescription}
+                      setCreateChannelError={setCreateChannelError}
+                      setCreateChannelName={setCreateChannelName}
+                      setCreateChannelType={setCreateChannelType}
+                      setCreateServerError={setCreateServerError}
+                      setInviteCode={setInviteCode}
+                      setJoinServerError={setJoinServerError}
+                      setNewServerDescription={setNewServerDescription}
+                      setNewServerName={setNewServerName}
+                      setRenameChannelDescription={setRenameChannelDescription}
+                      setRenameChannelError={setRenameChannelError}
+                      setRenameChannelId={setRenameChannelId}
+                      setRenameChannelName={setRenameChannelName}
+                      setShowCreateCategory={setShowCreateCategory}
+                      setShowCreateChannel={setShowCreateChannel}
+                      setShowCreateServer={setShowCreateServer}
+                      setShowJoinServer={setShowJoinServer}
+                      setShowRenameChannel={setShowRenameChannel}
+                      showCreateCategory={showCreateCategory}
+                      showCreateChannel={showCreateChannel}
+                      showCreateServer={showCreateServer}
+                      showJoinServer={showJoinServer}
+                      showRenameChannel={showRenameChannel}
+                    />
 
                     {/* Server Settings Modal */}
-                    {showServerSettings && settingsServer && (
-                        <div
-                            className={`modal-overlay${isMobileViewport ? ' modal-overlay--compact' : ''}`}
-                            onClick={handleCloseServerSettings}
-                        >
-                            <ModalSurface returnFocusRef={serverSettingsReturnFocusRef} name={canViewReports ? 'Server Settings' : 'Server information'} className="modal modal-server-settings" onClick={(e) => e.stopPropagation()}>
-                                <div className="server-settings-header">
-                                    <div className="server-settings-header__left">
-                                        {effectiveServerIconSrc ? (
-                                            <img src={effectiveServerIconSrc} alt="" className="server-settings-header__icon" />
-                                        ) : (
-                                            <div className="server-settings-header__icon server-settings-header__icon--placeholder">
-                                                {settingsServer.name.charAt(0).toUpperCase()}
-                                            </div>
-                                        )}
-                                        <div className="server-settings-header__text">
-                                            <h2>{canViewReports ? 'Server Settings' : 'Server information'}</h2>
-                                            <p className="server-settings-header__server-name">{settingsServer.name}</p>
-                                            <p className="server-settings-header__hint">{canViewReports ? 'Manage the server settings available to your role.' : 'View this server and its community settings.'}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="server-settings-close-btn"
-                                        onClick={handleCloseServerSettings}
-                                        aria-label="Close"
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-
-                                <div className="server-settings-body server-settings-body--with-tabs">
-                                    {serverSettingsError && (
-                                        <div className="auth-error server-settings-error">{serverSettingsError}</div>
-                                    )}
-
-                                    <div className="server-settings-layout">
-                                        <nav className="server-settings-nav">
-                                            <div className="server-settings-nav__meta">
-                                                <span className="server-settings-nav__eyebrow">Server settings</span>
-                                                <strong className="server-settings-nav__title">{settingsServer.name}</strong>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                className={`server-settings-nav__item ${
-                                                    serverSettingsTab === 'overview' ? 'server-settings-nav__item--active' : ''
-                                                }`}
-                                                onClick={() => setServerSettingsTab('overview')}
-                                            >
-                                                <span className="server-settings-nav__icon"><LayoutDashboard size={16} /></span>
-                                                <span className="server-settings-nav__copy">
-                                                    <span className="server-settings-nav__label">Overview</span>
-                                                </span>
-                                            </button>
-                                            {isOwner && (
-                                                <button
-                                                    type="button"
-                                                    className={`server-settings-nav__item ${
-                                                        serverSettingsTab === 'roles' ? 'server-settings-nav__item--active' : ''
-                                                    }`}
-                                                    onClick={() => setServerSettingsTab('roles')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><ShieldCheck size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Roles</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {isOwner && (
-                                                <button
-                                                    type="button"
-                                                    className={`server-settings-nav__item ${
-                                                        serverSettingsTab === 'rules' ? 'server-settings-nav__item--active' : ''
-                                                    }`}
-                                                    onClick={() => setServerSettingsTab('rules')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><ListChecks size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Community</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {canViewAuditLog && (
-                                                <button
-                                                    type="button"
-                                                    className={`server-settings-nav__item ${
-                                                        serverSettingsTab === 'audit'
-                                                            ? 'server-settings-nav__item--active'
-                                                            : ''
-                                                    }`}
-                                                    onClick={() => setServerSettingsTab('audit')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><ScrollText size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Audit Log</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {canViewSafety && (
-                                                <button
-                                                    type="button"
-                                                    className={
-                                                        serverSettingsTab === 'safety'
-                                                            ? 'server-settings-nav__item server-settings-nav__item--active'
-                                                            : 'server-settings-nav__item'
-                                                    }
-                                                    onClick={() => setServerSettingsTab('safety')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><ShieldAlert size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Safety</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                            {isOwner && (
-                                                <button
-                                                    type="button"
-                                                    className={`server-settings-nav__item ${
-                                                        serverSettingsTab === 'danger' ? 'server-settings-nav__item--active' : ''
-                                                    }`}
-                                                    onClick={() => setServerSettingsTab('danger')}
-                                                >
-                                                    <span className="server-settings-nav__icon"><AlertTriangle size={16} /></span>
-                                                    <span className="server-settings-nav__copy">
-                                                        <span className="server-settings-nav__label">Danger Zone</span>
-                                                    </span>
-                                                </button>
-                                            )}
-                                        </nav>
-
-                                        <Profiler id="ServerSettings" onRender={handleServerSettingsProfileRender}>
-                                        <div className="server-settings-content">
-                                            <div className="server-settings-section-intro">
-                                                <div className="server-settings-section-intro__icon">
-                                                    {serverSettingsTab === 'overview' && <LayoutDashboard size={18} />}
-                                                    {serverSettingsTab === 'roles' && <ShieldCheck size={18} />}
-                                                    {serverSettingsTab === 'rules' && <ListChecks size={18} />}
-                                                    {serverSettingsTab === 'audit' && <ScrollText size={18} />}
-                                                    {serverSettingsTab === 'safety' && <ShieldAlert size={18} />}
-                                                    {serverSettingsTab === 'danger' && <AlertTriangle size={18} />}
-                                                </div>
-                                                <div className="server-settings-section-intro__body">
-                                                    <div className="server-settings-section-intro__copy">
-                                                        <span className="server-settings-section-intro__eyebrow">
-                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].eyebrow}
-                                                        </span>
-                                                        <h3 className="server-settings-section-intro__title">
-                                                            {SERVER_SETTINGS_SECTION_META[serverSettingsTab].title}
-                                                        </h3>
-                                                    </div>
-                                                    <p className="server-settings-section-intro__hint">
-                                                        {SERVER_SETTINGS_SECTION_META[serverSettingsTab].hint}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            {serverSettingsTab === 'overview' && (
-                                                <section className="server-settings-card server-settings-card--overview">
-                                                    <div className="server-overview-layout">
-                                                        <section className="server-overview-profile">
-                                                            <div className="server-overview-profile__hero">
-                                                                <div className="server-overview-profile__icon">
-                                                                    {effectiveServerIconSrc ? (
-                                                                        <img
-                                                                            src={effectiveServerIconSrc}
-                                                                            alt={settingsServer.name}
-                                                                            className="server-settings-icon-preview"
-                                                                        />
-                                                                    ) : (
-                                                                        <div className="server-settings-icon-placeholder">
-                                                                            {settingsServer.name.charAt(0).toUpperCase()}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <div className="server-overview-profile__copy">
-                                                                    <span className="server-overview-profile__eyebrow">Server profile</span>
-                                                                    <strong className="server-overview-profile__title">{settingsServer.name}</strong>
-                                                                    <span className="server-overview-profile__meta">
-                                                                        {isOwner ? 'Manage roles in the Roles tab' : 'Server roles are managed by the owner'}
-                                                                    </span>
-                                                                </div>
-                                                                {isOwner && (
-                                                                    <div className="server-overview-profile__actions">
-                                                                        {!serverIconEditor && (
-                                                                            <>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-secondary btn-sm"
-                                                                                    onClick={() => serverIconInputRef.current?.click()}
-                                                                                >
-                                                                                    Upload image
-                                                                                </button>
-                                                                                {(effectiveServerIcon ?? null) && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        className="btn btn-secondary btn-sm"
-                                                                                        onClick={handleClearServerIcon}
-                                                                                    >
-                                                                                        Remove
-                                                                                    </button>
-                                                                                )}
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-primary btn-sm"
-                                                                                    disabled={!canSaveServerSettings}
-                                                                                    onClick={() => void handleUpdateServerSettings()}
-                                                                                >
-                                                                                    Save changes
-                                                                                </button>
-                                                                            </>
-                                                                        )}
-                                                                        <input
-                                                                            ref={serverIconInputRef}
-                                                                            type="file"
-                                                                            accept="image/*"
-                                                                            style={{ display: 'none' }}
-                                                                            onChange={(e) => {
-                                                                                handleServerIconPick(e.target.files)
-                                                                                e.currentTarget.value = ''
-                                                                            }}
-                                                                        />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            {isOwner && serverIconEditor && (
-                                                                <ProfileAvatarEditor
-                                                                    key={serverIconEditor.key}
-                                                                    file={serverIconEditor.file}
-                                                                    shape="rounded-square"
-                                                                    onChooseAnother={() => serverIconInputRef.current?.click()}
-                                                                    onCancel={() => setServerIconEditor(null)}
-                                                                    onSave={saveServerIcon}
-                                                                />
-                                                            )}
-
-                                                            <div className="server-overview-profile__form">
-                                                                <div className="form-group">
-                                                                    <label>Server name</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={serverSettingsName}
-                                                                        onChange={(e) => setServerSettingsName(e.target.value)}
-                                                                        placeholder="Server name"
-                                                                        disabled={!isOwner}
-                                                                    />
-                                                                </div>
-                                                                <div className="form-group">
-                                                                    <label>Description</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={serverSettingsDescription}
-                                                                        onChange={(e) => setServerSettingsDescription(e.target.value)}
-                                                                        placeholder="What's this server about?"
-                                                                        maxLength={500}
-                                                                        disabled={!isOwner}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        </section>
-
-                                                        <aside className="server-overview-invite">
-                                                            <div className="server-overview-invite__head">
-                                                                <span className="server-overview-invite__eyebrow">Invite</span>
-                                                                <p className="server-overview-invite__hint">
-                                                                    Share the invite link below. Short codes still work if someone needs one.
-                                                                </p>
-                                                            </div>
-                                                            <div className="server-overview-invite__body">
-                                                                <div className="invite-unified-row invite-unified-link">
-                                                                    <code>{settingsServerInviteLink}</code>
-                                                                </div>
-                                                                <div className="invite-unified-actions">
-                                                                    <button
-                                                                        type="button"
-                                                                        className="copy-btn"
-                                                                        onClick={() => {
-                                                                            navigator.clipboard.writeText(settingsServerInviteLink).then(() => {
-                                                                                setCopiedInvite('link')
-                                                                                setTimeout(() => setCopiedInvite(null), 2000)
-                                                                            }).catch(() => {
-                                                                                pushToast({
-                                                                                    level: 'error',
-                                                                                    title: 'Copy failed',
-                                                                                    message: 'Could not copy the invite link to your clipboard.',
-                                                                                })
-                                                                            })
-                                                                        }}
-                                                                    >
-                                                                        {copiedInvite === 'link' ? 'Copied' : 'Copy link'}
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        className="copy-btn"
-                                                                        onClick={() => {
-                                                                            navigator.clipboard.writeText(settingsServer.invite_code).then(() => {
-                                                                                setCopiedInvite('code')
-                                                                                setTimeout(() => setCopiedInvite(null), 2000)
-                                                                            }).catch(() => {
-                                                                                pushToast({
-                                                                                    level: 'error',
-                                                                                    title: 'Copy failed',
-                                                                                    message: 'Could not copy the invite code to your clipboard.',
-                                                                                })
-                                                                            })
-                                                                        }}
-                                                                    >
-                                                                        {copiedInvite === 'code' ? 'Copied' : 'Copy short code'}
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </aside>
-                                                    </div>
-                                                </section>
-                                            )}
-
-                                            {serverSettingsTab === 'danger' && isOwner && (
-                                                <section className="server-settings-card server-settings-card--danger">
-                                                    <h3 className="server-settings-card__title server-settings-card__title--danger">Delete server</h3>
-                                                    <div className="server-settings-panel-copy">
-                                                        <p className="server-settings-danger-text">
-                                                            Deleting this server will permanently remove all channels, invites, and messages.
-                                                            This action cannot be undone.
-                                                        </p>
-                                                        <div className="server-settings-danger-actions">
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-danger-outline"
-                                                                onClick={() => {
-                                                                    setDeleteServerError(null)
-                                                                    setDeleteServerInput('')
-                                                                    setShowDeleteServerConfirm(true)
-                                                                }}
-                                                            >
-                                                                Delete server
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </section>
-                                            )}
-
-                                            {serverSettingsTab === 'audit' && canViewAuditLog && (
-                                                <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
-                                                    {auditLogError && (
-                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                            {auditLogError}
-                                                        </div>
-                                                    )}
-                                                    {auditLogLoading && (
-                                                        <div className="server-settings-empty-state">
-                                                            Loading audit log…
-                                                        </div>
-                                                    )}
-                                                    {!auditLogLoading && auditLogEntries && (
-                                                        <ServerSettingsAuditLog
-                                                            entries={auditLogEntries}
-                                                            memberUsernameById={memberUsernameById}
-                                                            actionFilter={auditLogActionFilter}
-                                                            onActionFilterChange={setAuditLogActionFilter}
-                                                            hasMore={auditLogNextBefore !== null}
-                                                            loadingMore={auditLogLoadingMore}
-                                                            onLoadMore={() => void loadOlderAuditLog()}
-                                                        />
-                                                    )}
-                                                </section>
-                                            )}
-
-                                            {serverSettingsTab === 'safety' && canViewSafety && (
-                                                <ServerSettingsSafety
-                                                    activeTab={safetySettingsTab}
-                                                    onTabChange={setSafetySettingsTab}
-                                                    serverId={settingsServerId}
-                                                    token={token}
-                                                    canViewReports={canViewReports}
-                                                    canManageAutoMod={canManageAutoMod}
-                                                    canManageBans={isOwner || canManageBans}
-                                                    reportEntries={reportEntries}
-                                                    reportEntriesLoading={reportEntriesLoading}
-                                                    reportEntriesError={reportEntriesError}
-                                                    resolveReportInFlightId={resolveReportInFlightId}
-                                                    timeoutEntries={timeoutEntries}
-                                                    raidEventEntries={raidEventEntries}
-                                                    clearTimeoutInFlightUserId={clearTimeoutInFlightUserId}
-                                                    banEntries={banEntries}
-                                                    banEntriesLoading={banEntriesLoading}
-                                                    banEntriesError={banEntriesError}
-                                                    unbanInFlightUserId={unbanInFlightUserId}
-                                                    onResolveReport={handleResolveSafetyReport}
-                                                    onClearTimeout={handleClearSafetyTimeout}
-                                                    onUnban={handleUnbanSafetyMember}
-                                                />
-                                            )}
-                                            {serverSettingsTab === 'roles' && isOwner && (
-                                                <section className="server-settings-card server-settings-card--roles">
-                                                    {rolesError && (
-                                                        <div className="auth-error" style={{ marginBottom: 12 }}>
-                                                            {rolesError}
-                                                        </div>
-                                                    )}
-                                                    <div className="server-roles-layout">
-                                                        <aside className="server-roles-sidebar-shell">
-                                                            <div className="server-roles-toolbar">
-                                                                <div className="server-roles-toolbar__copy">
-                                                                    <span className="server-roles-toolbar__eyebrow">Roles</span>
-                                                                    <strong className="server-roles-toolbar__title">{serverRoles.length} roles</strong>
-                                                                    <span className="server-roles-toolbar__hint">
-                                                                        Create, reorder, and fine-tune access without leaving the editor.
-                                                                    </span>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-primary btn-sm"
-                                                                    disabled={rolesLoading}
-                                                                    onClick={handleCreateRoleDraft}
-                                                                >
-                                                                    Create role
-                                                                </button>
-                                                            </div>
-                                                            <ServerRolesSidebar
-                                                                rolesLoading={rolesLoading}
-                                                                selectedRoleId={selectedRoleId}
-                                                                serverRoles={serverRoles}
-                                                                visibleServerRoles={visibleServerRoles}
-                                                                hasMoreServerRoles={hasMoreServerRoles}
-                                                                onRoleDragStart={setDraggingRoleId}
-                                                                onRoleDrop={handleDropRole}
-                                                                onRoleSelect={handleSelectRole}
-                                                                onLoadMoreRoles={() => setVisibleRoleCount((prev) => prev + 40)}
-                                                            />
-                                                        </aside>
-                                                        <div className="server-roles-detail server-roles-detail-shell">
-                                                            <ServerRoleEditor
-                                                                selectedRoleId={selectedRoleId}
-                                                                roleEditName={roleEditName}
-                                                                roleEditColor={roleEditColor}
-                                                                roleEditPermissions={roleEditPermissions}
-                                                                bits={{
-                                                                    manageServer: PERM_MANAGE_SERVER,
-                                                                    manageRoles: PERM_MANAGE_ROLES,
-                                                                    manageChannels: PERM_MANAGE_CHANNELS,
-                                                                    viewAuditLog: PERM_VIEW_AUDIT_LOG,
-                                                                    manageMessages: PERM_MANAGE_MESSAGES,
-                                                                    managePins: PERM_MANAGE_PINS,
-                                                                    muteMembers: PERM_MUTE_MEMBERS,
-                                                                    deafenMembers: PERM_DEAFEN_MEMBERS,
-                                                                    moveMembers: PERM_MOVE_MEMBERS,
-                                                                    kickMembers: PERM_KICK_MEMBERS,
-                                                                    banMembers: PERM_BAN_MEMBERS,
-                                                                }}
-                                                                onRoleNameChange={setRoleEditName}
-                                                                onRoleColorChange={setRoleEditColor}
-                                                                onTogglePermission={handleToggleRolePermission}
-                                                            />
-                                                            {selectedRoleId && (
-                                                                <div className="server-role-editor-footer">
-                                                                    <div className="server-role-editor-actions">
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-danger-outline btn-sm server-role-editor-action-btn"
-                                                                            disabled={!selectedRoleId || !serverRoles.find((r) => r.id === selectedRoleId)}
-                                                                            onClick={() => {
-                                                                                if (!selectedRoleId) return
-                                                                                setDeleteRoleConfirmId(selectedRoleId)
-                                                                            }}
-                                                                        >
-                                                                            Delete role
-                                                                        </button>
-                                                                        <div className="server-role-editor-actions-right">
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-secondary btn-sm server-role-btn-cancel server-role-editor-action-btn"
-                                                                                onClick={handleCancelRoleEdit}
-                                                                            >
-                                                                                Cancel
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-primary btn-sm server-role-btn-save server-role-editor-action-btn"
-                                                                                disabled={!roleEditName.trim() || rolesLoading || !settingsServer}
-                                                                                onClick={() => void handleSaveRole()}
-                                                                            >
-                                                                                {serverRoles.find((r) => r.id === selectedRoleId) ? 'Save role' : 'Create role'}
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </section>
-                                            )}
-
-                                            {serverSettingsTab === 'rules' && isOwner && (
-                                                <ServerSettingsCommunity
-                                                    serverId={settingsServerId}
-                                                    token={token}
-                                                    channels={channels}
-                                                    guide={settingsOnboardingGuide}
-                                                    onboardingLoading={onboardingLoading}
-                                                    onboardingSaving={onboardingSaving}
-                                                    onboardingError={onboardingError}
-                                                    rules={serverRules}
-                                                    rulesLoading={rulesLoading}
-                                                    rulesError={rulesError}
-                                                    newRuleText={newRuleText}
-                                                    editingRuleId={editingRuleId}
-                                                    editingRuleText={editingRuleText}
-                                                    onSaveGuide={handleSaveOnboardingGuide}
-                                                    onRulesChange={setServerRules}
-                                                    onRulesError={setRulesError}
-                                                    onNewRuleTextChange={setNewRuleText}
-                                                    onEditingRuleIdChange={setEditingRuleId}
-                                                    onEditingRuleTextChange={setEditingRuleText}
-                                                />
-                                            )}
-                                        </div>
-                                        </Profiler>
-                                    </div>
-                                </div>
-
-                                {/* Footer removed; Overview card now owns its own Save button when needed. */}
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {showUnsavedServerSettingsConfirm && (
-                        <div className="modal-overlay" onClick={() => setShowUnsavedServerSettingsConfirm(false)}>
-                            <ModalSurface returnFocusRef={serverSettingsReturnFocusRef} name="Discard changes?" className="modal confirm-modal server-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Discard changes?</h2>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                    You have unsaved changes to the server name or icon. If you close now, those changes will be
-                                    lost.
-                                </p>
-                                <div className="modal-actions">
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        onClick={() => setShowUnsavedServerSettingsConfirm(false)}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-danger"
-                                        onClick={() => {
-                                            setShowUnsavedServerSettingsConfirm(false)
-                                            actuallyCloseServerSettings()
-                                        }}
-                                    >
-                                        Discard changes
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {deleteRoleConfirmId && settingsServer && (
-                        <div className="modal-overlay" onClick={() => setDeleteRoleConfirmId(null)}>
-                            <ModalSurface name="Delete role" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Delete role</h2>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                    Are you sure you want to delete this role? This cannot be undone.
-                                </p>
-                                <div className="modal-actions">
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        onClick={() => setDeleteRoleConfirmId(null)}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-danger"
-                                        onClick={async () => {
-                                            if (!isLoggedIn || !deleteRoleConfirmId) return
-                                            setRolesError(null)
-                                            try {
-                                                await serverApi.deleteRole(settingsServer.id, deleteRoleConfirmId, token)
-                                                const roles = await serverApi.listRoles(settingsServer.id, token)
-                                                setServerRoles(roles)
-                                                const next = roles[0]
-                                                setSelectedRoleId(next?.id ?? null)
-                                                setRoleEditName(next?.name ?? '')
-                                                setRoleEditPermissions(next?.permissions ?? 0)
-                                                setRoleEditPreAdminPermissions(null)
-                                                setDeleteRoleConfirmId(null)
-                                            } catch (err) {
-                                                const message =
-                                                    err instanceof Error
-                                                        ? err.message
-                                                        : 'Failed to delete role.'
-                                                setRolesError(message)
-                                                setDeleteRoleConfirmId(null)
-                                            }
-                                        }}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {reportTarget && (
-                        <div className="modal-overlay" onClick={closeReportDialog}>
-                            <ModalSurface name={reportTarget.kind === 'message' ? 'Report message' : 'Report user'} className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>{reportTarget.kind === 'message' ? 'Report message' : 'Report user'}</h2>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                    {reportTarget.kind === 'message'
-                                        ? <>Report <strong>{reportTarget.username}</strong>&rsquo;s message to the server moderators.</>
-                                        : <>Report <strong>{reportTarget.username}</strong> to the server moderators.</>}
-                                </p>
-                                {reportTarget.kind === 'message' && reportTarget.messageContent && (
-                                    <div className="server-report-excerpt" style={{ marginBottom: 16 }}>
-                                        “{reportTarget.messageContent.length > 220 ? `${reportTarget.messageContent.slice(0, 220)}...` : reportTarget.messageContent}”
-                                    </div>
-                                )}
-                                <div className="form-group">
-                                    <label>Reason</label>
-                                    <select
-                                        value={reportReason}
-                                        onChange={(e) => setReportReason(e.target.value as (typeof REPORT_REASONS)[number]['value'])}
-                                        disabled={reportSubmitting}
-                                    >
-                                        {REPORT_REASONS.map((reason) => (
-                                            <option key={reason.value} value={reason.value}>
-                                                {reason.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label>Extra details (optional)</label>
-                                    <textarea
-                                        value={reportDetails}
-                                        onChange={(e) => setReportDetails(e.target.value)}
-                                        rows={4}
-                                        maxLength={500}
-                                        placeholder="Add a short note to help moderators understand the issue."
-                                        disabled={reportSubmitting}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={closeReportDialog} disabled={reportSubmitting}>
-                                        Cancel
-                                    </button>
-                                    <button type="button" className="btn btn-primary" onClick={() => void handleSubmitReport()} disabled={reportSubmitting}>
-                                        {reportSubmitting ? 'Submitting...' : 'Submit report'}
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {deleteMessageConfirmId && (
-                        <div className="modal-overlay" onClick={() => setDeleteMessageConfirmId(null)}>
-                            <ModalSurface name="Delete message" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Delete message</h2>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                    Are you sure you want to delete this message?
-                                </p>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteMessageConfirmId(null)}>
-                                        Cancel
-                                    </button>
-                                    <button type="button" className="btn btn-danger" onClick={() => void handleDeleteMessage(deleteMessageConfirmId)}>
-                                        Delete
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {deleteChannelConfirm && (
-                        <div className="modal-overlay" onClick={() => setDeleteChannelConfirm(null)}>
-                            <ModalSurface name="Delete channel" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Delete channel</h2>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                    Are you sure you want to permanently delete <strong>#{deleteChannelConfirm.name}</strong>?
-                                </p>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteChannelConfirm(null)}>
-                                        Cancel
-                                    </button>
-                                    <button type="button" className="btn btn-danger" onClick={() => void handleDeleteChannel(deleteChannelConfirm)}>
-                                        Delete
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {showDeleteServerConfirm && settingsServer && (
-                        <div className="modal-overlay" onClick={() => { setShowDeleteServerConfirm(false); setDeleteServerError(null) }}>
-                            <ModalSurface name="Delete Server" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Delete Server</h2>
-                                <p style={{ marginBottom: 10, color: 'var(--text-secondary)' }}>
-                                    Type <strong>{settingsServer.name}</strong> to confirm permanent deletion.
-                                </p>
-                                {deleteServerError && (
-                                    <div className="auth-error" style={{ marginBottom: 12 }}>{deleteServerError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Server Name</label>
-                                    <input
-                                        type="text"
-                                        value={deleteServerInput}
-                                        onChange={(e) => setDeleteServerInput(e.target.value)}
-                                        placeholder={settingsServer.name}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        onClick={() => { setShowDeleteServerConfirm(false); setDeleteServerError(null) }}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-danger"
-                                        onClick={() => void handleDeleteServer()}
-                                    >
-                                        Delete Server
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {channelSettingsTarget && (
-                        <ChannelSettingsModal
-                            channel={channelSettingsTarget}
-                            serverRoles={serverRoles}
-                            canManagePermissions={isActiveServerOwner}
-                            initialTab="permissions"
-                            onClose={() => setChannelSettingsTarget(null)}
-                            onUpdated={async (updated: Channel) => {
-                                setChannels(channels.map(c => c.id === updated.id ? updated : c))
-                                if (activeServerId) {
-                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
-                                    setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
-                                }
-                            }}
-                            onDeleted={async (id: string) => {
-                                setChannels(channels.filter(c => c.id !== id))
-                                if (activeServerId) {
-                                    const categories = await channelApi.listCategories(activeServerId, token).catch(() => [])
-                                    setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
-                                }
-                            }}
-                        />
-                    )}
-
-                    {/* Rename Category Modal */}
-                    {showRenameCategory && (
-                        <div className="modal-overlay" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>
-                            <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Rename Category" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
-                                <h2>Rename Category</h2>
-                                {renameCategoryError && (
-                                    <div className="auth-error" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
-                                )}
-                                <div className="form-group">
-                                    <label>Category Name</label>
-                                    <input
-                                        type="text"
-                                        value={renameCategoryName}
-                                        onChange={(e) => setRenameCategoryName(e.target.value)}
-                                        placeholder="new-category-name"
-                                        required
-                                        maxLength={CATEGORY_NAME_MAX}
-                                    />
-                                </div>
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => { setShowRenameCategory(false); setRenameCategoryError(null); setRenameCategoryFrom(null) }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">Save</button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
-                    {categoryPermissionsTarget && activeServerId && (
-                        <CategoryPermissionsModal
-                            serverId={activeServerId}
-                            category={categoryPermissionsTarget}
-                            serverRoles={serverRoles}
-                            onClose={() => setCategoryPermissionsTarget(null)}
-                        />
-                    )}
-                    {deleteCategoryConfirm && activeServerId && (
-                        <div className="modal-overlay" onClick={() => setDeleteCategoryConfirm(null)}>
-                            <ModalSurface name="Delete category" className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-                                <h2>Delete category</h2>
-                                {(() => {
-                                    const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
-                                    const channelsInCategory = channels.filter(
-                                        (c) => (c.category ?? 'Channels') === deleteCategoryConfirm,
-                                    ).length
-                                    return channelsInCategory > 0 ? (
-                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                            Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>{moveTarget}</strong>.
-                                        </p>
-                                    ) : (
-                                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                                            <strong>{deleteCategoryConfirm}</strong> is empty.
-                                        </p>
-                                    )
-                                })()}
-                                {deleteCategoryError && (
-                                    <div className="auth-error" style={{ marginBottom: 10 }}>{deleteCategoryError}</div>
-                                )}
-                                <div className="modal-actions">
-                                    <button type="button" className="btn btn-secondary" onClick={() => setDeleteCategoryConfirm(null)}>
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-danger"
-                                        onClick={async () => {
-                                            try {
-                                                const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
-                                                await channelApi.deleteCategory(
-                                                    activeServerId,
-                                                    deleteCategoryConfirm,
-                                                    token,
-                                                    moveTarget,
-                                                )
-                                                const [chs, categories] = await Promise.all([
-                                                    serverApi.channels(activeServerId, token),
-                                                    channelApi.listCategories(activeServerId, token).catch(() => []),
-                                                ])
-                                                setChannels(chs)
-                                                setChannelsForServer(activeServerId, chs)
-                                                setChannelCategoriesForServer(activeServerId, categories.map((c) => c.name))
-                                                setDeleteCategoryConfirm(null)
-                                                setDeleteCategoryError(null)
-                                            } catch (err: unknown) {
-                                                setDeleteCategoryError(err instanceof Error ? err.message : 'Failed to delete category.')
-                                            }
-                                        }}
-                                    >
-                                        Delete Category
-                                    </button>
-                                </div>
-                            </ModalSurface>
-                        </div>
-                    )}
+                    <ServerSettingsModal
+                      auditLogActionFilter={auditLogActionFilter}
+                      auditLogEntries={auditLogEntries}
+                      auditLogError={auditLogError}
+                      auditLogLoading={auditLogLoading}
+                      auditLogLoadingMore={auditLogLoadingMore}
+                      auditLogNextBefore={auditLogNextBefore}
+                      banEntries={banEntries}
+                      banEntriesError={banEntriesError}
+                      banEntriesLoading={banEntriesLoading}
+                      canManageAutoMod={canManageAutoMod}
+                      canManageBans={canManageBans}
+                      canSaveServerSettings={canSaveServerSettings}
+                      canViewAuditLog={canViewAuditLog}
+                      canViewReports={canViewReports}
+                      canViewSafety={canViewSafety}
+                      channels={channels}
+                      clearTimeoutInFlightUserId={clearTimeoutInFlightUserId}
+                      copiedInvite={copiedInvite}
+                      editingRuleId={editingRuleId}
+                      editingRuleText={editingRuleText}
+                      effectiveServerIcon={effectiveServerIcon}
+                      effectiveServerIconSrc={effectiveServerIconSrc}
+                      handleCancelRoleEdit={handleCancelRoleEdit}
+                      handleClearSafetyTimeout={handleClearSafetyTimeout}
+                      handleClearServerIcon={handleClearServerIcon}
+                      handleCloseServerSettings={handleCloseServerSettings}
+                      handleCreateRoleDraft={handleCreateRoleDraft}
+                      handleDropRole={handleDropRole}
+                      handleResolveSafetyReport={handleResolveSafetyReport}
+                      handleSaveOnboardingGuide={handleSaveOnboardingGuide}
+                      handleSaveRole={handleSaveRole}
+                      handleSelectRole={handleSelectRole}
+                      handleServerIconPick={handleServerIconPick}
+                      handleServerSettingsProfileRender={handleServerSettingsProfileRender}
+                      handleToggleRolePermission={handleToggleRolePermission}
+                      handleUnbanSafetyMember={handleUnbanSafetyMember}
+                      handleUpdateServerSettings={handleUpdateServerSettings}
+                      hasMoreServerRoles={hasMoreServerRoles}
+                      isMobileViewport={isMobileViewport}
+                      isOwner={isOwner}
+                      loadOlderAuditLog={loadOlderAuditLog}
+                      memberUsernameById={memberUsernameById}
+                      newRuleText={newRuleText}
+                      onboardingError={onboardingError}
+                      onboardingLoading={onboardingLoading}
+                      onboardingSaving={onboardingSaving}
+                      pushToast={pushToast}
+                      raidEventEntries={raidEventEntries}
+                      reportEntries={reportEntries}
+                      reportEntriesError={reportEntriesError}
+                      reportEntriesLoading={reportEntriesLoading}
+                      resolveReportInFlightId={resolveReportInFlightId}
+                      roleEditColor={roleEditColor}
+                      roleEditName={roleEditName}
+                      roleEditPermissions={roleEditPermissions}
+                      rolesError={rolesError}
+                      rolesLoading={rolesLoading}
+                      rulesError={rulesError}
+                      rulesLoading={rulesLoading}
+                      safetySettingsTab={safetySettingsTab}
+                      saveServerIcon={saveServerIcon}
+                      selectedRoleId={selectedRoleId}
+                      serverIconEditor={serverIconEditor}
+                      serverIconInputRef={serverIconInputRef}
+                      serverRoles={serverRoles}
+                      serverRules={serverRules}
+                      serverSettingsDescription={serverSettingsDescription}
+                      serverSettingsError={serverSettingsError}
+                      serverSettingsName={serverSettingsName}
+                      serverSettingsReturnFocusRef={serverSettingsReturnFocusRef}
+                      serverSettingsTab={serverSettingsTab}
+                      setAuditLogActionFilter={setAuditLogActionFilter}
+                      setCopiedInvite={setCopiedInvite}
+                      setDeleteRoleConfirmId={setDeleteRoleConfirmId}
+                      setDeleteServerError={setDeleteServerError}
+                      setDeleteServerInput={setDeleteServerInput}
+                      setDraggingRoleId={setDraggingRoleId}
+                      setEditingRuleId={setEditingRuleId}
+                      setEditingRuleText={setEditingRuleText}
+                      setNewRuleText={setNewRuleText}
+                      setRoleEditColor={setRoleEditColor}
+                      setRoleEditName={setRoleEditName}
+                      setRulesError={setRulesError}
+                      setSafetySettingsTab={setSafetySettingsTab}
+                      setServerIconEditor={setServerIconEditor}
+                      setServerRules={setServerRules}
+                      setServerSettingsDescription={setServerSettingsDescription}
+                      setServerSettingsName={setServerSettingsName}
+                      setServerSettingsTab={setServerSettingsTab}
+                      setShowDeleteServerConfirm={setShowDeleteServerConfirm}
+                      setVisibleRoleCount={setVisibleRoleCount}
+                      settingsOnboardingGuide={settingsOnboardingGuide}
+                      settingsServer={settingsServer}
+                      settingsServerId={settingsServerId}
+                      settingsServerInviteLink={settingsServerInviteLink}
+                      showServerSettings={showServerSettings}
+                      timeoutEntries={timeoutEntries}
+                      token={token}
+                      unbanInFlightUserId={unbanInFlightUserId}
+                      visibleServerRoles={visibleServerRoles}
+                    />
+                    <ServerConfirmDialogs
+                      activeServerId={activeServerId}
+                      actuallyCloseServerSettings={actuallyCloseServerSettings}
+                      categoryPermissionsTarget={categoryPermissionsTarget}
+                      channelDialogReturnFocusRef={channelDialogReturnFocusRef}
+                      channelSettingsTarget={channelSettingsTarget}
+                      channels={channels}
+                      closeReportDialog={closeReportDialog}
+                      deleteCategoryConfirm={deleteCategoryConfirm}
+                      deleteCategoryError={deleteCategoryError}
+                      deleteChannelConfirm={deleteChannelConfirm}
+                      deleteMessageConfirmId={deleteMessageConfirmId}
+                      deleteRoleConfirmId={deleteRoleConfirmId}
+                      deleteServerError={deleteServerError}
+                      deleteServerInput={deleteServerInput}
+                      handleDeleteChannel={handleDeleteChannel}
+                      handleDeleteMessage={handleDeleteMessage}
+                      handleDeleteServer={handleDeleteServer}
+                      handleRenameCategory={handleRenameCategory}
+                      handleSubmitReport={handleSubmitReport}
+                      isActiveServerOwner={isActiveServerOwner}
+                      isLoggedIn={isLoggedIn}
+                      renameCategoryError={renameCategoryError}
+                      renameCategoryName={renameCategoryName}
+                      reportDetails={reportDetails}
+                      reportReason={reportReason}
+                      reportSubmitting={reportSubmitting}
+                      reportTarget={reportTarget}
+                      resolveDeleteCategoryMoveTarget={resolveDeleteCategoryMoveTarget}
+                      serverRoles={serverRoles}
+                      serverSettingsReturnFocusRef={serverSettingsReturnFocusRef}
+                      setCategoryPermissionsTarget={setCategoryPermissionsTarget}
+                      setChannelCategoriesForServer={setChannelCategoriesForServer}
+                      setChannelSettingsTarget={setChannelSettingsTarget}
+                      setChannels={setChannels}
+                      setChannelsForServer={setChannelsForServer}
+                      setDeleteCategoryConfirm={setDeleteCategoryConfirm}
+                      setDeleteCategoryError={setDeleteCategoryError}
+                      setDeleteChannelConfirm={setDeleteChannelConfirm}
+                      setDeleteMessageConfirmId={setDeleteMessageConfirmId}
+                      setDeleteRoleConfirmId={setDeleteRoleConfirmId}
+                      setDeleteServerError={setDeleteServerError}
+                      setDeleteServerInput={setDeleteServerInput}
+                      setRenameCategoryError={setRenameCategoryError}
+                      setRenameCategoryFrom={setRenameCategoryFrom}
+                      setRenameCategoryName={setRenameCategoryName}
+                      setReportDetails={setReportDetails}
+                      setReportReason={setReportReason}
+                      setRoleEditName={setRoleEditName}
+                      setRoleEditPermissions={setRoleEditPermissions}
+                      setRoleEditPreAdminPermissions={setRoleEditPreAdminPermissions}
+                      setRolesError={setRolesError}
+                      setSelectedRoleId={setSelectedRoleId}
+                      setServerRoles={setServerRoles}
+                      setShowDeleteServerConfirm={setShowDeleteServerConfirm}
+                      setShowRenameCategory={setShowRenameCategory}
+                      setShowUnsavedServerSettingsConfirm={setShowUnsavedServerSettingsConfirm}
+                      settingsServer={settingsServer}
+                      showDeleteServerConfirm={showDeleteServerConfirm}
+                      showRenameCategory={showRenameCategory}
+                      showUnsavedServerSettingsConfirm={showUnsavedServerSettingsConfirm}
+                      token={token}
+                    />
                 </>,
                 document.body
             )}
