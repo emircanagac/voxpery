@@ -46,7 +46,7 @@ for (const width of [1920, 390]) {
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
     await expect(opener).toBeFocused()
-    if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+    if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
     const dm = page.getByRole('button', { name: 'Open DM with Friend 01', exact: true })
     await dm.press('Shift+F10')
     await expectMenuNavigation(page, menu)
@@ -192,7 +192,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 60
         await expect(input).toHaveCount(0)
         await expect(trigger).toBeFocused()
       }
-      if (viewport.width >= 1024) {
+      if (viewport.width >= 960) {
         await trigger.click()
         const pins = page.getByRole('button', { name: 'Pinned messages', exact: true })
         await pins.click()

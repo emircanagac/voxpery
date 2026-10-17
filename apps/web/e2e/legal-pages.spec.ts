@@ -33,10 +33,10 @@ test.describe('public landing and comparison', () => {
 
   test('switches public actions at the shared compact breakpoint without losing navigation', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
-    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.setViewportSize({ width: 960, height: 768 })
     await page.goto('/about')
     await expect(page.getByRole('link', { name: /Download/ })).toBeVisible()
-    for (const viewport of [{ width: 1023, height: 768 }, { width: 800, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    for (const viewport of [{ width: 959, height: 768 }, { width: 800, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
       await page.setViewportSize(viewport)
       await expect(page.getByRole('link', { name: /Download/ })).toHaveCount(0)
       await expect(page.getByRole('link', { name: 'Releases', exact: true })).toHaveCount(0)
@@ -50,7 +50,7 @@ test.describe('public landing and comparison', () => {
       await page.getByRole('link', { name: 'Terms of Service', exact: true }).scrollIntoViewIfNeeded()
       await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
     }
-    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.setViewportSize({ width: 960, height: 768 })
     await expect(page.getByRole('link', { name: /Download/ })).toBeVisible()
   })
 

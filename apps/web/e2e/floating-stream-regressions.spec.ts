@@ -111,7 +111,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1100, height: 60
       expect((await player.boundingBox())!.width).toBeCloseTo(960, 0)
       for (let i = 0; i < 9; i++) await resizeHandle.press('Shift+ArrowRight')
     }
-    if (viewport.width >= 1024) {
+    if (viewport.width >= 960) {
       for (const cornerName of ['top left', 'top right', 'bottom left', 'bottom right']) {
         for (let i = 0; i < 12; i++) await resizeHandle.press('Shift+ArrowRight')
         await handle.press('Home')

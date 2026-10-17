@@ -148,7 +148,7 @@ for (const scenario of [
     await page.getByRole('button', { name: server.name, exact: true }).and(page.locator('.server-icon')).click()
     const sidebar = page.locator('.channel-sidebar')
     await expect(sidebar).toBeInViewport()
-    if (scenario.width < 1024) {
+    if (scenario.width < 960) {
       const rail = (await page.locator('.unified-sidebar').boundingBox())!
       await expect.poll(() => sidebar.evaluate(el => Math.round(el.getBoundingClientRect().left))).toBe(Math.round(rail.x + rail.width))
     }

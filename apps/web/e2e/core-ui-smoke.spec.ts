@@ -47,9 +47,9 @@ test.describe('mocked core UI smoke', () => {
       await expect(dock.locator('.callbar-controls-center')).toBeVisible()
       const micBox = (await dock.getByRole('button', { name: 'Mute microphone', exact: true }).boundingBox())!
       const controlsBox = (await dock.locator('.callbar-controls-center').boundingBox())!
-      expect(micBox.height).toBe(scenario.width < 1024 ? 44 : 36)
+      expect(micBox.height).toBe(scenario.width < 960 ? 44 : 36)
       expect(micBox.width).toBe(micBox.height)
-      await expect(dock.locator('.audio-control svg').first()).toHaveCSS('width', scenario.width < 1024 ? '13px' : '16px')
+      await expect(dock.locator('.audio-control svg').first()).toHaveCSS('width', scenario.width < 960 ? '13px' : '16px')
       if (scenario.width === 1920) {
         const frameBox = (await dock.boundingBox())!
         expect(frameBox.width).toBe(600)
@@ -145,7 +145,7 @@ test.describe('mocked core UI smoke', () => {
         expect(box.y + box.height).toBeLessThanOrEqual(footerBox.y + footerBox.height)
         previousRight = box.x + box.width
       }
-      await expect(frame.getByRole('button', { name: 'Mute microphone' })).toHaveCSS('width', width < 1024 ? '44px' : '36px')
+      await expect(frame.getByRole('button', { name: 'Mute microphone' })).toHaveCSS('width', width < 960 ? '44px' : '36px')
       await expect(frame.getByRole('status')).toHaveAttribute('aria-label', 'Voice ping: 92ms.')
       if (width <= 360) await expect(frame.locator('.callbar-ping-value')).toBeHidden()
       else await expect(frame.locator('.callbar-ping-value')).toBeVisible()
@@ -449,7 +449,7 @@ test.describe('mocked core UI smoke', () => {
   }
 
   for (const viewport of [
-    { width: 1024, height: 600 }, { width: 1023, height: 600 },
+    { width: 1024, height: 600 }, { width: 960, height: 600 }, { width: 959, height: 600 },
     { width: 800, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 568 },
   ]) {
     test(`preserves Social resource responsiveness at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -458,8 +458,8 @@ test.describe('mocked core UI smoke', () => {
       await page.goto('/social')
       const panel = page.getByRole('complementary', { name: 'Voxpery information', includeHidden: true })
       const support = page.locator('.project-support-link')
-      if (viewport.width >= 1024) {
-        await expect(panel).toHaveCSS('width', '240px')
+      if (viewport.width >= 960) {
+        await expect(panel).toHaveCSS('width', viewport.width >= 1024 ? '240px' : '200px')
         await expect(panel).toBeVisible()
         await expect(support).toBeInViewport()
         const actionBox = (await panel.getByRole('link', { name: 'About Voxpery' }).boundingBox())!

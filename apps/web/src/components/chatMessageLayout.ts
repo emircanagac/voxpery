@@ -13,7 +13,7 @@ export type UiMessage = MessageWithAuthor & {
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
 // Includes the virtual item's 1px bottom padding. Keep these values aligned with
-// the desktop and max-width: 1023px message/divider rules in index.css.
+// the desktop and max-width: 959px message/divider rules in index.css.
 export const MESSAGE_ROW_METRICS = {
     desktop: {
         grouped: 23,

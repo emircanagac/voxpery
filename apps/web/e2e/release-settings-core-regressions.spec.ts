@@ -295,7 +295,7 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.getByRole('dialog', { name: 'Quick switcher' })).toHaveCount(0)
   })
 
-  for (const width of [1920, 1024, 1023, 800, 390]) {
+  for (const width of [1920, 960, 959, 800, 390]) {
     test(`uses one compact chat layout and keeps composer, photos, and panels usable at ${width}px`, { tag: [1920, 390].includes(width) ? '@core' : [] }, async ({ page }, testInfo) => {
       const server = buildCoreServer()
       const channels = buildCoreChannels(server.id)
@@ -307,9 +307,9 @@ test.describe('mocked release and settings regressions', () => {
         })] },
       }))
       await page.route('**/responsive-square.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#26b8a6"/></svg>' }))
-      await page.setViewportSize({ width, height: width < 1024 ? 600 : 1080 })
+      await page.setViewportSize({ width, height: width < 960 ? 600 : 1080 })
       await page.goto('/servers')
-      const compact = width < 1024
+      const compact = width < 960
       const composer = page.locator('.message-input:visible')
       await expect(composer).toBeVisible()
       await expect(composer).toHaveAttribute('placeholder', compact ? 'Message' : 'Message #general')
@@ -364,8 +364,8 @@ test.describe('mocked release and settings regressions', () => {
         await page.getByRole('button', { name: 'Text channel general', exact: true }).click()
         await expect(page.locator('.channel-sidebar')).not.toBeInViewport()
       } else {
-        await expect(page.locator('.channel-sidebar')).toHaveCSS('width', '240px')
-        await expect(page.locator('.member-sidebar')).toHaveCSS('width', '240px')
+        await expect(page.locator('.channel-sidebar')).toHaveCSS('width', width >= 1024 ? '240px' : '200px')
+        await expect(page.locator('.member-sidebar')).toHaveCSS('width', width >= 1024 ? '240px' : '200px')
       }
       await expect(composer).toHaveValue('A draft that survives layout changes')
       await page.screenshot({ path: testInfo.outputPath(`responsive-chat-${width}.png`) })
@@ -377,11 +377,11 @@ test.describe('mocked release and settings regressions', () => {
       await installMockCoreApi(page, createMockCoreState({ features: { email_verification_enabled: true, email_delivery_enabled: true } }))
       await page.setViewportSize({ width, height: 800 })
       await page.goto('/social')
-      const trigger = page.getByRole('button', { name: width >= 1024 ? 'Settings' : 'View my profile', exact: true })
+      const trigger = page.getByRole('button', { name: width >= 960 ? 'Settings' : 'View my profile', exact: true })
       await trigger.click()
-      if (width < 1024) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+      if (width < 960) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-      const firstControl = width >= 1024
+      const firstControl = width >= 960
         ? settings.getByRole('button', { name: 'Profile', exact: true })
         : settings.getByRole('combobox', { name: 'Settings section', exact: true })
       await expect(settings).toHaveAttribute('aria-modal', 'true')
@@ -650,7 +650,7 @@ test.describe('mocked release and settings regressions', () => {
     await expect(page.locator('.home-side')).toHaveCSS('width', '240px')
     await page.reload()
     await expect(page.locator('.social-sidebar')).toHaveCSS('width', '240px')
-    await page.setViewportSize({ width: 1021, height: 600 })
+    await page.setViewportSize({ width: 959, height: 600 })
     await expect.poll(() => page.locator('.home-main').evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(350)
     await expect(page.locator('.social-sidebar')).not.toBeInViewport()
     await page.setViewportSize({ width: 800, height: 600 })
@@ -872,7 +872,7 @@ test.describe('mocked release and settings regressions', () => {
     for (const viewport of [{ width: 1366, height: 768 }, { width: 800, height: 600 }, { width: 320, height: 568 }]) {
       await page.setViewportSize(viewport)
       await page.goto('/social')
-      if (viewport.width < 1024) {
+      if (viewport.width < 960) {
         await page.getByRole('button', { name: 'View my profile', exact: true }).click()
         await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
       } else await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -896,14 +896,14 @@ test.describe('mocked release and settings regressions', () => {
         }
       })
       const initial = await readFrame()
-      if (viewport.width < 1024) {
+      if (viewport.width < 960) {
         expect(initial.scroll.height).toBeGreaterThan(250)
         expect(initial.nav.height).toBeLessThan(70)
         await expect(modal.getByRole('combobox', { name: 'Settings section' })).toBeFocused()
         await expect(modal.getByRole('button', { name: 'About Voxpery', exact: true })).toBeVisible()
       }
       for (const tab of ['Appearance', 'Communication', 'Voice & Audio', 'Privacy & Data', 'Profile']) {
-        if (viewport.width < 1024) {
+        if (viewport.width < 960) {
           await modal.getByRole('combobox', { name: 'Settings section' }).selectOption({ label: tab })
         } else await modal.getByRole('button', { name: tab, exact: true }).click()
         const frame = await readFrame()
@@ -955,8 +955,8 @@ test.describe('mocked release and settings regressions', () => {
       await expect(badge).toHaveText('Beta v0.2.0-test')
       await expect(badge.locator('span')).toHaveCount(0)
       for (const width of [1920, 1100, 1024, 390, 320]) {
-        await page.setViewportSize({ width, height: width < 1024 ? 844 : 768 })
-        await expect(badge).toBeVisible({ visible: width >= 1024 })
+        await page.setViewportSize({ width, height: width < 960 ? 844 : 768 })
+        await expect(badge).toBeVisible({ visible: width >= 960 })
         const style = await badge.evaluate(element => ({
           dot: getComputedStyle(element, '::before').content,
           shadow: getComputedStyle(element).boxShadow,
@@ -965,7 +965,7 @@ test.describe('mocked release and settings regressions', () => {
         }))
         expect(style.dot).toBe('none')
         expect(style.shadow).toBe('none')
-        if (width >= 1024) expect(style.overflow).toBe(false)
+        if (width >= 960) expect(style.overflow).toBe(false)
         expect(style.headerOverflow).toBe(false)
         await page.evaluate(() => Promise.all(document.getAnimations()
           .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
@@ -1479,10 +1479,10 @@ test.describe('mocked release and settings regressions', () => {
       await installMockCoreApi(page, createMockCoreState())
       await page.setViewportSize({ width, height: 600 })
       await page.goto('/social')
-      await page.getByRole('button', { name: width >= 1024 ? 'Settings' : 'View my profile', exact: true }).click()
-      if (width < 1024) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+      await page.getByRole('button', { name: width >= 960 ? 'Settings' : 'View my profile', exact: true }).click()
+      if (width < 960) await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
       const settings = page.locator('.user-settings-modal')
-      if (width < 1024) await settings.getByRole('combobox', { name: 'Settings section' }).selectOption('privacy')
+      if (width < 960) await settings.getByRole('combobox', { name: 'Settings section' }).selectOption('privacy')
       else await settings.getByRole('button', { name: 'Privacy & Data', exact: true }).click()
       for (const [action, title] of [['Export', 'Create data export'], ['Manage', 'Delete account']]) {
       const opener = settings.getByRole('button', { name: action, exact: true })

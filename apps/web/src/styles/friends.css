@@ -135,7 +135,7 @@
 .social-content--friends .home-member-action:focus-visible,
 .social-content--friends .home-request-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   .home-main:not(.home-main-dm) .social-content--friends { padding: 12px 12px calc(12px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px)); gap: 12px; }
   .friends-page-title h1 { font-size: 20px; }
   .friends-toolbar { gap: 10px; }
@@ -195,7 +195,7 @@ label.dm-picker-row { position: relative; }
 .dm-group-you { color: var(--text-muted); }
 .dm-group-owner { flex-shrink: 0; padding: 2px 6px; border-radius: 4px; background: rgba(var(--ui-contrast-rgb), 0.08); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
 
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   .dm-picker-row { min-height: 52px; }
   .dm-picker-search { height: 42px; }
 }

@@ -182,7 +182,7 @@
   outline-offset: 3px;
 }
 
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   .comparison-main {
     width: calc(100% - 28px);
     padding: 18px 0;

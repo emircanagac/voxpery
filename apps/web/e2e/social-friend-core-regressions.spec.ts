@@ -78,7 +78,7 @@ test.describe('mocked social friend UI regressions', () => {
         await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
         const backdrop = page.getByRole('button', { name: 'Close social sidebar', exact: true })
         if (await backdrop.isVisible()) await backdrop.click()
-        if (width < 1024) {
+        if (width < 960) {
           await expect.poll(async () => {
             const sidebar = (await page.locator('.social-sidebar').boundingBox())!
             const rail = (await page.locator('.unified-sidebar').boundingBox())!
@@ -113,7 +113,7 @@ test.describe('mocked social friend UI regressions', () => {
 
   for (const width of [1920, 1100, 390, 320]) {
     test(`keeps the Friends toolbar stable and rows reachable at ${width}px`, async ({ page }, testInfo) => {
-      await page.setViewportSize({ width, height: width < 1024 ? 640 : 900 })
+      await page.setViewportSize({ width, height: width < 960 ? 640 : 900 })
       const friends = buildFriends(32)
       friends[0].username = 'A very long friend username that must not overlap the actions'
       friends[1].status = 'offline'
@@ -140,7 +140,7 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(main.getByRole('button', { name: 'Online', exact: true })).toHaveAttribute('aria-pressed', 'true')
       await page.screenshot({ path: testInfo.outputPath(`friends-${width}.png`) })
       await main.getByRole('button', { name: 'Send a message to Friend 03', exact: true }).click()
-      await expect(page.getByPlaceholder(width < 1024 ? 'Message' : 'Message @Friend 03', { exact: true })).toBeVisible()
+      await expect(page.getByPlaceholder(width < 960 ? 'Message' : 'Message @Friend 03', { exact: true })).toBeVisible()
     })
   }
 
@@ -177,9 +177,9 @@ test.describe('mocked social friend UI regressions', () => {
       }))
       await installMockCoreApi(page, createMockCoreState({ dmChannels: channels }))
       await page.goto('/social')
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
-      if (width < 1024) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
+      if (width < 960) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
       await expect(sidebar.getByRole('heading', { name: 'Direct Messages', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Pinned', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible()
@@ -219,7 +219,7 @@ test.describe('mocked social friend UI regressions', () => {
       await last.scrollIntoViewIfNeeded()
       await expect(last).toBeInViewport()
       await last.click()
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       await expect(last).toHaveAttribute('aria-current', 'page')
       await last.click({ button: 'right' })
       await expect(page.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
@@ -462,7 +462,7 @@ test.describe('mocked social friend UI regressions', () => {
         if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/dm/groups') groupRequests.push(request.postData() ?? '')
       })
       await page.goto('/social')
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
       const plus = sidebar.getByRole('button', { name: 'New direct message' })
 
@@ -475,7 +475,7 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(page.locator('.channel-title')).toHaveText('Friend 02')
 
       // Several friends start a named group.
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       await plus.click()
       await picker.getByRole('searchbox', { name: 'Search friends' }).fill('01')
       await picker.getByRole('checkbox', { name: 'Friend 01' }).check()

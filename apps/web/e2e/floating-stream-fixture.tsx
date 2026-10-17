@@ -10,7 +10,7 @@ export function mountStreamPreviewFixture(withChatSurface = true) {
   Reflect.set(window, '__previewActions', actions)
   createRoot(fixture).render(
     <MemoryRouter>
-      {withChatSurface && <div className="chat-messages" style={{ position: 'fixed', left: innerWidth >= 1024 ? 310 : 70, right: innerWidth >= 1024 ? 240 : 0, top: 100, bottom: 150, background: 'var(--bg-primary)' }} />}
+      {withChatSurface && <div className="chat-messages" style={{ position: 'fixed', left: innerWidth >= 960 ? 310 : 70, right: innerWidth >= 960 ? 240 : 0, top: 100, bottom: 150, background: 'var(--bg-primary)' }} />}
       <FloatingScreenShare visible owner="Test publisher" layoutKey="test-chat" onReturn={() => { actions.returns += 1 }} onStop={() => { actions.stops += 1 }}>
         <video autoPlay muted playsInline />
       </FloatingScreenShare>

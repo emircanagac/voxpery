@@ -85,8 +85,8 @@
 
   /* Spacing */
   --server-bar-width: 72px;
-  --channel-sidebar-width: 240px;
-  --member-sidebar-width: 240px;
+  --channel-sidebar-width: clamp(200px, calc(62.5vw - 400px), 240px); /* 200px at 960px, 240px from 1024px */
+  --member-sidebar-width: clamp(200px, calc(62.5vw - 400px), 240px);
   --header-height: 48px;
   --mobile-bottom-dock-height: 80px;
   --mobile-voice-callbar-offset: 0px;
@@ -4757,7 +4757,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   cursor: default;
 }
 
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   .chat-area.chat-area--search-panel > :not(.chat-header):not(.chat-search-panel) {
     margin-right: 0;
   }
@@ -7276,7 +7276,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 .auth-card-register .auth-turnstile-wrap { overflow: visible; }
 .auth-card-register .auth-turnstile-wrap > div { width: 100%; min-width: 0; transform: none; }
 
-@media (max-width: 540px) {
+@media (max-width: 560px) {
   .auth-card.auth-card-register { padding: 20px 16px; max-width: 400px; }
   .auth-register-fields { grid-template-columns: minmax(0, 1fr); }
 }
@@ -9146,7 +9146,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-primary);
 }
 
-@media (max-width: 500px) {
+@media (max-width: 560px) {
   .home-onboarding-actions--equal {
     grid-template-columns: 1fr;
     width: 100%;
@@ -9402,7 +9402,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   white-space: nowrap;
 }
 
-@media (min-width: 701px) and (max-width: 1020px) {
+@media (min-width: 701px) and (max-width: 959px) {
   .unified-content-friends .home-side,
   .unified-content-friends::after {
     display: none;
@@ -10582,7 +10582,7 @@ button.message-author {
 }
 
 /* With the member list hidden, the voice stage uses the freed space like the chat does. */
-@media (min-width: 1024px) {
+@media (min-width: 960px) {
   body:has(.member-sidebar--collapsed) .screen-share-stage {
     right: var(--voice-stage-gap);
   }
@@ -13117,7 +13117,7 @@ button.message-author {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .member-profile-dialog {
     padding: 18px;
   }
@@ -15406,7 +15406,7 @@ textarea {
   color: var(--btn-primary-text);
 }
 
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   :root {
     --member-sidebar-width: 0px;
   }
@@ -15451,7 +15451,7 @@ textarea {
 }
 
 /* Compact application layout: shared by narrow desktop windows and mobile. */
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
   :root {
     --server-bar-width: 56px;
     --channel-sidebar-width: min(280px, calc(100vw - 88px));
@@ -17137,7 +17137,7 @@ textarea {
   }
 }
 
-@media (min-width: 1024px) and (max-width: 1180px) {
+@media (min-width: 960px) and (max-width: 1199px) {
   .shell-quick-switch-btn {
     width: min(320px, 30vw);
     max-width: min(320px, 30vw);
@@ -17149,7 +17149,7 @@ textarea {
 
 }
 
-@media (max-width: 1023px) and (max-height: 760px) {
+@media (max-width: 959px) and (max-height: 760px) {
   .screen-share-stage {
     top: 112px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
