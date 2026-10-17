@@ -78,6 +78,12 @@ test('keeps server rows and create/join dialogs usable from the keyboard', async
   const createDialog = page.getByRole('dialog', { name: 'Create a Server' })
   const nameInput = createDialog.getByPlaceholder('My Awesome Server')
   await expect(nameInput).toBeFocused()
+  // Create stays disabled until a name is typed, so focus wraps to the last enabled control.
+  await nameInput.press('Shift+Tab')
+  await expect(createDialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(nameInput).toBeFocused()
+  await nameInput.fill('Keyboard Guild')
   await nameInput.press('Shift+Tab')
   await expect(createDialog.getByRole('button', { name: 'Create', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
