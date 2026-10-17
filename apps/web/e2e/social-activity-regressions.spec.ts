@@ -160,7 +160,7 @@ for (const scenario of [
     await expect(sidebar.getByRole('img', { name: 'Friend 03: Deafened by server' })).toBeVisible()
     await expect(sidebar.locator('.voice-live-badge')).toHaveCount(2)
     await expect(sidebar.locator('.voice-participant-camera')).toHaveCount(1)
-    const mutedColor = scenario.theme === 'light' ? 'rgb(180, 35, 58)' : 'rgb(240, 71, 71)'
+    const mutedColor = scenario.theme === 'light' ? 'rgb(180, 35, 58)' : 'rgb(243, 108, 108)'
     const activeColor = scenario.theme === 'light' ? 'rgb(23, 114, 69)' : 'rgb(67, 181, 129)'
     for (const label of [/Very long.*Muted by self/, /Very long.*Deafened by self/]) {
       await expect(sidebar.getByRole('img', { name: label })).toHaveCSS('color', mutedColor)

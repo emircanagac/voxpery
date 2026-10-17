@@ -178,16 +178,16 @@ export default function RegisterPage() {
                         maxLength={32}
                     />
                     {username.length > 0 && username.length < 3 && (
-                        <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>At least 3 characters</div>
+                        <div className="form-hint form-hint--error">At least 3 characters</div>
                     )}
                     {username.length >= 3 && !/^[a-z0-9_.]+$/i.test(username) && (
-                        <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Only letters, numbers, underscores, and periods</div>
+                        <div className="form-hint form-hint--error">Only letters, numbers, underscores, and periods</div>
                     )}
                     {username.length >= 3 && /^[a-z0-9_.]+$/i.test(username) && (username.startsWith('_') || username.startsWith('.') || username.endsWith('_') || username.endsWith('.')) && (
-                        <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Cannot start or end with '_' or '.'</div>
+                        <div className="form-hint form-hint--error">Cannot start or end with '_' or '.'</div>
                     )}
                     {username.length >= 3 && /^[a-z0-9_.]+$/i.test(username) && (username.includes('..') || username.includes('__') || username.includes('._') || username.includes('_.')) && (
-                        <div className="form-hint" style={{ color: '#f38ba8', fontSize: '12px', marginTop: '4px' }}>Cannot contain consecutive '_' or '.'</div>
+                        <div className="form-hint form-hint--error">Cannot contain consecutive '_' or '.'</div>
                     )}
                 </div>
 

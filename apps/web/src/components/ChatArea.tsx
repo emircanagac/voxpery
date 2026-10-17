@@ -24,6 +24,7 @@ import { getAttachmentIdentity } from './chatAttachmentCache'
 import type { UiMessage } from './chatMessageLayout'
 import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedMediaMarkdown, getEmojiOnlyCount, isMessageGroupedAt, parseReplyContent } from './chatMessageLayout'
 import { ReactionButton } from './MessageReactionButton'
+import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 type MentionUser = {
     user_id: string
@@ -209,6 +210,7 @@ export default function ChatArea({
     jumpToMessageId = null,
     onJumpToMessageHandled,
 }: ChatAreaProps) {
+    const readableTextColor = useReadableTextColor()
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
@@ -2258,7 +2260,7 @@ export default function ChatArea({
                                                         type="button"
                                                         className="message-author"
                                                         onClick={() => setProfileCard({ ...msg.author, role: '' })}
-                                                        style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
+                                                        style={msg.author.role_color ? { color: readableTextColor(msg.author.role_color) } : undefined}
                                                     >
                                                         {msg.author.username}
                                                     </button>
