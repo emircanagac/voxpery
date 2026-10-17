@@ -36,7 +36,9 @@ describe('ErrorBoundary', () => {
     )
 
     expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument()
-    expect(screen.getByText(/Test error/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Test error/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
 
     // Restore console.error
     console.error = consoleError

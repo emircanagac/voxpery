@@ -78,7 +78,7 @@ test.describe('mocked social friend UI regressions', () => {
         await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
         const backdrop = page.getByRole('button', { name: 'Close social sidebar', exact: true })
         if (await backdrop.isVisible()) await backdrop.click()
-        if (width < 1024) {
+        if (width < 960) {
           await expect.poll(async () => {
             const sidebar = (await page.locator('.social-sidebar').boundingBox())!
             const rail = (await page.locator('.unified-sidebar').boundingBox())!
@@ -98,7 +98,7 @@ test.describe('mocked social friend UI regressions', () => {
     incoming[0].requester_username = 'A long incoming username that must not overlap Accept or Reject'
     await installMockCoreApi(page, createMockCoreState({ incomingRequests: incoming, outgoingRequests: buildRequests(20, 'outgoing') }))
     await page.goto('/social')
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
+    await page.getByRole('button', { name: /^Pending/ }).click()
     const main = page.locator('.social-content--friends')
     expect(await main.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(await main.locator('.home-chip-label').evaluateAll(labels => labels.every(el => el.scrollWidth <= el.clientWidth))).toBe(true)
@@ -113,7 +113,7 @@ test.describe('mocked social friend UI regressions', () => {
 
   for (const width of [1920, 1100, 390, 320]) {
     test(`keeps the Friends toolbar stable and rows reachable at ${width}px`, async ({ page }, testInfo) => {
-      await page.setViewportSize({ width, height: width < 1024 ? 640 : 900 })
+      await page.setViewportSize({ width, height: width < 960 ? 640 : 900 })
       const friends = buildFriends(32)
       friends[0].username = 'A very long friend username that must not overlap the actions'
       friends[1].status = 'offline'
@@ -140,27 +140,28 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(main.getByRole('button', { name: 'Online', exact: true })).toHaveAttribute('aria-pressed', 'true')
       await page.screenshot({ path: testInfo.outputPath(`friends-${width}.png`) })
       await main.getByRole('button', { name: 'Send a message to Friend 03', exact: true }).click()
-      await expect(page.getByPlaceholder(width < 1024 ? 'Message' : 'Message @Friend 03', { exact: true })).toBeVisible()
+      await expect(page.getByPlaceholder(width < 960 ? 'Message' : 'Message @Friend 03', { exact: true })).toBeVisible()
     })
   }
 
   test('searches both request lists and sends with Enter from Add friend', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ incomingRequests: buildRequests(2, 'incoming'), outgoingRequests: buildRequests(2, 'outgoing') }))
     await page.goto('/social')
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
-    const input = page.getByRole('textbox', { name: 'Friend username' })
-    await expect(input).toBeFocused()
+    await page.getByRole('button', { name: /^Pending/ }).click()
     const search = page.getByRole('searchbox', { name: 'Search requests' })
     await search.fill('  02  ')
     await expect(page.locator('.home-request-row')).toHaveCount(2)
     await expect(page.getByText('Request In 01', { exact: true })).toBeHidden()
     await expect(page.getByText('Request Out 02', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
-    await expect(search).toHaveValue('')
+    await page.getByRole('button', { name: 'Add Friend', exact: true }).click()
+    const input = page.getByRole('textbox', { name: 'Friend username' })
     await expect(input).toBeFocused()
+    await expect(search).toBeHidden()
     await input.fill('newfriend')
     await input.press('Enter')
     await expect(page.getByRole('status').filter({ hasText: 'Friend request sent.' })).toBeVisible()
+    await page.getByRole('button', { name: /^Pending/ }).click()
+    await expect(page.getByRole('searchbox', { name: 'Search requests' })).toHaveValue('')
     await expect(page.getByText('newfriend', { exact: true })).toBeVisible()
   })
 
@@ -176,9 +177,9 @@ test.describe('mocked social friend UI regressions', () => {
       }))
       await installMockCoreApi(page, createMockCoreState({ dmChannels: channels }))
       await page.goto('/social')
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
-      if (width < 1024) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
+      if (width < 960) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
       await expect(sidebar.getByRole('heading', { name: 'Direct Messages', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Pinned', exact: true })).toBeVisible()
       await expect(sidebar.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible()
@@ -218,7 +219,7 @@ test.describe('mocked social friend UI regressions', () => {
       await last.scrollIntoViewIfNeeded()
       await expect(last).toBeInViewport()
       await last.click()
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       await expect(last).toHaveAttribute('aria-current', 'page')
       await last.click({ button: 'right' })
       await expect(page.getByRole('menuitem', { name: 'Pin Conversation' })).toBeVisible()
@@ -244,6 +245,7 @@ test.describe('mocked social friend UI regressions', () => {
     await page.getByRole('button', { name: 'Send Request' }).click()
 
     await expect(page.getByText('Friend request sent.')).toBeVisible()
+    await page.getByRole('button', { name: /^Pending/ }).click()
     await expect(page.getByText('Pending request')).toBeVisible()
     await expect(page.getByText('newfriend')).toBeVisible()
     expect(state.outgoingRequests[0]?.receiver_username).toBe('newfriend')
@@ -258,7 +260,7 @@ test.describe('mocked social friend UI regressions', () => {
     await installMockCoreApi(page, state)
 
     await page.goto('/social')
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
+    await page.getByRole('button', { name: /^Pending/ }).click()
 
     await page.getByRole('button', { name: 'Accept friend request from Request In 01' }).click()
     await expect(page.getByText('Request In 01')).toBeHidden()
@@ -282,7 +284,7 @@ test.describe('mocked social friend UI regressions', () => {
     await installMockCoreApi(page, state)
 
     await page.goto('/social')
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
+    await page.getByRole('button', { name: /^Pending/ }).click()
     await page.getByRole('button', { name: 'Cancel request to Request Out 01' }).click()
 
     await expect(page.getByText('Request Out 01')).toBeHidden()
@@ -460,7 +462,7 @@ test.describe('mocked social friend UI regressions', () => {
         if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/dm/groups') groupRequests.push(request.postData() ?? '')
       })
       await page.goto('/social')
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
       const plus = sidebar.getByRole('button', { name: 'New direct message' })
 
@@ -473,7 +475,7 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(page.locator('.channel-title')).toHaveText('Friend 02')
 
       // Several friends start a named group.
-      if (width < 1024) await page.getByRole('link', { name: 'Social', exact: true }).click()
+      if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       await plus.click()
       await picker.getByRole('searchbox', { name: 'Search friends' }).fill('01')
       await picker.getByRole('checkbox', { name: 'Friend 01' }).check()

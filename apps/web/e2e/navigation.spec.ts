@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createMockCoreState, installMockCoreApi } from './mock-core-api'
 
 test.describe('App Navigation', () => {
   test('should load the public product page', async ({ page }) => {
@@ -21,7 +22,9 @@ test.describe('App Navigation', () => {
 
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
     await expect(page.getByRole('link', { name: /use voxpery in browser/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /self-host with docker/i })).toBeVisible()
+    // Compact layouts focus on the browser app: self-hosting links stay on desktop widths.
+    await expect(page.getByRole('link', { name: /self-host with docker/i })).toHaveCount(0)
+    await expect(page.getByText('Community chat, wherever you are. No desktop download needed.')).toBeVisible()
     await expect(page.getByRole('img', { name: /voxpery voice channel interface/i })).toBeVisible()
 
     const hasHorizontalOverflow = await page.locator('.about-page').evaluate((element) => {
@@ -44,9 +47,11 @@ test.describe('App Navigation', () => {
   })
 
   test('should handle 404 routes', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
     await page.goto('/nonexistent-route-12345')
 
-    // Should redirect to login (authentication gate)
-    await expect(page).toHaveURL(/.*\/login/)
+    // Unknown addresses show a not-found page instead of redirecting
+    await expect(page).toHaveURL(/\/nonexistent-route-12345$/)
+    await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
   })
 })

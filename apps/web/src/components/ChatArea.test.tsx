@@ -165,6 +165,27 @@ describe('ChatArea regressions', () => {
     expect(onOpenChannelList).toHaveBeenCalledTimes(1)
   })
 
+  it('names the composer after the channel for screen readers', () => {
+    renderChatArea()
+    expect(screen.getByRole('textbox', { name: 'Message #general' })).toHaveClass('message-input')
+  })
+
+  it('marks direct and group conversations with @ and people icons instead of #', () => {
+    const { container, unmount } = renderChatArea({ isDm: true })
+    expect(container.querySelector('.channel-hash .lucide-at-sign')).not.toBeNull()
+    expect(container.querySelector('.channel-hash .lucide-hash')).toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Message @general' })).toBeInTheDocument()
+    unmount()
+    const group = renderChatArea({ isDm: true, isGroupDm: true })
+    expect(group.container.querySelector('.channel-hash .lucide-users')).not.toBeNull()
+  })
+
+  it('offers to join an empty voice channel instead of leaving the stage blank', () => {
+    renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
+    expect(screen.getByRole('heading', { name: 'No one is here yet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
+  })
+
   it('opens invite links of this instance in the app and keeps the warning for other links', () => {
     const onOpenInviteLink = vi.fn()
     const inviteUrl = `${window.location.origin}/invite/core-guild`

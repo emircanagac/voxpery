@@ -25,6 +25,7 @@ const InvitePage = lazy(() => import('./pages/InvitePage'))
 const AboutPage = lazy(() => import('./pages/AboutPage'))
 const ComparePage = lazy(() => import('./pages/ComparePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const LegalConsentBoundary = lazy(() => import('./components/LegalConsentBoundary'))
 
 function RedirectDmToSocial() {
@@ -244,7 +245,11 @@ function App() {
           <Route path={ROUTES.terms} element={<LegalPage />} />
           <Route path={ROUTES.kvkk} element={<LegalPage />} />
           <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
-          <Route path="*" element={<AuthRedirect />} />
+          <Route path={ROUTES.home} element={<AuthRedirect />} />
+          <Route path={`${ROUTES.home}/*`} element={<AuthRedirect />} />
+          <Route path={ROUTES.servers} element={<AuthRedirect />} />
+          <Route path={`${ROUTES.servers}/*`} element={<AuthRedirect />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
         <ToastViewport />
       </Suspense>
@@ -277,7 +282,9 @@ function App() {
             <Route path={ROUTES.register} element={<RedirectAuthenticatedAuthPage />} />
             <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
             <Route path={ROUTES.invite(':code')} element={<InvitePage />} />
-            <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
+            <Route path={ROUTES.forgotPassword} element={<Navigate to={ROUTES.home} replace />} />
+            <Route path={ROUTES.resetPassword} element={<Navigate to={ROUTES.home} replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </Suspense>

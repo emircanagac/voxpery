@@ -13,6 +13,7 @@ import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDi
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
 import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
+import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 interface MemberItemProps {
     member: MemberProfileMember & { highest_role_position?: number }
@@ -50,9 +51,11 @@ const MemberItem = memo(function MemberItem({
     const isOnline = status(member) === 'online' || status(member) === 'dnd'
     const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
-    const displayColor = member.role_color ?? (isServerOwner ? '#f97316' : undefined) // fox-like orange for owner when no role color
-    const hasColor = !!displayColor
-    // Role/owner color or default. Offline = always muted vs online (same color, faded).
+    const readableTextColor = useReadableTextColor()
+    const roleColor = member.role_color ?? (isServerOwner ? '#f97316' : undefined) // fox-like orange for owner when no role color
+    const hasColor = !!roleColor
+    // Role/owner color or default. Offline = blended toward the muted tone, still readable on the theme.
+    const displayColor = readableTextColor(roleColor, { dimmed: !isOnline })
     const nameClass = hasColor
         ? (isOnline ? 'member-name' : 'member-name member-name--offline')
         : (isOnline ? 'member-name' : 'member-name member-name--default-offline')

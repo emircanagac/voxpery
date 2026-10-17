@@ -144,7 +144,7 @@ export default function DmConversation(props: DmConversationProps) {
                 onClick: () => {
                   setView('friends')
                   setPersistedSocialView('friends')
-                  setFriendsFilter(friends.length > 0 ? 'all' : 'requests')
+                  setFriendsFilter(friends.length > 0 ? 'all' : 'add')
                 },
                 icon: <Users size={14} />,
               },
@@ -211,6 +211,7 @@ export default function DmConversation(props: DmConversationProps) {
       }}
       currentUserId={user?.id ?? null}
       isDm
+      isGroupDm={isGroupDm}
       mentionUsers={dmMentionUsers}
       replyingTo={replyingToDm}
       onCancelReply={() => setReplyingToDm(null)}

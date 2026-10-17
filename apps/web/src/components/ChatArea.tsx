@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
+import { AtSign, Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { GifOption } from '../emoji'
@@ -24,6 +24,9 @@ import { getAttachmentIdentity } from './chatAttachmentCache'
 import type { UiMessage } from './chatMessageLayout'
 import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedMediaMarkdown, getEmojiOnlyCount, isMessageGroupedAt, parseReplyContent } from './chatMessageLayout'
 import { ReactionButton } from './MessageReactionButton'
+import { useReadableTextColor } from '../hooks/useReadableTextColor'
+import { useAppStore } from '../stores/app'
+import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
 type MentionUser = {
     user_id: string
@@ -97,8 +100,10 @@ interface ChatAreaProps {
     currentUserId?: string | null
     canModerate?: boolean
     mentionUsers?: MentionUser[]
-    /** When true, placeholder shows Message @name; header still uses #name like server */
+    /** When true, placeholder shows Message @name and the header uses @ instead of # */
     isDm?: boolean
+    /** Group DMs show a people icon in the header instead of @ */
+    isGroupDm?: boolean
     /** When true, the Messages/DM view is active (e.g. user switched back from Servers); used to scroll to bottom on re-enter */
     isViewActive?: boolean
     /** Pagination: more messages can be loaded above (older) */
@@ -172,6 +177,7 @@ export default function ChatArea({
     canModerate = false,
     mentionUsers = [],
     isDm = false,
+    isGroupDm = false,
     isViewActive,
     hasMoreOlder = false,
     loadingOlder = false,
@@ -209,6 +215,9 @@ export default function ChatArea({
     jumpToMessageId = null,
     onJumpToMessageHandled,
 }: ChatAreaProps) {
+    const readableTextColor = useReadableTextColor()
+    const joinedVoiceChannelId = useAppStore((state) => state.joinedVoiceChannelId)
+    const voiceParticipantCount = useAppStore((state) => Object.values(state.voiceStates).filter((channelId) => !!activeChannel && channelId === activeChannel.id).length)
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
@@ -1873,7 +1882,18 @@ export default function ChatArea({
                         </div>
                     )}
                 </div>
-                <div className="voice-focus-panel voice-focus-panel-stage" />
+                <div className="voice-focus-panel voice-focus-panel-stage">
+                    {joinedVoiceChannelId !== activeChannel.id && (
+                        <div className="voice-channel-idle">
+                            <Volume2 size={36} aria-hidden="true" />
+                            <h2>{voiceParticipantCount === 0 ? 'No one is here yet' : `${voiceParticipantCount} in voice`}</h2>
+                            <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
+                            <button type="button" className="btn btn-primary" onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}>
+                                Join voice
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         )
     }
@@ -1893,7 +1913,7 @@ export default function ChatArea({
                     </button>
                 )}
                 <span className="channel-hash">
-                    <Hash size={20} />
+                    {isDm ? (isGroupDm ? <Users size={20} aria-hidden="true" /> : <AtSign size={20} aria-hidden="true" />) : <Hash size={20} />}
                 </span>
                 <div className="channel-header-copy">
                     <span className="channel-title">{activeChannel.name}</span>
@@ -2127,7 +2147,7 @@ export default function ChatArea({
                 ) : messages.length === 0 ? (
                     <div className="welcome-screen">
                         <div className="welcome-icon">
-                            <Hash size={36} />
+                            {isDm ? (isGroupDm ? <Users size={36} aria-hidden="true" /> : <AtSign size={36} aria-hidden="true" />) : <Hash size={36} />}
                         </div>
                         <h2>{emptyStateTitle ?? `Welcome to #${activeChannel.name}!`}</h2>
                         <p>{emptyStateDescription ?? activeChannel.description?.trim() ?? 'This is the beginning of the channel. Start the conversation!'}</p>
@@ -2258,7 +2278,7 @@ export default function ChatArea({
                                                         type="button"
                                                         className="message-author"
                                                         onClick={() => setProfileCard({ ...msg.author, role: '' })}
-                                                        style={msg.author.role_color ? { color: msg.author.role_color } : undefined}
+                                                        style={msg.author.role_color ? { color: readableTextColor(msg.author.role_color) } : undefined}
                                                     >
                                                         {msg.author.username}
                                                     </button>
@@ -2495,6 +2515,7 @@ export default function ChatArea({
                     <textarea
                         ref={textareaRef}
                         className="message-input"
+                        aria-label={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
                         value={messageInput}
                         maxLength={messageBodyLimit(replyingTo) * 2}
                         disabled={!canSendMessages}
@@ -2512,8 +2533,8 @@ export default function ChatArea({
                         }}
                         onPaste={handlePaste}
                         placeholder={canSendMessages
-                            ? (useMobileMessageLayout ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
-                            : (useMobileMessageLayout ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
+                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
+                            : (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
                         rows={1}
                     />
                     {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (

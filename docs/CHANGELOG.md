@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Security updates.
+
+### Added
+- Friends: pending friend requests have their own Pending tab with a count badge; Add Friend now only holds the username form.
+- Voice channels you are not in show who is there (or that no one is) with a Join voice button instead of an empty page.
+- Unknown addresses show a "Page not found" screen with a link back, instead of silently opening another page.
+
+### Changed
+- The desktop layout now starts at 960px wide (the desktop app's minimum window size); between 960px and 1024px the channel and member sidebars get a little narrower so the chat keeps its room. Below 960px the mobile layout is used.
+- The About and Compare pages now follow your selected theme.
+- Long messages wrap at a comfortable line length on wide screens, member cards have more space between them, and the invite link is easier to read.
+- Direct messages show an @ icon (or a people icon for group messages) instead of #.
+- On tablets the message box shows the channel or conversation name again; only phone-width screens use the short "Message" placeholder.
+
+### Fixed
+- Light and custom light themes: sign-in fields, buttons, member list headers, labels and other text are readable again, and keyboard focus is clearly visible on sign-in and registration forms.
+- Dark themes: small labels, timestamps, links and error text have higher contrast, and role colors stay readable on every theme.
+- Screen readers announce the message box with the channel or conversation name, and sign-in pages expose a main landmark.
+- The error screen no longer shows technical details and offers a Reload button; sign-in availability errors use plain wording.
+
 ## [0.4.6] - 2026-10-16
 
 ### Security

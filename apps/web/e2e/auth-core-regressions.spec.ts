@@ -354,3 +354,21 @@ test.describe('mocked auth and account regressions', () => {
 test('Google callback errors preserve retry routes and the default destination', { tag: '@core' }, async ({ page }) => {
   await verifyGoogleLoginReturns(page)
 })
+
+test('shows a not-found page for unknown addresses and still guards app routes', async ({ page }) => {
+  const state = createMockCoreState({ authenticated: false, features: AUTH_FEATURES })
+  await installMockCoreApi(page, state)
+  await page.goto('/nonexistent-page')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await expect(page).toHaveURL(/\/nonexistent-page$/)
+  await expect(page.getByRole('link', { name: 'Go to the home page' })).toHaveAttribute('href', '/')
+  await page.goto('/servers')
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fservers/)
+
+  state.authenticated = true
+  await installMockCoreApi(page, state)
+  await page.goto('/nonexistent-page')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await page.getByRole('link', { name: 'Back to Voxpery' }).click()
+  await expect(page).toHaveURL(/\/social$/)
+})

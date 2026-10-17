@@ -165,7 +165,7 @@ function rgbToHex([red, green, blue]: [number, number, number]): string {
   return `#${toHex(red)}${toHex(green)}${toHex(blue)}`
 }
 
-function mixHexColors(first: string, second: string, firstWeight: number): string {
+export function mixHexColors(first: string, second: string, firstWeight: number): string {
   const firstRgb = hexToRgb(first)
   const secondRgb = hexToRgb(second)
   const weight = Math.min(1, Math.max(0, firstWeight))
@@ -176,7 +176,7 @@ function mixHexColors(first: string, second: string, firstWeight: number): strin
   ])
 }
 
-function ensureContrastColor(
+export function ensureContrastColor(
   color: string,
   surfaces: readonly string[],
   contrastTarget: string,

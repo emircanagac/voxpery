@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { MessageCircle, Settings, UserPlus, X } from 'lucide-react'
 import { resolveAvatarUrl } from '../api'
+import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 export interface MemberProfileMember {
   user_id: string
@@ -36,6 +37,8 @@ function formatProfileDate(value?: string | null) {
 }
 
 export default function MemberProfileDialog({ member, isServerOwner, onClose, actions, onEditProfile }: MemberProfileDialogProps) {
+  const readableTextColor = useReadableTextColor()
+  const roleColor = readableTextColor(member.role_color)
   const dialogRef = useRef<HTMLElement>(null)
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
@@ -121,7 +124,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
           {showBaseRoleBadge && (
             <span
               className="member-profile-badge"
-              style={member.role_color ? { borderColor: member.role_color, color: member.role_color } : undefined}
+              style={roleColor ? { borderColor: roleColor, color: roleColor } : undefined}
             >
               {member.role}
             </span>
@@ -174,7 +177,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
                 <span
                   key={label}
                   className="member-profile-badge"
-                  style={member.role_color ? { borderColor: member.role_color, color: member.role_color } : undefined}
+                  style={roleColor ? { borderColor: roleColor, color: roleColor } : undefined}
                 >
                   {label}
                 </span>

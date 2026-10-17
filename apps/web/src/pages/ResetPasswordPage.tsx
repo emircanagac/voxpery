@@ -59,13 +59,13 @@ export default function ResetPasswordPage() {
 
     if (!features) {
         return (
-            <div className="auth-page">
+            <main className="auth-page">
                 <div className="auth-card">
                     <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Set New Password</h1>
                     <AuthIntegrationStatus
                         loadingMessage="Checking password recovery availability..."
-                        errorMessage="Password recovery availability could not be loaded."
+                        errorMessage="We couldn't check password recovery right now. Retry in a moment."
                     />
 
                     <div className="auth-footer" style={{ marginTop: '1.5rem' }}>
@@ -74,13 +74,13 @@ export default function ResetPasswordPage() {
                         </a>
                     </div>
                 </div>
-            </div>
+            </main>
         )
     }
 
     if (!passwordResetEnabled) {
         return (
-            <div className="auth-page">
+            <main className="auth-page">
                 <div className="auth-card">
                     <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Set New Password</h1>
@@ -92,12 +92,12 @@ export default function ResetPasswordPage() {
                         </a>
                     </div>
                 </div>
-            </div>
+            </main>
         )
     }
 
     return (
-        <div className="auth-page">
+        <main className="auth-page">
             <form className="auth-card" onSubmit={handleSubmit}>
                 <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                 <h1>Set New Password</h1>
@@ -148,6 +148,6 @@ export default function ResetPasswordPage() {
                     </a>
                 </div>
             </form>
-        </div>
+        </main>
     )
 }
