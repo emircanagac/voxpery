@@ -302,7 +302,9 @@ describe('HomePage friends list', () => {
   it('opens a DM from the visible message icon', async () => {
     apiMocks.getOrCreateDmChannel.mockResolvedValue(dmChannel('dm-cilo'))
     renderHomePage()
-    fireEvent.click(await screen.findByRole('button', { name: 'Send a message to cilo' }))
+    const icon = await screen.findByTitle('Send a message to cilo')
+    expect(icon).toHaveAttribute('tabindex', '-1')
+    fireEvent.click(icon)
     await waitFor(() => expect(useAppStore.getState().activeDmChannelId).toBe('dm-cilo'))
     expect(apiMocks.getOrCreateDmChannel).toHaveBeenCalledExactlyOnceWith('friend-cilo', null)
   })

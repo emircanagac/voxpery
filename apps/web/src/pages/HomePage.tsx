@@ -1763,7 +1763,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                             </button>
                             <div className="home-member-actions">
                               <button type="button" className="home-member-action home-member-action--message"
-                                title={`Send a message to ${friend.username}`} aria-label={`Send a message to ${friend.username}`}
+                                title={`Send a message to ${friend.username}`} tabIndex={-1} aria-hidden="true"
                                 disabled={openingDmPeerId !== null} onClick={() => void openMessageForFriend(friend.id)}>
                                 <MessageCircle size={17} aria-hidden="true" />
                               </button>

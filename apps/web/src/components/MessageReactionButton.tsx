@@ -48,6 +48,7 @@ export function ReactionButton({
                 className={`message-reaction-btn ${reaction.reacted ? 'is-reacted' : ''}`}
                 disabled={disabled}
                 aria-label={reactionLabel}
+                aria-pressed={reaction.reacted}
                 onPointerEnter={() => setIsDetailsOpen(true)}
                 onPointerLeave={() => setIsDetailsOpen(false)}
                 onFocus={() => setIsDetailsOpen(true)}

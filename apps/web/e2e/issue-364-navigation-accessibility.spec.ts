@@ -176,3 +176,18 @@ test('opens the server icon menu from the keyboard and returns focus on Escape',
   await expect(menu).toHaveCount(0)
   await expect(icon).toBeFocused()
 })
+
+test('exposes shell landmarks, the channel heading and a skip link', async ({ page }) => {
+  const server = buildCoreServer()
+  await installMockCoreApi(page, createMockCoreState({
+    servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, membersByServerId: { [server.id]: buildCoreMembers() },
+  }))
+  await page.goto('/servers')
+  await expect(page.getByRole('navigation', { name: 'Servers and direct messages' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Channels' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'general' })).toBeVisible()
+  await page.keyboard.press('Tab')
+  const skip = page.getByRole('link', { name: 'Skip to content' })
+  await expect(skip).toBeFocused()
+  await expect(skip).toBeInViewport()
+})

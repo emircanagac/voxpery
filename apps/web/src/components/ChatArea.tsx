@@ -1859,7 +1859,7 @@ export default function ChatArea({
                         <Volume2 size={20} />
                     </span>
                     <div className="channel-header-copy">
-                        <span className="channel-title">{activeChannel.name}</span>
+                        <h1 className="channel-title">{activeChannel.name}</h1>
                         {activeChannel.description?.trim() && (
                             <>
                                 <span className="channel-description-separator" aria-hidden="true" />
@@ -1916,7 +1916,7 @@ export default function ChatArea({
                     {isDm ? (isGroupDm ? <Users size={20} aria-hidden="true" /> : <AtSign size={20} aria-hidden="true" />) : <Hash size={20} />}
                 </span>
                 <div className="channel-header-copy">
-                    <span className="channel-title">{activeChannel.name}</span>
+                    <h1 className="channel-title">{activeChannel.name}</h1>
                     {activeChannel.description?.trim() && (
                         <>
                             <span className="channel-description-separator" aria-hidden="true" />
@@ -2419,12 +2419,16 @@ export default function ChatArea({
                     </div>
                 )}
                 {mentionOpen && mentionSuggestions.length > 0 && (
-                    <div className="mention-suggest-menu" role="listbox" aria-label="Mention suggestions">
+                    <div id="mention-suggestions" className="mention-suggest-menu" role="listbox" aria-label="Mention suggestions">
                         {mentionSuggestions.map((member, index) => (
                             <button
                                 key={`${member.user_id}-${member.username}`}
                                 type="button"
                                 className={`mention-suggest-item ${index === mentionActiveIndex ? 'active' : ''}`}
+                                id={`mention-option-${index}`}
+                                role="option"
+                                aria-selected={index === mentionActiveIndex}
+                                tabIndex={-1}
                                 onMouseDown={(e) => {
                                     e.preventDefault()
                                     applyMention(member)
@@ -2516,6 +2520,9 @@ export default function ChatArea({
                         ref={textareaRef}
                         className="message-input"
                         aria-label={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
+                        aria-autocomplete="list"
+                        aria-controls={mentionOpen && mentionSuggestions.length > 0 ? 'mention-suggestions' : undefined}
+                        aria-activedescendant={mentionOpen && mentionSuggestions.length > 0 ? `mention-option-${mentionActiveIndex}` : undefined}
                         value={messageInput}
                         maxLength={messageBodyLimit(replyingTo) * 2}
                         disabled={!canSendMessages}

@@ -739,6 +739,7 @@ export default function AppShell() {
 
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
+      <a className="skip-link" href="#app-content">Skip to content</a>
       <header
         className={`shell-topbar${IS_DESKTOP_WINDOW ? ' shell-topbar--desktop' : ''}`}
         data-tauri-drag-region={IS_DESKTOP_WINDOW ? 'deep' : undefined}
@@ -773,7 +774,7 @@ export default function AppShell() {
           {IS_DESKTOP_WINDOW && <WindowControls />}
         </div>
       </header>
-      <main className="shell-content">
+      <main className="shell-content" id="app-content">
         <Outlet />
       </main>
       {/* Voice call bar — fixed to bottom of chat area, visible in both server and DM views */}
