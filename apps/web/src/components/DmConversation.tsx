@@ -211,6 +211,7 @@ export default function DmConversation(props: DmConversationProps) {
       }}
       currentUserId={user?.id ?? null}
       isDm
+      isGroupDm={isGroupDm}
       mentionUsers={dmMentionUsers}
       replyingTo={replyingToDm}
       onCancelReply={() => setReplyingToDm(null)}

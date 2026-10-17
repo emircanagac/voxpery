@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
-import { Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
+import { AtSign, Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { GifOption } from '../emoji'
@@ -98,8 +98,10 @@ interface ChatAreaProps {
     currentUserId?: string | null
     canModerate?: boolean
     mentionUsers?: MentionUser[]
-    /** When true, placeholder shows Message @name; header still uses #name like server */
+    /** When true, placeholder shows Message @name and the header uses @ instead of # */
     isDm?: boolean
+    /** Group DMs show a people icon in the header instead of @ */
+    isGroupDm?: boolean
     /** When true, the Messages/DM view is active (e.g. user switched back from Servers); used to scroll to bottom on re-enter */
     isViewActive?: boolean
     /** Pagination: more messages can be loaded above (older) */
@@ -173,6 +175,7 @@ export default function ChatArea({
     canModerate = false,
     mentionUsers = [],
     isDm = false,
+    isGroupDm = false,
     isViewActive,
     hasMoreOlder = false,
     loadingOlder = false,
@@ -1895,7 +1898,7 @@ export default function ChatArea({
                     </button>
                 )}
                 <span className="channel-hash">
-                    <Hash size={20} />
+                    {isDm ? (isGroupDm ? <Users size={20} aria-hidden="true" /> : <AtSign size={20} aria-hidden="true" />) : <Hash size={20} />}
                 </span>
                 <div className="channel-header-copy">
                     <span className="channel-title">{activeChannel.name}</span>
@@ -2129,7 +2132,7 @@ export default function ChatArea({
                 ) : messages.length === 0 ? (
                     <div className="welcome-screen">
                         <div className="welcome-icon">
-                            <Hash size={36} />
+                            {isDm ? (isGroupDm ? <Users size={36} aria-hidden="true" /> : <AtSign size={36} aria-hidden="true" />) : <Hash size={36} />}
                         </div>
                         <h2>{emptyStateTitle ?? `Welcome to #${activeChannel.name}!`}</h2>
                         <p>{emptyStateDescription ?? activeChannel.description?.trim() ?? 'This is the beginning of the channel. Start the conversation!'}</p>
