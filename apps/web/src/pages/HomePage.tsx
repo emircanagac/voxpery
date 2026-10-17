@@ -71,6 +71,7 @@ import MemberProfileDialog, { type MemberProfileMember } from '../components/Mem
 import { groupDmApi } from '../api/groupDms'
 import DmFriendPicker, { MAX_GROUP_DM_MEMBERS } from '../components/DmFriendPicker'
 import GroupDmSettingsDialog from '../components/GroupDmSettingsDialog'
+import ModalSurface from '../components/ModalSurface'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -2050,7 +2051,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
       {removeFriendTarget && createPortal(
         <div className="modal-overlay" onClick={() => !removingFriend && setRemoveFriendTarget(null)}>
-          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+          <ModalSurface name="Remove friend" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => { if (!removingFriend) setRemoveFriendTarget(null) }}>
             <h2>Remove friend?</h2>
             <p>
               {`This will remove ${removeFriendTarget.username} from your friends list.`}
@@ -2073,7 +2074,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 {removingFriend ? 'Removing…' : 'Remove'}
               </button>
             </div>
-          </div>
+          </ModalSurface>
         </div>,
         document.body
       )}

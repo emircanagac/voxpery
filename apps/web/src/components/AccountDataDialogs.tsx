@@ -114,7 +114,7 @@ export default function AccountDataDialogs({
               <p className="user-setting-desc">
                 For a complete KVKK/GDPR access request, follow the formal request process in the Privacy Notice.
               </p>
-              {exportError && <div className="pw-error">{exportError}</div>}
+              {exportError && <div className="pw-error" role="alert">{exportError}</div>}
             </div>
             <footer className="pw-modal-footer">
               <button type="button" className="btn btn-secondary" onClick={closeExportModal}>
@@ -181,7 +181,7 @@ export default function AccountDataDialogs({
                   {deleteConfirm.trim() === 'DELETE' ? 'Confirmation text is valid.' : 'Type DELETE exactly to enable the action.'}
                 </div>
               </div>
-              {deleteError && <div className="pw-error">{deleteError}</div>}
+              {deleteError && <div className="pw-error" role="alert">{deleteError}</div>}
               {deleteNeedsGoogleSignIn && (
                 <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
                   Sign in with Google again
@@ -254,7 +254,7 @@ export default function AccountDataDialogs({
                   </div>
                 </div>
               )}
-              {emailError && <div className="pw-error">{emailError}</div>}
+              {emailError && <div className="pw-error" role="alert">{emailError}</div>}
               {emailNeedsGoogleSignIn && (
                 <button type="button" className="btn btn-secondary" onClick={() => void reauthenticateGoogleForExport()}>
                   Sign in with Google again

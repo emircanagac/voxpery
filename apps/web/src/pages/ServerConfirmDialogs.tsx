@@ -228,8 +228,8 @@ export default function ServerConfirmDialogs({
                             </div>
                         )}
                         <div className="form-group">
-                            <label>Reason</label>
-                            <select
+                            <label htmlFor="server-confirm-dialogs-reason">Reason</label>
+                            <select id="server-confirm-dialogs-reason"
                                 value={reportReason}
                                 onChange={(e) => setReportReason(e.target.value as (typeof REPORT_REASONS)[number]['value'])}
                                 disabled={reportSubmitting}
@@ -242,8 +242,8 @@ export default function ServerConfirmDialogs({
                             </select>
                         </div>
                         <div className="form-group">
-                            <label>Extra details (optional)</label>
-                            <textarea
+                            <label htmlFor="server-confirm-dialogs-extra-details">Extra details (optional)</label>
+                            <textarea id="server-confirm-dialogs-extra-details"
                                 value={reportDetails}
                                 onChange={(e) => setReportDetails(e.target.value)}
                                 rows={4}
@@ -307,11 +307,11 @@ export default function ServerConfirmDialogs({
                             Type <strong>{settingsServer.name}</strong> to confirm permanent deletion.
                         </p>
                         {deleteServerError && (
-                            <div className="auth-error" style={{ marginBottom: 12 }}>{deleteServerError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>{deleteServerError}</div>
                         )}
                         <div className="form-group">
-                            <label>Server Name</label>
-                            <input
+                            <label htmlFor="server-confirm-dialogs-server-name">Server Name</label>
+                            <input id="server-confirm-dialogs-server-name"
                                 type="text"
                                 value={deleteServerInput}
                                 onChange={(e) => setDeleteServerInput(e.target.value)}
@@ -367,11 +367,11 @@ export default function ServerConfirmDialogs({
                     <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Rename Category" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameCategory}>
                         <h2>Rename Category</h2>
                         {renameCategoryError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{renameCategoryError}</div>
                         )}
                         <div className="form-group">
-                            <label>Category Name</label>
-                            <input
+                            <label htmlFor="server-confirm-dialogs-category-name">Category Name</label>
+                            <input id="server-confirm-dialogs-category-name"
                                 type="text"
                                 value={renameCategoryName}
                                 onChange={(e) => setRenameCategoryName(e.target.value)}
@@ -415,7 +415,7 @@ export default function ServerConfirmDialogs({
                             )
                         })()}
                         {deleteCategoryError && (
-                            <div className="auth-error" style={{ marginBottom: 10 }}>{deleteCategoryError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 10 }}>{deleteCategoryError}</div>
                         )}
                         <div className="modal-actions">
                             <button type="button" className="btn btn-secondary" onClick={() => setDeleteCategoryConfirm(null)}>

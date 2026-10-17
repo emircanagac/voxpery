@@ -254,7 +254,7 @@ export default function ServerSettingsModal({
 
                         <div className="server-settings-body server-settings-body--with-tabs">
                             {serverSettingsError && (
-                                <div className="auth-error server-settings-error">{serverSettingsError}</div>
+                                <div className="auth-error server-settings-error" role="alert">{serverSettingsError}</div>
                             )}
 
                             <div className="server-settings-layout">
@@ -457,8 +457,8 @@ export default function ServerSettingsModal({
 
                                                     <div className="server-overview-profile__form">
                                                         <div className="form-group">
-                                                            <label>Server name</label>
-                                                            <input
+                                                            <label htmlFor="server-settings-modal-server-name">Server name</label>
+                                                            <input id="server-settings-modal-server-name"
                                                                 type="text"
                                                                 value={serverSettingsName}
                                                                 onChange={(e) => setServerSettingsName(e.target.value)}
@@ -467,8 +467,8 @@ export default function ServerSettingsModal({
                                                             />
                                                         </div>
                                                         <div className="form-group">
-                                                            <label>Description</label>
-                                                            <input
+                                                            <label htmlFor="server-settings-modal-description">Description</label>
+                                                            <input id="server-settings-modal-description"
                                                                 type="text"
                                                                 value={serverSettingsDescription}
                                                                 onChange={(e) => setServerSettingsDescription(e.target.value)}
@@ -563,7 +563,7 @@ export default function ServerSettingsModal({
                                     {serverSettingsTab === 'audit' && canViewAuditLog && (
                                         <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
                                             {auditLogError && (
-                                                <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                                                     {auditLogError}
                                                 </div>
                                             )}
@@ -614,7 +614,7 @@ export default function ServerSettingsModal({
                                     {serverSettingsTab === 'roles' && isOwner && (
                                         <section className="server-settings-card server-settings-card--roles">
                                             {rolesError && (
-                                                <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                                                     {rolesError}
                                                 </div>
                                             )}

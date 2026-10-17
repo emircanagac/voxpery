@@ -1548,7 +1548,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
         <span className="user-status-popover-title">SET YOUR STATUS</span>
       </div>
       {statusError && (
-        <div className="user-status-popover-error">{statusError}</div>
+        <div className="user-status-popover-error" role="alert">{statusError}</div>
       )}
       <div className="user-status-list">
         {(['online', 'dnd', 'invisible'] as const).map((status) => (

@@ -32,4 +32,11 @@ describe('ModalSurface', () => {
     expect(opener).toHaveFocus()
     opener.remove()
   })
+
+  it('closes on Escape when the dialog provides onEscape', () => {
+    const onEscape = vi.fn()
+    render(<ModalSurface name="Kick member" onEscape={onEscape}><button type="button">Cancel</button></ModalSurface>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    expect(onEscape).toHaveBeenCalledOnce()
+  })
 })

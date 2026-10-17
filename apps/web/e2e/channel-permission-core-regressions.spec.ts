@@ -388,6 +388,11 @@ test.describe('mocked channel permission regressions', () => {
     const settings = page.locator('.server-settings-content')
     await expect(settings.getByRole('heading', { name: 'Permissions', exact: true })).toBeVisible()
     await expect(settings.getByText('Roles', { exact: true })).toBeVisible()
+    await settings.getByRole('button', { name: /everyone/i }).first().click()
+    const viewChannel = settings.getByRole('group', { name: 'View Channel' })
+    await expect(viewChannel.getByRole('button', { name: 'View Channel: Inherit' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(viewChannel.getByRole('button', { name: 'View Channel: Deny' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(viewChannel.getByRole('button', { name: 'View Channel: Allow' })).toHaveAttribute('aria-pressed', 'false')
     await page.keyboard.press('Escape')
     await expect(settings).toBeHidden()
 

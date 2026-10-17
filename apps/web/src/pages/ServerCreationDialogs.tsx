@@ -131,11 +131,11 @@ export default function ServerCreationDialogs({
                     <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="create-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleCreateServer}>
                         <h2 id="create-server-dialog-title">Create a Server</h2>
                         {createServerError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{createServerError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{createServerError}</div>
                         )}
                         <div className="form-group">
-                            <label>Server Name</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-server-name">Server Name</label>
+                            <input id="server-creation-dialogs-server-name"
                                 type="text"
                                 value={newServerName}
                                 onChange={(e) => {
@@ -149,8 +149,8 @@ export default function ServerCreationDialogs({
                             />
                         </div>
                         <div className="form-group">
-                            <label>Description <span style={{ opacity: 0.6 }}>(optional)</span></label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-description">Description <span style={{ opacity: 0.6 }}>(optional)</span></label>
+                            <input id="server-creation-dialogs-description"
                                 type="text"
                                 value={newServerDescription}
                                 onChange={(e) => {
@@ -189,11 +189,11 @@ export default function ServerCreationDialogs({
                     <form ref={serverDialogRef} className={`modal${isMobileViewport ? ' modal-compact-mobile' : ''}`} role="dialog" aria-modal="true" aria-labelledby="join-server-dialog-title" tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={handleJoinServer}>
                         <h2 id="join-server-dialog-title">Join a Server</h2>
                         {joinServerError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{joinServerError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{joinServerError}</div>
                         )}
                         <div className="form-group">
-                            <label>Invite link or code</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-invite-link-or-code">Invite link or code</label>
+                            <input id="server-creation-dialogs-invite-link-or-code"
                                 type="text"
                                 value={inviteCode}
                                 onChange={(e) => setInviteCode(e.target.value)}
@@ -217,11 +217,11 @@ export default function ServerCreationDialogs({
                     <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Channel" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateChannel}>
                         <h2>Create Channel</h2>
                         {createChannelError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{createChannelError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{createChannelError}</div>
                         )}
                         <div className="form-group">
-                            <label>Channel name</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-channel-name">Channel name</label>
+                            <input id="server-creation-dialogs-channel-name"
                                 type="text"
                                 value={createChannelName}
                                 onChange={(e) => setCreateChannelName(e.target.value)}
@@ -231,11 +231,12 @@ export default function ServerCreationDialogs({
                             />
                         </div>
                         <div className="form-group">
-                            <label>Channel type</label>
-                            <div className="channel-type-selector">
+                            <label id="create-channel-type-label">Channel type</label>
+                            <div className="channel-type-selector" role="group" aria-labelledby="create-channel-type-label">
                                 <button
                                     type="button"
                                     className={`channel-type-option ${createChannelType === 'text' ? 'channel-type-option--selected' : ''}`}
+                                    aria-pressed={createChannelType === 'text'}
                                     onClick={() => setCreateChannelType('text')}
                                 >
                                     <MessageSquare size={24} strokeWidth={1.8} />
@@ -245,6 +246,7 @@ export default function ServerCreationDialogs({
                                 <button
                                     type="button"
                                     className={`channel-type-option ${createChannelType === 'voice' ? 'channel-type-option--selected' : ''}`}
+                                    aria-pressed={createChannelType === 'voice'}
                                     onClick={() => setCreateChannelType('voice')}
                                 >
                                     <Mic size={24} strokeWidth={1.8} />
@@ -254,8 +256,8 @@ export default function ServerCreationDialogs({
                             </div>
                         </div>
                         <div className="form-group">
-                            <label>Category (optional, default: GENERAL)</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-category">Category (optional, default: GENERAL)</label>
+                            <input id="server-creation-dialogs-category"
                                 type="text"
                                 value={createChannelCategory}
                                 onChange={(e) => setCreateChannelCategory(e.target.value)}
@@ -270,8 +272,8 @@ export default function ServerCreationDialogs({
                                 </datalist>
                             </div>
                             <div className="form-group">
-                                <label>Description (optional)</label>
-                                <textarea
+                                <label htmlFor="server-creation-dialogs-description-2">Description (optional)</label>
+                                <textarea id="server-creation-dialogs-description-2"
                                     value={createChannelDescription}
                                     onChange={(e) => setCreateChannelDescription(e.target.value)}
                                     placeholder="What is this channel for?"
@@ -293,11 +295,11 @@ export default function ServerCreationDialogs({
                     <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Create Category" className="modal modal-create-channel" onClick={(e) => e.stopPropagation()} onSubmit={handleCreateCategory}>
                         <h2>Create Category</h2>
                         {createCategoryError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{createCategoryError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{createCategoryError}</div>
                         )}
                         <div className="form-group">
-                            <label>Category name</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-category-name">Category name</label>
+                            <input id="server-creation-dialogs-category-name"
                                 type="text"
                                 value={createCategoryName}
                                 onChange={(e) => setCreateCategoryName(e.target.value)}
@@ -320,11 +322,11 @@ export default function ServerCreationDialogs({
                     <ModalSurface returnFocusRef={channelDialogReturnFocusRef} as="form" name="Edit Channel" className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameChannel}>
                         <h2>Edit Channel</h2>
                         {renameChannelError && (
-                            <div className="auth-error" style={{ marginBottom: 16 }}>{renameChannelError}</div>
+                            <div className="auth-error" role="alert" style={{ marginBottom: 16 }}>{renameChannelError}</div>
                         )}
                         <div className="form-group">
-                            <label>Channel Name</label>
-                            <input
+                            <label htmlFor="server-creation-dialogs-channel-name-2">Channel Name</label>
+                            <input id="server-creation-dialogs-channel-name-2"
                                 type="text"
                                 value={renameChannelName}
                                 onChange={(e) => setRenameChannelName(e.target.value)}
@@ -334,8 +336,8 @@ export default function ServerCreationDialogs({
                             />
                         </div>
                         <div className="form-group">
-                            <label>Description</label>
-                            <textarea
+                            <label htmlFor="server-creation-dialogs-description-3">Description</label>
+                            <textarea id="server-creation-dialogs-description-3"
                                 value={renameChannelDescription}
                                 onChange={(e) => setRenameChannelDescription(e.target.value)}
                                 placeholder="What is this channel for?"

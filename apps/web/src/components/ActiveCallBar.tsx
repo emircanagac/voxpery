@@ -41,6 +41,7 @@ import {
   type VoxperyMediaStreamTrack,
 } from '../webrtc/livekitVideoAttachment'
 import { isTauri } from '../secureStorage'
+import ModalSurface from './ModalSurface'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -1566,7 +1567,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   const screenShareModal = showScreenShareConfirm && (
     <div className="modal-overlay modal-overlay--compact" onClick={() => setShowScreenShareConfirm(false)}>
-      <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
+      <ModalSurface name="Share your screen" className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setShowScreenShareConfirm(false)}>
         <h3>Share your screen</h3>
         <p>Only share content you&apos;re comfortable with. Everyone in this channel will see your screen.</p>
         <div className="screen-share-quality-picker">
@@ -1583,20 +1584,20 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           <button type="button" className="btn btn-secondary" onClick={() => setShowScreenShareConfirm(false)}>Cancel</button>
           <button type="button" className="btn btn-primary" onClick={() => void confirmScreenShare()}>Share screen</button>
         </div>
-      </div>
+      </ModalSurface>
     </div>
   )
 
   const cameraModal = showCameraConfirm && (
     <div className="modal-overlay modal-overlay--compact" onClick={() => setShowCameraConfirm(false)}>
-      <div className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()}>
+      <ModalSurface name="Turn on camera" className="modal screen-share-confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setShowCameraConfirm(false)}>
         <h3>Turn on camera</h3>
         <p>Everyone in this channel will see your camera. Only turn it on if you&apos;re comfortable with that.</p>
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={() => setShowCameraConfirm(false)}>Cancel</button>
           <button type="button" className="btn btn-primary" onClick={() => void confirmCamera()}>Turn on camera</button>
         </div>
-      </div>
+      </ModalSurface>
     </div>
   )
 

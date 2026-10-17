@@ -248,7 +248,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     return (
         <section className="server-settings-card server-settings-card--stack server-settings-safety-section">
             <h3 className="server-settings-card__title">AutoMod</h3>
-            {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
+            {error && <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
             {loading ? (
                 <div className="server-settings-empty-state">Loading AutoMod rules...</div>
             ) : (

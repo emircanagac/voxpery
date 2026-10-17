@@ -13,6 +13,7 @@ import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDi
 import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
 import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
+import ModalSurface from './ModalSurface'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 interface MemberItemProps {
@@ -794,10 +795,13 @@ export default function MemberSidebar({
 
             {roleEditor && (
                 <div className="modal-overlay" onClick={() => setRoleEditor(null)}>
-                    <div
+                    <ModalSurface
+                        name={`Manage roles for ${roleEditor.username}`}
                         className="modal"
                         style={{ maxWidth: 380 }}
                         onClick={(e) => e.stopPropagation()}
+                        onEscape={() => setRoleEditor(null)}
+                        returnFocusRef={menuTriggerRef}
                     >
                         <h2>Manage roles</h2>
                         <p style={{ marginBottom: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
@@ -887,13 +891,13 @@ export default function MemberSidebar({
                                 Save
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
 
             {kickConfirm && (
                 <div className="modal-overlay" onClick={() => setKickConfirm(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Kick member" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setKickConfirm(null)} returnFocusRef={menuTriggerRef}>
                         <h2>Kick member</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                             Kick <strong>{kickConfirm.username}</strong>? They will be removed from the server.
@@ -910,12 +914,12 @@ export default function MemberSidebar({
                                 Kick user
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
             {banConfirm && (
                 <div className="modal-overlay" onClick={() => setBanConfirm(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Ban member" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setBanConfirm(null)} returnFocusRef={menuTriggerRef}>
                         <h2>Ban member</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                             Ban <strong>{banConfirm.username}</strong>? They will be removed and blocked from rejoining.
@@ -932,19 +936,20 @@ export default function MemberSidebar({
                                 Ban user
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
             {timeoutConfirm && (
                 <div className="modal-overlay" onClick={() => setTimeoutConfirm(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Timeout member" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setTimeoutConfirm(null)} returnFocusRef={menuTriggerRef}>
                         <h2>Timeout member</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                             Timeout <strong>{timeoutConfirm.username}</strong> from sending messages.
                         </p>
                         <div className="form-group">
-                            <label>Duration</label>
+                            <label htmlFor="member-timeout-duration">Duration</label>
                             <select
+                                id="member-timeout-duration"
                                 value={timeoutConfirm.durationMinutes}
                                 onChange={(e) => setTimeoutConfirm((prev) => prev ? { ...prev, durationMinutes: Number(e.target.value) } : prev)}
                             >
@@ -955,8 +960,9 @@ export default function MemberSidebar({
                             </select>
                         </div>
                         <div className="form-group">
-                            <label>Reason</label>
+                            <label htmlFor="member-timeout-reason">Reason</label>
                             <textarea
+                                id="member-timeout-reason"
                                 value={timeoutConfirm.reason}
                                 maxLength={500}
                                 rows={3}
@@ -976,7 +982,7 @@ export default function MemberSidebar({
                                 Timeout user
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
 

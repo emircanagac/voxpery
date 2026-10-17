@@ -106,7 +106,7 @@ export default function ServerSettingsSafety({
                         </p>
                     </div>
                     {reportEntriesError && (
-                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                        <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                             {reportEntriesError}
                         </div>
                     )}
@@ -279,7 +279,7 @@ export default function ServerSettingsSafety({
                         </p>
                     </div>
                     {banEntriesError && (
-                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                        <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                             {banEntriesError}
                         </div>
                     )}
