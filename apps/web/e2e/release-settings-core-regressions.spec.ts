@@ -1025,8 +1025,8 @@ test.describe('mocked release and settings regressions', () => {
         await page.setViewportSize({ width, height: 844 })
         const filters = page.getByRole('group', { name: 'Friends filters' })
         await expect(filters).toBeVisible()
-        for (const name of ['Online', 'All', 'Add Friend']) {
-          const button = filters.getByRole('button', { name: name === 'Add Friend' ? /^Add Friend/ : name, exact: name !== 'Add Friend' })
+        for (const name of ['Online', 'All', 'Pending', 'Add Friend']) {
+          const button = filters.getByRole('button', { name: name === 'Pending' ? /^Pending/ : name, exact: name !== 'Pending' })
           const outline = await button.evaluate(border)
           expect(outline.width).toBe('1px')
           expect(outline.color).not.toBe('rgba(0, 0, 0, 0)')

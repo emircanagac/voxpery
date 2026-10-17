@@ -208,17 +208,20 @@ describe('HomePage friends list', () => {
     backgroundMocks.isAppBackgrounded.mockReturnValue(false)
   })
 
-  it('unifies Add Friend and requests in one tab without a duplicate header action', async () => {
+  it('separates pending requests from the Add Friend form without a duplicate header action', async () => {
     apiMocks.listFriendRequests.mockResolvedValue({ incoming: [{ id: 'in', requester_username: 'Alice', requester_id: 'alice' }], outgoing: [] })
     const { container } = renderHomePage()
-    await screen.findByRole('button', { name: 'Add Friend, 1 incoming friend request' })
+    const pending = await screen.findByRole('button', { name: 'Pending, 1 incoming friend request' })
     expect(container.querySelector('.friends-page-header button')).toBeNull()
-    const tab = screen.getByRole('button', { name: /^Add Friend/ })
-    fireEvent.click(tab)
-    expect(tab).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('textbox', { name: 'Friend username' })).toHaveFocus()
+    fireEvent.click(pending)
+    expect(pending).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Accept friend request from Alice' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /^Requests/ })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Friend username' })).toBeNull()
+    const add = screen.getByRole('button', { name: 'Add Friend' })
+    fireEvent.click(add)
+    expect(add).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('textbox', { name: 'Friend username' })).toHaveFocus()
+    expect(screen.queryByRole('button', { name: 'Accept friend request from Alice' })).toBeNull()
   })
 
   it('filters friends locally, keeps the query between filters, and clears with Escape', async () => {

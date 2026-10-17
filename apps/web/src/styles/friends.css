@@ -17,7 +17,7 @@
 .friends-page-title h1 { margin: 0; color: var(--text-primary); font-size: 22px; line-height: 28px; letter-spacing: 0; }
 
 .friends-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }
-.social-content--friends .home-chip-row { grid-template-columns: 90px 72px 136px; gap: 4px; margin: 0; flex: 0 1 auto; }
+.social-content--friends .home-chip-row { grid-template-columns: 90px 72px 132px 120px; gap: 4px; margin: 0; flex: 0 1 auto; }
 .social-content--friends .home-chip {
   min-height: 38px;
   padding: 6px 10px;
@@ -139,7 +139,7 @@
   .home-main:not(.home-main-dm) .social-content--friends { padding: 12px 12px calc(12px + var(--mobile-bottom-dock-height) + env(safe-area-inset-bottom, 0px)); gap: 12px; }
   .friends-page-title h1 { font-size: 20px; }
   .friends-toolbar { gap: 10px; }
-  .social-content--friends .home-chip-row { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .social-content--friends .home-chip-row { width: 100%; grid-template-columns: repeat(4, auto); }
   .social-content--friends .home-chip { min-height: 40px; padding: 6px 4px; gap: 4px; font-size: 12px; }
   .social-content--friends .home-chip svg { display: none; }
   .friends-search { flex-basis: 100%; max-width: none; height: 40px; }
@@ -152,7 +152,6 @@
 }
 
 @media (max-width: 360px) {
-  .social-content--friends .home-chip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.5fr); }
   .social-content--friends .home-chip { font-size: 11px; }
   .social-content--friends .home-member-avatar { width: 36px; height: 36px; }
   .social-content--friends .home-member-action { width: 32px; }

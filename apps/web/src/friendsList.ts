@@ -1,6 +1,6 @@
 import type { DmChannel, Friend } from './api'
 
-export type FriendsFilter = 'all' | 'online' | 'requests'
+export type FriendsFilter = 'all' | 'online' | 'requests' | 'add'
 
 const friendNameCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -30,7 +30,7 @@ export function compareFriendsForList(a: Friend, b: Friend): number {
   return compareFriendNames(a, b)
 }
 
-export function getVisibleFriendsForFilter(friends: Friend[], filter: Exclude<FriendsFilter, 'requests'>, search = ''): Friend[] {
+export function getVisibleFriendsForFilter(friends: Friend[], filter: Exclude<FriendsFilter, 'requests' | 'add'>, search = ''): Friend[] {
   const source = filter === 'online' ? friends.filter(isActiveFriend) : friends
   const query = search.trim().toLowerCase()
   return source.filter(friend => !query || friend.username.toLowerCase().includes(query)).sort(compareFriendsForList)

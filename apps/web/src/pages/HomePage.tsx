@@ -524,7 +524,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   const onlineFriends = useMemo(() => getVisibleFriendsForFilter(friends, 'online'), [friends])
   const visibleFriends = useMemo(
-    () => (friendsFilter === 'requests' ? [] : getVisibleFriendsForFilter(friends, friendsFilter, friendsSearch)),
+    () => (friendsFilter === 'requests' || friendsFilter === 'add' ? [] : getVisibleFriendsForFilter(friends, friendsFilter, friendsSearch)),
     [friends, friendsFilter, friendsSearch],
   )
   const requestQuery = friendsSearch.trim().toLowerCase()
@@ -534,17 +534,17 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     request.receiver_username.toLowerCase().includes(requestQuery)), [outgoingRequests, requestQuery])
 
   useEffect(() => {
-    if (friendsFilter !== 'requests' || !focusAddFriendRef.current) return
+    if (friendsFilter !== 'add' || !focusAddFriendRef.current) return
     focusAddFriendRef.current = false
     addFriendInputRef.current?.focus()
   }, [friendsFilter])
 
   const openAddFriend = () => {
     setFriendsSearch('')
-    if (friendsFilter === 'requests') addFriendInputRef.current?.focus()
+    if (friendsFilter === 'add') addFriendInputRef.current?.focus()
     else {
       focusAddFriendRef.current = true
-      setFriendsFilter('requests')
+      setFriendsFilter('add')
     }
   }
   const refreshActiveDmConversation = useCallback(async (channelId: string) => {
@@ -1546,17 +1546,26 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   type="button"
                   className={`home-chip ${friendsFilter === 'requests' ? 'active' : ''}`}
                   aria-pressed={friendsFilter === 'requests'}
-                  aria-label={incomingRequests.length > 0 ? `Add Friend, ${incomingRequests.length} incoming friend request${incomingRequests.length === 1 ? '' : 's'}` : 'Add Friend'}
-                  onClick={openAddFriend}
+                  aria-label={incomingRequests.length > 0 ? `Pending, ${incomingRequests.length} incoming friend request${incomingRequests.length === 1 ? '' : 's'}` : 'Pending'}
+                  onClick={() => { setFriendsSearch(''); setFriendsFilter('requests') }}
                 >
-                  <UserPlus size={14} />
-                  <span className="home-chip-label">Add Friend</span>
+                  <Inbox size={14} />
+                  <span className="home-chip-label">Pending</span>
                   {incomingRequests.length > 0 && (
                     <span className="home-chip-badge" aria-hidden="true" title={`${incomingRequests.length} incoming friend request${incomingRequests.length === 1 ? '' : 's'}`}>{formatBadgeCount(incomingRequests.length)}</span>
                   )}
                 </button>
+                <button
+                  type="button"
+                  className={`home-chip ${friendsFilter === 'add' ? 'active' : ''}`}
+                  aria-pressed={friendsFilter === 'add'}
+                  onClick={openAddFriend}
+                >
+                  <UserPlus size={14} />
+                  <span className="home-chip-label">Add Friend</span>
+                </button>
               </div>
-              <div className="friends-search">
+              {friendsFilter !== 'add' && <div className="friends-search">
                 <Search size={16} aria-hidden="true" />
                 <input ref={friendsSearchRef} type="search" aria-label={friendsFilter === 'requests' ? 'Search requests' : 'Search friends'}
                   placeholder={friendsFilter === 'requests' ? 'Search requests' : 'Search friends'} value={friendsSearch}
@@ -1564,9 +1573,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                   onKeyDown={event => { if (event.key === 'Escape' && friendsSearch) { event.stopPropagation(); setFriendsSearch('') } }} />
                 <button type="button" title="Clear search" aria-label="Clear friends search" disabled={!friendsSearch}
                   onClick={() => { setFriendsSearch(''); friendsSearchRef.current?.focus() }}><X size={14} aria-hidden="true" /></button>
+              </div>}
               </div>
-              </div>
-              {friendsFilter === 'requests' ? (
+              {friendsFilter === 'add' ? (
                 <div className="home-friends-scroll home-friends-scroll--requests">
                   <div className="home-list-group home-requests-add-card">
                     <div className="home-list-title">Add a Friend</div>
@@ -1587,6 +1596,9 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                     </form>
                     {addFriendMessage && <div className="home-empty-row home-add-message" role="status">{addFriendMessage}</div>}
                   </div>
+                </div>
+              ) : friendsFilter === 'requests' ? (
+                <div className="home-friends-scroll home-friends-scroll--requests">
                   <div className="home-list-group">
                     <div className="home-list-title home-list-title-with-icon">
                       <Inbox size={16} />

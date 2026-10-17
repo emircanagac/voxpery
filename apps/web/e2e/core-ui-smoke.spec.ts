@@ -523,7 +523,7 @@ test.describe('mocked core UI smoke', () => {
     await allScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight))
     await expect(page.getByText('Friend 30')).toBeVisible()
 
-    await page.getByRole('button', { name: /^Add Friend/ }).click()
+    await page.getByRole('button', { name: /^Pending/ }).click()
     const requestScroller = page.locator('.home-friends-scroll--requests')
     await expect(page.getByText('Incoming')).toBeVisible()
     await expect(page.getByText('Outgoing')).toBeVisible()
