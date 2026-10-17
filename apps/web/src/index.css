@@ -297,6 +297,7 @@
   --text-warning: #faa61a;
   --text-danger: #f36c6c;
   --status-offline: #64748b;
+  --status-online-text: color-mix(in srgb, var(--status-online) 65%, var(--text-primary));
   --border-subtle: 1px solid rgba(255, 255, 255, 0.08);
   --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.4);
