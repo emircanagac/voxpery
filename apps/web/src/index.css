@@ -8421,6 +8421,27 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-secondary);
 }
 
+.voice-channel-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 360px;
+  text-align: center;
+}
+
+.voice-channel-idle h2 {
+  font-size: 20px;
+}
+
+.voice-channel-idle p {
+  font-size: 14px;
+}
+
+.voice-channel-idle .btn {
+  margin-top: 4px;
+}
+
 /* Social layout: same column widths as server (channel | content | member) */
 .home-page {
   height: 100%;

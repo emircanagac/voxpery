@@ -25,6 +25,8 @@ import type { UiMessage } from './chatMessageLayout'
 import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedMediaMarkdown, getEmojiOnlyCount, isMessageGroupedAt, parseReplyContent } from './chatMessageLayout'
 import { ReactionButton } from './MessageReactionButton'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
+import { useAppStore } from '../stores/app'
+import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
 type MentionUser = {
     user_id: string
@@ -214,6 +216,8 @@ export default function ChatArea({
     onJumpToMessageHandled,
 }: ChatAreaProps) {
     const readableTextColor = useReadableTextColor()
+    const joinedVoiceChannelId = useAppStore((state) => state.joinedVoiceChannelId)
+    const voiceParticipantCount = useAppStore((state) => Object.values(state.voiceStates).filter((channelId) => !!activeChannel && channelId === activeChannel.id).length)
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
@@ -1878,7 +1882,18 @@ export default function ChatArea({
                         </div>
                     )}
                 </div>
-                <div className="voice-focus-panel voice-focus-panel-stage" />
+                <div className="voice-focus-panel voice-focus-panel-stage">
+                    {joinedVoiceChannelId !== activeChannel.id && (
+                        <div className="voice-channel-idle">
+                            <Volume2 size={36} aria-hidden="true" />
+                            <h2>{voiceParticipantCount === 0 ? 'No one is here yet' : `${voiceParticipantCount} in voice`}</h2>
+                            <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
+                            <button type="button" className="btn btn-primary" onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}>
+                                Join voice
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         )
     }

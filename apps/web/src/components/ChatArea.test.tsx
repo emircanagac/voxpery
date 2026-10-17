@@ -180,6 +180,12 @@ describe('ChatArea regressions', () => {
     expect(group.container.querySelector('.channel-hash .lucide-users')).not.toBeNull()
   })
 
+  it('offers to join an empty voice channel instead of leaving the stage blank', () => {
+    renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
+    expect(screen.getByRole('heading', { name: 'No one is here yet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
+  })
+
   it('opens invite links of this instance in the app and keeps the warning for other links', () => {
     const onOpenInviteLink = vi.fn()
     const inviteUrl = `${window.location.origin}/invite/core-guild`
