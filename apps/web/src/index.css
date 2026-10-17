@@ -7415,6 +7415,15 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   font-size: 12px;
 }
 
+.not-found-card {
+  max-width: 440px;
+  text-align: center;
+}
+
+.not-found-home {
+  margin-top: 20px;
+}
+
 .auth-btn {
   width: 100%;
   padding: 12px;
