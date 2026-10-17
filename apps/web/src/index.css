@@ -292,10 +292,10 @@
   --btn-danger-soft-bg-hover: rgba(240, 71, 71, 0.14);
   --btn-danger-soft-border: rgba(240, 71, 71, 0.38);
   --btn-danger-soft-border-hover: rgba(240, 71, 71, 0.5);
-  --btn-danger-soft-text: #ff9ca7;
-  --text-positive: #43b581;
-  --text-warning: #faa61a;
-  --text-danger: #f36c6c;
+  --btn-danger-soft-text: var(--user-theme-text-danger);
+  --text-positive: var(--user-theme-text-positive);
+  --text-warning: var(--user-theme-text-warning);
+  --text-danger: var(--user-theme-text-danger);
   --status-offline: #64748b;
   --status-online-text: color-mix(in srgb, var(--status-online) 65%, var(--text-primary));
   --border-subtle: 1px solid rgba(255, 255, 255, 0.08);
@@ -319,10 +319,10 @@
   --btn-danger-soft-bg-hover: rgba(180, 35, 58, 0.14);
   --btn-danger-soft-border: rgba(180, 35, 58, 0.34);
   --btn-danger-soft-border-hover: rgba(180, 35, 58, 0.48);
-  --btn-danger-soft-text: #9f1f34;
-  --text-positive: #177245;
-  --text-warning: #8a5300;
-  --text-danger: #b4233a;
+  --btn-danger-soft-text: var(--user-theme-text-danger);
+  --text-positive: var(--user-theme-text-positive);
+  --text-warning: var(--user-theme-text-warning);
+  --text-danger: var(--user-theme-text-danger);
   --status-offline: #77808f;
   --status-online-text: color-mix(in srgb, var(--text-positive) 82%, #000);
   --border-subtle: 1px solid rgba(31, 35, 43, 0.12);
@@ -783,7 +783,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin-left: auto;
   border-radius: 999px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
-  background: rgba(9, 14, 28, 0.35);
+  background: color-mix(in srgb, var(--bg-input) 35%, transparent);
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
@@ -1483,7 +1483,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   border-radius: 8px;
   border: 1px solid rgba(143, 171, 222, 0.2);
   background: rgba(var(--ui-contrast-rgb), 0.025);
-  color: rgba(213, 227, 255, 0.84);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1493,7 +1493,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 .channel-header-server:hover .channel-header-action {
   border-color: rgba(126, 166, 242, 0.45);
-  color: rgba(224, 238, 255, 0.94);
+  color: var(--text-primary);
   background: rgba(61, 105, 194, 0.14);
 }
 
@@ -2113,7 +2113,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   min-width: 0;
   font-size: 11px;
   font-weight: 600;
-  color: rgba(217, 225, 246, 0.68);
+  color: var(--text-secondary);
   letter-spacing: 0.01em;
   white-space: nowrap;
   flex: 0 0 auto;
@@ -2135,7 +2135,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   background:
     linear-gradient(180deg, rgba(var(--ui-contrast-rgb), 0.06), rgba(var(--ui-contrast-rgb), 0.03)),
     rgba(8, 14, 28, 0.38);
-  color: rgba(217, 225, 246, 0.78);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -2194,7 +2194,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 .user-info-btn:hover .user-status-cue,
 .user-info-btn:focus-visible .user-status-cue {
-  color: rgba(217, 225, 246, 0.9);
+  color: var(--text-primary);
 }
 
 .user-info-btn:focus-visible {
@@ -2953,7 +2953,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 .voice-settings-block {
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
   border-radius: 10px;
-  background: rgba(20, 30, 56, 0.26);
+  background: color-mix(in srgb, var(--bg-input) 26%, transparent);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -3348,7 +3348,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   padding: 0 9px;
   border-radius: 999px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.1);
-  background: rgba(10, 17, 32, 0.48);
+  background: color-mix(in srgb, var(--bg-input) 48%, transparent);
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
@@ -3363,8 +3363,8 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 .profile-status-btn.is-active {
   color: var(--text-primary);
-  border-color: rgba(102, 153, 255, 0.44);
-  background: rgba(79, 127, 216, 0.18);
+  border-color: var(--accent-border-strong);
+  background: var(--accent-soft-hover);
 }
 
 .profile-status-btn:disabled {
@@ -3829,7 +3829,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .delete-account-modal .delete-account-input-wrap {
-  background: rgba(8, 14, 30, 0.82);
+  background: color-mix(in srgb, var(--bg-input) 82%, transparent);
   border-color: rgba(167, 188, 255, 0.24);
   min-height: 38px;
 }
@@ -4207,7 +4207,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin-top: 3px;
   font-size: 10px;
   line-height: 1.25;
-  color: rgba(214, 223, 255, 0.68);
+  color: var(--text-secondary);
 }
 
 .sensitivity-bar-controls {
@@ -4748,7 +4748,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   border: 1px solid var(--accent-border);
   border-radius: 6px;
   background: transparent;
-  color: var(--accent);
+  color: var(--text-link);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -5144,7 +5144,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   gap: 10px;
   padding: 12px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.06);
-  background: rgba(13, 27, 42, 0.52);
+  background: color-mix(in srgb, var(--bg-input) 52%, transparent);
   border-radius: 10px;
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
@@ -5205,7 +5205,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.05);
   border-left: 3px solid rgba(79, 127, 216, 0.5);
   border-radius: 8px;
-  background: rgba(3, 9, 20, 0.22);
+  background: color-mix(in srgb, var(--bg-input) 22%, transparent);
 }
 
 .chat-header-pinned-item-content-label {
@@ -5511,7 +5511,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .message-author.owner {
-  color: var(--accent-primary);
+  color: var(--text-link);
 }
 
 .message-author.admin,
@@ -6897,7 +6897,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 .member-sidebar:not(.member-sidebar--sheet) .member-name {
   font-weight: 600;
-  color: rgba(235, 241, 255, 0.92);
+  color: var(--text-primary);
 }
 
 .member-item .home-member-action {
@@ -6953,7 +6953,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .member-volume-menu-section-label--personal {
-  color: var(--accent-primary);
+  color: var(--text-link);
 }
 
 .member-volume-menu-section-label--moderation {
@@ -7658,7 +7658,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   padding: 16px;
   border-radius: 16px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
-  background: rgba(9, 16, 34, 0.4);
+  background: color-mix(in srgb, var(--bg-input) 40%, transparent);
 }
 
 .invite-preview-icon {
@@ -7733,7 +7733,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   padding: 16px;
   border-radius: 14px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
-  background: rgba(9, 16, 34, 0.3);
+  background: color-mix(in srgb, var(--bg-input) 30%, transparent);
 }
 
 .invite-rules-header {
@@ -9607,9 +9607,17 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin: 0 14px 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(var(--ui-contrast-rgb), 0.05);
   color: var(--text-primary);
   text-align: left;
+}
+
+.home-add-message.is-success {
+  background: color-mix(in srgb, var(--text-positive) 12%, transparent);
+}
+
+.home-add-message.is-error {
+  background: color-mix(in srgb, var(--text-danger) 12%, transparent);
 }
 
 /* Incoming / Outgoing section headers */
@@ -11664,7 +11672,7 @@ button.message-author {
 
 .invite-unified-row {
   font-family: var(--font-primary);
-  color: var(--accent-primary);
+  color: var(--text-link);
   font-size: 13px;
   word-break: break-all;
 }
@@ -12095,7 +12103,7 @@ button.message-author {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.14);
-  background: rgba(5, 12, 28, 0.68);
+  background: color-mix(in srgb, var(--bg-input) 68%, transparent);
   color: var(--text-primary);
   border-radius: 8px;
   padding: 5px 8px;
@@ -12610,7 +12618,7 @@ button.message-author {
   margin-bottom: 12px;
   border: 1px solid rgba(143, 171, 222, 0.12);
   border-radius: 12px;
-  background: rgba(8, 14, 30, 0.32);
+  background: color-mix(in srgb, var(--bg-input) 32%, transparent);
 }
 
 .server-settings-subnav__item {
@@ -12889,15 +12897,15 @@ button.message-author {
 }
 
 .server-report-status.is-open {
-  color: #ffd76d;
-  background: rgba(255, 215, 109, 0.14);
-  border-color: rgba(255, 215, 109, 0.26);
+  color: color-mix(in srgb, var(--text-warning) 60%, var(--text-primary));
+  background: color-mix(in srgb, var(--text-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--text-warning) 32%, transparent);
 }
 
 .server-report-status.is-resolved {
-  color: #8fe6bc;
-  background: rgba(56, 189, 141, 0.14);
-  border-color: rgba(56, 189, 141, 0.24);
+  color: color-mix(in srgb, var(--text-positive) 60%, var(--text-primary));
+  background: color-mix(in srgb, var(--text-positive) 12%, transparent);
+  border-color: color-mix(in srgb, var(--text-positive) 30%, transparent);
 }
 
 .server-report-tags {
@@ -13193,7 +13201,7 @@ button.message-author {
 .modal-server-settings select,
 .modal-server-settings textarea {
   border: 1px solid rgba(143, 171, 222, 0.16);
-  background-color: rgba(8, 14, 30, 0.72);
+  background-color: color-mix(in srgb, var(--bg-input) 72%, transparent);
   color: var(--text-primary);
   border-radius: 8px;
   box-shadow: none;
@@ -13204,7 +13212,7 @@ button.message-author {
 .modal-server-settings select:focus,
 .modal-server-settings textarea:focus {
   border-color: rgba(122, 170, 231, 0.5);
-  background-color: rgba(10, 18, 38, 0.88);
+  background-color: color-mix(in srgb, var(--bg-input) 88%, transparent);
   box-shadow: 0 0 0 3px rgba(82, 145, 225, 0.12);
 }
 
@@ -13657,7 +13665,7 @@ button.message-author {
   padding: 3px;
   border: 1px solid rgba(143, 171, 222, 0.18);
   border-radius: 9px;
-  background: rgba(8, 14, 30, 0.72);
+  background: color-mix(in srgb, var(--bg-input) 72%, transparent);
   cursor: pointer;
 }
 
@@ -14457,7 +14465,7 @@ button.message-author {
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
   border-radius: 8px;
   background: rgba(5, 8, 18, 0.28);
-  color: rgba(238, 243, 255, 0.78);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14488,7 +14496,7 @@ button.message-author {
 
 .server-welcome-guide__copy p {
   margin: 0;
-  color: rgba(229, 238, 255, 0.86);
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -14707,7 +14715,7 @@ button.message-author {
   padding: 9px 11px;
   border: 1px solid rgba(143, 171, 222, 0.16);
   border-radius: 8px;
-  background: rgba(8, 14, 30, 0.72);
+  background: color-mix(in srgb, var(--bg-input) 72%, transparent);
   color: var(--text-primary);
   font-family: var(--font-primary);
   font-size: 13px;
@@ -14717,7 +14725,7 @@ button.message-author {
 
 .onboarding-task-row input:focus {
   border-color: rgba(122, 170, 231, 0.5);
-  background: rgba(10, 18, 38, 0.88);
+  background: color-mix(in srgb, var(--bg-input) 88%, transparent);
   box-shadow: 0 0 0 3px rgba(82, 145, 225, 0.12);
 }
 
@@ -16077,7 +16085,7 @@ textarea {
     display: inline-flex;
     margin-left: 4px;
     gap: 0;
-    color: rgba(217, 225, 246, 0.78);
+    color: var(--text-secondary);
   }
 
   .user-status-cue-label {

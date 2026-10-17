@@ -166,7 +166,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
   const [addFriendUsername, setAddFriendUsername] = useState('')
-  const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
+  const [addFriendMessage, setAddFriendMessage] = useState<{ text: string; tone: 'success' | 'error' } | null>(null)
   const [sendingFriendRequest, setSendingFriendRequest] = useState(false)
   const sendingFriendRequestRef = useRef(false)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
@@ -910,14 +910,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setAddFriendMessage(null)
     try {
       await friendApi.sendRequest(addFriendUsername.trim(), token)
-      setAddFriendMessage('Friend request sent.')
+      setAddFriendMessage({ text: 'Friend request sent.', tone: 'success' })
       setAddFriendUsername('')
       const req = await friendApi.requests(token)
       setIncomingRequests(req.incoming)
       setIncomingRequestCount(req.incoming.length)
       setOutgoingRequests(req.outgoing)
     } catch (err: unknown) {
-      setAddFriendMessage((err as Error)?.message ?? 'Failed to send request')
+      setAddFriendMessage({ text: (err as Error)?.message ?? 'Failed to send request', tone: 'error' })
     } finally {
       sendingFriendRequestRef.current = false
       setSendingFriendRequest(false)
@@ -1594,7 +1594,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         <span>{sendingFriendRequest ? 'Sending...' : 'Send Request'}</span>
                       </button>
                     </form>
-                    {addFriendMessage && <div className="home-empty-row home-add-message" role="status">{addFriendMessage}</div>}
+                    {addFriendMessage && <div className={`home-empty-row home-add-message is-${addFriendMessage.tone}`} role={addFriendMessage.tone === 'error' ? 'alert' : 'status'}>{addFriendMessage.text}</div>}
                   </div>
                 </div>
               ) : friendsFilter === 'requests' ? (
