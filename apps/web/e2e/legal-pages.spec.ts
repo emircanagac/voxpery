@@ -200,3 +200,25 @@ test.describe('versioned legal consent gate', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 })
+
+test('keeps public pages on the default theme and applies the chosen theme only in the app', { tag: '@core' }, async ({ page }) => {
+  await installMockCoreApi(page, createMockCoreState())
+  await page.addInitScript(() => {
+    localStorage.setItem('voxpery-settings-theme', 'light')
+    localStorage.setItem('voxpery-settings-theme-custom-color', '#c9578f')
+    localStorage.setItem('voxpery-settings-theme-custom-mode', 'light')
+  })
+  const html = page.locator('html')
+  for (const path of ['/about', '/compare', '/privacy']) {
+    await page.goto(path)
+    await expect(html).toHaveAttribute('data-theme', 'voxpery')
+    await expect(html).not.toHaveAttribute('data-custom-theme', 'true')
+  }
+  await page.goto('/social')
+  await expect(html).toHaveAttribute('data-custom-theme', 'true')
+  await expect(html).toHaveAttribute('data-custom-theme-mode', 'light')
+  await page.goto('/nonexistent-page')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await expect(html).toHaveAttribute('data-theme', 'voxpery')
+  await expect(html).not.toHaveAttribute('data-custom-theme', 'true')
+})

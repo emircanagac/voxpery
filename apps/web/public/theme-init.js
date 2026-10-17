@@ -10,8 +10,10 @@
   var root = document.documentElement
   var theme = 'voxpery'
   var accent = null
+  // The appearance setting styles only the signed-in app (keep in sync with usesAppTheme in src/theme.ts).
+  var appRoute = /^\/(social|servers)(\/|$)/.test(window.location.pathname)
 
-  try {
+  if (appRoute) try {
     var storedTheme = localStorage.getItem(themeKey)
     if (storedTheme && themes[storedTheme]) theme = storedTheme
     var storedAccent = localStorage.getItem(accentKey)

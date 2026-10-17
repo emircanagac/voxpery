@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The desktop layout now starts at 960px wide (the desktop app's minimum window size); between 960px and 1024px the channel and member sidebars get a little narrower so the chat keeps its room. Below 960px the mobile layout is used.
-- The About and Compare pages now follow your selected theme.
+- The appearance setting now only changes the app itself; sign-in, About, Compare, legal and invite pages always use the default Voxpery Blue look.
 - Long messages wrap at a comfortable line length on wide screens, member cards have more space between them, and the invite link is easier to read.
 - Direct messages show an @ icon (or a people icon for group messages) instead of #.
 - On tablets the message box shows the channel or conversation name again; only phone-width screens use the short "Message" placeholder.

@@ -450,6 +450,30 @@ export function setThemePreference(preference: ThemePreference): ThemePreference
   return normalized
 }
 
-export function initializeTheme(): ThemePreference {
-  return applyThemePreference(getStoredThemePreference())
+// The appearance setting only styles the signed-in app. Public pages (landing, about, compare,
+// legal, auth, invite and not-found) always use the default palette.
+const APP_THEME_PATH = /^\/(social|servers)(\/|$)/
+
+export function usesAppTheme(pathname: string): boolean {
+  return APP_THEME_PATH.test(pathname)
+}
+
+export function getDefaultThemePreference(): ThemePreference {
+  return {
+    theme: DEFAULT_THEME,
+    customAccent: null,
+    customThemeColor: null,
+    customThemeMode: getThemeOption(DEFAULT_THEME).colorScheme,
+  }
+}
+
+export function applyThemeForPath(pathname: string, documentTarget: Document = document): ThemePreference {
+  return applyThemePreference(
+    usesAppTheme(pathname) ? getStoredThemePreference() : getDefaultThemePreference(),
+    documentTarget,
+  )
+}
+
+export function initializeTheme(pathname: string = window.location.pathname): ThemePreference {
+  return applyThemeForPath(pathname)
 }

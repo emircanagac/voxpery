@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router'
 import { useAppStore } from './stores/app'
 import { useAuthStore } from './stores/auth'
@@ -13,6 +13,7 @@ import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
 import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks, setDesktopSignInCodeHandler } from './desktopOAuth'
 import { configureObservability, reportObservabilityEvent } from './observability'
+import { THEME_CHANGED_EVENT, applyThemeForPath } from './theme'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -90,6 +91,12 @@ function App() {
     ROUTES.forgotPassword, ROUTES.resetPassword, ROUTES.verifyEmail,
     ROUTES.terms, ROUTES.privacy, ROUTES.kvkk,
   ].some(path => path === location.pathname)
+
+  // Apply the app theme only inside the app; public pages keep the default palette. Runs before paint.
+  useLayoutEffect(() => {
+    const applied = applyThemeForPath(location.pathname)
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: applied }))
+  }, [location.pathname])
 
   useEffect(() => {
     void loadFeatures()
