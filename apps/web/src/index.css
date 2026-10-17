@@ -1027,6 +1027,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   }
 }
 
+/* Fixed white on the dark badge fill (rgba(17, 24, 39)); intentionally not theme-tokenized. */
 .server-muted-indicator {
   position: absolute;
   top: 4px;
@@ -10668,6 +10669,7 @@ button.message-author {
   pointer-events: none;
 }
 
+/* Screen-share and media overlays always sit on video or a dark scrim, so their white text and borders are intentional in every theme. */
 .screen-share-mini-player-toolbar button {
   width: 30px;
   height: 30px;
@@ -11117,6 +11119,7 @@ button.message-author {
   }
 }
 
+/* Voice stage tiles use a fixed dark gradient; the white border is intentional in every theme. */
 .voice-stage-tile {
   background: linear-gradient(180deg, rgba(30, 39, 70, 0.9), rgba(20, 28, 52, 0.95));
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -11349,6 +11352,7 @@ button.message-author {
   flex: 0 0 auto;
 }
 
+/* The call bar frame is always dark (see .callbar-frame); its white chips and controls are intentional in every theme. */
 .callbar-ping-chip {
   display: inline-flex;
   align-items: center;
