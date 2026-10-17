@@ -39,7 +39,7 @@
   /* Form field boundary: at least 3:1 against the input and surrounding surface in every theme. */
   --input-border: color-mix(in srgb, var(--text-secondary) 70%, var(--bg-input));
   --btn-primary-bg: #2f63c8;
-  --btn-primary-bg-hover: #3c76de;
+  --btn-primary-bg-hover: #356bd2;
   --btn-primary-border: rgba(147, 197, 253, 0.35);
   --btn-primary-border-hover: rgba(191, 219, 254, 0.55);
   --btn-primary-text: #eff6ff;
@@ -145,7 +145,7 @@
   --accent-gradient: #556ccb;
   --accent-glow: 0 0 20px rgba(96, 120, 212, 0.28);
   --btn-primary-bg: #5269c7;
-  --btn-primary-bg-hover: #637ada;
+  --btn-primary-bg-hover: #4c63c2;
   --btn-primary-border: rgba(116, 139, 224, 0.46);
   --btn-primary-border-hover: rgba(142, 161, 232, 0.64);
   --text-primary: #f1f3f5;
