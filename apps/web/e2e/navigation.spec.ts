@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createMockCoreState, installMockCoreApi } from './mock-core-api'
 
 test.describe('App Navigation', () => {
   test('should load the public product page', async ({ page }) => {
@@ -44,9 +45,11 @@ test.describe('App Navigation', () => {
   })
 
   test('should handle 404 routes', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
     await page.goto('/nonexistent-route-12345')
 
-    // Should redirect to login (authentication gate)
-    await expect(page).toHaveURL(/.*\/login/)
+    // Unknown addresses show a not-found page instead of redirecting
+    await expect(page).toHaveURL(/\/nonexistent-route-12345$/)
+    await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
   })
 })
