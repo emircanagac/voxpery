@@ -1383,7 +1383,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   position: absolute;
   top: calc(100% + 4px);
   left: -8px;
-  right: -8px;
+  width: min(380px, calc(100vw - 24px));
   z-index: 60;
   font-weight: 400;
 }
@@ -1451,6 +1451,9 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  min-height: 0;
+  padding: 6px 12px;
+  font-size: 13px;
 }
 
 .server-invite-panel-status {
@@ -5821,6 +5824,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 20px;
+  max-width: 960px; /* readable line length on wide screens */
   word-break: break-word;
   white-space: pre-wrap;
 }
@@ -6829,7 +6833,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .member-sidebar:not(.member-sidebar--sheet) .member-item {
-  margin: 0 2px 2px;
+  margin: 0 2px 6px;
   padding: 8px 10px;
   border-radius: 12px;
   border: 1px solid transparent;
