@@ -165,6 +165,11 @@ describe('ChatArea regressions', () => {
     expect(onOpenChannelList).toHaveBeenCalledTimes(1)
   })
 
+  it('names the composer after the channel for screen readers', () => {
+    renderChatArea()
+    expect(screen.getByRole('textbox', { name: 'Message #general' })).toHaveClass('message-input')
+  })
+
   it('opens invite links of this instance in the app and keeps the warning for other links', () => {
     const onOpenInviteLink = vi.fn()
     const inviteUrl = `${window.location.origin}/invite/core-guild`

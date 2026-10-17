@@ -53,6 +53,7 @@ describe('auth feature gating', () => {
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.queryByText('Forgot password?')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveClass('auth-page')
     expect(screen.getByRole('link', { name: 'Back to Voxpery' })).toHaveAttribute('href', '/')
   })
 
@@ -61,6 +62,7 @@ describe('auth feature gating', () => {
 
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign Up' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveClass('auth-page')
     expect(screen.getByRole('link', { name: 'Back to Voxpery' })).toHaveAttribute('href', '/')
   })
 
@@ -198,6 +200,7 @@ describe('auth feature gating', () => {
       screen.getByText('Password reset is not available because this server has not configured email delivery.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Send Reset Link' })).not.toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveClass('auth-page')
   })
 
   it('shows a disabled password reset message instead of the reset form', () => {
@@ -207,6 +210,7 @@ describe('auth feature gating', () => {
       screen.getByText('Password reset is not available because this server has not configured email delivery.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset Password' })).not.toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveClass('auth-page')
   })
 
   it('does not silently remove auth integrations when feature discovery fails', () => {
@@ -223,6 +227,7 @@ describe('auth feature gating', () => {
     )
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveClass('auth-page')
   })
 
   it('waits for feature discovery before declaring password recovery disabled', () => {

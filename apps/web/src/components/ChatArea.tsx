@@ -2497,6 +2497,7 @@ export default function ChatArea({
                     <textarea
                         ref={textareaRef}
                         className="message-input"
+                        aria-label={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
                         value={messageInput}
                         maxLength={messageBodyLimit(replyingTo) * 2}
                         disabled={!canSendMessages}

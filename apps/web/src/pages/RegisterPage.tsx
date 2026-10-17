@@ -143,7 +143,7 @@ export default function RegisterPage() {
     }
 
     return (
-        <div className="auth-page">
+        <main className="auth-page">
             <form className="auth-card auth-card-register" onSubmit={handleSubmit}>
                 <Link
                     to={ROUTES.landing}
@@ -282,6 +282,6 @@ export default function RegisterPage() {
                     </Link>
                 </div>
             </form>
-        </div>
+        </main>
     )
 }

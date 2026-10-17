@@ -33,7 +33,7 @@ export default function ForgotPasswordPage() {
 
     if (!features) {
         return (
-            <div className="auth-page">
+            <main className="auth-page">
                 <div className="auth-card">
                     <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Reset Password</h1>
@@ -48,13 +48,13 @@ export default function ForgotPasswordPage() {
                         </a>
                     </div>
                 </div>
-            </div>
+            </main>
         )
     }
 
     if (!passwordResetEnabled) {
         return (
-            <div className="auth-page">
+            <main className="auth-page">
                 <div className="auth-card">
                     <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Reset Password</h1>
@@ -66,12 +66,12 @@ export default function ForgotPasswordPage() {
                         </a>
                     </div>
                 </div>
-            </div>
+            </main>
         )
     }
 
     return (
-        <div className="auth-page">
+        <main className="auth-page">
             <form className="auth-card" onSubmit={handleSubmit}>
                 <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                 <h1>Reset Password</h1>
@@ -109,6 +109,6 @@ export default function ForgotPasswordPage() {
                     </a>
                 </div>
             </form>
-        </div>
+        </main>
     )
 }

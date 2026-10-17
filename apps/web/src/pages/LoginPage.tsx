@@ -99,7 +99,7 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="auth-page">
+        <main className="auth-page">
             <form className="auth-card" onSubmit={handleSubmit}>
                 <Link
                     to={ROUTES.landing}
@@ -191,6 +191,6 @@ export default function LoginPage() {
                     </Link>
                 </div>
             </form>
-        </div>
+        </main>
     )
 }
