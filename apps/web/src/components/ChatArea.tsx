@@ -2533,8 +2533,8 @@ export default function ChatArea({
                         }}
                         onPaste={handlePaste}
                         placeholder={canSendMessages
-                            ? (useMobileMessageLayout ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
-                            : (useMobileMessageLayout ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
+                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
+                            : (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
                         rows={1}
                     />
                     {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (

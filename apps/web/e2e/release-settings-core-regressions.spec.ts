@@ -312,7 +312,7 @@ test.describe('mocked release and settings regressions', () => {
       const compact = width < 960
       const composer = page.locator('.message-input:visible')
       await expect(composer).toBeVisible()
-      await expect(composer).toHaveAttribute('placeholder', compact ? 'Message' : 'Message #general')
+      await expect(composer).toHaveAttribute('placeholder', width <= 520 ? 'Message' : 'Message #general')
       expect((await composer.boundingBox())!.width).toBeGreaterThanOrEqual(compact ? width - 230 : 200)
       expect(await page.locator('.shell-layout').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       await expect(page.locator('.sidebar-resizer')).toHaveCount(0)
