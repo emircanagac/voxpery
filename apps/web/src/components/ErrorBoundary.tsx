@@ -23,6 +23,10 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught:', error, errorInfo)
   }
 
+  handleReload = () => {
+    window.location.reload()
+  }
+
   handleRetry = () => {
     this.setState({ hasError: false, error: null })
   }
@@ -45,17 +49,28 @@ export default class ErrorBoundary extends Component<Props, State> {
           }}
         >
           <h2 style={{ marginBottom: 8 }}>Something went wrong</h2>
-          <p style={{ marginBottom: 16, opacity: 0.8, maxWidth: 400 }}>
-            {this.state.error.message}
+          {/* Technical details stay in the console (componentDidCatch); users get a plain next step. */}
+          <p style={{ marginBottom: 16, color: 'var(--text-secondary, #b5bac1)', maxWidth: 400 }}>
+            Voxpery ran into an unexpected problem. Reload the page to continue.
           </p>
-          <button
-            type="button"
-            onClick={this.handleRetry}
-            className="btn btn-primary"
-            style={{ padding: '10px 20px' }}
-          >
-            Try again
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={this.handleReload}
+              className="btn btn-primary"
+              style={{ padding: '10px 20px' }}
+            >
+              Reload
+            </button>
+            <button
+              type="button"
+              onClick={this.handleRetry}
+              className="btn btn-secondary"
+              style={{ padding: '10px 20px' }}
+            >
+              Try again
+            </button>
+          </div>
         </div>
       )
     }
