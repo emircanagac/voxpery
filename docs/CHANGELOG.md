@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Security updates.
+
 ### Added
 - Friends: pending friend requests have their own Pending tab with a count badge; Add Friend now only holds the username form.
 - Voice channels you are not in show who is there (or that no one is) with a Join voice button instead of an empty page.

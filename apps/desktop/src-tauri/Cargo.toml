@@ -21,7 +21,7 @@ tauri-plugin-http = "=3.0.0-alpha.2"
 tauri-plugin-single-instance = "=3.0.0-alpha.2"
 tauri-plugin-process = "=3.0.0-alpha.2"
 tauri-plugin-opener = "=3.0.0-alpha.2"
-tauri-plugin-updater = "=3.0.0-alpha.2"
+tauri-plugin-updater = { version = "=3.0.0-alpha.2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-global-shortcut = "=3.0.0-alpha.2"
 
 # Windows and macOS keep the system webview (WebView2 / WKWebView).

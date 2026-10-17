@@ -150,6 +150,7 @@ Current strategy:
 
 - Desktop updater artifacts are enabled (`bundle.createUpdaterArtifacts=true`).
 - Updater signing is mandatory for every desktop release build.
+- The updater plugin is built without its `zip` feature, so updates must be published as the signed installers themselves (`.msi`, `-setup.exe`, AppImage, `.deb`, `.rpm`) or the macOS `.app.tar.gz`; zipped Windows bundles and `.tar.gz` AppImages are not supported.
 
 Mandatory conditions when updater artifacts are enabled:
 
