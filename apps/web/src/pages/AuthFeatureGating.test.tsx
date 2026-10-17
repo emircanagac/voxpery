@@ -223,7 +223,7 @@ describe('auth feature gating', () => {
     render(<MemoryRouter><LoginPage /></MemoryRouter>)
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Additional sign-in options could not be loaded.',
+      'Some sign-in options are unavailable right now. Retry, or sign in with your email and password.',
     )
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument()

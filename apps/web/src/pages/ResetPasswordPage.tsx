@@ -65,7 +65,7 @@ export default function ResetPasswordPage() {
                     <h1>Set New Password</h1>
                     <AuthIntegrationStatus
                         loadingMessage="Checking password recovery availability..."
-                        errorMessage="Password recovery availability could not be loaded."
+                        errorMessage="We couldn't check password recovery right now. Retry in a moment."
                     />
 
                     <div className="auth-footer" style={{ marginTop: '1.5rem' }}>

@@ -7,8 +7,8 @@ interface AuthIntegrationStatusProps {
 }
 
 export default function AuthIntegrationStatus({
-  loadingMessage = 'Checking additional sign-in options...',
-  errorMessage = 'Additional sign-in options could not be loaded.',
+  loadingMessage = 'Checking sign-in options...',
+  errorMessage = 'Some sign-in options are unavailable right now. Retry, or sign in with your email and password.',
 }: AuthIntegrationStatusProps) {
   const features = useFeatureStore((state) => state.features)
   const loading = useFeatureStore((state) => state.loading)
