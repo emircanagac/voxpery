@@ -202,6 +202,15 @@ describe('ChatArea regressions', () => {
     expect(onLoadOlder).toHaveBeenCalledOnce()
   })
 
+  it('renders basic formatting as elements and keeps links and raw HTML safe', () => {
+    const { container } = renderChatArea({ messages: [message('fmt', '**bold** and `code` see https://example.com <b>x</b>', 0)] })
+    expect(container.querySelector('strong')).toHaveTextContent('bold')
+    expect(container.querySelector('code.message-inline-code')).toHaveTextContent('code')
+    expect(container.querySelector('.chat-link')).toHaveTextContent('https://example.com')
+    expect(container.querySelector('b')).toBeNull()
+    expect(container.querySelector('.message-text')?.textContent).toContain('<b>x</b>')
+  })
+
   it('opens invite links of this instance in the app and keeps the warning for other links', () => {
     const onOpenInviteLink = vi.fn()
     const inviteUrl = `${window.location.origin}/invite/core-guild`

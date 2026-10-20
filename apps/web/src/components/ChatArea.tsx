@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
+import { Fragment, useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
 import { AtSign, Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
@@ -26,6 +26,7 @@ import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedM
 import { ReactionButton } from './MessageReactionButton'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
 import { describeSendError } from '../messageSendError'
+import { parseMessageMarkdown, type MarkdownNode } from '../messageMarkdown'
 import { useAppStore } from '../stores/app'
 import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
@@ -1695,11 +1696,37 @@ export default function ChatArea({
 
     const renderMessageWithMentions = (content: string) => {
         const { text, gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
+        const rendered = renderMarkdownNodes(parseMessageMarkdown(text), 'md')
+        if (gifUrls.length === 0 && stickerUrls.length === 0) return rendered
+        return renderWithEmbeddedMedia(rendered, gifUrls, stickerUrls)
+    }
+
+    // Formatting comes from a parsed node tree rendered as React elements, never as HTML.
+    const renderMarkdownNodes = (nodes: MarkdownNode[], keyPrefix: string): ReactNode[] => nodes.map((node, index) => {
+        const key = `${keyPrefix}-${index}`
+        switch (node.type) {
+            case 'text':
+                return <Fragment key={key}>{renderInlineText(node.text, key)}</Fragment>
+            case 'code':
+                return <code key={key} className="message-inline-code">{node.text}</code>
+            case 'codeBlock':
+                return <pre key={key} className="message-code-block"><code>{node.text}</code></pre>
+            case 'bold':
+                return <strong key={key}>{renderMarkdownNodes(node.children, key)}</strong>
+            case 'italic':
+                return <em key={key}>{renderMarkdownNodes(node.children, key)}</em>
+            case 'strike':
+                return <s key={key}>{renderMarkdownNodes(node.children, key)}</s>
+        }
+    })
+
+    const renderInlineText = (text: string, keyPrefix: string) => {
         // Split by mentions OR direct http/https URLs
         // We match mentions: @[^\s@]{2,32} or @all or @everyone
         // And we match urls: https?:\/\/[^\s]+
         const parts = text.split(/(@[^\s@]{2,32}|@all|@everyone|https?:\/\/[^\s]+)/g)
-        const rendered = parts.map((part, idx) => {
+        return parts.map((part, partIndex) => {
+            const idx = `${keyPrefix}-${partIndex}`
             if (!part) return null
             if (part === '@all') {
                 if (isDm) return <span key={idx}>{part}</span>
@@ -1740,7 +1767,9 @@ export default function ChatArea({
             }
             return <span key={idx}>{part}</span>
         })
-        if (gifUrls.length === 0 && stickerUrls.length === 0) return rendered
+    }
+
+    const renderWithEmbeddedMedia = (rendered: ReactNode, gifUrls: string[], stickerUrls: string[]) => {
         return (
             <>
                 {rendered}
