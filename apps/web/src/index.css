@@ -10722,10 +10722,21 @@ button.message-author {
   width: 360px;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 56%, transparent);
   border-radius: 8px;
   background: #000;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+/* Frames are drawn over the video so the box keeps the stream's exact aspect ratio. */
+.screen-share-mini-player::after,
+.screen-share-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 56%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .screen-share-mini-player-open {
@@ -10776,8 +10787,8 @@ button.message-author {
 
 .screen-share-mini-player-toolbar {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 7px;
+  right: 7px;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -10863,8 +10874,9 @@ button.message-author {
   position: relative;
   top: auto;
   left: auto;
-  width: min(100%, 1280px);
-  height: min(100%, 720px);
+  /* The stage measures the largest 16:9 frame that fits, so a 16:9 stream fills it edge to edge. */
+  width: var(--stage-tile-width, min(100%, 1280px));
+  height: var(--stage-tile-height, min(100%, 720px));
   min-height: 0;
   aspect-ratio: 16 / 9;
   margin: 0;
@@ -10885,13 +10897,21 @@ button.message-author {
   width: 100%;
   /* Preserve the shared source aspect ratio without exposing the app theme in letterbox space. */
   background: #000 !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 0;
   border-radius: 10px;
   overflow: hidden;
   pointer-events: auto;
   position: relative;
   height: 100%;
   min-height: 0;
+}
+
+.screen-share-preview::after {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.screen-share-preview:fullscreen::after {
+  display: none;
 }
 
 .screen-share-preview video {
@@ -10907,13 +10927,13 @@ button.message-author {
   object-fit: cover;
 }
 
-/* Fullscreen: fill screen, black bars for aspect ratio */
+/* Fullscreen: fill the fullscreen element (viewport units can lag behind it in desktop webviews). */
 .screen-share-preview:fullscreen video,
 .screen-share-preview[data-media-kind="screen"] video:fullscreen {
   object-fit: contain;
   background: #000;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
 }
 
 .screen-share-label {
@@ -10928,7 +10948,7 @@ button.message-author {
   pointer-events: none;
 }
 
-.remote-screen-preview {
+.remote-screen-preview::after {
   border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
@@ -11028,12 +11048,14 @@ button.message-author {
   opacity: 0.6;
 }
 
-/* Fullscreen: container fills viewport */
+/* Fullscreen: container fills the screen without a frame */
 .screen-share-preview:fullscreen {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   border-radius: 0;
   border: none;
+  box-shadow: none;
+  outline: none;
   background: #000;
 }
 
@@ -15227,7 +15249,7 @@ button.message-author {
 .chat-gif-item:hover,
 .chat-sticker-item:hover,
 .dm-draft-attachment.is-uploading,
-.remote-screen-preview {
+.remote-screen-preview::after {
   border-color: var(--accent-border);
 }
 
@@ -16260,8 +16282,8 @@ textarea {
   }
 
   .screen-share-stage--theater .screen-share-preview.is-theater-focused {
-    width: 100%;
-    height: 100%;
+    width: var(--stage-tile-width, 100%);
+    height: var(--stage-tile-height, 100%);
     min-height: 0;
   }
 
@@ -16581,16 +16603,17 @@ textarea {
     justify-content: center;
   }
 
+  /* Form dialogs share one compact width; the large settings dialogs opt out below. */
   .modal {
-    max-width: none;
+    max-width: min(440px, calc(100vw - 32px));
     margin: 0 auto;
     max-height: calc(100vh - 32px);
     overflow-y: auto;
   }
 
   .modal-compact-mobile {
-    width: min(340px, calc(100vw - 28px));
-    max-width: min(340px, calc(100vw - 28px));
+    width: 100%;
+    max-width: min(440px, calc(100vw - 32px));
     padding: 16px;
     border-radius: 14px;
   }
@@ -17253,6 +17276,56 @@ textarea {
     font-size: 12px;
   }
 
+}
+
+/* Compact server settings: every tab label stays readable without horizontal scrolling. */
+@media (max-width: 959px) {
+  .modal-server-settings .server-settings-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    overflow-x: hidden;
+    flex-shrink: 0;
+    white-space: normal;
+  }
+
+  .modal-server-settings .server-settings-nav__item {
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+    padding: 8px 10px;
+  }
+
+  .modal-server-settings .server-settings-nav__icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+  }
+
+  .modal-server-settings .server-settings-nav__label {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 959px) {
+  .modal.user-settings-modal,
+  .modal.modal-server-settings {
+    max-width: none;
+  }
+
+  .modal.dm-picker-modal,
+  .modal.dm-group-settings-modal {
+    max-width: min(440px, calc(100vw - 32px));
+  }
+}
+
+@media (max-width: 520px) {
+  .modal-server-settings .server-settings-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 360px) {

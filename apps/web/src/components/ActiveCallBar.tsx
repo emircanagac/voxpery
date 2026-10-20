@@ -1,5 +1,5 @@
 import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { isBrowserSupported } from 'livekit-client'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
@@ -41,7 +41,9 @@ import {
   type VoxperyMediaStreamTrack,
 } from '../webrtc/livekitVideoAttachment'
 import { isTauri } from '../secureStorage'
+import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
+import { fitStageGrid, useStageBox } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -321,6 +323,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     () => readRemotePlaybackVolumes(),
   )
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
+  const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
+  const stageBox = useStageBox(stageElement)
   const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
   const [dismissedMiniPlayerKeys, setDismissedMiniPlayerKeys] = useState<Set<string>>(() => new Set())
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
@@ -330,6 +334,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     const onFullscreenChange = () => {
       const key = document.fullscreenElement?.getAttribute('data-fullscreen-key')
       setFullscreenTileKey(typeof key === 'string' ? key : null)
+      void syncDesktopWindowFullscreen(!!document.fullscreenElement)
     }
     document.addEventListener('fullscreenchange', onFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
@@ -1486,7 +1491,23 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + visibleRemoteMediaEntries.length
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
-  const stageColumns = getStageColumns(totalStageTiles)
+  const stageFit = stageBox
+    ? fitStageGrid(hasTheaterFocus ? 1 : totalStageTiles, stageBox, isMobileViewport ? 140 : 180)
+    : null
+  const stageColumns = stageFit && !hasTheaterFocus ? stageFit.columns : getStageColumns(totalStageTiles)
+  // Media tiles keep a 16:9 frame; before the stage is measured the grid falls back to equal cells.
+  const stageStyle: CSSProperties | undefined = hasTheaterFocus
+    ? stageFit
+      ? { '--stage-tile-width': `${stageFit.tileWidth}px`, '--stage-tile-height': `${stageFit.tileHeight}px` } as CSSProperties
+      : undefined
+    : stageFit
+      ? {
+        gridTemplateColumns: `repeat(${stageFit.columns}, ${stageFit.tileWidth}px)`,
+        gridAutoRows: `${stageFit.tileHeight}px`,
+        justifyContent: 'center',
+        alignContent: 'safe center',
+      }
+      : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }
   const stageDensity = totalStageTiles > 9 ? 'dense' : totalStageTiles > 6 ? 'crowded' : 'standard'
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
@@ -1663,13 +1684,14 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           </FloatingScreenShare>
           {showVoiceStage && (
             <div
+              ref={setStageElement}
               className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}`}
               data-stage-density={stageDensity}
               data-stage-columns={stageColumns}
               data-participant-count={channelParticipants.length + (localParticipantMissing ? 1 : 0)}
               data-media-tile-count={totalStageTiles - avatarParticipants.length - localFallbackTileCount}
               data-theater-mode={hasTheaterFocus ? 'true' : undefined}
-              style={hasTheaterFocus ? undefined : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }}
+              style={stageStyle}
             >
               {avatarParticipants.map((p) => {
                 const isLocal = p.user_id === user?.id

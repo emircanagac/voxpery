@@ -630,6 +630,45 @@ describe('ActiveCallBar regressions', () => {
     expect(container.querySelector('.remote-screen-preview')).not.toHaveClass('is-theater-focused')
   })
 
+  it('sizes stage tiles to 16:9 frames that fit the measured stage', () => {
+    const observers: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { observers.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('screen-share-stage') ? 1412 : 0
+    })
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('screen-share-stage') ? 692 : 0
+    })
+    try {
+      const screenTrack = mediaTrack('video', 'screen-track')
+      const { container } = renderActiveCallBar({
+        remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+        remoteScreenTrackIds: new Set(['screen-track']),
+        watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      })
+      const stage = container.querySelector<HTMLElement>('.screen-share-stage')!
+      act(() => observers.forEach((measure) => measure()))
+      const tiles = stage.children.length
+      expect(stage.style.gridAutoRows).toMatch(/^\d+px$/)
+      const tileWidth = parseFloat(stage.style.gridTemplateColumns.match(/(\d+)px/)![1])
+      expect(tileWidth / parseFloat(stage.style.gridAutoRows)).toBeCloseTo(16 / 9, 1)
+      expect(tiles).toBeGreaterThan(0)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+      act(() => observers.forEach((measure) => measure()))
+      expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1230px')
+      expect(stage.style.getPropertyValue('--stage-tile-height')).toBe('692px')
+    } finally {
+      width.mockRestore()
+      height.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('switches directly from browser fullscreen to the in-app focus view', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const { container } = renderActiveCallBar({
