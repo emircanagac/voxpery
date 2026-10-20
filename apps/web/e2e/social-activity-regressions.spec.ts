@@ -1,12 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 import { buildCoreChannels, buildCoreMembers, buildCoreServer, buildFriends, createMockCoreState, installMockCoreApi } from './mock-core-api'
 
-async function setup(page: Page, count = 2) {
+async function setup(page: Page, count = 2, firstAvatar: string | null = null) {
   const server = buildCoreServer()
   const channels = buildCoreChannels(server.id)
   const voice = channels.find(channel => channel.channel_type === 'voice')!
   const friends = buildFriends(count)
   friends[0].username = 'Very long streaming friend username for truncation'
+  friends[0].avatar_url = firstAvatar
   const members = [...buildCoreMembers().filter(member => member.user_id === 'user-local'),
     { user_id: 'stranger', username: 'Non-friend streamer', avatar_url: null, role: 'member', status: 'online', role_color: null },
     ...friends.map(friend => ({ user_id: friend.id, username: friend.username, avatar_url: null,
@@ -196,3 +197,21 @@ for (const scenario of [
     await page.screenshot({ path: testInfo.outputPath(`voice-indicators-${scenario.width}-${scenario.theme}.png`) })
   })
 }
+
+test('crops portrait friend avatars like every other avatar', async ({ page }) => {
+  const placeholder = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')}`
+  await setup(page, 2, placeholder)
+  const avatar = page.getByRole('region', { name: 'Friends in voice' }).getByRole('button', { name: /Very long/ }).locator('.social-activity-avatar')
+  const image = avatar.locator('img')
+  // A raster portrait photo: before the fix it grew to 32x53 and was not cropped.
+  await image.evaluate(async (element: HTMLImageElement) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 300
+    canvas.height = 500
+    canvas.getContext('2d')!.fillRect(0, 0, 300, 500)
+    await new Promise(resolve => { element.onload = resolve; element.src = canvas.toDataURL() })
+  })
+  const [frame, picture] = await Promise.all([avatar.boundingBox(), image.boundingBox()])
+  expect(picture!.width).toBeCloseTo(frame!.width, 0)
+  expect(picture!.height).toBeCloseTo(frame!.height, 0)
+})

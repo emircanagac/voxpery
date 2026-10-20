@@ -17,6 +17,8 @@ export const SERVER_SETTINGS_SECTION_META = {
         eyebrow: 'Workspace',
         title: 'Overview',
         hint: 'Update your server identity, invite flow, and core presentation.',
+        /** Shown to members who can view the overview but not edit it. */
+        readOnlyHint: 'See this server’s name, description, and invite link.',
     },
     roles: {
         eyebrow: 'Access Control',
