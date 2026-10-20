@@ -475,6 +475,68 @@ async fn create_server_list_servers_get_server() {
 }
 
 #[tokio::test]
+async fn server_name_limit_counts_characters_not_bytes() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let (token, _) = register_user(
+        &mut app,
+        &format!("srvname-{}@example.com", uid),
+        &format!("srvname_{}", uid.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {}", token);
+    let request = |method: &str, uri: String, name: &str| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", &auth_header)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "name": name })).unwrap(),
+            ))
+            .unwrap()
+    };
+
+    // 100 two-byte characters are 200 bytes but still within the 100-character limit.
+    let long_name = "\u{e7}".repeat(100);
+    let too_long = "\u{e7}".repeat(101);
+    let (status, body) =
+        oneshot(&mut app, request("POST", "/api/servers".into(), &long_name)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(server["name"], long_name.as_str());
+    let server_uri = format!("/api/servers/{}", server["id"].as_str().unwrap());
+
+    let (status, _) = oneshot(&mut app, request("POST", "/api/servers".into(), &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, body) = oneshot(
+        &mut app,
+        request("PATCH", server_uri.clone(), &"\u{f6}".repeat(100)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "rename: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let (status, _) = oneshot(&mut app, request("PATCH", server_uri, &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn server_onboarding_guide_update_and_member_read_permissions() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
