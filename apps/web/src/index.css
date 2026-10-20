@@ -1817,23 +1817,23 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  flex: 0 0 72px;
-  width: 72px;
+  flex: 0 0 auto;
   height: 22px;
-  gap: 4px;
-  padding: 0 6px;
-  border: 1px solid var(--btn-secondary-border);
-  border-radius: 4px;
-  background: var(--btn-secondary-bg);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
+  gap: 5px;
+  padding: 0 2px;
+  color: var(--text-positive);
+  font-size: 12px;
+  font-weight: 600;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
-.channel-voice-duration > svg { flex-shrink: 0; color: var(--text-positive); }
-.channel-voice-duration > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-voice-duration > span:last-child { white-space: nowrap; }
+/* A fixed three-bar voice wave; it marks an active channel and never animates. */
+.channel-voice-duration__wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; flex-shrink: 0; }
+.channel-voice-duration__wave > i { display: block; width: 2px; border-radius: 1px; background: currentColor; }
+.channel-voice-duration__wave > i:nth-child(1) { height: 5px; }
+.channel-voice-duration__wave > i:nth-child(2) { height: 11px; }
+.channel-voice-duration__wave > i:nth-child(3) { height: 8px; }
 
 .channel-muted-indicator {
   margin-left: auto;
