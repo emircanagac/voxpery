@@ -1398,6 +1398,152 @@ async fn websocket_subscribe_and_connections_are_bounded_per_user() {
 }
 
 #[tokio::test]
+async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sessions() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    // LiveKit stand-in: GetParticipant answers from `participants` (identity -> SID);
+    // RemoveParticipant records the identity and drops it from the room.
+    let participants = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        String,
+        String,
+    >::new()));
+    let removed = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let (lookup, remove_from) = (participants.clone(), participants.clone());
+    let record_removed = removed.clone();
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let lookup = lookup.clone();
+                async move {
+                    let identity = body["identity"].as_str().unwrap_or_default().to_string();
+                    match lookup.lock().await.get(&identity) {
+                        Some(sid) => (
+                            StatusCode::OK,
+                            axum::Json(json!({ "identity": identity, "sid": sid })),
+                        ),
+                        None => (StatusCode::NOT_FOUND, axum::Json(json!({}))),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_removed = record_removed.clone();
+                let remove_from = remove_from.clone();
+                async move {
+                    let identity = body["identity"].as_str().unwrap_or_default().to_string();
+                    remove_from.lock().await.remove(&identity);
+                    record_removed.lock().await.push(identity);
+                    axum::Json(json!({}))
+                }
+            }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let addr = spawn_ws_app(&state).await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Departure Guild")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let was_removed = |user_id: Uuid, within_ms: u64| {
+        let removed = removed.clone();
+        async move {
+            for _ in 0..(within_ms / 100) {
+                if removed.lock().await.contains(&user_id.to_string()) {
+                    return true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            false
+        }
+    };
+    let in_voice = |user_id: Uuid, sid: &str| {
+        state.voice_sessions.insert(user_id, voice_channel_id);
+        state
+            .voice_participant_sids
+            .insert(user_id, sid.to_string());
+    };
+
+    // An explicit leave removes the departed LiveKit participant shortly afterwards.
+    let (leaver_auth, leaver_id, _) = register_named_user(&mut app, "leaver").await;
+    join_with_invite(&mut app, &leaver_auth, &invite_code).await;
+    let mut leaver_ws = connect_ws(addr, &leaver_auth).await;
+    in_voice(leaver_id, "PA_leaver");
+    participants
+        .lock()
+        .await
+        .insert(leaver_id.to_string(), "PA_leaver".to_string());
+    ws_send(
+        &mut leaver_ws,
+        json!({ "type": "LeaveVoice", "data": null }),
+    )
+    .await;
+    ws_barrier(&mut leaver_ws).await;
+    assert!(
+        was_removed(leaver_id, 4_000).await,
+        "an explicit leave did not remove the LiveKit participant"
+    );
+
+    // A newer LiveKit connection for the same user (another SID) is never removed.
+    let (rejoiner_auth, rejoiner_id, _) = register_named_user(&mut app, "rejoiner").await;
+    join_with_invite(&mut app, &rejoiner_auth, &invite_code).await;
+    let mut rejoiner_ws = connect_ws(addr, &rejoiner_auth).await;
+    in_voice(rejoiner_id, "PA_old");
+    participants
+        .lock()
+        .await
+        .insert(rejoiner_id.to_string(), "PA_new".to_string());
+    ws_send(
+        &mut rejoiner_ws,
+        json!({ "type": "LeaveVoice", "data": null }),
+    )
+    .await;
+    ws_barrier(&mut rejoiner_ws).await;
+    assert!(
+        !was_removed(rejoiner_id, 3_000).await,
+        "a newer LiveKit session was removed"
+    );
+
+    // Losing the last WebSocket removes the participant after the reconnect window.
+    let (dropper_auth, dropper_id, _) = register_named_user(&mut app, "dropper").await;
+    join_with_invite(&mut app, &dropper_auth, &invite_code).await;
+    let dropper_ws = connect_ws(addr, &dropper_auth).await;
+    let mut dropper_ws = dropper_ws;
+    ws_barrier(&mut dropper_ws).await;
+    in_voice(dropper_id, "PA_dropper");
+    participants
+        .lock()
+        .await
+        .insert(dropper_id.to_string(), "PA_dropper".to_string());
+    drop(dropper_ws);
+    assert!(
+        !was_removed(dropper_id, 2_000).await,
+        "a dropped WebSocket must get time to reconnect"
+    );
+    assert!(
+        was_removed(dropper_id, 8_000).await,
+        "a lost WebSocket did not remove the LiveKit participant"
+    );
+}
+
+#[tokio::test]
 async fn failed_livekit_revocations_are_retried_until_the_participant_is_gone() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

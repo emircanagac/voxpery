@@ -277,6 +277,60 @@ pub(crate) async fn remove_livekit_participant(
     }
 }
 
+/// How long to wait after an explicit voice leave before removing the LiveKit participant.
+/// Leaving normally disconnects LiveKit too; this covers a closed tab or browser whose LiveKit
+/// leave never arrived, which LiveKit would otherwise only notice after its own timeout.
+pub(crate) const DEPARTED_VOICE_LEAVE_DELAY: Duration = Duration::from_millis(1500);
+/// How long a user who lost their last WebSocket may take to rejoin voice before their LiveKit
+/// participant is removed. Long enough for a quick WebSocket reconnect to keep the call.
+pub(crate) const DEPARTED_VOICE_DISCONNECT_DELAY: Duration = Duration::from_secs(5);
+
+/// Removes the LiveKit participant of a user who left voice, after `delay`, so the rest of the
+/// room sees the departure at once. Only the departed session is removed: nothing happens when
+/// the user has rejoined voice meanwhile, or when LiveKit now holds a different participant SID
+/// for them (a new connection). Best effort; a failure leaves LiveKit's own timeout in charge.
+pub(crate) fn schedule_departed_participant_removal(
+    state: Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    departed_sid: Option<String>,
+    delay: Duration,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        if state.voice_sessions.contains_key(&user_id) {
+            return;
+        }
+        let current_sid = match livekit_participant_sid(&state, channel_id, user_id).await {
+            Ok(Some(sid)) => sid,
+            Ok(None) | Err(AppError::FeatureDisabled(_)) => return,
+            Err(error) => {
+                tracing::debug!(
+                    "Departed voice participant lookup failed for user {}: {}",
+                    ShortId(user_id),
+                    error
+                );
+                return;
+            }
+        };
+        if departed_sid
+            .as_deref()
+            .is_some_and(|departed| departed != current_sid)
+        {
+            return;
+        }
+        if let Err(error) =
+            remove_livekit_participant_checked(&state, channel_id, user_id, "left voice").await
+        {
+            tracing::debug!(
+                "Departed voice participant removal failed for user {}: {}",
+                ShortId(user_id),
+                error
+            );
+        }
+    });
+}
+
 fn livekit_admin_request_parts(
     state: &AppState,
     channel_id: Uuid,

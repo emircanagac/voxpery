@@ -65,6 +65,14 @@ Screen-share tiles carry an explicit `screen` media kind and use `object-fit: co
 - `Reconnecting`/`Reconnected`: Suspend pending participant cues, re-subscribe tracks, refresh stats, and silently hydrate the current membership snapshot.
 - `Disconnected`: Final media disconnect -> clear local voice state; rejoining requires an explicit user action (never automatically bypass revocation).
 
+### Channel Membership and Departures
+
+Who is in a voice channel has one source: the server's runtime voice session, delivered to clients as `VoiceStateUpdate` and kept in the app store's `voiceStates`. Everything the channel shows is derived from it, and LiveKit media is joined onto that membership, never the reverse.
+
+- The channel list, the voice stage, the floating player and the leave/join cues all read `voiceStates`. A remote camera or screen-share tile is rendered only while its owner is in the current channel there, so a participant the server has removed disappears at once even while LiveKit still holds their last frames.
+- LiveKit events also write presence (`reconcileLiveKitVoicePresence`), but those writes are marked so they do not count as server departures. A server-reported departure plays the leave cue immediately; LiveKit's later disconnect for the same identity finds it already played. A server-reported return that LiveKit never dropped replays the join cue. LiveKit-only departures keep the three-second grace described under Room Events.
+- A server-reported departure does not close the LiveKit connection itself, so a short WebSocket drop on the other side does not cut their audio. Instead the server removes the departed LiveKit participant: 1.5 seconds after an explicit `LeaveVoice` (covering a closed tab or browser whose LiveKit leave never arrived) and 5 seconds after the user's last WebSocket closes (time for a reconnect to rejoin). The removal is skipped when the user has rejoined voice meanwhile or when LiveKit now holds a different participant SID for them, so a fast rejoin is never cut.
+
 ### Mobile Browser Lifecycle
 
 - Hiding Voxpery does not leave the voice room. Microphone subscriptions remain active; video subscription optimizations remain independent.

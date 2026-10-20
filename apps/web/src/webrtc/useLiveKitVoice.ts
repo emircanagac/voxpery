@@ -152,6 +152,9 @@ function getVoiceChannelServerId(channelId: string): string | null {
   return null
 }
 
+/** True while LiveKit events write voice presence, so listeners can tell them from server updates. */
+let applyingLiveKitPresence = false
+
 export function reconcileLiveKitVoicePresence(
   participantId: string,
   channelId: string,
@@ -160,15 +163,20 @@ export function reconcileLiveKitVoicePresence(
   if (!participantId || !channelId) return
 
   const store = useAppStore.getState()
-  if (connected) {
-    store.setVoiceState(participantId, channelId)
-    store.setVoiceStateServerId(participantId, getVoiceChannelServerId(channelId))
-    return
-  }
+  applyingLiveKitPresence = true
+  try {
+    if (connected) {
+      store.setVoiceState(participantId, channelId)
+      store.setVoiceStateServerId(participantId, getVoiceChannelServerId(channelId))
+      return
+    }
 
-  if (store.voiceStates[participantId] !== channelId) return
-  store.setVoiceState(participantId, null)
-  store.setVoiceStateServerId(participantId, null)
+    if (store.voiceStates[participantId] !== channelId) return
+    store.setVoiceState(participantId, null)
+    store.setVoiceStateServerId(participantId, null)
+  } finally {
+    applyingLiveKitPresence = false
+  }
 }
 
 type ScreenShareEncoding = {
@@ -1221,7 +1229,29 @@ export function useLiveKitVoice() {
         room.remoteParticipants.forEach((participant) => cueParticipantIds.add(participant.identity))
         participantCuesReady = true
       }
+      // The server's voice state is the authority on who is in the channel. When it reports a
+      // departure (an explicit leave, a closed tab), the leave cue plays at once instead of after
+      // LiveKit notices; LiveKit's own disconnect then finds the cue already played. A return
+      // the server reports while LiveKit kept the connection replays the join cue.
+      const unsubscribeServerVoiceCues = useAppStore.subscribe((state, previous) => {
+        if (state.voiceStates === previous.voiceStates || applyingLiveKitPresence) return
+        if (roomRef.current !== room || !participantCuesReady || room.state !== 'connected') return
+        const localIdentity = room.localParticipant.identity
+        for (const identity of new Set([...Object.keys(previous.voiceStates), ...Object.keys(state.voiceStates)])) {
+          if (identity === localIdentity) continue
+          const wasHere = previous.voiceStates[identity] === channelId
+          const isHere = state.voiceStates[identity] === channelId
+          if (wasHere && !isHere) {
+            clearPendingLeaveCue(identity)
+            if (cueParticipantIds.delete(identity)) playVoiceCue('leave')
+          } else if (!wasHere && isHere && room.remoteParticipants.has(identity) && !cueParticipantIds.has(identity)) {
+            cueParticipantIds.add(identity)
+            playVoiceCue('join')
+          }
+        }
+      })
       participantCueCleanupRef.current = () => {
+        unsubscribeServerVoiceCues()
         suspendParticipantCues()
         cueParticipantIds.clear()
       }

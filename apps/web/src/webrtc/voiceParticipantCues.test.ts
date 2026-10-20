@@ -166,6 +166,31 @@ describe('LiveKit participant cue lifecycle', () => {
     expect(mocks.cue.mock.calls).toEqual([['join'], ['leave'], ['join']])
   })
 
+  it('plays the leave cue as soon as the server reports a departure, and only once', async () => {
+    await join()
+    mocks.cue.mockClear()
+    const existing = room.remoteParticipants.get('existing-peer')!
+    expect(useAppStore.getState().voiceStates['existing-peer']).toBe('cue-channel')
+    // A closed tab: the server learns first, LiveKit only after its own timeout.
+    act(() => useAppStore.getState().setVoiceState('existing-peer', null))
+    expect(mocks.cue.mock.calls).toEqual([['leave']])
+    await act(async () => {
+      room.remoteParticipants.delete(existing.identity)
+      room.emit(RoomEvent.ParticipantDisconnected, existing, DisconnectReason.SIGNAL_CLOSE)
+    })
+    vi.useFakeTimers()
+    act(() => vi.advanceTimersByTime(5000))
+    expect(mocks.cue.mock.calls).toEqual([['leave']])
+  })
+
+  it('replays the join cue when the server reports a return LiveKit never dropped', async () => {
+    await join()
+    mocks.cue.mockClear()
+    act(() => useAppStore.getState().setVoiceState('existing-peer', null))
+    act(() => useAppStore.getState().setVoiceState('existing-peer', 'cue-channel'))
+    expect(mocks.cue.mock.calls).toEqual([['leave'], ['join']])
+  })
+
   it('does not announce a remote participant who returns after a brief signal loss', async () => {
     await join()
     mocks.cue.mockClear()

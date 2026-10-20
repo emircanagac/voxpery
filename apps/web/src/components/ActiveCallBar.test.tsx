@@ -453,6 +453,23 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
+  it('drops a departed participant stream as soon as the voice state says they left', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    expect(container.querySelector('.remote-screen-preview')).not.toBeNull()
+
+    // The server reports the departure before LiveKit notices it; LiveKit still holds the track.
+    act(() => {
+      useAppStore.getState().setVoiceState('peer-1', null)
+    })
+
+    expect(container.querySelector('.remote-screen-preview')).toBeNull()
+  })
+
   it('requires an explicit action before subscribing to an available screen share', () => {
     useAppStore.getState().setVoiceControl('peer-1', false, false, true)
 

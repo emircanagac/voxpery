@@ -795,9 +795,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return count
   }, [state.remoteStreams])
+  // Voice membership comes from one place, the voice state store: a participant the server has
+  // already removed from this channel gets no media tile, even while LiveKit still holds their
+  // last frames. LiveKit media is joined onto that membership, never the other way round.
   const remoteVideoTrackEntries = useMemo(() => {
     const entries: Array<{ peerId: string; track: MediaStreamTrack; label: string; kind: RemoteMediaKind }> = []
     for (const [peerId, stream] of remoteEntries) {
+      if (!currentVoiceChannelId || voiceStates[resolvePeerVolumeKey(peerId)] !== currentVoiceChannelId) continue
       const tracks = stream
         .getVideoTracks()
         .filter((track) => track.readyState === 'live' && !track.muted)
@@ -821,7 +825,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
     }
     return entries
-  }, [remoteEntries, state.remoteScreenTrackIds])
+  }, [currentVoiceChannelId, remoteEntries, resolvePeerVolumeKey, state.remoteScreenTrackIds, voiceStates])
   const activeTheaterStreamKeys = useMemo(() => {
     const keys: string[] = []
     if (state.isScreenSharing && state.screenStream) keys.push('local-screen')
