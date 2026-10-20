@@ -111,7 +111,7 @@ test.describe('mocked social friend UI regressions', () => {
     await expect(main.getByRole('searchbox', { name: 'Search requests' })).toBeInViewport()
   })
 
-  for (const width of [1920, 1100, 390, 320]) {
+  for (const width of [1920, 1100, 960, 390, 320]) {
     test(`keeps the Friends toolbar stable and rows reachable at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: width < 960 ? 640 : 900 })
       const friends = buildFriends(32)
@@ -124,6 +124,7 @@ test.describe('mocked social friend UI regressions', () => {
       await main.getByRole('button', { name: 'All', exact: true }).click()
       await expect(main.locator('.home-member-row')).toHaveCount(32)
       expect(await main.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      expect(await main.locator('.home-chip-row').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       const search = main.getByRole('searchbox', { name: 'Search friends' })
       const before = (await search.boundingBox())!
       const last = main.locator('.home-member-row').last()

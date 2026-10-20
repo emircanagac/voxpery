@@ -373,7 +373,9 @@ export default function ServerSettingsModal({
                                                 </h3>
                                             </div>
                                             <p className="server-settings-section-intro__hint">
-                                                {SERVER_SETTINGS_SECTION_META[serverSettingsTab].hint}
+                                                {serverSettingsTab === 'overview' && !isOwner
+                                                    ? SERVER_SETTINGS_SECTION_META.overview.readOnlyHint
+                                                    : SERVER_SETTINGS_SECTION_META[serverSettingsTab].hint}
                                             </p>
                                         </div>
                                     </div>
@@ -465,12 +467,14 @@ export default function ServerSettingsModal({
                                                                 onChange={(e) => setServerSettingsName(e.target.value)}
                                                                 placeholder="Server name"
                                                                 maxLength={SERVER_NAME_MAX}
-                                                                aria-describedby="server-settings-modal-server-name-count"
+                                                                aria-describedby={isOwner ? 'server-settings-modal-server-name-count' : undefined}
                                                                 disabled={!isOwner}
                                                             />
-                                                            <div id="server-settings-modal-server-name-count" className="form-field-counter">
-                                                                {Array.from(serverSettingsName).length}/{SERVER_NAME_MAX}
-                                                            </div>
+                                                            {isOwner && (
+                                                                <div id="server-settings-modal-server-name-count" className="form-field-counter">
+                                                                    {Array.from(serverSettingsName).length}/{SERVER_NAME_MAX}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="form-group">
                                                             <label htmlFor="server-settings-modal-description">Description</label>

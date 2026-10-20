@@ -163,6 +163,10 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(page.getByRole('heading', { name: 'Server information' })).toBeVisible()
     await expect(page.getByText('Server roles are managed by the owner')).toBeVisible()
     await expect(page.getByText('0 roles configured')).toHaveCount(0)
+    // Read-only overview: no editing wording and no character counter on the disabled name field.
+    await expect(page.getByText('See this server’s name, description, and invite link.')).toBeVisible()
+    await expect(page.getByText('Update your server identity, invite flow, and core presentation.')).toHaveCount(0)
+    await expect(page.locator('#server-settings-modal-server-name-count')).toHaveCount(0)
   })
 
   test('copies the invite link from the server menu without opening settings', async ({ page, context }) => {
@@ -191,6 +195,28 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(panel).toHaveCount(0)
     await expect(trigger).toBeFocused()
   })
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 960, height: 720 }]) {
+    test(`keeps the server menu and invite panel inside the channel sidebar at ${viewport.width}px`, async ({ page }) => {
+      const state = createServerSettingsState()
+      await installMockCoreApi(page, state)
+      await page.setViewportSize(viewport)
+      await page.goto('/servers')
+      const sidebar = page.locator('.channel-sidebar')
+      const inside = async (selector: string) => {
+        const [box, bounds] = await Promise.all([page.locator(selector).boundingBox(), sidebar.boundingBox()])
+        expect(box!.x).toBeGreaterThanOrEqual(bounds!.x)
+        expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width)
+      }
+      await page.getByTitle('Server menu').click()
+      await inside('.server-header-menu')
+      await page.getByRole('menuitem', { name: 'Invite People' }).click()
+      const panel = page.getByRole('dialog', { name: 'Invite people' })
+      await expect(panel.getByRole('button', { name: 'Copy' })).toBeVisible()
+      await inside('.server-invite-panel')
+      await inside('.server-invite-panel-copy')
+    })
+  }
 
   test('keeps the member profile dialog aligned with the active theme', async ({ page }) => {
     const state = createServerSettingsState()

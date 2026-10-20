@@ -1413,12 +1413,15 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   display: flex;
 }
 
+/* The server menu and invite panel span the channel sidebar instead of spilling over the chat. */
 .server-context-menu.server-header-menu,
 .server-header-menu.server-invite-panel {
   position: absolute;
   top: calc(100% + 4px);
   left: -8px;
-  width: min(380px, calc(100vw - 24px));
+  right: -8px;
+  width: auto;
+  max-width: calc(100vw - 24px);
   z-index: 60;
   font-weight: 400;
 }
@@ -9863,8 +9866,10 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .social-activity-avatar {
-  display: grid;
-  place-items: center;
+  /* Flex, like the other avatars: a grid row would size to the image and stop it from being cropped. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 32px;
   width: 32px;
   height: 32px;
