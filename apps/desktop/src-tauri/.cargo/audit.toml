@@ -26,4 +26,10 @@ ignore = [
   "RUSTSEC-2025-0098", # unic-ucd-version unmaintained (transitive)
   "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained (transitive)
   "RUSTSEC-2026-0097", # rand in current Tauri/transitive desktop chain
+  # zvariant/zbus_names were merged into zbus 6; ksni (Linux tray) and the Tauri opener and
+  # single-instance plugins still depend on zbus 5 in their latest releases. Remove once
+  # they move to zbus 6.
+  "RUSTSEC-2026-0370", # zvariant unmaintained (zbus 5 chain)
+  "RUSTSEC-2026-0371", # zbus_names unmaintained (zbus 5 chain)
+  "RUSTSEC-2026-0372", # zvariant_derive unmaintained (zbus 5 chain)
 ]
