@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Security updates.
+
 ### Fixed
 - The server menu and the invite panel stay inside the channel list instead of spilling over the chat.
 - Profile pictures in Friend Activity are cropped like everywhere else.

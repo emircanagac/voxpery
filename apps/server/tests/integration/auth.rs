@@ -266,6 +266,56 @@ async fn logout_revokes_the_bearer_token_and_reports_revocation_failure() {
 }
 
 #[tokio::test]
+async fn logout_keeps_a_token_revoked_through_the_expiry_leeway() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let uid = Uuid::new_v4();
+    let username = format!("leeway_{}", uid.as_u128() % 1_000_000);
+    let (_, user_id) = register_user(
+        &mut app,
+        &format!("leeway-{uid}@example.com"),
+        &username,
+        test_credential("default"),
+    )
+    .await;
+    let token_version: i64 = sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    // Expired five seconds ago, so it validates only through the JWT leeway.
+    let token = generate_token(user_id, &username, token_version, &state.jwt_secret, -5).unwrap();
+    let request = |method: &str, uri: &str| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let (status, _) = oneshot(&mut app, request("GET", "/api/auth/me")).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the leeway accepts the token before logout"
+    );
+    let (status, _) = oneshot(&mut app, request("POST", "/api/auth/logout")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        voxpery_server::services::jwt_blacklist::is_blacklisted(&state.redis, &token)
+            .await
+            .unwrap(),
+        "a token inside the leeway must still be blacklisted"
+    );
+    let (status, _) = oneshot(&mut app, request("GET", "/api/auth/me")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn registration_requires_current_legal_documents() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
