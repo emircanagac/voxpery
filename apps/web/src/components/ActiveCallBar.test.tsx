@@ -677,6 +677,10 @@ describe('ActiveCallBar regressions', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
       act(() => observers.forEach((measure) => measure()))
+      // The participant strip (90px) takes its row under the focused stream.
+      expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1070px')
+      expect(stage.style.getPropertyValue('--stage-tile-height')).toBe('602px')
+      fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
       expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1230px')
       expect(stage.style.getPropertyValue('--stage-tile-height')).toBe('692px')
     } finally {
@@ -684,6 +688,28 @@ describe('ActiveCallBar regressions', () => {
       height.mockRestore()
       vi.unstubAllGlobals()
     }
+  })
+
+  it('keeps a participant strip under the focused stream that can be hidden', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const stage = () => container.querySelector('.screen-share-stage')!
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+    expect(stage()).toHaveClass('screen-share-stage--theater', 'screen-share-stage--strip')
+    // The local participant stays visible in the strip under the focused stream.
+    expect(stage().querySelector('.voice-stage-tile')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
+    expect(stage()).not.toHaveClass('screen-share-stage--strip')
+    expect(screen.getByRole('button', { name: 'Show participants' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show participants' }))
+    expect(stage()).toHaveClass('screen-share-stage--strip')
   })
 
   it('switches directly from browser fullscreen to the in-app focus view', () => {

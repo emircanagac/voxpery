@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
 export const STAGE_TILE_ASPECT = 16 / 9
+/** Height of the participant strip under a focused stream (16:9 tiles, 160px wide). */
+export const THEATER_STRIP_TILE_HEIGHT = 90
 
 export interface StageBox {
   width: number
