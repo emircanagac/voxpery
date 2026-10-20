@@ -210,6 +210,7 @@ export default function ServerSettingsSafety({
                                                     type="button"
                                                     className="btn btn-secondary btn-sm"
                                                     disabled={clearTimeoutInFlightUserId === entry.user_id}
+                                                    aria-label={`Clear timeout for ${entry.username}`}
                                                     onClick={() => onClearTimeout(entry.user_id)}
                                                 >
                                                     {clearTimeoutInFlightUserId === entry.user_id ? 'Clearing...' : 'Clear timeout'}
@@ -310,6 +311,7 @@ export default function ServerSettingsSafety({
                                         type="button"
                                         className="btn btn-secondary btn-sm"
                                         disabled={unbanInFlightUserId === entry.user_id}
+                                        aria-label={`Unban ${entry.username}`}
                                         onClick={() => onUnban(entry.user_id)}
                                     >
                                         {unbanInFlightUserId === entry.user_id ? 'Unbanning...' : 'Unban'}

@@ -82,6 +82,9 @@ pub struct MemberInfo {
     pub roles: Vec<String>,
     /// Highest custom role position. Owners use -1 and members without custom roles use i32::MAX.
     pub highest_role_position: i32,
+    /// End of the member's active timeout, if any.
+    #[serde(default)]
+    pub timed_out_until: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

@@ -4773,6 +4773,11 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   color: var(--text-muted);
 }
 
+.chat-search-panel-item-reply {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .chat-search-panel-goto {
   display: inline-flex;
   align-items: center;
@@ -5340,6 +5345,27 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   flex-shrink: 0;
 }
 
+.chat-load-older-btn {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--btn-secondary-border);
+  border-radius: 999px;
+  background: var(--btn-secondary-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-load-older-btn:hover {
+  background: var(--btn-secondary-bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-load-older-btn:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
 .virtual-list-spacer {
   position: relative;
   width: 100%;
@@ -5898,23 +5924,24 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 }
 
 .message-retry-btn {
-  border: 1px solid rgba(233, 69, 96, 0.35);
-  background: rgba(233, 69, 96, 0.14);
-  color: #ffb7c3;
-  font-size: 11px;
+  min-height: 24px;
+  border: 1px solid var(--btn-danger-soft-border);
+  background: var(--btn-danger-soft-bg);
+  color: var(--btn-danger-soft-text);
+  font-size: 12px;
   line-height: 1;
-  padding: 5px 8px;
+  padding: 5px 10px;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .message-retry-btn:hover {
-  background: rgba(233, 69, 96, 0.24);
+  background: var(--btn-danger-soft-bg-hover);
 }
 
 .message-retry-error {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .mention-pill {
@@ -6104,6 +6131,16 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 .message-character-count.is-over-limit {
   color: var(--text-danger);
+}
+
+.message-character-count.is-at-limit,
+.message-truncation-note {
+  color: var(--text-warning);
+}
+
+.message-truncation-note {
+  flex: 0 0 auto;
+  font-size: 11px;
 }
 
 .server-report-event-details {
@@ -6946,6 +6983,13 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 .member-owner-badge {
   margin-left: 2px;
   opacity: 0.95;
+}
+
+.member-timeout-badge {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: var(--text-warning);
 }
 
 .member-context-menu {

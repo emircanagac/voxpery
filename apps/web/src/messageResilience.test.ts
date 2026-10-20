@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeLatestPageWithHistory, reconcileConfirmedMessage } from './messageResilience'
+import { mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from './messageResilience'
 
 type TestMessage = {
   id: string
@@ -68,5 +68,18 @@ describe('messageResilience', () => {
     }
 
     expect(reconcileConfirmedMessage([optimistic, confirmed], 'client-1', confirmed)).toEqual([confirmed])
+  })
+})
+
+describe('withoutFailedDuplicates', () => {
+  const base = { created_at: '2026-10-17T10:00:00Z', attachments: [] as unknown[] }
+  it('drops only failed messages with the same text and attachments', () => {
+    const messages = [
+      { ...base, id: 'sent', content: 'hello' },
+      { ...base, id: 'failed-same', content: 'hello', clientId: 'a', clientStatus: 'failed' as const },
+      { ...base, id: 'failed-other', content: 'other', clientId: 'b', clientStatus: 'failed' as const },
+      { ...base, id: 'sending-same', content: 'hello', clientId: 'c', clientStatus: 'sending' as const },
+    ]
+    expect(withoutFailedDuplicates(messages, 'hello', []).map(m => m.id)).toEqual(['sent', 'failed-other', 'sending-same'])
   })
 })

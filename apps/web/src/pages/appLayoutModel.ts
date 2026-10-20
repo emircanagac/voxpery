@@ -6,6 +6,7 @@ export type UiMessage = MessageWithAuthor & {
     clientId?: string
     clientStatus?: 'sending' | 'failed'
     clientError?: string
+    clientDraft?: string
 }
 
 export type ServerSettingsLocalTab = 'overview' | 'roles' | 'rules' | 'safety' | 'audit' | 'danger'
@@ -212,4 +213,18 @@ export function messageMentionsUser(content: string | undefined, username: strin
     if (!username) return false
     const pattern = new RegExp(`(^|\\s)@${escapeMentionPattern(username)}(?=\\s|$)`, 'i')
     return pattern.test(content)
+}
+
+/** Notice for an account removed from a server by someone else; leaving yourself shows nothing. */
+export function removalNoticeFor(reason: string | undefined, serverName: string): { title: string; message: string } | null {
+    switch (reason) {
+        case 'kicked':
+            return { title: 'Removed from server', message: `You were removed from ${serverName}.` }
+        case 'banned':
+            return { title: 'Banned from server', message: `You were banned from ${serverName}.` }
+        case 'deleted':
+            return { title: 'Server deleted', message: `${serverName} was deleted.` }
+        default:
+            return null
+    }
 }

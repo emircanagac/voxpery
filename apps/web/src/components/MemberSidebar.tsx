@@ -14,10 +14,12 @@ import { createPortal } from 'react-dom'
 import useViewportMenu from '../useViewportMenu'
 import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 import ModalSurface from './ModalSurface'
+import { Clock } from 'lucide-react'
+import { timeoutLabel } from '../timeouts'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 interface MemberItemProps {
-    member: MemberProfileMember & { highest_role_position?: number }
+    member: MemberProfileMember & { highest_role_position?: number; timed_out_until?: string | null }
     isOwner: boolean
     isServerOwner: boolean
     currentUserId?: string
@@ -53,6 +55,7 @@ const MemberItem = memo(function MemberItem({
     const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
     const readableTextColor = useReadableTextColor()
+    const timedOutLabel = timeoutLabel(member.timed_out_until)
     const roleColor = member.role_color ?? (isServerOwner ? '#f97316' : undefined) // fox-like orange for owner when no role color
     const hasColor = !!roleColor
     // Role/owner color or default. Offline = blended toward the muted tone, still readable on the theme.
@@ -125,6 +128,11 @@ const MemberItem = memo(function MemberItem({
                 {isServerOwner && (
                     <span className="member-owner-badge" title="Server owner" aria-label="Server owner">
                         {' 🦊'}
+                    </span>
+                )}
+                {timedOutLabel && (
+                    <span className="member-timeout-badge" role="img" title={timedOutLabel} aria-label={timedOutLabel}>
+                        <Clock size={12} aria-hidden="true" />
                     </span>
                 )}
             </span>

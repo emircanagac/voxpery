@@ -35,7 +35,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, reconcileConfirmedMessage } from '../messageResilience'
+import { mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom, withUpdatedAuthor, type AuthorProfileUpdate } from '../messageAuthors'
 import {
   clearMessageDraftIfUnchanged,
@@ -1144,7 +1144,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       clientStatus: 'sending',
     }
     setDmMessages((prev) => {
-      const next = [...prev, optimistic]
+      const next = [...withoutFailedDuplicates(prev, content, attachmentsToSend), optimistic]
       rememberDmMessages(channelId, next)
       return next
     })
@@ -1173,7 +1173,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const applyFailedDm = (current: UiDmMessage[]) =>
         current.map((m) =>
           m.clientId === clientId
-            ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
+            ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed', clientDraft: isForcedContent ? undefined : inputValue }
             : m
         )
       if (activeDmChannelIdRef.current === channelId) {
@@ -1230,6 +1230,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         } else {
           rememberDmMessages(channelId, applyRetriedDm(dmMessagesByChannelRef.current[channelId] ?? []))
         }
+        if (target.clientDraft && activeDmChannelIdRef.current === channelId) {
+          setDmInput((current) => (current === target.clientDraft ? '' : current))
+          clearMessageDraftIfUnchanged(userId, 'dm', channelId, target.clientDraft)
+        }
       } catch (err) {
         const applyFailedRetry = (current: UiDmMessage[]) =>
           current.map((m) =>
@@ -1248,7 +1252,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         }
       }
     },
-    [token, activeDmChannelId, dmMessages, user, clearDmUnread, rememberDmMessages]
+    [token, activeDmChannelId, dmMessages, user, userId, clearDmUnread, rememberDmMessages]
   )
 
   // Search results open in their own panel; the conversation stays visible.

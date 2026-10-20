@@ -25,6 +25,7 @@ import type { UiMessage } from './chatMessageLayout'
 import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedMediaMarkdown, getEmojiOnlyCount, isMessageGroupedAt, parseReplyContent } from './chatMessageLayout'
 import { ReactionButton } from './MessageReactionButton'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
+import { describeSendError } from '../messageSendError'
 import { useAppStore } from '../stores/app'
 import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
@@ -129,6 +130,8 @@ interface ChatAreaProps {
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
     canSendMessages?: boolean
+    /** Shown in place of the composer placeholder when sending is blocked (for example a timeout). */
+    composerBlockedMessage?: string | null
     typingIndicatorLabel?: string | null
     seenMessageId?: string | null
     showMemberSheetButton?: boolean
@@ -198,6 +201,7 @@ export default function ChatArea({
     onUnpinMessage,
     onToggleReaction,
     canSendMessages = true,
+    composerBlockedMessage = null,
     typingIndicatorLabel = null,
     seenMessageId = null,
     showMemberSheetButton = false,
@@ -229,6 +233,8 @@ export default function ChatArea({
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
     const currentChatChannelId = activeChannel?.id ?? null
     const remainingCharacters = messageBodyLimit(replyingTo) - countMessageCharacters(messageInput)
+    // Set when pasted or typed text was cut to the limit, so the user is told instead of losing it silently.
+    const [inputWasShortened, setInputWasShortened] = useState(false)
     const currentChatChannelIdRef = useRef<string | null>(currentChatChannelId)
     const [unreadDividerSnapshot, setUnreadDividerSnapshot] = useState<UnreadDividerSnapshot>({
         channelId: null,
@@ -1326,6 +1332,7 @@ export default function ChatArea({
 
     const handleInputChange = (value: string, cursor: number | null) => {
         const bounded = truncateMessage(value, messageBodyLimit(replyingTo))
+        setInputWasShortened(bounded.length < value.length)
         onMessageInputChange(bounded)
         syncMentionMenu(bounded, cursor)
     }
@@ -2129,7 +2136,11 @@ export default function ChatArea({
             >
                 {hasMoreOlder && messages.length > 0 && (
                     <div className="chat-load-older" aria-live="polite">
-                        {loadingOlder ? 'Loading older messages…' : 'Scroll up for older messages'}
+                        {loadingOlder ? 'Loading older messages…' : (
+                            <button type="button" className="chat-load-older-btn" onClick={startOlderMessagesLoad}>
+                                Load older messages
+                            </button>
+                        )}
                     </div>
                 )}
                 {loading ? (
@@ -2323,23 +2334,27 @@ export default function ChatArea({
                                             ) : (
                                                 renderMessageContent(msg.content)
                                             )}
-                                            {msg.clientStatus === 'failed' && msg.clientId && (
-                                                <div className="message-retry-row">
-                                                    <button
-                                                        type="button"
-                                                        className="message-retry-btn"
-                                                        onClick={() => {
-                                                            if (!msg.clientId) return
-                                                            onRetryMessage(msg.clientId)
-                                                        }}
-                                                    >
-                                                        Retry
-                                                    </button>
-                                                    {msg.clientError && (
-                                                        <span className="message-retry-error">{msg.clientError}</span>
-                                                    )}
-                                                </div>
-                                            )}
+                                            {msg.clientStatus === 'failed' && msg.clientId && (() => {
+                                                const failure = describeSendError(msg.clientError)
+                                                return (
+                                                    <div className="message-retry-row" role="alert">
+                                                        {failure.retryable && (
+                                                            <button
+                                                                type="button"
+                                                                className="message-retry-btn"
+                                                                aria-label="Retry sending this message"
+                                                                onClick={() => {
+                                                                    if (!msg.clientId) return
+                                                                    onRetryMessage(msg.clientId)
+                                                                }}
+                                                            >
+                                                                Retry
+                                                            </button>
+                                                        )}
+                                                        <span className="message-retry-error">{failure.message}</span>
+                                                    </div>
+                                                )
+                                            })()}
                                             {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
                                                 <div className="dm-attachments">
                                                     {msg.attachments.map((att: Attachment, i: number) => {
@@ -2519,7 +2534,7 @@ export default function ChatArea({
                     <textarea
                         ref={textareaRef}
                         className="message-input"
-                        aria-label={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
+                        aria-label={isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`}
                         aria-autocomplete="list"
                         aria-controls={mentionOpen && mentionSuggestions.length > 0 ? 'mention-suggestions' : undefined}
                         aria-activedescendant={mentionOpen && mentionSuggestions.length > 0 ? `mention-option-${mentionActiveIndex}` : undefined}
@@ -2540,13 +2555,18 @@ export default function ChatArea({
                         }}
                         onPaste={handlePaste}
                         placeholder={canSendMessages
-                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
-                            : (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
+                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`))
+                            : (composerBlockedMessage ?? (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`))}
                         rows={1}
                     />
                     {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (
-                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : ''}`} aria-label="Characters remaining">
+                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : remainingCharacters === 0 ? ' is-at-limit' : ''}`} aria-label="Characters remaining">
                             {remainingCharacters < 0 ? `${-remainingCharacters} over limit` : remainingCharacters}
+                        </span>
+                    )}
+                    {canSendMessages && inputWasShortened && (
+                        <span className="message-truncation-note" role="status">
+                            Shortened to {messageBodyLimit(replyingTo)} characters
                         </span>
                     )}
                     <div className="message-input-actions" aria-label="Message actions">

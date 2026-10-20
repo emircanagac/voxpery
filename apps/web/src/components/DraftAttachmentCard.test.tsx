@@ -64,6 +64,12 @@ describe('draft attachment cards', () => {
     expect(remove).toHaveBeenCalledOnce()
   })
 
+  it('shows the failure text once and a next step instead of repeating it', () => {
+    render(<DraftAttachmentCard attachment={{ ...item, name: 'report.pdf', type: 'application/pdf', uploadStatus: 'failed', uploadError: 'Upload failed' }} onRemove={vi.fn()} onRetry={vi.fn()} />)
+    expect(screen.getAllByText('Upload failed')).toHaveLength(1)
+    expect(screen.getByText('Remove this file or retry the upload.')).toBeInTheDocument()
+  })
+
   it('revokes a late authenticated blob result after the card was removed', async () => {
     let resolve!: (url: string) => void
     vi.mocked(resolveAttachmentUrl).mockReturnValue(new Promise(done => { resolve = done }))

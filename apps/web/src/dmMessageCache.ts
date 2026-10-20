@@ -4,6 +4,7 @@ export type CachedDmMessage = MessageWithAuthor & {
   clientId?: string
   clientStatus?: 'sending' | 'failed'
   clientError?: string
+  clientDraft?: string
 }
 
 const MAX_CACHED_CONVERSATIONS = 16

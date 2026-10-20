@@ -176,7 +176,7 @@ Notes:
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
 - `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
-- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule.
+- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list.
 
 ### Moderation
 

@@ -427,7 +427,8 @@ async fn get_server(
                   CASE
                       WHEN sm.user_id = $2 THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
-                  END AS highest_role_position
+                  END AS highest_role_position,
+                  tm.timed_out_until
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -459,6 +460,10 @@ async fn get_server(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
+           LEFT JOIN server_member_timeouts tm
+               ON tm.server_id = sm.server_id
+              AND tm.user_id = sm.user_id
+              AND tm.timed_out_until > NOW()
            WHERE sm.server_id = $1
            ORDER BY sm.user_id = $2 ASC, u.username ASC"#,
     )
@@ -645,6 +650,7 @@ async fn leave_server(
         WsEvent::MemberLeft {
             server_id,
             user_id: claims.sub,
+            reason: None,
         },
     )
     .await;
@@ -655,6 +661,7 @@ async fn leave_server(
         WsEvent::MemberLeft {
             server_id,
             user_id: claims.sub,
+            reason: Some("left".into()),
         },
     )
     .await;
@@ -729,8 +736,16 @@ async fn delete_server(
     voice_revoke::close_voice_rooms(&state, &voice_channel_ids, "server deleted").await;
     // Every former member drops the server, as after leaving it.
     for user_id in member_ids {
-        crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
-            .await;
+        crate::ws::publish_user_event(
+            &state,
+            user_id,
+            WsEvent::MemberLeft {
+                server_id,
+                user_id,
+                reason: Some("deleted".into()),
+            },
+        )
+        .await;
     }
 
     Ok(Json(serde_json::json!({ "message": "Server deleted" })))
@@ -939,7 +954,8 @@ async fn list_channel_visible_members(
                   CASE
                       WHEN sm.user_id = s.owner_id THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
-                  END AS highest_role_position
+                  END AS highest_role_position,
+                  tm.timed_out_until
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            INNER JOIN users u ON sm.user_id = u.id
@@ -972,6 +988,10 @@ async fn list_channel_visible_members(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
+           LEFT JOIN server_member_timeouts tm
+               ON tm.server_id = sm.server_id
+              AND tm.user_id = sm.user_id
+              AND tm.timed_out_until > NOW()
            WHERE sm.server_id = $1
            ORDER BY sm.user_id = s.owner_id ASC, u.username ASC"#,
     )
