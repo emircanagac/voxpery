@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Voice channels show cameras and screen shares in 16:9 tiles that fit the screen, instead of tall, heavily cropped boxes.
 - A message that fails to send keeps its text on the failed message and clears the message box, so retrying cannot send it twice; the error is written in plain words.
 - Server names are limited to 100 characters with a counter, and non-Latin letters count as one character each.
+- Member lists, direct messages, friends and chat history load faster: uploaded profile pictures are fetched once and cached instead of being repeated in every list.
 - On phones and tablets every Server Settings tab label is fully visible, and dialogs use one consistent width.
 
 ### Fixed

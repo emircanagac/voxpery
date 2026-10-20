@@ -416,7 +416,7 @@ async fn get_server(
     let mut members = sqlx::query_as::<_, MemberInfo>(
         r#"SELECT sm.user_id,
                   u.username,
-                  u.avatar_url,
+                  public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   u.about_me,
                   CASE WHEN sm.user_id = $2 THEN 'owner' ELSE 'member' END AS role,
                   u.status,
@@ -943,7 +943,7 @@ async fn list_channel_visible_members(
     let members = sqlx::query_as::<_, MemberInfo>(
         r#"SELECT sm.user_id,
                   u.username,
-                  u.avatar_url,
+                  public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   u.about_me,
                   CASE WHEN sm.user_id = s.owner_id THEN 'owner' ELSE 'member' END AS role,
                   u.status,

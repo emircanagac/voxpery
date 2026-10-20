@@ -13,6 +13,17 @@ describe('resolveAvatarUrl', () => {
     )
   })
 
+  it('loads uploaded avatars from the API with the signed-in grant', () => {
+    const path = '/api/images/users/0b9c1c3e-6f1a-4f43-9d1e-1f2a3b4c5d6e/avatar?v=abc123'
+    expect(resolveAvatarUrl(path)).toBe(`http://localhost:3001${path}`)
+    setImageProxyGrant('u.grant')
+    try {
+      expect(resolveAvatarUrl(path)).toBe(`http://localhost:3001${path}&grant=u.grant`)
+    } finally {
+      setImageProxyGrant(null)
+    }
+  })
+
   it('does not proxy existing API-hosted images', () => {
     expect(resolveAvatarUrl('http://localhost:3001/api/attachments/content/123')).toBe(
       'http://localhost:3001/api/attachments/content/123',
