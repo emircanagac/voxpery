@@ -53,9 +53,22 @@ pub enum WsEvent {
         username: String,
     },
     /// User left a server.
-    MemberLeft { server_id: Uuid, user_id: Uuid },
+    MemberLeft {
+        server_id: Uuid,
+        user_id: Uuid,
+        /// Only set on the event sent directly to the removed account: "left", "kicked", "banned"
+        /// or "deleted". Broadcasts to other members never say why someone left.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
     /// Member role was updated.
     MemberRoleUpdated { server_id: Uuid, user_id: Uuid },
+    /// A member's timeout started, changed or ended (`timed_out_until` is None when cleared).
+    MemberTimeoutUpdated {
+        server_id: Uuid,
+        user_id: Uuid,
+        timed_out_until: Option<chrono::DateTime<chrono::Utc>>,
+    },
     /// Server roles (name/color/permissions/order) changed; clients should refresh derived UI.
     ServerRolesUpdated { server_id: Uuid },
     /// Server channels/categories/overrides changed; clients should refresh visible channel tree.

@@ -35,7 +35,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, reconcileConfirmedMessage } from '../messageResilience'
+import { mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom, withUpdatedAuthor, type AuthorProfileUpdate } from '../messageAuthors'
 import {
   clearMessageDraftIfUnchanged,
@@ -71,6 +71,7 @@ import MemberProfileDialog, { type MemberProfileMember } from '../components/Mem
 import { groupDmApi } from '../api/groupDms'
 import DmFriendPicker, { MAX_GROUP_DM_MEMBERS } from '../components/DmFriendPicker'
 import GroupDmSettingsDialog from '../components/GroupDmSettingsDialog'
+import ModalSurface from '../components/ModalSurface'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -166,7 +167,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([])
   const [addFriendUsername, setAddFriendUsername] = useState('')
-  const [addFriendMessage, setAddFriendMessage] = useState<string | null>(null)
+  const [addFriendMessage, setAddFriendMessage] = useState<{ text: string; tone: 'success' | 'error' } | null>(null)
   const [sendingFriendRequest, setSendingFriendRequest] = useState(false)
   const sendingFriendRequestRef = useRef(false)
   const [removeFriendTarget, setRemoveFriendTarget] = useState<Friend | null>(null)
@@ -910,14 +911,14 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setAddFriendMessage(null)
     try {
       await friendApi.sendRequest(addFriendUsername.trim(), token)
-      setAddFriendMessage('Friend request sent.')
+      setAddFriendMessage({ text: 'Friend request sent.', tone: 'success' })
       setAddFriendUsername('')
       const req = await friendApi.requests(token)
       setIncomingRequests(req.incoming)
       setIncomingRequestCount(req.incoming.length)
       setOutgoingRequests(req.outgoing)
     } catch (err: unknown) {
-      setAddFriendMessage((err as Error)?.message ?? 'Failed to send request')
+      setAddFriendMessage({ text: (err as Error)?.message ?? 'Failed to send request', tone: 'error' })
     } finally {
       sendingFriendRequestRef.current = false
       setSendingFriendRequest(false)
@@ -1143,7 +1144,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       clientStatus: 'sending',
     }
     setDmMessages((prev) => {
-      const next = [...prev, optimistic]
+      const next = [...withoutFailedDuplicates(prev, content, attachmentsToSend), optimistic]
       rememberDmMessages(channelId, next)
       return next
     })
@@ -1172,7 +1173,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       const applyFailedDm = (current: UiDmMessage[]) =>
         current.map((m) =>
           m.clientId === clientId
-            ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
+            ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed', clientDraft: isForcedContent ? undefined : inputValue }
             : m
         )
       if (activeDmChannelIdRef.current === channelId) {
@@ -1229,6 +1230,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         } else {
           rememberDmMessages(channelId, applyRetriedDm(dmMessagesByChannelRef.current[channelId] ?? []))
         }
+        if (target.clientDraft && activeDmChannelIdRef.current === channelId) {
+          setDmInput((current) => (current === target.clientDraft ? '' : current))
+          clearMessageDraftIfUnchanged(userId, 'dm', channelId, target.clientDraft)
+        }
       } catch (err) {
         const applyFailedRetry = (current: UiDmMessage[]) =>
           current.map((m) =>
@@ -1247,7 +1252,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         }
       }
     },
-    [token, activeDmChannelId, dmMessages, user, clearDmUnread, rememberDmMessages]
+    [token, activeDmChannelId, dmMessages, user, userId, clearDmUnread, rememberDmMessages]
   )
 
   // Search results open in their own panel; the conversation stays visible.
@@ -1594,7 +1599,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                         <span>{sendingFriendRequest ? 'Sending...' : 'Send Request'}</span>
                       </button>
                     </form>
-                    {addFriendMessage && <div className="home-empty-row home-add-message" role="status">{addFriendMessage}</div>}
+                    {addFriendMessage && <div className={`home-empty-row home-add-message is-${addFriendMessage.tone}`} role={addFriendMessage.tone === 'error' ? 'alert' : 'status'}>{addFriendMessage.text}</div>}
                   </div>
                 </div>
               ) : friendsFilter === 'requests' ? (
@@ -1762,7 +1767,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                             </button>
                             <div className="home-member-actions">
                               <button type="button" className="home-member-action home-member-action--message"
-                                title={`Send a message to ${friend.username}`} aria-label={`Send a message to ${friend.username}`}
+                                title={`Send a message to ${friend.username}`} tabIndex={-1} aria-hidden="true"
                                 disabled={openingDmPeerId !== null} onClick={() => void openMessageForFriend(friend.id)}>
                                 <MessageCircle size={17} aria-hidden="true" />
                               </button>
@@ -2050,7 +2055,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
       {removeFriendTarget && createPortal(
         <div className="modal-overlay" onClick={() => !removingFriend && setRemoveFriendTarget(null)}>
-          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+          <ModalSurface name="Remove friend" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => { if (!removingFriend) setRemoveFriendTarget(null) }}>
             <h2>Remove friend?</h2>
             <p>
               {`This will remove ${removeFriendTarget.username} from your friends list.`}
@@ -2073,7 +2078,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 {removingFriend ? 'Removing…' : 'Remove'}
               </button>
             </div>
-          </div>
+          </ModalSurface>
         </div>,
         document.body
       )}

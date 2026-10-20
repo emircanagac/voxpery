@@ -190,7 +190,10 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `MemberLeft`
   - The removed member also receives it directly (kick, ban or leaving the server, including from another device), because removed accounts no longer pass the membership check for server broadcasts. Clients drop that server from their list when `user_id` is their own.
   - When a server is deleted, every former member receives `MemberLeft` with their own `user_id`, so the server disappears from their list.
+  - The copy sent directly to the removed account carries `reason`: `left`, `kicked`, `banned` or `deleted`, so the client can explain what happened. Broadcasts to other members never include a reason.
 - `MemberRoleUpdated`
+- `MemberTimeoutUpdated`
+  - `{ server_id, user_id, timed_out_until }`, broadcast to server members when a timeout is set or cleared (`timed_out_until: null`). Clients mark the member and close the composer for their own account until it ends. The reason is never broadcast.
 - `ServerRolesUpdated`
 - `ServerChannelsUpdated`
 

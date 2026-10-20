@@ -108,6 +108,13 @@ test('suggests only the conversation members for @ mentions in a DM', async ({ p
   await expect(suggestions.filter({ hasText: '@localuser' })).toHaveCount(1)
   await expect(suggestions.filter({ hasText: '@all' })).toHaveCount(0)
   await expect(page.getByText('Notify everyone', { exact: true })).toHaveCount(0)
+  const listbox = page.getByRole('listbox', { name: 'Mention suggestions' })
+  await expect(composer).toHaveAttribute('aria-controls', 'mention-suggestions')
+  await expect(listbox.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+  await expect(composer).toHaveAttribute('aria-activedescendant', 'mention-option-0')
+  await composer.press('ArrowDown')
+  await expect(composer).toHaveAttribute('aria-activedescendant', 'mention-option-1')
+  await expect(listbox.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
 })
 
 async function setupLongServerChannel(page: Page) {

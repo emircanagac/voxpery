@@ -50,6 +50,9 @@ export interface CustomThemePalette {
   accentHoverColor: string
   scrollbarColor: string
   scrollbarHoverColor: string
+  dangerTextColor: string
+  warningTextColor: string
+  positiveTextColor: string
 }
 
 export const DEFAULT_THEME: ThemeId = 'voxpery'
@@ -107,6 +110,8 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
 
 const THEME_IDS = new Set<ThemeId>(THEME_OPTIONS.map((option) => option.id))
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i
+// Generated text colors keep a margin above 4.5:1 so they stay readable on tinted cards and hover rows.
+export const CARD_TEXT_CONTRAST = 4.8
 const CUSTOM_THEME_STYLE_PROPERTIES = [
   '--user-theme-bg-primary',
   '--user-theme-bg-secondary',
@@ -128,6 +133,9 @@ const CUSTOM_THEME_STYLE_PROPERTIES = [
   '--user-theme-accent-contrast',
   '--user-theme-scrollbar',
   '--user-theme-scrollbar-hover',
+  '--user-theme-text-danger',
+  '--user-theme-text-warning',
+  '--user-theme-text-positive',
 ] as const
 
 export function isThemeId(value: unknown): value is ThemeId {
@@ -266,8 +274,11 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
       topbarStartColor,
       topbarEndColor,
       textColor: ensureContrastColor('#20242c', surfaces, '#111827'),
-      secondaryTextColor: ensureContrastColor('#3f4855', surfaces, '#111827'),
-      mutedTextColor: ensureContrastColor('#46505f', surfaces, '#111827'),
+      secondaryTextColor: ensureContrastColor('#3f4855', surfaces, '#111827', CARD_TEXT_CONTRAST),
+      mutedTextColor: ensureContrastColor('#46505f', surfaces, '#111827', CARD_TEXT_CONTRAST),
+      dangerTextColor: ensureContrastColor('#b4233a', surfaces, '#111827', CARD_TEXT_CONTRAST),
+      warningTextColor: ensureContrastColor('#8a5300', surfaces, '#111827', CARD_TEXT_CONTRAST),
+      positiveTextColor: ensureContrastColor('#177245', surfaces, '#111827', CARD_TEXT_CONTRAST),
       accentColor: accent,
       accentHoverColor: mixHexColors(accent, '#000000', 0.82),
       scrollbarColor: mixHexColors(accent, '#ffffff', 0.42),
@@ -287,7 +298,7 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
   const elevatedColor = mixHexColors(normalized, '#242832', 0.18)
   const topbarStartColor = mixHexColors(normalized, '#20232b', 0.14)
   const topbarEndColor = mixHexColors(normalized, '#171a20', 0.11)
-  const accent = ensureContrastColor(normalized, [
+  const darkSurfaces = [
     backgroundColor,
     secondaryBackgroundColor,
     tertiaryBackgroundColor,
@@ -300,7 +311,8 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
     elevatedColor,
     topbarStartColor,
     topbarEndColor,
-  ], '#ffffff')
+  ]
+  const accent = ensureContrastColor(normalized, darkSurfaces, '#ffffff')
   return {
     colorScheme,
     baseColor: normalized,
@@ -318,8 +330,11 @@ export function createCustomThemePalette(baseColor: string, colorScheme: ThemeCo
     topbarStartColor,
     topbarEndColor,
     textColor: '#f3f4f6',
-    secondaryTextColor: '#dde0e5',
-    mutedTextColor: '#c3c8cf',
+    secondaryTextColor: ensureContrastColor('#dde0e5', darkSurfaces, '#ffffff', CARD_TEXT_CONTRAST),
+    mutedTextColor: ensureContrastColor('#c3c8cf', darkSurfaces, '#ffffff', CARD_TEXT_CONTRAST),
+    dangerTextColor: ensureContrastColor('#f36c6c', darkSurfaces, '#ffffff', CARD_TEXT_CONTRAST),
+    warningTextColor: ensureContrastColor('#faa61a', darkSurfaces, '#ffffff', CARD_TEXT_CONTRAST),
+    positiveTextColor: ensureContrastColor('#43b581', darkSurfaces, '#ffffff', CARD_TEXT_CONTRAST),
     accentColor: accent,
     accentHoverColor: mixHexColors(accent, '#ffffff', 0.82),
     scrollbarColor: mixHexColors(accent, '#15171d', 0.44),
@@ -397,6 +412,9 @@ export function applyThemePreference(
     root.style.setProperty('--user-theme-accent-contrast', getAccessibleAccentText(palette.accentColor))
     root.style.setProperty('--user-theme-scrollbar', palette.scrollbarColor)
     root.style.setProperty('--user-theme-scrollbar-hover', palette.scrollbarHoverColor)
+    root.style.setProperty('--user-theme-text-danger', palette.dangerTextColor)
+    root.style.setProperty('--user-theme-text-warning', palette.warningTextColor)
+    root.style.setProperty('--user-theme-text-positive', palette.positiveTextColor)
   } else {
     delete root.dataset.customTheme
     delete root.dataset.customThemeMode
@@ -450,6 +468,30 @@ export function setThemePreference(preference: ThemePreference): ThemePreference
   return normalized
 }
 
-export function initializeTheme(): ThemePreference {
-  return applyThemePreference(getStoredThemePreference())
+// The appearance setting only styles the signed-in app. Public pages (landing, about, compare,
+// legal, auth, invite and not-found) always use the default palette.
+const APP_THEME_PATH = /^\/(social|servers)(\/|$)/
+
+export function usesAppTheme(pathname: string): boolean {
+  return APP_THEME_PATH.test(pathname)
+}
+
+export function getDefaultThemePreference(): ThemePreference {
+  return {
+    theme: DEFAULT_THEME,
+    customAccent: null,
+    customThemeColor: null,
+    customThemeMode: getThemeOption(DEFAULT_THEME).colorScheme,
+  }
+}
+
+export function applyThemeForPath(pathname: string, documentTarget: Document = document): ThemePreference {
+  return applyThemePreference(
+    usesAppTheme(pathname) ? getStoredThemePreference() : getDefaultThemePreference(),
+    documentTarget,
+  )
+}
+
+export function initializeTheme(pathname: string = window.location.pathname): ThemePreference {
+  return applyThemeForPath(pathname)
 }

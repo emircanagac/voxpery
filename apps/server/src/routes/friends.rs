@@ -81,7 +81,7 @@ async fn list_friends(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<FriendUser>>, AppError> {
     let rows = sqlx::query_as::<_, FriendUser>(
-        r#"SELECT u.id, u.username, u.avatar_url, u.status
+        r#"SELECT u.id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url, u.status
            FROM friendships f
            INNER JOIN users u
              ON u.id = CASE WHEN f.user_a = $1 THEN f.user_b ELSE f.user_a END
@@ -162,7 +162,7 @@ async fn send_friend_request(
         ));
     }
     let target = sqlx::query_as::<_, FriendUser>(
-        "SELECT id, username, avatar_url, status FROM users WHERE lower(username) = lower($1)",
+        "SELECT id, username, public_avatar_url(id, avatar_version, avatar_url) AS avatar_url, status FROM users WHERE lower(username) = lower($1)",
     )
     .bind(username)
     .fetch_optional(&state.db)

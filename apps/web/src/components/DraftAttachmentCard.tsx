@@ -72,7 +72,7 @@ export default function DraftAttachmentCard({ attachment, onRemove, onRetry }: P
             : failed ? <CircleAlert size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
           {uploading ? 'Uploading...' : failed ? 'Upload failed' : 'Ready to send'}
         </span>
-        {failed && <span className="dm-draft-attachment-error">{uploadError || 'Remove this file or retry the upload.'}</span>}
+        {failed && <span className="dm-draft-attachment-error">{uploadError && uploadError !== 'Upload failed' ? uploadError : 'Remove this file or retry the upload.'}</span>}
       </div>
       {uploading && <div className="dm-draft-attachment-progress" role="progressbar" aria-label={`Uploading ${name}`}><span /></div>}
     </div>

@@ -192,7 +192,7 @@ export default function UnifiedSidebar({
   }
 
   return (
-    <div className="unified-sidebar">
+    <nav className="unified-sidebar" aria-label="Servers and direct messages">
       <div className="unified-sidebar-dm-section">
         <NavLink
           to={socialHref}
@@ -219,6 +219,6 @@ export default function UnifiedSidebar({
           displayActiveServerId={displayActiveServerId}
         />
       </div>
-    </div>
+    </nav>
   )
 }

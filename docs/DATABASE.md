@@ -40,6 +40,7 @@ Key columns:
 - `email_verified` (`BOOLEAN`)
 - `token_version` (session invalidation counter)
 - `avatar_url`
+- `avatar_version` (generated: the first 16 hex characters of the MD5 of `avatar_url` when it is a data URL, otherwise `NULL`). `public_avatar_url(id, avatar_version, avatar_url)` turns it into the `/api/images/users/:user_id/avatar?v=` path that list queries return instead of the inline image.
 - `status` (string; runtime uses `online`/`dnd`/`offline`)
 - `dm_privacy` (`everyone` or `friends`; new accounts default to `everyone`)
 - `google_id` (nullable unique)

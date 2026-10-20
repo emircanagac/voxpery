@@ -71,7 +71,7 @@ export default function ServerSettingsOnboarding({
                 </p>
             </div>
 
-            {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
+            {error && <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
             {loading && <div className="server-settings-empty-state">Loading welcome guide...</div>}
 
             {!loading && (
@@ -89,8 +89,8 @@ export default function ServerSettingsOnboarding({
                     </label>
 
                     <div className="form-group">
-                        <label>Welcome title</label>
-                        <input
+                        <label htmlFor="server-settings-onboarding-welcome-title">Welcome title</label>
+                        <input id="server-settings-onboarding-welcome-title"
                             value={title}
                             onChange={(event) => setTitle(event.target.value)}
                             maxLength={80}
@@ -99,8 +99,8 @@ export default function ServerSettingsOnboarding({
                     </div>
 
                     <div className="form-group">
-                        <label>Intro text</label>
-                        <textarea
+                        <label htmlFor="server-settings-onboarding-intro-text">Intro text</label>
+                        <textarea id="server-settings-onboarding-intro-text"
                             value={body}
                             onChange={(event) => setBody(event.target.value)}
                             maxLength={1000}
@@ -151,6 +151,7 @@ export default function ServerSettingsOnboarding({
                                         onChange={(event) => updateTask(index, event.target.value)}
                                         maxLength={120}
                                         placeholder="Introduce yourself"
+                                        aria-label={`Starter task ${index + 1}`}
                                     />
                                     <button
                                         type="button"

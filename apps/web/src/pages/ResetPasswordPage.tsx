@@ -115,8 +115,8 @@ export default function ResetPasswordPage() {
                 )}
 
                 <div className="form-group">
-                    <label>New Password</label>
-                    <input
+                    <label htmlFor="reset-password-page-new-password">New Password</label>
+                    <input id="reset-password-page-new-password"
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -127,8 +127,8 @@ export default function ResetPasswordPage() {
                 </div>
 
                 <div className="form-group">
-                    <label>Confirm Password</label>
-                    <input
+                    <label htmlFor="reset-password-page-confirm-password">Confirm Password</label>
+                    <input id="reset-password-page-confirm-password"
                         type="password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}

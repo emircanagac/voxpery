@@ -373,11 +373,27 @@ pub(super) async fn ban_member(
     .await?;
 
     if removed_member {
-        crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+        crate::ws::publish_event(
+            &state,
+            WsEvent::MemberLeft {
+                server_id,
+                user_id,
+                reason: None,
+            },
+        )
+        .await;
         // The removed account no longer passes the member check for broadcasts, so tell it directly
         // and let every open client drop the server instead of showing a dead channel.
-        crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
-            .await;
+        crate::ws::publish_user_event(
+            &state,
+            user_id,
+            WsEvent::MemberLeft {
+                server_id,
+                user_id,
+                reason: Some("banned".into()),
+            },
+        )
+        .await;
         voice_revoke::revoke_user_voice_access_for_server(
             &state,
             server_id,
@@ -461,6 +477,16 @@ pub(super) async fn timeout_member(
     )
     .await?;
 
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberTimeoutUpdated {
+            server_id,
+            user_id,
+            timed_out_until: Some(entry.timed_out_until),
+        },
+    )
+    .await;
+
     Ok(Json(entry))
 }
 
@@ -495,6 +521,16 @@ pub(super) async fn clear_member_timeout(
         None,
     )
     .await?;
+
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberTimeoutUpdated {
+            server_id,
+            user_id,
+            timed_out_until: None,
+        },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "message": "Timeout cleared" })))
 }
@@ -657,11 +693,27 @@ pub(super) async fn kick_member(
     )
     .await?;
 
-    crate::ws::publish_event(&state, WsEvent::MemberLeft { server_id, user_id }).await;
+    crate::ws::publish_event(
+        &state,
+        WsEvent::MemberLeft {
+            server_id,
+            user_id,
+            reason: None,
+        },
+    )
+    .await;
     // The removed account no longer passes the member check for broadcasts, so tell it directly
     // and let every open client drop the server instead of showing a dead channel.
-    crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
-        .await;
+    crate::ws::publish_user_event(
+        &state,
+        user_id,
+        WsEvent::MemberLeft {
+            server_id,
+            user_id,
+            reason: Some("kicked".into()),
+        },
+    )
+    .await;
     voice_revoke::revoke_user_voice_access_for_server(&state, server_id, user_id, "member kicked")
         .await?;
 

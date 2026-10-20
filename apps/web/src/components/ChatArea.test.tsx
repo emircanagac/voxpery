@@ -178,12 +178,37 @@ describe('ChatArea regressions', () => {
     unmount()
     const group = renderChatArea({ isDm: true, isGroupDm: true })
     expect(group.container.querySelector('.channel-hash .lucide-users')).not.toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Message general' })).toHaveAttribute('placeholder', 'Message general')
   })
 
   it('offers to join an empty voice channel instead of leaving the stage blank', () => {
     renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
     expect(screen.getByRole('heading', { name: 'No one is here yet' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
+  })
+
+  it('tells the user when long text is shortened to the message limit', () => {
+    const onMessageInputChange = vi.fn()
+    renderChatArea({ onMessageInputChange })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message #general' }), { target: { value: 'a'.repeat(4100) } })
+    expect(onMessageInputChange).toHaveBeenLastCalledWith('a'.repeat(4000))
+    expect(screen.getByRole('status')).toHaveTextContent('Shortened to 4000 characters')
+  })
+
+  it('loads older messages from the history button', () => {
+    const onLoadOlder = vi.fn()
+    renderChatArea({ hasMoreOlder: true, onLoadOlder })
+    fireEvent.click(screen.getByRole('button', { name: 'Load older messages' }))
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+  })
+
+  it('renders basic formatting as elements and keeps links and raw HTML safe', () => {
+    const { container } = renderChatArea({ messages: [message('fmt', '**bold** and `code` see https://example.com <b>x</b>', 0)] })
+    expect(container.querySelector('strong')).toHaveTextContent('bold')
+    expect(container.querySelector('code.message-inline-code')).toHaveTextContent('code')
+    expect(container.querySelector('.chat-link')).toHaveTextContent('https://example.com')
+    expect(container.querySelector('b')).toBeNull()
+    expect(container.querySelector('.message-text')?.textContent).toContain('<b>x</b>')
   })
 
   it('opens invite links of this instance in the app and keeps the warning for other links', () => {

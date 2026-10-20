@@ -132,6 +132,31 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     expect(state.servers.some((server) => server.id === inviteServer.id)).toBe(true)
   })
 
+  test('offers a way out of an invalid invite and opens servers the user already joined', { tag: '@core' }, async ({ page }) => {
+    const memberServer = buildCoreServer({ id: 'server-member', name: 'Home Guild', invite_code: 'home-invite' })
+    const state = createMockCoreState({
+      servers: [memberServer],
+      inviteServersByCode: { [memberServer.invite_code]: memberServer },
+      channelsByServerId: { [memberServer.id]: buildCoreChannels(memberServer.id) },
+      membersByServerId: { [memberServer.id]: buildCoreMembers() },
+    })
+    await installMockCoreApi(page, state)
+
+    await page.goto('/invite/doesnotexist')
+    await expect(page.getByRole('main')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Invite unavailable' })).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText('Invalid invite code')
+    await page.getByRole('button', { name: 'Back to Voxpery' }).click()
+    await expect(page).not.toHaveURL(/\/invite\//)
+
+    await page.goto('/invite/home-invite')
+    await expect(page.getByRole('heading', { name: 'You’re already a member' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Join server' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Open server' }).click()
+    await expect(page).toHaveURL(/\/servers/)
+    expect(state.serverJoinCount).toBe(0)
+  })
+
   test('opens an invite link from chat inside the desktop app without a browser', { tag: '@core' }, async ({ page }) => {
     const homeServer = buildCoreServer()
     const homeChannels = buildCoreChannels(homeServer.id)

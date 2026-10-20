@@ -153,7 +153,7 @@ async fn find_dm_message_by_client_request_id(
 ) -> Result<Option<DmMessageRow>, AppError> {
     Ok(sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id AS user_id, u.username, u.avatar_url
+                  u.id AS user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_messages m
            INNER JOIN users u ON u.id = m.user_id
            WHERE m.channel_id = $1
@@ -341,7 +341,7 @@ async fn list_dm_channels(
              SELECT c.id,
                     u.id as peer_id,
                     u.username as peer_username,
-                    u.avatar_url as peer_avatar_url,
+                    public_avatar_url(u.id, u.avatar_version, u.avatar_url) as peer_avatar_url,
                     u.status as peer_status,
                     self_m.hidden_at,
                     self_m.pinned_at,
@@ -484,7 +484,7 @@ async fn load_group_dm_infos(
 
     let channel_ids: Vec<Uuid> = groups.iter().map(|group| group.id).collect();
     let member_rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String)>(
-        r#"SELECT m.channel_id, u.id, u.username, u.avatar_url, u.status
+        r#"SELECT m.channel_id, u.id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url, u.status
            FROM dm_channel_members m
            INNER JOIN users u ON u.id = m.user_id
            WHERE m.channel_id = ANY($1)
@@ -673,7 +673,7 @@ async fn get_or_create_dm_channel(
         r#"SELECT c.id,
                   u.id as peer_id,
                   u.username as peer_username,
-                  u.avatar_url as peer_avatar_url,
+                  public_avatar_url(u.id, u.avatar_version, u.avatar_url) as peer_avatar_url,
                   u.status as peer_status,
                   (
                     SELECT m.created_at
@@ -774,7 +774,7 @@ async fn get_dm_messages(
     let rows: Vec<DmMessageRow> = if let Some(before) = query.before {
         sqlx::query_as::<_, DmMessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url
+                      u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
                FROM dm_messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
@@ -790,7 +790,7 @@ async fn get_dm_messages(
     } else {
         sqlx::query_as::<_, DmMessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url
+                      u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
                FROM dm_messages m
                INNER JOIN users u ON m.user_id = u.id
                WHERE m.channel_id = $1
@@ -896,7 +896,7 @@ async fn send_dm_message(
            RETURNING id, channel_id, content, attachments, edited_at, created_at,
                      $3 as user_id,
                      (SELECT username FROM users WHERE id = $3) as username,
-                     (SELECT avatar_url FROM users WHERE id = $3) as avatar_url"#,
+                     (SELECT public_avatar_url(u.id, u.avatar_version, u.avatar_url) FROM users u WHERE u.id = $3) as avatar_url"#,
     )
     .bind(id)
     .bind(channel_id)
@@ -1328,7 +1328,7 @@ async fn search_dm_messages(
 
     let rows = sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.channel_id = $1
@@ -1367,7 +1367,7 @@ async fn list_dm_pins(
 
     let rows = sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_channel_pins p
            INNER JOIN dm_messages m ON p.dm_message_id = m.id
            INNER JOIN users u ON m.user_id = u.id
@@ -1450,7 +1450,7 @@ async fn pin_dm_message(
 
     let row = sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.id = $1"#,
@@ -1524,7 +1524,7 @@ async fn edit_dm_message(
            RETURNING id, channel_id, content, attachments, edited_at, created_at,
                      user_id,
                      (SELECT username FROM users WHERE id = user_id) as username,
-                     (SELECT avatar_url FROM users WHERE id = user_id) as avatar_url"#,
+                     (SELECT public_avatar_url(u.id, u.avatar_version, u.avatar_url) FROM users u WHERE u.id = user_id) as avatar_url"#,
     )
     .bind(body.content.trim())
     .bind(message_id)
@@ -1596,7 +1596,7 @@ async fn load_dm_message_with_author(
 ) -> Result<MessageWithAuthor, AppError> {
     let row = sqlx::query_as::<_, DmMessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_messages m
            INNER JOIN users u ON m.user_id = u.id
            WHERE m.id = $1"#,

@@ -72,8 +72,8 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(main.locator('.home-list-group')).toHaveCSS('border-top-width', '0px')
       expect((await row.boundingBox())!.height).toBe(72)
       await page.keyboard.press('Tab')
-      await main.getByRole('button', { name: 'Send a message to Friend 01' }).focus()
-      await expect(main.getByRole('button', { name: 'Send a message to Friend 01' })).toHaveCSS('outline-style', 'solid')
+      await main.getByRole('button', { name: 'Message Friend 01', exact: true }).focus()
+      await expect(main.getByRole('button', { name: 'Message Friend 01', exact: true })).toHaveCSS('outline-style', 'solid')
       for (const width of [1920, 390]) {
         await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
         const backdrop = page.getByRole('button', { name: 'Close social sidebar', exact: true })
@@ -85,7 +85,7 @@ test.describe('mocked social friend UI regressions', () => {
             return sidebar.x + sidebar.width <= rail.x + rail.width + 1
           }).toBe(true)
         }
-        await expect(main.getByRole('button', { name: 'Send a message to Friend 01' })).toBeInViewport()
+        await expect(main.locator('.home-member-action--message').first()).toBeInViewport()
         expect(await main.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
         await page.screenshot({ path: testInfo.outputPath(`friends-single-${theme}-${width}.png`) })
       }
@@ -139,7 +139,7 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(search).toHaveValue('')
       await expect(main.getByRole('button', { name: 'Online', exact: true })).toHaveAttribute('aria-pressed', 'true')
       await page.screenshot({ path: testInfo.outputPath(`friends-${width}.png`) })
-      await main.getByRole('button', { name: 'Send a message to Friend 03', exact: true }).click()
+      await main.getByRole('button', { name: 'Message Friend 03', exact: true }).click()
       await expect(page.getByPlaceholder(width < 960 ? 'Message' : 'Message @Friend 03', { exact: true })).toBeVisible()
     })
   }

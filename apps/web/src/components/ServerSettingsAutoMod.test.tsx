@@ -100,4 +100,26 @@ describe('ServerSettingsAutoMod', () => {
             }, 'token')
         })
     })
+
+    it('asks for confirmation before deleting a rule', async () => {
+        const user = userEvent.setup()
+        vi.mocked(serverApi.deleteAutoModRule).mockResolvedValue(undefined)
+
+        render(<ServerSettingsAutoMod serverId="server-1" token="token" />)
+        expect(await screen.findByText('amk blocker')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'Delete' }))
+        const dialog = screen.getByRole('dialog', { name: 'Delete AutoMod rule' })
+        expect(dialog).toHaveTextContent('amk blocker')
+        expect(serverApi.deleteAutoModRule).not.toHaveBeenCalled()
+
+        await user.keyboard('{Escape}')
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(serverApi.deleteAutoModRule).not.toHaveBeenCalled()
+
+        await user.click(screen.getByRole('button', { name: 'Delete' }))
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete rule' }))
+        await waitFor(() => expect(serverApi.deleteAutoModRule).toHaveBeenCalledWith('server-1', 'rule-1', 'token'))
+        await waitFor(() => expect(screen.queryByText('amk blocker')).not.toBeInTheDocument())
+    })
 })

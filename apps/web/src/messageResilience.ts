@@ -6,9 +6,22 @@ type RetryableMessage = {
   clientId?: string
   clientStatus?: RetryableClientStatus
   clientError?: string
+  clientDraft?: string
 }
 
 const RECONNECT_RETRY_HINT = 'Connection changed while sending. Retry this message.'
+
+/** A manual resend of the same text replaces the earlier failed attempt instead of duplicating it. */
+export function withoutFailedDuplicates<T extends RetryableMessage & { content: string; attachments?: unknown }>(
+  messages: T[],
+  content: string,
+  attachments: unknown,
+): T[] {
+  const attachmentKey = JSON.stringify(attachments ?? [])
+  return messages.filter(message => !(message.clientStatus === 'failed'
+    && message.content === content
+    && JSON.stringify(message.attachments ?? []) === attachmentKey))
+}
 
 function toTimestamp(value: string): number {
   const parsed = Date.parse(value)

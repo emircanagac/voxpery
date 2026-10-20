@@ -95,7 +95,7 @@ export default function ServerSettingsCommunity({
             />
             <section className="server-settings-card server-settings-card--rules">
                 {rulesError && (
-                    <div className="auth-error" style={{ marginBottom: 12 }}>
+                    <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                         {rulesError}
                     </div>
                 )}
@@ -185,6 +185,7 @@ export default function ServerSettingsCommunity({
                             onChange={(event) => onNewRuleTextChange(event.target.value)}
                             className="server-rule-textarea"
                             placeholder="Add a new rule..."
+                            aria-label="New rule"
                             rows={2}
                             maxLength={1000}
                         />

@@ -1107,10 +1107,74 @@ async fn removed_and_leaving_members_receive_their_own_member_left_event() {
             let event = receive_ws_event(ws, "MemberLeft").await;
             if event["data"]["user_id"] == json!(user_id) {
                 assert_eq!(event["data"]["server_id"], json!(server_id), "{label}");
+                assert_eq!(event["data"]["reason"], json!(label), "{label}");
                 break;
             }
         }
     }
+}
+
+#[tokio::test]
+async fn timeouts_reach_members_and_show_in_the_member_list() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Timeout Guild")
+            .await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "quiet").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let addr = spawn_ws_app(&state).await;
+    let mut member_ws = connect_ws(addr, &member_auth).await;
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/members/{member_id}/timeout"),
+        &owner_auth,
+        Some(json!({ "duration_minutes": 5, "reason": "private note" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "timeout failed: {body}");
+    let event = receive_ws_event(&mut member_ws, "MemberTimeoutUpdated").await;
+    assert_eq!(event["data"]["user_id"], json!(member_id));
+    assert!(event["data"]["timed_out_until"].is_string());
+    assert!(
+        event["data"].get("reason").is_none(),
+        "timeout reasons stay private"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}"),
+        &member_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "server detail failed: {body}");
+    let member = body["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == json!(member_id))
+        .unwrap();
+    assert!(member["timed_out_until"].is_string());
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/members/{member_id}/timeout"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "clear timeout failed: {body}");
+    let event = receive_ws_event(&mut member_ws, "MemberTimeoutUpdated").await;
+    assert!(event["data"]["timed_out_until"].is_null());
 }
 
 #[tokio::test]

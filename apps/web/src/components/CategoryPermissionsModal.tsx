@@ -287,13 +287,13 @@ export default function CategoryPermissionsModal({
                                 </button>
                             </div>
                             <div className="server-settings-body server-settings-body--with-tabs">
-                                {error && <div className="modal-error server-settings-error">{error}</div>}
+                                {error && <div className="modal-error server-settings-error" role="alert">{error}</div>}
                                 <div className="server-settings-section channel-settings-permissions">
                                     <div className="channel-settings-roles-col">
                                         <div className="channel-settings-roles-header">
-                                            <label className="channel-settings-label">Roles</label>
+                                            <label className="channel-settings-label" htmlFor="category-permissions-modal-roles">Roles</label>
                                             <div className="channel-settings-role-add">
-                                                <select
+                                                <select id="category-permissions-modal-roles"
                                                     className="channel-role-add-select"
                                                     value={roleToAddId}
                                                     onChange={(e) => setRoleToAddId(e.target.value)}
@@ -371,10 +371,13 @@ export default function CategoryPermissionsModal({
                                                     return (
                                                         <div key={opt.bit} className="channel-perm-row">
                                                             <span>{opt.label}</span>
-                                                            <div className="channel-perm-switches">
+                                                            <div className="channel-perm-switches" role="group" aria-label={opt.label}>
                                                                 <button
                                                                     type="button"
                                                                     className={`channel-perm-btn ${isDenied ? 'is-denied' : ''}`}
+                                                                    aria-label={`${opt.label}: Deny`}
+                                                                    aria-pressed={isDenied}
+                                                                    title="Deny"
                                                                     onClick={() => updateOverrideBit(opt.bit, 'deny')}
                                                                 >
                                                                     <X size={14} />
@@ -382,6 +385,9 @@ export default function CategoryPermissionsModal({
                                                                 <button
                                                                     type="button"
                                                                     className={`channel-perm-btn ${!isAllowed && !isDenied ? 'is-inherit' : ''}`}
+                                                                    aria-label={`${opt.label}: Inherit`}
+                                                                    aria-pressed={!isAllowed && !isDenied}
+                                                                    title="Inherit"
                                                                     onClick={() => updateOverrideBit(opt.bit, 'inherit')}
                                                                 >
                                                                     /
@@ -389,6 +395,9 @@ export default function CategoryPermissionsModal({
                                                                 <button
                                                                     type="button"
                                                                     className={`channel-perm-btn ${isAllowed ? 'is-allowed' : ''}`}
+                                                                    aria-label={`${opt.label}: Allow`}
+                                                                    aria-pressed={isAllowed}
+                                                                    title="Allow"
                                                                     onClick={() => updateOverrideBit(opt.bit, 'allow')}
                                                                 >
                                                                     ✓

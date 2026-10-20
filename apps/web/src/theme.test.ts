@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_THEME,
+  applyThemeForPath,
   createCustomThemePalette,
   formatHexColorDraft,
   getAccessibleAccentText,
   getContrastRatio,
+  getDefaultThemePreference,
   getStoredThemePreference,
   initializeTheme,
   normalizeHexColor,
@@ -14,6 +16,7 @@ import {
   THEME_CUSTOM_MODE_STORAGE_KEY,
   THEME_OPTIONS,
   THEME_STORAGE_KEY,
+  usesAppTheme,
 } from './theme'
 
 describe('theme preferences', () => {
@@ -75,10 +78,27 @@ describe('theme preferences', () => {
     )).toBeGreaterThanOrEqual(4.5)
   })
 
+  it('keeps public pages on the default palette and applies the stored theme only inside the app', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'light')
+    localStorage.setItem(THEME_CUSTOM_COLOR_STORAGE_KEY, '#c9578f')
+
+    for (const path of ['/', '/about', '/compare', '/login', '/register', '/privacy', '/invite/abc', '/nonexistent-page']) {
+      expect(applyThemeForPath(path)).toEqual(getDefaultThemePreference())
+      expect(document.documentElement.dataset.theme).toBe(DEFAULT_THEME)
+      expect(document.documentElement.dataset.customTheme).toBeUndefined()
+    }
+    for (const path of ['/social', '/social/dm', '/servers']) {
+      expect(usesAppTheme(path)).toBe(true)
+      expect(applyThemeForPath(path).customThemeColor).toBe('#c9578f')
+      expect(document.documentElement.dataset.customTheme).toBe('true')
+    }
+    expect(usesAppTheme('/socialite')).toBe(false)
+  })
+
   it('restores the stored preference during startup without user interaction', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'light')
 
-    expect(initializeTheme()).toEqual({
+    expect(initializeTheme('/social')).toEqual({
       theme: 'light',
       customAccent: null,
       customThemeColor: null,
@@ -115,7 +135,7 @@ describe('theme preferences', () => {
     expect(document.documentElement.style.getPropertyValue('--user-theme-bg-primary')).toMatch(/^#[0-9a-f]{6}$/)
     expect(document.documentElement.style.getPropertyValue('--user-theme-accent')).toMatch(/^#[0-9a-f]{6}$/)
     expect(document.documentElement.style.colorScheme).toBe('light')
-    expect(initializeTheme().customThemeMode).toBe('light')
+    expect(initializeTheme('/servers').customThemeMode).toBe('light')
   })
 
   it('keeps custom accent links readable on light surfaces while preserving the chosen button color', () => {

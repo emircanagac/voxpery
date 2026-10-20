@@ -92,8 +92,9 @@ export interface WsEventDataMap {
     FriendUpdate: { user_id: string };
     DmChannelsUpdated: { channel_id: string };
     MemberJoined: { server_id: string; user_id: string; username: string };
-    MemberLeft: { server_id: string; user_id: string };
+    MemberLeft: { server_id: string; user_id: string; reason?: 'left' | 'kicked' | 'banned' | 'deleted' };
     MemberRoleUpdated: { server_id: string; user_id: string };
+    MemberTimeoutUpdated: { server_id: string; user_id: string; timed_out_until: string | null };
     ServerRolesUpdated: { server_id: string };
     ServerChannelsUpdated: { server_id: string };
     VoiceStateUpdate: {

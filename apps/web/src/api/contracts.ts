@@ -139,6 +139,8 @@ export interface MemberInfo {
     role_color: string | null
     roles?: string[]
     highest_role_position?: number
+    /** End of an active timeout, when the member is timed out. */
+    timed_out_until?: string | null
 }
 
 export interface Friend {

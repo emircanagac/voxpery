@@ -3,6 +3,7 @@ import type { Server } from '../types'
 import { Profiler, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { type Channel, type ServerRole, type ServerRule, type AuditLogEntry, type ServerBanEntry, type ServerReportEntry, type ServerTimeoutEntry, type RaidEventEntry, type ServerOnboardingGuide, type UpdateServerOnboardingGuideRequest } from '../api'
 import ModalSurface from '../components/ModalSurface'
+import { SERVER_NAME_MAX } from './appLayoutModel'
 import ProfileAvatarEditor from '../components/ProfileAvatarEditor'
 import ServerSettingsAuditLog from '../components/ServerSettingsAuditLog'
 import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
@@ -238,7 +239,7 @@ export default function ServerSettingsModal({
                                 )}
                                 <div className="server-settings-header__text">
                                     <h2>{canViewReports ? 'Server Settings' : 'Server information'}</h2>
-                                    <p className="server-settings-header__server-name">{settingsServer.name}</p>
+                                    <p className="server-settings-header__server-name" title={settingsServer.name}>{settingsServer.name}</p>
                                     <p className="server-settings-header__hint">{canViewReports ? 'Manage the server settings available to your role.' : 'View this server and its community settings.'}</p>
                                 </div>
                             </div>
@@ -254,14 +255,14 @@ export default function ServerSettingsModal({
 
                         <div className="server-settings-body server-settings-body--with-tabs">
                             {serverSettingsError && (
-                                <div className="auth-error server-settings-error">{serverSettingsError}</div>
+                                <div className="auth-error server-settings-error" role="alert">{serverSettingsError}</div>
                             )}
 
                             <div className="server-settings-layout">
                                 <nav className="server-settings-nav">
                                     <div className="server-settings-nav__meta">
                                         <span className="server-settings-nav__eyebrow">Server settings</span>
-                                        <strong className="server-settings-nav__title">{settingsServer.name}</strong>
+                                        <strong className="server-settings-nav__title" title={settingsServer.name}>{settingsServer.name}</strong>
                                     </div>
                                     <button
                                         type="button"
@@ -457,18 +458,23 @@ export default function ServerSettingsModal({
 
                                                     <div className="server-overview-profile__form">
                                                         <div className="form-group">
-                                                            <label>Server name</label>
-                                                            <input
+                                                            <label htmlFor="server-settings-modal-server-name">Server name</label>
+                                                            <input id="server-settings-modal-server-name"
                                                                 type="text"
                                                                 value={serverSettingsName}
                                                                 onChange={(e) => setServerSettingsName(e.target.value)}
                                                                 placeholder="Server name"
+                                                                maxLength={SERVER_NAME_MAX}
+                                                                aria-describedby="server-settings-modal-server-name-count"
                                                                 disabled={!isOwner}
                                                             />
+                                                            <div id="server-settings-modal-server-name-count" className="form-field-counter">
+                                                                {Array.from(serverSettingsName).length}/{SERVER_NAME_MAX}
+                                                            </div>
                                                         </div>
                                                         <div className="form-group">
-                                                            <label>Description</label>
-                                                            <input
+                                                            <label htmlFor="server-settings-modal-description">Description</label>
+                                                            <input id="server-settings-modal-description"
                                                                 type="text"
                                                                 value={serverSettingsDescription}
                                                                 onChange={(e) => setServerSettingsDescription(e.target.value)}
@@ -563,7 +569,7 @@ export default function ServerSettingsModal({
                                     {serverSettingsTab === 'audit' && canViewAuditLog && (
                                         <section className="server-settings-card server-settings-card--audit server-settings-card--stack server-settings-card--list-section">
                                             {auditLogError && (
-                                                <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                                                     {auditLogError}
                                                 </div>
                                             )}
@@ -614,7 +620,7 @@ export default function ServerSettingsModal({
                                     {serverSettingsTab === 'roles' && isOwner && (
                                         <section className="server-settings-card server-settings-card--roles">
                                             {rolesError && (
-                                                <div className="auth-error" style={{ marginBottom: 12 }}>
+                                                <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                                                     {rolesError}
                                                 </div>
                                             )}
@@ -623,7 +629,7 @@ export default function ServerSettingsModal({
                                                     <div className="server-roles-toolbar">
                                                         <div className="server-roles-toolbar__copy">
                                                             <span className="server-roles-toolbar__eyebrow">Roles</span>
-                                                            <strong className="server-roles-toolbar__title">{serverRoles.length} roles</strong>
+                                                            <strong className="server-roles-toolbar__title">{serverRoles.length} {serverRoles.length === 1 ? 'role' : 'roles'}</strong>
                                                             <span className="server-roles-toolbar__hint">
                                                                 Create, reorder, and fine-tune access without leaving the editor.
                                                             </span>
@@ -675,10 +681,10 @@ export default function ServerSettingsModal({
                                                     {selectedRoleId && (
                                                         <div className="server-role-editor-footer">
                                                             <div className="server-role-editor-actions">
+                                                                {serverRoles.some((r) => r.id === selectedRoleId) && (
                                                                 <button
                                                                     type="button"
                                                                     className="btn btn-danger-outline btn-sm server-role-editor-action-btn"
-                                                                    disabled={!selectedRoleId || !serverRoles.find((r) => r.id === selectedRoleId)}
                                                                     onClick={() => {
                                                                         if (!selectedRoleId) return
                                                                         setDeleteRoleConfirmId(selectedRoleId)
@@ -686,6 +692,7 @@ export default function ServerSettingsModal({
                                                                 >
                                                                     Delete role
                                                                 </button>
+                                                                )}
                                                                 <div className="server-role-editor-actions-right">
                                                                     <button
                                                                         type="button"

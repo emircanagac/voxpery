@@ -83,10 +83,11 @@ export default function ServerRoleEditor({
         <div className="server-role-editor">
             <div className="server-role-editor-meta">
                 <div>
-                    <label className="server-settings-card__title server-role-editor-label">
+                    <label className="server-settings-card__title server-role-editor-label" htmlFor="server-role-editor-name">
                         Role name
                     </label>
                     <input
+                        id="server-role-editor-name"
                         type="text"
                         value={roleEditName}
                         onChange={(e) => onRoleNameChange(e.target.value)}

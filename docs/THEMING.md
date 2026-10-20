@@ -2,6 +2,8 @@
 
 Voxpery ships with three built-in appearance themes: Voxpery Blue, Dark, and Light. Users can also build a full custom palette from one color. Every theme supports an independent accent override for buttons, selected states, links, focus rings, and default avatars. Preferences are stored on the current device and are shared by the web app and the Tauri webview through browser storage.
 
+The appearance setting styles only the signed-in app (`/social` and `/servers`). Public pages (landing, About, Compare, legal pages, sign-in, registration, password reset, email verification, invites and the not-found page) always use the default Voxpery Blue palette, whatever the saved preference. `theme-init.js` and `applyThemeForPath` in `theme.ts` share this route rule, and `App.tsx` reapplies it before paint on every route change so there is no flash of the wrong theme.
+
 ## Startup
 
 `apps/web/public/theme-init.js` runs synchronously from `index.html` before the React entry point. It restores built-in themes and the independent accent and updates the browser chrome color. Keep this file dependency-free and compatible with the production Content Security Policy.

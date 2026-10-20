@@ -204,7 +204,7 @@ Runs on `push` and `pull_request`:
 
 Rust sources keep mixed CRLF/LF line endings, so the format checks run on a copy with LF endings: only formatting fails them. Run `cargo fmt` before pushing Rust changes and keep the original line endings of untouched lines.
 
-Backend service containers pull pinned PostgreSQL and Redis versions from Docker Official Images on Amazon ECR Public (`public.ecr.aws/docker/library/`). This avoids Docker Hub pull quotas without requiring registry secrets, including for fork pull requests. Keep version tags pinned when updating these images.
+Backend service containers pull pinned PostgreSQL and Redis versions of the Docker Official Images through Google's Docker Hub mirror (`mirror.gcr.io/library/`). Docker Hub and Amazon ECR Public both throttle anonymous pulls from shared GitHub runner addresses; the mirror needs no registry secrets, including for fork pull requests. Keep version tags pinned when updating these images.
 
 Backend runs for `apps/server/` changes, Desktop for `apps/desktop/` and its launcher/QA-config scripts, and Frontend for everything else that is not documentation, plus the server and desktop files its validators read. Documentation-only changes (`*.md`, `docs/`, `LICENSE`, issue templates) skip all three. Changes to `ci.yml`, tags, manual runs and pushes without a known base run everything, and a failed detection also runs everything. Skipped jobs report success, so required checks never block on an unaffected area.
 

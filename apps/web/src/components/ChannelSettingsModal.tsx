@@ -331,13 +331,13 @@ export default function ChannelSettingsModal({
                             </div>
 
                             <div className="server-settings-body server-settings-body--with-tabs">
-                                {error && <div className="modal-error server-settings-error">{error}</div>}
+                                {error && <div className="modal-error server-settings-error" role="alert">{error}</div>}
 
                                 {tab === 'general' && (
                                     <div className="server-settings-section channel-settings-general">
                                         <div className="form-group">
-                                            <label>Channel Name</label>
-                                            <input
+                                            <label htmlFor="channel-settings-modal-channel-name">Channel Name</label>
+                                            <input id="channel-settings-modal-channel-name"
                                                 type="text"
                                                 value={name}
                                                 onChange={e => setName(e.target.value)}
@@ -346,8 +346,8 @@ export default function ChannelSettingsModal({
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label>Category</label>
-                                            <input
+                                            <label htmlFor="channel-settings-modal-category">Category</label>
+                                            <input id="channel-settings-modal-category"
                                                 type="text"
                                                 value={category}
                                                 onChange={e => setCategory(e.target.value)}
@@ -356,8 +356,8 @@ export default function ChannelSettingsModal({
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label>Description</label>
-                                            <textarea
+                                            <label htmlFor="channel-settings-modal-description">Description</label>
+                                            <textarea id="channel-settings-modal-description"
                                                 value={description}
                                                 onChange={e => setDescription(e.target.value)}
                                                 placeholder="What is this channel for?"
@@ -443,10 +443,13 @@ export default function ChannelSettingsModal({
                                                         return (
                                                             <div key={opt.bit} className="channel-perm-row">
                                                                 <span>{opt.label}</span>
-                                                                <div className="channel-perm-switches">
+                                                                <div className="channel-perm-switches" role="group" aria-label={opt.label}>
                                                                     <button
                                                                         type="button"
                                                                         className={`channel-perm-btn ${isDenied ? 'is-denied' : ''}`}
+                                                                        aria-label={`${opt.label}: Deny`}
+                                                                        aria-pressed={isDenied}
+                                                                        title="Deny"
                                                                         onClick={() => updateOverrideBit(opt.bit, 'deny')}
                                                                     >
                                                                         <X size={14} />
@@ -454,6 +457,9 @@ export default function ChannelSettingsModal({
                                                                     <button
                                                                         type="button"
                                                                         className={`channel-perm-btn ${!isAllowed && !isDenied ? 'is-inherit' : ''}`}
+                                                                        aria-label={`${opt.label}: Inherit`}
+                                                                        aria-pressed={!isAllowed && !isDenied}
+                                                                        title="Inherit"
                                                                         onClick={() => updateOverrideBit(opt.bit, 'inherit')}
                                                                     >
                                                                         /
@@ -461,6 +467,9 @@ export default function ChannelSettingsModal({
                                                                     <button
                                                                         type="button"
                                                                         className={`channel-perm-btn ${isAllowed ? 'is-allowed' : ''}`}
+                                                                        aria-label={`${opt.label}: Allow`}
+                                                                        aria-pressed={isAllowed}
+                                                                        title="Allow"
                                                                         onClick={() => updateOverrideBit(opt.bit, 'allow')}
                                                                     >
                                                                         ✓

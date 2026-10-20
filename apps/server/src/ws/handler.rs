@@ -995,6 +995,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         WsEvent::MemberJoined { server_id, .. }
                         | WsEvent::MemberLeft { server_id, .. }
                         | WsEvent::MemberRoleUpdated { server_id, .. }
+                        | WsEvent::MemberTimeoutUpdated { server_id, .. }
                         | WsEvent::ServerRolesUpdated { server_id }
                         | WsEvent::ServerChannelsUpdated { server_id } => {
                             user_in_server(&send_state.db, user_id, *server_id).await

@@ -17,6 +17,7 @@ import ServerWelcomeGuide from '../components/ServerWelcomeGuide'
 import { joinVoiceChannelFromNavigation } from '../components/voiceChannelNavigation'
 import { shouldShowServerWelcomeGuide } from '../serverWelcomeGuideVisibility'
 import { useToastStore } from '../stores/toast'
+import { activeTimeoutUntil, formatTimeoutUntil } from '../timeouts'
 import { X } from 'lucide-react'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
@@ -28,7 +29,7 @@ import {
     setDraftAttachmentUploading,
     type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom, withUpdatedAuthor } from '../messageAuthors'
 import {
     clearMessageDraftIfUnchanged,
@@ -50,7 +51,7 @@ import { ROUTES } from '../routes'
 import { resolveInviteBaseUrl } from '../inviteLinks'
 import { handleVoiceMemberMoveRequested } from '../webrtc/voiceMemberMove'
 import type { UiMessage, ServerSettingsLocalTab, ServerSettingsOpenTab } from './appLayoutModel'
-import { isSafetySettingsTab, normalizeServerSettingsTab, MESSAGE_PAGE_SIZE, REPORT_REASONS, PERM_VIEW_SERVER, PERM_MANAGE_SERVER, PERM_MANAGE_ROLES, PERM_MANAGE_CHANNELS, PERM_KICK_MEMBERS, PERM_BAN_MEMBERS, PERM_VIEW_AUDIT_LOG, PERM_SEND_MESSAGES, PERM_MANAGE_MESSAGES, PERM_MANAGE_PINS, PERM_CONNECT_VOICE, PERM_MUTE_MEMBERS, PERM_DEAFEN_MEMBERS, PERM_MOVE_MEMBERS, validateChannelNameInput, validateCategoryNameInput, validateChannelDescriptionInput, parseInviteInput, compareChannelsForSidebar, getStoredChannelId, setStoredChannelId, isWelcomeGuideDismissed, dismissWelcomeGuide, messageMentionsUser } from './appLayoutModel'
+import { isSafetySettingsTab, normalizeServerSettingsTab, MESSAGE_PAGE_SIZE, REPORT_REASONS, PERM_VIEW_SERVER, PERM_MANAGE_SERVER, PERM_MANAGE_ROLES, PERM_MANAGE_CHANNELS, PERM_KICK_MEMBERS, PERM_BAN_MEMBERS, PERM_VIEW_AUDIT_LOG, PERM_SEND_MESSAGES, PERM_MANAGE_MESSAGES, PERM_MANAGE_PINS, PERM_CONNECT_VOICE, PERM_MUTE_MEMBERS, PERM_DEAFEN_MEMBERS, PERM_MOVE_MEMBERS, validateChannelNameInput, validateCategoryNameInput, validateChannelDescriptionInput, parseInviteInput, compareChannelsForSidebar, getStoredChannelId, setStoredChannelId, isWelcomeGuideDismissed, dismissWelcomeGuide, messageMentionsUser, removalNoticeFor } from './appLayoutModel'
 import ServerSettingsModal from './ServerSettingsModal'
 import ServerCreationDialogs from './ServerCreationDialogs'
 import ServerConfirmDialogs from './ServerConfirmDialogs'
@@ -623,7 +624,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         const cached = historicalChannelIdRef.current === channelId ? undefined : messagesByChannelRef.current[channelId]
         setMessages(cached ?? [])
         messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
-            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined, clientDraft: undefined }))
             const merged = mergeLatestPageWithHistory(ui, withAuthorsFrom(cached ?? [], ui))
             if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
                 return
@@ -653,7 +654,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const cached = messagesByChannelRef.current[channelId] ?? []
             const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
             if (requestId !== channelMessagesRequestRef.current) return
-            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined, clientDraft: undefined }))
             const merged = mergeLatestPageWithHistory(ui, withAuthorsFrom(cached, ui))
             messagesByChannelRef.current[channelId] = merged
             if (activeChannelIdRef.current === channelId) {
@@ -787,7 +788,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         try {
             const rows = await messageApi.list(channelId, token, oldestId, MESSAGE_PAGE_SIZE)
             if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
-            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined, clientDraft: undefined }))
             const merged = [...ui, ...current]
             messagesByChannelRef.current[channelId] = merged
             if (activeChannelIdRef.current !== channelId) return
@@ -815,7 +816,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             if (!rows.some((message) => message.id === messageId)) {
                 throw new Error('Message not found in this channel')
             }
-            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined, clientDraft: undefined }))
             messagesByChannelRef.current[channelId] = ui
             setMessages(ui)
             setHasMoreOlder(true)
@@ -846,7 +847,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         try {
             const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
             if (requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) return
-            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined }))
+            const ui = rows.map((message) => ({ ...message, clientStatus: undefined, clientId: undefined, clientError: undefined, clientDraft: undefined }))
             const merged = mergeRemoteWithRetryableLocals(ui, messagesByChannelRef.current[channelId] ?? [])
             messagesByChannelRef.current[channelId] = merged
             setMessages(merged)
@@ -937,10 +938,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             return next
                         })
                         if (activeServerIdRef.current !== sid) return
+                        const currentActive = activeChannelIdRef.current
+                        const lostChannel = currentActive
+                            ? useAppStore.getState().channels.find((c) => c.id === currentActive && c.server_id === sid)
+                            : undefined
                         setChannels(chs)
                         setChannelCategoriesForServer(sid, categories.map((c) => c.name))
-                        const currentActive = activeChannelIdRef.current
                         const stillValid = !!currentActive && chs.some((c) => c.id === currentActive)
+                        if (!stillValid && lostChannel) {
+                            useToastStore.getState().pushToast({
+                                level: 'info',
+                                title: 'Channel unavailable',
+                                message: `#${lostChannel.name} is no longer available to you.`,
+                            })
+                        }
                         if (!stillValid) {
                             const target = chs.find((c) => c.channel_type === 'text')?.id ?? chs[0]?.id ?? null
                             store.setActiveChannel(target)
@@ -1134,6 +1145,18 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     refreshServerSnapshot(sid, t, true)
                     break
                 }
+                case 'MemberTimeoutUpdated': {
+                    const d = event.data
+                    if (!d.server_id || !d.user_id) break
+                    const store = useAppStore.getState()
+                    const withTimeout = (list: typeof store.members) => list.map((member) => (
+                        member.user_id === d.user_id ? { ...member, timed_out_until: d.timed_out_until } : member
+                    ))
+                    if (activeServerIdRef.current === d.server_id) store.setMembers(withTimeout(store.members ?? []))
+                    const cached = store.membersByServerId[d.server_id] ?? []
+                    if (cached.length > 0) store.setMembersForServer(d.server_id, withTimeout(cached))
+                    break
+                }
                 case 'ServerRolesUpdated': {
                     const d = event.data
                     const sid = d.server_id
@@ -1159,6 +1182,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                     if (leftUserId === useAuthStore.getState().user?.id) {
                         // This account was kicked, banned or left elsewhere: drop the server
                         // instead of keeping its channels and composer on screen.
+                        const serverName = store.servers.find((server) => server.id === sid)?.name
+                        const removalNotice = serverName && removalNoticeFor(d.reason, serverName)
+                        if (removalNotice) useToastStore.getState().pushToast({ level: 'info', ...removalNotice })
                         const remaining = store.servers.filter((server) => server.id !== sid)
                         store.setServers(remaining)
                         if (activeServerIdRef.current === sid) store.setActiveServer(remaining[0]?.id ?? null)
@@ -1340,7 +1366,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         if (!isForcedContent) setMessageInput('')
         setDraftAttachments([])
         setMessages((prev) => {
-            const next = [...prev, optimistic]
+            const next = [...withoutFailedDuplicates(prev, content, attachments), optimistic]
             messagesByChannelRef.current[channelId] = next
             return next
         })
@@ -1366,7 +1392,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const applyFailedMessage = (current: UiMessage[]) =>
                 current.map((m) =>
                     m.clientId === clientId
-                        ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed' }
+                        ? { ...m, clientStatus: 'failed' as const, clientError: err instanceof Error ? err.message : 'Send failed', clientDraft: isForcedContent ? undefined : inputValue }
                         : m
                 ) as UiMessage[]
             if (activeChannelIdRef.current === channelId) {
@@ -1421,6 +1447,10 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 })
             } else {
                 messagesByChannelRef.current[channelId] = applyRetriedMessage(messagesByChannelRef.current[channelId] ?? [])
+            }
+            if (target.clientDraft && activeChannelIdRef.current === channelId) {
+                setMessageInput((current) => (current === target.clientDraft ? '' : current))
+                clearMessageDraftIfUnchanged(user?.id, 'channel', channelId, target.clientDraft)
             }
         } catch (err) {
             const applyFailedRetry = (current: UiMessage[]) =>
@@ -1749,7 +1779,17 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             : activePerms
     // Permissions-based gating (backend enforces same).
     const canManageChannels = (activePerms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS
-    const canSendMessages = (activeChannelPerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES
+    // A timed-out member cannot send until the timeout ends; re-render when it does.
+    const [timeoutClock, setTimeoutClock] = useState(() => Date.now())
+    const ownTimeoutUntil = activeTimeoutUntil(members.find((member) => member.user_id === user?.id)?.timed_out_until, timeoutClock)
+    const ownTimeoutEnd = ownTimeoutUntil?.getTime() ?? null
+    useEffect(() => {
+        if (ownTimeoutEnd == null) return
+        const timer = window.setTimeout(() => setTimeoutClock(Date.now()), Math.min(Math.max(ownTimeoutEnd - Date.now(), 0) + 500, 2_147_000_000))
+        return () => window.clearTimeout(timer)
+    }, [ownTimeoutEnd])
+    const composerBlockedMessage = ownTimeoutUntil ? `You are timed out until ${formatTimeoutUntil(ownTimeoutUntil)}.` : null
+    const canSendMessages = (activeChannelPerms & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES && !ownTimeoutUntil
     const canManageMessages = (activeChannelPerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES
     const canManagePins = (activeChannelPerms & PERM_MANAGE_PINS) === PERM_MANAGE_PINS
     const hasManageServer = (activePerms & PERM_MANAGE_SERVER) === PERM_MANAGE_SERVER
@@ -2840,8 +2880,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         }
     }
 
+    /** Category that receives the deleted category's channels; `null` when no other category exists. */
     const resolveDeleteCategoryMoveTarget = useCallback(
-        (categoryName: string): string => {
+        (categoryName: string): string | null => {
             const normalized = categoryName.trim().toLowerCase()
             const preferredGeneral = channelCategories.find(
                 (name) => name.trim().toLowerCase() === 'general',
@@ -2854,9 +2895,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const firstOther = channelCategories.find(
                 (name) => name.trim().toLowerCase() !== normalized,
             )
-            if (firstOther) return firstOther
-
-            return 'General'
+            return firstOther ?? null
         },
         [channelCategories],
     )
@@ -3205,6 +3244,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 onUnpinMessage={canManagePins ? handleUnpinChannelMessage : undefined}
                 onToggleReaction={canSendMessages ? handleToggleChannelReaction : undefined}
                 canSendMessages={canSendMessages}
+                composerBlockedMessage={composerBlockedMessage}
                 showMemberSheetButton={!!activeServerId}
                 onOpenMemberSheet={isMobileViewport ? () => setShowMobileMemberSheet(true) : toggleMemberPanel}
                 memberPanelOpen={isMobileViewport ? undefined : memberPanelOpen}

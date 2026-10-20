@@ -34,6 +34,7 @@ import {
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
 import { formatAppVersionBadge } from '../appVersion'
+import { shellDocumentTitle, shellPlaceName } from './shellTitle'
 
 const DESKTOP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SOCIAL_FALLBACK_SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -116,6 +117,7 @@ export default function AppShell() {
   const previousUnreadCountRef = useRef(0)
   const desktopUnreadInitializedRef = useRef(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [unreadTotal, setUnreadTotal] = useState(0)
   const [compactSettingsTarget, setCompactSettingsTarget] = useState<HTMLDivElement | null>(null)
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const appVersionBadge = BUILD_APP_VERSION ?? desktopAppVersion
@@ -229,7 +231,7 @@ export default function AppShell() {
         return sum + serverUnread
       }, 0)
       const totalUnreadCount = dmTotal + serverTotal + state.incomingRequestCount
-      document.title = 'Voxpery'
+      setUnreadTotal(totalUnreadCount)
 
       if (!isTauri()) {
         previousUnreadCountRef.current = totalUnreadCount
@@ -631,6 +633,16 @@ export default function AppShell() {
   const isServerView =
     location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
   const showVoiceStage = isServerView ? !!activeChannelId : false
+  const activeDm = useMemo(
+    () => dmChannels.find((channel) => channel.id === activeDmChannelId) ?? null,
+    [activeDmChannelId, dmChannels],
+  )
+  const titleView = isServerView ? 'server' : location.pathname === ROUTES.dm ? 'dm' : location.pathname === ROUTES.home ? 'friends' : 'other'
+  const titlePlace = shellPlaceName({ view: titleView, channel: activeChannel, dm: activeDm })
+  useEffect(() => {
+    document.title = shellDocumentTitle(unreadTotal, titlePlace)
+  }, [titlePlace, unreadTotal])
+  useEffect(() => () => { document.title = 'Voxpery' }, [])
   const quickSwitcherItems = useMemo<QuickSwitcherItem[]>(() => {
     const serverItems: QuickSwitcherItem[] = servers.map((server) => ({
       id: `server:${server.id}`,
@@ -739,6 +751,7 @@ export default function AppShell() {
 
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
+      <a className="skip-link" href="#app-content">Skip to content</a>
       <header
         className={`shell-topbar${IS_DESKTOP_WINDOW ? ' shell-topbar--desktop' : ''}`}
         data-tauri-drag-region={IS_DESKTOP_WINDOW ? 'deep' : undefined}
@@ -773,7 +786,7 @@ export default function AppShell() {
           {IS_DESKTOP_WINDOW && <WindowControls />}
         </div>
       </header>
-      <main className="shell-content">
+      <main className="shell-content" id="app-content">
         <Outlet />
       </main>
       {/* Voice call bar — fixed to bottom of chat area, visible in both server and DM views */}

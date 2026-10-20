@@ -42,15 +42,15 @@ describe('ServerSidebar leave actions', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Renamed Community' }))
 
-    expect(screen.queryByRole('button', { name: 'Leave Server' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mute Server' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Leave Server' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Mute Server' })).toBeInTheDocument()
   })
 
   it('keeps Leave Server for a different server even if it shares the Voxpery name', () => {
     render(<ServerSidebar onCreateServer={vi.fn()} onJoinServer={vi.fn()} />)
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Voxpery' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Leave Server' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Leave Server' }))
 
     expect(screen.getByText(/Are you sure you want to leave/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()

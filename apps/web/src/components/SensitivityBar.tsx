@@ -544,6 +544,16 @@ export default function SensitivityBar({
             </div>
 
             <div
+                className="sr-only"
+                role="meter"
+                aria-label="Microphone input level"
+                aria-valuemin={-100}
+                aria-valuemax={0}
+                aria-valuenow={Math.round(liveDb)}
+                aria-valuetext={micActive ? `${Math.round(liveDb)} dB` : 'Microphone test is off'}
+            />
+
+            <div
                 ref={barRef}
                 className="sensitivity-bar-track"
                 onMouseDown={onMouseDown}
@@ -551,6 +561,7 @@ export default function SensitivityBar({
                 aria-valuenow={threshold}
                 aria-valuemin={0}
                 aria-valuemax={100}
+                aria-valuetext={`${thresholdDb} dB`}
                 aria-label="Sensitivity threshold"
                 tabIndex={0}
             >

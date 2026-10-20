@@ -242,7 +242,7 @@ async fn create_server(
     Extension(claims): Extension<Claims>,
     Json(body): Json<CreateServerRequest>,
 ) -> Result<Json<Server>, AppError> {
-    if body.name.is_empty() || body.name.len() > 100 {
+    if body.name.is_empty() || body.name.chars().count() > 100 {
         return Err(AppError::Validation(
             "Server name must be 1-100 characters".into(),
         ));
@@ -416,7 +416,7 @@ async fn get_server(
     let mut members = sqlx::query_as::<_, MemberInfo>(
         r#"SELECT sm.user_id,
                   u.username,
-                  u.avatar_url,
+                  public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   u.about_me,
                   CASE WHEN sm.user_id = $2 THEN 'owner' ELSE 'member' END AS role,
                   u.status,
@@ -427,7 +427,8 @@ async fn get_server(
                   CASE
                       WHEN sm.user_id = $2 THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
-                  END AS highest_role_position
+                  END AS highest_role_position,
+                  tm.timed_out_until
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -459,6 +460,10 @@ async fn get_server(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
+           LEFT JOIN server_member_timeouts tm
+               ON tm.server_id = sm.server_id
+              AND tm.user_id = sm.user_id
+              AND tm.timed_out_until > NOW()
            WHERE sm.server_id = $1
            ORDER BY sm.user_id = $2 ASC, u.username ASC"#,
     )
@@ -645,6 +650,7 @@ async fn leave_server(
         WsEvent::MemberLeft {
             server_id,
             user_id: claims.sub,
+            reason: None,
         },
     )
     .await;
@@ -655,6 +661,7 @@ async fn leave_server(
         WsEvent::MemberLeft {
             server_id,
             user_id: claims.sub,
+            reason: Some("left".into()),
         },
     )
     .await;
@@ -729,8 +736,16 @@ async fn delete_server(
     voice_revoke::close_voice_rooms(&state, &voice_channel_ids, "server deleted").await;
     // Every former member drops the server, as after leaving it.
     for user_id in member_ids {
-        crate::ws::publish_user_event(&state, user_id, WsEvent::MemberLeft { server_id, user_id })
-            .await;
+        crate::ws::publish_user_event(
+            &state,
+            user_id,
+            WsEvent::MemberLeft {
+                server_id,
+                user_id,
+                reason: Some("deleted".into()),
+            },
+        )
+        .await;
     }
 
     Ok(Json(serde_json::json!({ "message": "Server deleted" })))
@@ -769,7 +784,7 @@ async fn update_server(
     let mut next_name = current.name.clone();
     if let Some(name) = body.name {
         let trimmed = name.trim();
-        if trimmed.is_empty() || trimmed.len() > 100 {
+        if trimmed.is_empty() || trimmed.chars().count() > 100 {
             return Err(AppError::Validation(
                 "Server name must be 1-100 characters".into(),
             ));
@@ -928,7 +943,7 @@ async fn list_channel_visible_members(
     let members = sqlx::query_as::<_, MemberInfo>(
         r#"SELECT sm.user_id,
                   u.username,
-                  u.avatar_url,
+                  public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   u.about_me,
                   CASE WHEN sm.user_id = s.owner_id THEN 'owner' ELSE 'member' END AS role,
                   u.status,
@@ -939,7 +954,8 @@ async fn list_channel_visible_members(
                   CASE
                       WHEN sm.user_id = s.owner_id THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
-                  END AS highest_role_position
+                  END AS highest_role_position,
+                  tm.timed_out_until
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            INNER JOIN users u ON sm.user_id = u.id
@@ -972,6 +988,10 @@ async fn list_channel_visible_members(
                  AND smr2.user_id = sm.user_id
                  AND LOWER(sr.name) <> 'everyone'
            ) rp ON TRUE
+           LEFT JOIN server_member_timeouts tm
+               ON tm.server_id = sm.server_id
+              AND tm.user_id = sm.user_id
+              AND tm.timed_out_until > NOW()
            WHERE sm.server_id = $1
            ORDER BY sm.user_id = s.owner_id ASC, u.username ASC"#,
     )

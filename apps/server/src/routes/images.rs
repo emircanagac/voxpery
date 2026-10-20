@@ -1,7 +1,7 @@
 use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{header, HeaderMap, HeaderValue},
     middleware,
     response::{IntoResponse, Response},
@@ -12,14 +12,15 @@ use futures::StreamExt;
 use reqwest::redirect::Policy;
 use serde::Deserialize;
 use tokio::net::lookup_host;
+use uuid::Uuid;
 
 use crate::{
     errors::AppError,
     middleware::auth::{require_auth, Claims},
     services::{
         avatar_images::{
-            is_allowed_avatar_content_type, is_private_or_local_ip, validate_external_image_url,
-            AVATAR_PROXY_CACHE_CONTROL, MAX_REMOTE_IMAGE_PROXY_BYTES,
+            decode_stored_image_data_url, is_allowed_avatar_content_type, is_private_or_local_ip,
+            validate_external_image_url, AVATAR_PROXY_CACHE_CONTROL, MAX_REMOTE_IMAGE_PROXY_BYTES,
         },
         image_proxy_grant,
         rate_limit::enforce_rate_limit,
@@ -42,6 +43,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/avatar", get(proxy_avatar))
+        .route("/users/{user_id}/avatar", get(stored_user_avatar))
         .route("/remote", get(proxy_remote_image))
         .with_state(state)
 }
@@ -62,13 +64,18 @@ async fn get_image_proxy_grant(
 }
 
 async fn has_valid_grant(state: &AppState, query: &ImageProxyQuery) -> bool {
-    let Some(grant) = query.grant.as_deref() else {
+    grant_allows(state, query.grant.as_deref(), &query.url).await
+}
+
+/// A signed grant for `image_url`, or a user grant whose session is still signed in.
+async fn grant_allows(state: &AppState, grant: Option<&str>, image_url: &str) -> bool {
+    let Some(grant) = grant else {
         return false;
     };
     match image_proxy_grant::verify(
         &state.jwt_secret,
         grant,
-        &query.url,
+        image_url,
         chrono::Utc::now().timestamp(),
     ) {
         Some(image_proxy_grant::VerifiedGrant::Image) => true,
@@ -140,6 +147,63 @@ fn build_pinned_image_proxy_client(
         .resolve_to_addrs(host, resolved_addrs)
         .build()
         .map_err(|e| AppError::Internal(format!("Image proxy client build failed: {e}")))
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredAvatarQuery {
+    grant: Option<String>,
+}
+
+/// Uploaded avatars stay valid for a URL version (`v`), which changes with the image itself.
+const STORED_AVATAR_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
+
+/// GET /api/images/users/{user_id}/avatar — the uploaded avatar that lists reference by URL
+/// instead of repeating the stored data URL inline. The `v` query parameter only versions the
+/// URL for caching; the current image is always served.
+async fn stored_user_avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(user_id): Path<Uuid>,
+    Query(query): Query<StoredAvatarQuery>,
+) -> Result<Response, AppError> {
+    let path = format!("/api/images/users/{user_id}/avatar");
+    if !grant_allows(&state, query.grant.as_deref(), &path).await {
+        return Err(AppError::Unauthorized);
+    }
+    enforce_rate_limit(
+        &state.redis,
+        format!(
+            "image_proxy:stored_avatar:{}",
+            client_ip(&state.trusted_proxies, &headers, connect_info.as_ref())
+        ),
+        600,
+        Duration::from_secs(60),
+        "Too many image requests. Please wait and try again.",
+    )
+    .await?;
+
+    let stored: Option<String> = sqlx::query_scalar("SELECT avatar_url FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten();
+    let (content_type, body) = stored
+        .as_deref()
+        .and_then(decode_stored_image_data_url)
+        .ok_or_else(|| AppError::NotFound("Avatar not found".into()))?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(STORED_AVATAR_CACHE_CONTROL),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok((headers, body).into_response())
 }
 
 async fn proxy_avatar(
