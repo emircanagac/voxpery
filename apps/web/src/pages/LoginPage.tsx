@@ -8,7 +8,7 @@ import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { setPersistedSocialView } from '../socialView'
-import { googleOAuthErrorMessage, resolvePostAuthRoute } from '../authRedirect'
+import { googleOAuthErrorMessage, resolvePostAuthRoute, takeExpiredSession } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import DesktopSignInCode from '../components/DesktopSignInCode'
 import CustomServerPanel from '../components/CustomServerPanel'
@@ -46,7 +46,8 @@ function safeRedirectPath(redirect: string | null): string | undefined {
 export default function LoginPage() {
     const location = useLocation()
     const [searchParams] = useSearchParams()
-    const redirectTo = safeRedirectPath(searchParams.get('redirect'))
+    const [expiredSession] = useState(() => takeExpiredSession())
+    const redirectTo = safeRedirectPath(searchParams.get('redirect')) ?? expiredSession?.returnTo
     const oauthError = googleOAuthErrorMessage(searchParams.get('error'))
     const [identifier, setIdentifier] = useState('')
     const [password, setPassword] = useState('')
@@ -111,6 +112,12 @@ export default function LoginPage() {
                 </Link>
                 <h1>Voxpery</h1>
                 <p>Sign in and continue to your community</p>
+
+                {expiredSession && !error && (
+                    <div className="auth-notice" role="status">
+                        Your session ended. Sign in again to continue where you left off.
+                    </div>
+                )}
 
                 {error && (
                     <div className="auth-error" role="alert">

@@ -14,6 +14,7 @@ import { useFeatureStore } from './stores/features'
 import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks, setDesktopSignInCodeHandler } from './desktopOAuth'
 import { configureObservability, reportObservabilityEvent } from './observability'
 import { THEME_CHANGED_EVENT, applyThemeForPath } from './theme'
+import { rememberExpiredSession } from './authRedirect'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -137,6 +138,7 @@ function App() {
     const clearExpiredSession = () => {
       if (authFailureHandledRef.current) return
       authFailureHandledRef.current = true
+      rememberExpiredSession(window.location.pathname + window.location.search + window.location.hash)
       useSocketStore.getState().disconnect()
       useAppStore.getState().resetSessionState()
       useAuthStore.getState().clearSession()

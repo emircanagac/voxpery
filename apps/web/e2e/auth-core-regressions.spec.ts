@@ -88,6 +88,23 @@ test.describe('mocked auth and account regressions', () => {
     await expect(page.getByRole('group', { name: 'Voice preferences' })).toHaveCount(0)
   })
 
+  test('explains a session ended by the server and returns to the same page', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page)
+    await page.goto('/servers')
+    await expect(page.getByRole('link', { name: 'Social' })).toBeVisible()
+    await page.route('**/api/**', (route) => {
+      if (new URL(route.request().url()).pathname === '/api/auth/session') return route.fallback()
+      return route.fulfill({ status: 401, json: { error: 'Authentication required' } })
+    })
+    await page.getByRole('link', { name: 'Social' }).click()
+
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByRole('status')).toContainText('Your session ended')
+    await expect(page.getByRole('link', { name: 'Sign Up', exact: true })).toHaveAttribute('href', /redirect=%2Fsocial/)
+    await page.reload()
+    await expect(page.getByText('Your session ended')).toHaveCount(0)
+  })
+
   test('associates auth labels, supports keyboard navigation, and preserves redirect targets', { tag: '@core' }, async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
     await page.goto('/login?redirect=%2Fsocial%2Fdm')

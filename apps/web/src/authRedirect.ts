@@ -18,3 +18,32 @@ export function googleOAuthErrorMessage(error: string | null): string {
       return ''
   }
 }
+
+const EXPIRED_SESSION_KEY = 'voxpery-expired-session-return'
+const AUTH_PAGE_PATHS = ['/login', '/register', '/forgot-password', '/reset-password']
+
+function isReturnablePath(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//') && path !== '/'
+    && !AUTH_PAGE_PATHS.some((authPath) => path === authPath || path.startsWith(`${authPath}?`) || path.startsWith(`${authPath}/`))
+}
+
+/** Remembers that the server ended this session, and where the user was, for the next sign-in. */
+export function rememberExpiredSession(path: string): void {
+  try {
+    sessionStorage.setItem(EXPIRED_SESSION_KEY, isReturnablePath(path) ? path : '')
+  } catch {
+    // Without storage the sign-in page simply shows no notice.
+  }
+}
+
+/** Reads and clears the expired-session marker; `returnTo` is the page to reopen after sign-in. */
+export function takeExpiredSession(): { returnTo?: string } | null {
+  try {
+    const value = sessionStorage.getItem(EXPIRED_SESSION_KEY)
+    if (value === null) return null
+    sessionStorage.removeItem(EXPIRED_SESSION_KEY)
+    return isReturnablePath(value) ? { returnTo: value } : {}
+  } catch {
+    return null
+  }
+}

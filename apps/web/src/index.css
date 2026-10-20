@@ -7932,6 +7932,16 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   gap: 10px;
 }
 
+.auth-notice {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 32%, transparent);
+  border-radius: var(--border-radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
 .auth-error {
   background: rgba(240, 71, 71, 0.1);
   border: 1px solid rgba(240, 71, 71, 0.3);
