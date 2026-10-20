@@ -242,7 +242,7 @@ async fn create_server(
     Extension(claims): Extension<Claims>,
     Json(body): Json<CreateServerRequest>,
 ) -> Result<Json<Server>, AppError> {
-    if body.name.is_empty() || body.name.len() > 100 {
+    if body.name.is_empty() || body.name.chars().count() > 100 {
         return Err(AppError::Validation(
             "Server name must be 1-100 characters".into(),
         ));
@@ -784,7 +784,7 @@ async fn update_server(
     let mut next_name = current.name.clone();
     if let Some(name) = body.name {
         let trimmed = name.trim();
-        if trimmed.is_empty() || trimmed.len() > 100 {
+        if trimmed.is_empty() || trimmed.chars().count() > 100 {
             return Err(AppError::Validation(
                 "Server name must be 1-100 characters".into(),
             ));

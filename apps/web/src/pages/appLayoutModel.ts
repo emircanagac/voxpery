@@ -57,6 +57,7 @@ export function normalizeServerSettingsTab(tab: ServerSettingsOpenTab): ServerSe
 export const MESSAGE_PAGE_SIZE = 50
 export const CHANNEL_NAME_MAX = 32
 export const CATEGORY_NAME_MAX = 32
+export const SERVER_NAME_MAX = 100
 export const CHANNEL_DESCRIPTION_MAX = 120
 export const WELCOME_GUIDE_DISMISSED_STORAGE_KEY = 'voxpery-dismissed-welcome-guides'
 export const REPORT_REASONS = [

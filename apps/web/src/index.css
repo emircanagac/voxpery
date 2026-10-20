@@ -7511,6 +7511,14 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   outline-offset: 2px;
 }
 
+.form-field-counter {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .form-hint--error {
   margin-top: 4px;
   color: var(--text-danger);
@@ -11892,8 +11900,11 @@ button.message-author {
 
 .server-settings-header__server-name {
   margin: 0;
+  overflow: hidden;
   font-size: 12px;
   color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .server-settings-header__hint {
@@ -11976,6 +11987,7 @@ button.message-author {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   padding: 2px 4px 10px;
   margin-bottom: 6px;
   border-bottom: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
@@ -11990,9 +12002,14 @@ button.message-author {
 }
 
 .server-settings-nav__title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-primary);
   font-size: 15px;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .server-settings-nav__item {
@@ -13848,6 +13865,7 @@ button.message-author {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .server-role-btn-cancel {

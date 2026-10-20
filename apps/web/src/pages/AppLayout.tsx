@@ -2880,8 +2880,9 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         }
     }
 
+    /** Category that receives the deleted category's channels; `null` when no other category exists. */
     const resolveDeleteCategoryMoveTarget = useCallback(
-        (categoryName: string): string => {
+        (categoryName: string): string | null => {
             const normalized = categoryName.trim().toLowerCase()
             const preferredGeneral = channelCategories.find(
                 (name) => name.trim().toLowerCase() === 'general',
@@ -2894,9 +2895,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const firstOther = channelCategories.find(
                 (name) => name.trim().toLowerCase() !== normalized,
             )
-            if (firstOther) return firstOther
-
-            return 'General'
+            return firstOther ?? null
         },
         [channelCategories],
     )

@@ -1,7 +1,7 @@
 import { type FormEvent, type RefObject, type Dispatch, type SetStateAction } from 'react'
 import ModalSurface from '../components/ModalSurface'
 import { MessageSquare, Mic } from 'lucide-react'
-import { CHANNEL_NAME_MAX, CATEGORY_NAME_MAX, CHANNEL_DESCRIPTION_MAX, parseInviteInput } from './appLayoutModel'
+import { CHANNEL_NAME_MAX, CATEGORY_NAME_MAX, CHANNEL_DESCRIPTION_MAX, SERVER_NAME_MAX, parseInviteInput } from './appLayoutModel'
 
 export interface ServerCreationDialogsProps {
     activeServerId: string | null
@@ -143,10 +143,15 @@ export default function ServerCreationDialogs({
                                     createServerRequestIdRef.current = null
                                 }}
                                 placeholder="My Awesome Server"
+                                maxLength={SERVER_NAME_MAX}
+                                aria-describedby="server-creation-dialogs-server-name-count"
                                 autoFocus
                                 disabled={isCreatingServer}
                                 required
                             />
+                            <div id="server-creation-dialogs-server-name-count" className="form-field-counter">
+                                {Array.from(newServerName).length}/{SERVER_NAME_MAX}
+                            </div>
                         </div>
                         <div className="form-group">
                             <label htmlFor="server-creation-dialogs-description">Description <span style={{ opacity: 0.6 }}>(optional)</span></label>

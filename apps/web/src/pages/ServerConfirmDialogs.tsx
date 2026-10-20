@@ -34,7 +34,7 @@ export interface ServerConfirmDialogsProps {
     reportReason: "spam" | "harassment" | "inappropriate_content" | "impersonation" | "other"
     reportSubmitting: boolean
     reportTarget: { kind: "user" | "message"; userId: string; username: string; messageId?: string; messageContent?: string; } | null
-    resolveDeleteCategoryMoveTarget: (categoryName: string) => string
+    resolveDeleteCategoryMoveTarget: (categoryName: string) => string | null
     serverRoles: ServerRole[]
     serverSettingsReturnFocusRef: RefObject<HTMLElement | null>
     setCategoryPermissionsTarget: Dispatch<SetStateAction<string | null>>
@@ -404,6 +404,14 @@ export default function ServerConfirmDialogs({
                             const channelsInCategory = channels.filter(
                                 (c) => (c.category ?? 'Channels') === deleteCategoryConfirm,
                             ).length
+                            if (channelsInCategory > 0 && !moveTarget) {
+                                return (
+                                    <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                                        <strong>{deleteCategoryConfirm}</strong> is the only category. Create another category or
+                                        delete its channels before deleting it.
+                                    </p>
+                                )
+                            }
                             return channelsInCategory > 0 ? (
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                                     Channels in <strong>{deleteCategoryConfirm}</strong> will be moved to <strong>{moveTarget}</strong>.
@@ -424,6 +432,10 @@ export default function ServerConfirmDialogs({
                             <button
                                 type="button"
                                 className="btn btn-danger"
+                                disabled={
+                                    !resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
+                                    && channels.some((c) => (c.category ?? 'Channels') === deleteCategoryConfirm)
+                                }
                                 onClick={async () => {
                                     try {
                                         const moveTarget = resolveDeleteCategoryMoveTarget(deleteCategoryConfirm)
@@ -431,7 +443,7 @@ export default function ServerConfirmDialogs({
                                             activeServerId,
                                             deleteCategoryConfirm,
                                             token,
-                                            moveTarget,
+                                            moveTarget ?? undefined,
                                         )
                                         const [chs, categories] = await Promise.all([
                                             serverApi.channels(activeServerId, token),
