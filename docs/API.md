@@ -176,7 +176,7 @@ Notes:
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
 - `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
-- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule.
+- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list.
 
 ### Moderation
 
@@ -263,6 +263,10 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Requires a server-signed `grant`: a signed-in user's grant from the session snapshot or `/api/images/grant`, or a grant bound to that exact URL (invite preview icons). Requests without a valid grant return `401` before anything is fetched. `<img>` requests cannot send the desktop Bearer token, so the grant travels in the URL.
   - Accepts only public `https://` URLs, rejects redirects, local/private host resolution, unsupported content types, and images over 3 MB.
   - Returns `image/jpeg`, `image/png`, `image/gif`, or `image/webp` with cache headers and `X-Content-Type-Options: nosniff`.
+- `GET /api/images/users/:user_id/avatar?v=<version>&grant=<grant>`
+  - Serves an uploaded avatar (stored as a data URL). Direct message, group member, friend, server member and message author lists return such avatars as this relative path instead of the inline data URL; `v` changes whenever the image does, so each URL can be cached indefinitely (`Cache-Control: private, max-age=31536000, immutable`). Clients prefix the API origin and append the grant.
+  - Requires the same grant as the proxy (`401` without one). Only base64 PNG, JPEG, GIF or WebP data whose content matches its declared type is served, with `X-Content-Type-Options: nosniff`; anything else, or a user without an uploaded avatar, returns `404`.
+  - The signed-in user's own profile (`/api/auth/session`, `/api/auth/me`) and WebSocket profile events still carry the stored value.
 - `GET /api/images/remote?url=<encoded-https-url>&grant=<grant>`
   - Uses the same grant, SSRF, MIME, size, redirect, cache, and rate-limit controls for remote server icons and inline GIF/sticker previews.
   - Intended for user-controlled remote media that should render without exposing viewer IP/user-agent to the original host.

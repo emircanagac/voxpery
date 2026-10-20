@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { serverApi, type AuthToken, type AutoModRule, type AutoModTriggerType, type Channel, type ServerRole } from '../api'
+import ModalSurface from './ModalSurface'
 
 type ServerSettingsAutoModProps = {
     serverId: string
@@ -84,6 +86,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     const [error, setError] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [busyRuleId, setBusyRuleId] = useState<string | null>(null)
+    const [deleteConfirmRule, setDeleteConfirmRule] = useState<AutoModRule | null>(null)
     const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
     const [editingDraft, setEditingDraft] = useState<DraftState>(DEFAULT_DRAFT)
 
@@ -232,6 +235,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     }
 
     const deleteRule = async (rule: AutoModRule) => {
+        setDeleteConfirmRule(null)
         setBusyRuleId(rule.id)
         setError(null)
         try {
@@ -248,7 +252,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
     return (
         <section className="server-settings-card server-settings-card--stack server-settings-safety-section">
             <h3 className="server-settings-card__title">AutoMod</h3>
-            {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
+            {error && <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
             {loading ? (
                 <div className="server-settings-empty-state">Loading AutoMod rules...</div>
             ) : (
@@ -408,7 +412,7 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                                                 type="button"
                                                 className="btn btn-danger-outline btn-sm"
                                                 disabled={busyRuleId === rule.id}
-                                                onClick={() => void deleteRule(rule)}
+                                                onClick={() => setDeleteConfirmRule(rule)}
                                             >
                                                 Delete
                                             </button>
@@ -492,6 +496,29 @@ export default function ServerSettingsAutoMod({ serverId, token }: ServerSetting
                     </button>
                 </div>
             </div>
+            {deleteConfirmRule && typeof document !== 'undefined' && createPortal((
+                <div className="modal-overlay" onClick={() => setDeleteConfirmRule(null)}>
+                    <ModalSurface
+                        name="Delete AutoMod rule"
+                        className="modal confirm-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        onEscape={() => setDeleteConfirmRule(null)}
+                    >
+                        <h2>Delete AutoMod rule</h2>
+                        <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                            Delete <strong>{deleteConfirmRule.name}</strong>? Messages will no longer be checked against this rule. This cannot be undone.
+                        </p>
+                        <div className="modal-actions">
+                            <button type="button" className="btn btn-secondary" onClick={() => setDeleteConfirmRule(null)}>
+                                Cancel
+                            </button>
+                            <button type="button" className="btn btn-danger" onClick={() => void deleteRule(deleteConfirmRule)}>
+                                Delete rule
+                            </button>
+                        </div>
+                    </ModalSurface>
+                </div>
+            ), document.body)}
         </section>
     )
 }

@@ -1,6 +1,9 @@
 import { getApiBase } from './client'
 import { getImageProxyGrant } from './imageProxyGrant'
 
+/** Lists return uploaded avatars as this API path instead of inline data URLs. */
+const STORED_AVATAR_PATH_PREFIX = '/api/images/users/'
+
 function safeOrigin(value: string): string | null {
   try {
     return new URL(value).origin
@@ -33,6 +36,12 @@ function resolveImageUrl(
 
   const lower = url.toLowerCase()
   if (lower.startsWith('data:image/') || lower.startsWith('blob:')) return url
+  if (url.startsWith(STORED_AVATAR_PATH_PREFIX)) {
+    // Uploaded avatars the API serves itself; desktop pages load them from the API origin.
+    const grant = getImageProxyGrant()
+    const resolved = `${getApiBase()}${url}`
+    return grant ? `${resolved}${resolved.includes('?') ? '&' : '?'}grant=${encodeURIComponent(grant)}` : resolved
+  }
   if (!lower.startsWith('http://') && !lower.startsWith('https://')) return url
 
   return resolveExternalImageUrl(url, proxyPath, grant || getImageProxyGrant())

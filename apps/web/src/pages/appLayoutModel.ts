@@ -6,6 +6,7 @@ export type UiMessage = MessageWithAuthor & {
     clientId?: string
     clientStatus?: 'sending' | 'failed'
     clientError?: string
+    clientDraft?: string
 }
 
 export type ServerSettingsLocalTab = 'overview' | 'roles' | 'rules' | 'safety' | 'audit' | 'danger'
@@ -56,6 +57,7 @@ export function normalizeServerSettingsTab(tab: ServerSettingsOpenTab): ServerSe
 export const MESSAGE_PAGE_SIZE = 50
 export const CHANNEL_NAME_MAX = 32
 export const CATEGORY_NAME_MAX = 32
+export const SERVER_NAME_MAX = 100
 export const CHANNEL_DESCRIPTION_MAX = 120
 export const WELCOME_GUIDE_DISMISSED_STORAGE_KEY = 'voxpery-dismissed-welcome-guides'
 export const REPORT_REASONS = [
@@ -212,4 +214,18 @@ export function messageMentionsUser(content: string | undefined, username: strin
     if (!username) return false
     const pattern = new RegExp(`(^|\\s)@${escapeMentionPattern(username)}(?=\\s|$)`, 'i')
     return pattern.test(content)
+}
+
+/** Notice for an account removed from a server by someone else; leaving yourself shows nothing. */
+export function removalNoticeFor(reason: string | undefined, serverName: string): { title: string; message: string } | null {
+    switch (reason) {
+        case 'kicked':
+            return { title: 'Removed from server', message: `You were removed from ${serverName}.` }
+        case 'banned':
+            return { title: 'Banned from server', message: `You were banned from ${serverName}.` }
+        case 'deleted':
+            return { title: 'Server deleted', message: `${serverName} was deleted.` }
+        default:
+            return null
+    }
 }

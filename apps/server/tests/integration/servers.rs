@@ -475,6 +475,193 @@ async fn create_server_list_servers_get_server() {
 }
 
 #[tokio::test]
+async fn server_name_limit_counts_characters_not_bytes() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let (token, _) = register_user(
+        &mut app,
+        &format!("srvname-{}@example.com", uid),
+        &format!("srvname_{}", uid.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {}", token);
+    let request = |method: &str, uri: String, name: &str| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", &auth_header)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "name": name })).unwrap(),
+            ))
+            .unwrap()
+    };
+
+    // 100 two-byte characters are 200 bytes but still within the 100-character limit.
+    let long_name = "\u{e7}".repeat(100);
+    let too_long = "\u{e7}".repeat(101);
+    let (status, body) =
+        oneshot(&mut app, request("POST", "/api/servers".into(), &long_name)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(server["name"], long_name.as_str());
+    let server_uri = format!("/api/servers/{}", server["id"].as_str().unwrap());
+
+    let (status, _) = oneshot(&mut app, request("POST", "/api/servers".into(), &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, body) = oneshot(
+        &mut app,
+        request("PATCH", server_uri.clone(), &"\u{f6}".repeat(100)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "rename: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let (status, _) = oneshot(&mut app, request("PATCH", server_uri, &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn lists_reference_uploaded_avatars_by_url_and_serve_them_with_a_grant() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _) = setup_app().await;
+
+    let uid = Uuid::new_v4();
+    let (token, user_id) = register_user(
+        &mut app,
+        &format!("avatarurl-{}@example.com", uid),
+        &format!("avatarurl_{}", uid.as_u128() % 1_000_000),
+        test_credential("default"),
+    )
+    .await;
+    let auth_header = format!("Bearer {}", token);
+    let png = [
+        &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..],
+        &[7u8; 2048][..],
+    ]
+    .concat();
+    let data_url = format!("data:image/png;base64,{}", BASE64.encode(&png));
+    let json_request = |method: &str, uri: String, body: serde_json::Value| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", &auth_header)
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    };
+
+    let (status, body) = oneshot(
+        &mut app,
+        json_request(
+            "PATCH",
+            "/api/auth/profile".into(),
+            json!({ "avatar_url": data_url }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "profile: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let (status, body) = oneshot(
+        &mut app,
+        json_request(
+            "POST",
+            "/api/servers".into(),
+            json!({ "name": "Avatar Guild" }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    let req = Request::builder()
+        .uri(format!("/api/servers/{}", server["id"].as_str().unwrap()))
+        .header("Authorization", &auth_header)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !String::from_utf8_lossy(&body).contains("data:image"),
+        "member list must not inline uploaded avatars"
+    );
+    let details: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let avatar_url = details["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == user_id.to_string())
+        .and_then(|member| member["avatar_url"].as_str())
+        .expect("member avatar url")
+        .to_string();
+    assert!(
+        avatar_url.starts_with(&format!("/api/images/users/{user_id}/avatar?v=")),
+        "unexpected avatar url {avatar_url}"
+    );
+
+    let get = |uri: String| Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let (status, _) = oneshot(&mut app, get(avatar_url.clone())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .uri("/api/images/grant")
+        .header("Authorization", &auth_header)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let grant: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let grant = grant["grant"].as_str().unwrap();
+    let response = app
+        .clone()
+        .oneshot(get(format!("{avatar_url}&grant={grant}")))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    let served = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(served.as_ref(), png.as_slice());
+
+    let (status, _) = oneshot(
+        &mut app,
+        get(format!(
+            "/api/images/users/{}/avatar?grant={grant}",
+            Uuid::new_v4()
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn server_onboarding_guide_update_and_member_read_permissions() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

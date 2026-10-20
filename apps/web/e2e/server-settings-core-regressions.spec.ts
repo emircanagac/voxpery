@@ -253,6 +253,41 @@ test.describe('mocked server settings UI regressions', () => {
     expect(state.servers.find((item) => item.id === server.id)?.description).toBe('A tested settings surface.')
   })
 
+  test('limits the server name and keeps long names inside the settings navigation', async ({ page }) => {
+    const longName = 'L'.repeat(100)
+    const longServer = { ...server, name: longName }
+    const state = createServerSettingsState()
+    state.servers = [longServer]
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1440, height: 900 })
+
+    await openServerSettings(page)
+    const nameInput = page.getByLabel('Server name', { exact: true })
+    await expect(nameInput).toHaveAttribute('maxlength', '100')
+    await expect(page.locator('#server-settings-modal-server-name-count')).toHaveText('100/100')
+
+    const overflow = await page.locator('.server-settings-nav').evaluate((nav) => {
+      const title = nav.querySelector<HTMLElement>('.server-settings-nav__title')!
+      return { nav: nav.getBoundingClientRect().right, title: title.getBoundingClientRect().right, clipped: title.scrollWidth > title.clientWidth }
+    })
+    expect(overflow.title).toBeLessThanOrEqual(overflow.nav)
+    expect(overflow.clipped).toBe(true)
+  })
+
+  test('explains why the only category with channels cannot be deleted', async ({ page }) => {
+    const state = createServerSettingsState()
+    state.channelsByServerId[server.id] = channels.map((channel) => ({ ...channel, category: 'GENERAL' }))
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    await page.locator('.channel-category-btn').filter({ hasText: 'GENERAL' }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Delete Category' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Delete category' })
+    await expect(dialog).toContainText('GENERAL is the only category')
+    await expect(dialog).not.toContainText('will be moved to')
+    await expect(dialog.getByRole('button', { name: 'Delete Category' })).toBeDisabled()
+  })
+
   test('creates, edits, and deletes roles from the Roles tab', { tag: '@core' }, async ({ page }) => {
     const state = createServerSettingsState()
     await installMockCoreApi(page, state)
@@ -262,6 +297,7 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(page.getByText('2 roles')).toBeVisible()
 
     await page.getByRole('button', { name: 'Create role' }).first().click()
+    await expect(page.getByRole('button', { name: 'Delete role' })).toHaveCount(0)
     await page.getByPlaceholder('Role name').fill('Event Host')
     await page.getByLabel('Manage messages').check()
     await page.locator('.server-role-btn-save').click()

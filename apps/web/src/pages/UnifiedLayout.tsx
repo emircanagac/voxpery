@@ -13,6 +13,7 @@ import { refreshImageProxyGrant } from '../api/imageProxyGrantRefresh'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { ROUTES } from '../routes'
+import { useToastStore } from '../stores/toast'
 
 const ACTIVE_SERVER_STORAGE_KEY = 'voxpery-active-server-id'
 
@@ -96,6 +97,10 @@ export default function UnifiedLayout() {
     [dmUnread]
   )
   const previousIncomingCountRef = useRef(incomingRequestCount)
+  const pathnameRef = useRef(location.pathname)
+  useEffect(() => {
+    pathnameRef.current = location.pathname
+  }, [location.pathname])
   const serverDialogTriggerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -105,6 +110,8 @@ export default function UnifiedLayout() {
       return
     }
     let cancelled = false
+    // The first response sets the baseline; only requests that arrive later get an in-app notice.
+    let baselineReady = false
     let inFlight: Promise<void> | null = null
     let refreshQueued = false
     let lastRefreshAt = 0
@@ -131,7 +138,17 @@ export default function UnifiedLayout() {
               tag: 'friends:incoming',
             })
           }
+          if (baselineReady && userStatus !== 'dnd' && pathnameRef.current !== ROUTES.home) {
+            useToastStore.getState().pushToast({
+              level: 'info',
+              title: 'New friend request',
+              message: req.incoming.length === 1
+                ? 'Open Friends to accept or decline it.'
+                : `You have ${req.incoming.length} friend requests waiting in Friends.`,
+            })
+          }
         }
+        baselineReady = true
         previousIncomingCountRef.current = req.incoming.length
       }).catch(() => {
         // Keep the latest count on transient network failures.

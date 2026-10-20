@@ -134,3 +134,65 @@ test('shows long external links in a wider warning without horizontal overflow',
   await expect(warning).toHaveCount(0)
   await expect(page.getByRole('link', { name: url })).toBeFocused()
 })
+
+test('returns focus to the control that opened the Create Channel dialog', async ({ page }) => {
+  const server = buildCoreServer()
+  await installMockCoreApi(page, createMockCoreState({
+    servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, membersByServerId: { [server.id]: buildCoreMembers() },
+  }))
+  await page.goto('/servers')
+  const add = page.getByRole('button', { name: 'Create channel in GENERAL' })
+  await add.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Create Channel' })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(add).toBeFocused()
+
+  await page.locator('.channel-sidebar').click({ button: 'right', position: { x: 100, y: 400 } })
+  await page.getByRole('menuitem', { name: 'Create Channel' }).click()
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.channel-header-server')).toBeFocused()
+})
+
+test('opens the server icon menu from the keyboard and returns focus on Escape', async ({ page }) => {
+  const server = buildCoreServer()
+  await installMockCoreApi(page, createMockCoreState({
+    servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, membersByServerId: { [server.id]: buildCoreMembers() },
+  }))
+  await page.goto('/servers')
+  const icon = page.locator(`.server-icon[data-server-id="${server.id}"]`)
+  await icon.focus()
+  await icon.press('Shift+F10')
+  const menu = page.getByRole('menu', { name: `Actions for ${server.name}` })
+  const items = menu.getByRole('menuitem')
+  await expect(items.first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(items.nth(1)).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(icon).toBeFocused()
+})
+
+test('exposes shell landmarks, the channel heading and a skip link', async ({ page }) => {
+  const server = buildCoreServer()
+  await installMockCoreApi(page, createMockCoreState({
+    servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) }, membersByServerId: { [server.id]: buildCoreMembers() },
+  }))
+  await page.goto('/servers')
+  await expect(page.getByRole('navigation', { name: 'Servers and direct messages' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Channels' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'general' })).toBeVisible()
+  await expect(page).toHaveTitle(/^(\(\d+\+?\) )?#general \| Voxpery$/)
+  await page.goto('/social')
+  await expect(page).toHaveTitle(/^(\(\d+\+?\) )?Friends \| Voxpery$/)
+  await page.goto('/servers')
+  await expect(page.getByRole('heading', { level: 1, name: 'general' })).toBeVisible()
+  await page.keyboard.press('Tab')
+  const skip = page.getByRole('link', { name: 'Skip to content' })
+  await expect(skip).toBeFocused()
+  await expect(skip).toBeInViewport()
+})

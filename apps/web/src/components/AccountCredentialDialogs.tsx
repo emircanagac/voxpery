@@ -203,7 +203,7 @@ export default function AccountCredentialDialogs({
                 {isValidUsername(usernameEdit) && usernameCheckFailed && (
                   <div className="pw-hint pw-hint-warn">Could not verify. You can try Save.</div>
                 )}
-                {usernameError && <div className="pw-error">{usernameError}</div>}
+                {usernameError && <div className="pw-error" role="alert">{usernameError}</div>}
               </div>
             </div>
             <footer className="pw-modal-footer">
@@ -321,7 +321,7 @@ export default function AccountCredentialDialogs({
                   <div className="pw-hint pw-hint-warn">Passwords do not match</div>
                 )}
               </div>
-              {pwError && <div className="pw-error">{pwError}</div>}
+              {pwError && <div className="pw-error" role="alert">{pwError}</div>}
               {pwSuccess && (
                 <div className="pw-success">
                   {isGoogleOnlyAccount ? 'Password set successfully.' : 'Password changed! Redirecting to login…'}

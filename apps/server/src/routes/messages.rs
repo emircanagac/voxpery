@@ -190,7 +190,7 @@ async fn find_message_by_client_request_id(
 ) -> Result<Option<MessageRow>, AppError> {
     Ok(sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id AS user_id, u.username, u.avatar_url,
+                  u.id AS user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color
                       FROM server_roles sr
@@ -352,7 +352,7 @@ async fn get_messages(
             cursor.ok_or_else(|| AppError::NotFound("Message not found in this channel".into()))?;
         let around_rows = sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url,
+                      u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                       (
                           SELECT sr.color
                           FROM server_roles sr
@@ -385,7 +385,7 @@ async fn get_messages(
     } else if let Some(before) = query.before {
         sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url,
+                      u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                       (
                           SELECT sr.color 
                           FROM server_roles sr 
@@ -413,7 +413,7 @@ async fn get_messages(
     } else {
         sqlx::query_as::<_, MessageRow>(
             r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                      u.id as user_id, u.username, u.avatar_url,
+                      u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                       (
                           SELECT sr.color 
                           FROM server_roles sr 
@@ -492,7 +492,7 @@ async fn search_messages(
 
     let rows = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color 
                       FROM server_roles sr 
@@ -543,7 +543,7 @@ async fn list_channel_pins(
 
     let rows = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color 
                       FROM server_roles sr 
@@ -659,7 +659,7 @@ async fn pin_channel_message(
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color 
                       FROM server_roles sr 
@@ -850,7 +850,7 @@ async fn send_message(
                RETURNING *
            )
            SELECT nm.id, nm.channel_id, nm.content, nm.attachments, nm.edited_at, nm.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color 
                       FROM server_roles sr 
@@ -1078,7 +1078,7 @@ async fn edit_message(
 
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color 
                       FROM server_roles sr 
@@ -1132,7 +1132,7 @@ async fn load_message_with_author(
 ) -> Result<MessageWithAuthor, AppError> {
     let row = sqlx::query_as::<_, MessageRow>(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
-                  u.id as user_id, u.username, u.avatar_url,
+                  u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url,
                   (
                       SELECT sr.color
                       FROM server_roles sr

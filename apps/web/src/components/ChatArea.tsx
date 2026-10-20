@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
+import { Fragment, useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
 import { AtSign, Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
@@ -25,6 +25,8 @@ import type { UiMessage } from './chatMessageLayout'
 import { captureVisibleMessageAnchor, estimateMessageRowHeight, extractEmbeddedMediaMarkdown, getEmojiOnlyCount, isMessageGroupedAt, parseReplyContent } from './chatMessageLayout'
 import { ReactionButton } from './MessageReactionButton'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
+import { describeSendError } from '../messageSendError'
+import { parseMessageMarkdown, type MarkdownNode } from '../messageMarkdown'
 import { useAppStore } from '../stores/app'
 import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 
@@ -129,6 +131,8 @@ interface ChatAreaProps {
     onUnpinMessage?: (messageId: string) => void
     onToggleReaction?: (messageId: string, emoji: string, reacted: boolean) => void
     canSendMessages?: boolean
+    /** Shown in place of the composer placeholder when sending is blocked (for example a timeout). */
+    composerBlockedMessage?: string | null
     typingIndicatorLabel?: string | null
     seenMessageId?: string | null
     showMemberSheetButton?: boolean
@@ -198,6 +202,7 @@ export default function ChatArea({
     onUnpinMessage,
     onToggleReaction,
     canSendMessages = true,
+    composerBlockedMessage = null,
     typingIndicatorLabel = null,
     seenMessageId = null,
     showMemberSheetButton = false,
@@ -229,6 +234,8 @@ export default function ChatArea({
     const virtualListSpacerRef = useRef<HTMLDivElement | null>(null)
     const currentChatChannelId = activeChannel?.id ?? null
     const remainingCharacters = messageBodyLimit(replyingTo) - countMessageCharacters(messageInput)
+    // Set when pasted or typed text was cut to the limit, so the user is told instead of losing it silently.
+    const [inputWasShortened, setInputWasShortened] = useState(false)
     const currentChatChannelIdRef = useRef<string | null>(currentChatChannelId)
     const [unreadDividerSnapshot, setUnreadDividerSnapshot] = useState<UnreadDividerSnapshot>({
         channelId: null,
@@ -1326,6 +1333,7 @@ export default function ChatArea({
 
     const handleInputChange = (value: string, cursor: number | null) => {
         const bounded = truncateMessage(value, messageBodyLimit(replyingTo))
+        setInputWasShortened(bounded.length < value.length)
         onMessageInputChange(bounded)
         syncMentionMenu(bounded, cursor)
     }
@@ -1688,11 +1696,37 @@ export default function ChatArea({
 
     const renderMessageWithMentions = (content: string) => {
         const { text, gifUrls, stickerUrls } = extractEmbeddedMediaMarkdown(content)
+        const rendered = renderMarkdownNodes(parseMessageMarkdown(text), 'md')
+        if (gifUrls.length === 0 && stickerUrls.length === 0) return rendered
+        return renderWithEmbeddedMedia(rendered, gifUrls, stickerUrls)
+    }
+
+    // Formatting comes from a parsed node tree rendered as React elements, never as HTML.
+    const renderMarkdownNodes = (nodes: MarkdownNode[], keyPrefix: string): ReactNode[] => nodes.map((node, index) => {
+        const key = `${keyPrefix}-${index}`
+        switch (node.type) {
+            case 'text':
+                return <Fragment key={key}>{renderInlineText(node.text, key)}</Fragment>
+            case 'code':
+                return <code key={key} className="message-inline-code">{node.text}</code>
+            case 'codeBlock':
+                return <pre key={key} className="message-code-block"><code>{node.text}</code></pre>
+            case 'bold':
+                return <strong key={key}>{renderMarkdownNodes(node.children, key)}</strong>
+            case 'italic':
+                return <em key={key}>{renderMarkdownNodes(node.children, key)}</em>
+            case 'strike':
+                return <s key={key}>{renderMarkdownNodes(node.children, key)}</s>
+        }
+    })
+
+    const renderInlineText = (text: string, keyPrefix: string) => {
         // Split by mentions OR direct http/https URLs
         // We match mentions: @[^\s@]{2,32} or @all or @everyone
         // And we match urls: https?:\/\/[^\s]+
         const parts = text.split(/(@[^\s@]{2,32}|@all|@everyone|https?:\/\/[^\s]+)/g)
-        const rendered = parts.map((part, idx) => {
+        return parts.map((part, partIndex) => {
+            const idx = `${keyPrefix}-${partIndex}`
             if (!part) return null
             if (part === '@all') {
                 if (isDm) return <span key={idx}>{part}</span>
@@ -1733,7 +1767,9 @@ export default function ChatArea({
             }
             return <span key={idx}>{part}</span>
         })
-        if (gifUrls.length === 0 && stickerUrls.length === 0) return rendered
+    }
+
+    const renderWithEmbeddedMedia = (rendered: ReactNode, gifUrls: string[], stickerUrls: string[]) => {
         return (
             <>
                 {rendered}
@@ -1859,7 +1895,7 @@ export default function ChatArea({
                         <Volume2 size={20} />
                     </span>
                     <div className="channel-header-copy">
-                        <span className="channel-title">{activeChannel.name}</span>
+                        <h1 className="channel-title">{activeChannel.name}</h1>
                         {activeChannel.description?.trim() && (
                             <>
                                 <span className="channel-description-separator" aria-hidden="true" />
@@ -1916,7 +1952,7 @@ export default function ChatArea({
                     {isDm ? (isGroupDm ? <Users size={20} aria-hidden="true" /> : <AtSign size={20} aria-hidden="true" />) : <Hash size={20} />}
                 </span>
                 <div className="channel-header-copy">
-                    <span className="channel-title">{activeChannel.name}</span>
+                    <h1 className="channel-title">{activeChannel.name}</h1>
                     {activeChannel.description?.trim() && (
                         <>
                             <span className="channel-description-separator" aria-hidden="true" />
@@ -2129,7 +2165,11 @@ export default function ChatArea({
             >
                 {hasMoreOlder && messages.length > 0 && (
                     <div className="chat-load-older" aria-live="polite">
-                        {loadingOlder ? 'Loading older messages…' : 'Scroll up for older messages'}
+                        {loadingOlder ? 'Loading older messages…' : (
+                            <button type="button" className="chat-load-older-btn" onClick={startOlderMessagesLoad}>
+                                Load older messages
+                            </button>
+                        )}
                     </div>
                 )}
                 {loading ? (
@@ -2323,23 +2363,27 @@ export default function ChatArea({
                                             ) : (
                                                 renderMessageContent(msg.content)
                                             )}
-                                            {msg.clientStatus === 'failed' && msg.clientId && (
-                                                <div className="message-retry-row">
-                                                    <button
-                                                        type="button"
-                                                        className="message-retry-btn"
-                                                        onClick={() => {
-                                                            if (!msg.clientId) return
-                                                            onRetryMessage(msg.clientId)
-                                                        }}
-                                                    >
-                                                        Retry
-                                                    </button>
-                                                    {msg.clientError && (
-                                                        <span className="message-retry-error">{msg.clientError}</span>
-                                                    )}
-                                                </div>
-                                            )}
+                                            {msg.clientStatus === 'failed' && msg.clientId && (() => {
+                                                const failure = describeSendError(msg.clientError)
+                                                return (
+                                                    <div className="message-retry-row" role="alert">
+                                                        {failure.retryable && (
+                                                            <button
+                                                                type="button"
+                                                                className="message-retry-btn"
+                                                                aria-label="Retry sending this message"
+                                                                onClick={() => {
+                                                                    if (!msg.clientId) return
+                                                                    onRetryMessage(msg.clientId)
+                                                                }}
+                                                            >
+                                                                Retry
+                                                            </button>
+                                                        )}
+                                                        <span className="message-retry-error">{failure.message}</span>
+                                                    </div>
+                                                )
+                                            })()}
                                             {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
                                                 <div className="dm-attachments">
                                                     {msg.attachments.map((att: Attachment, i: number) => {
@@ -2419,12 +2463,16 @@ export default function ChatArea({
                     </div>
                 )}
                 {mentionOpen && mentionSuggestions.length > 0 && (
-                    <div className="mention-suggest-menu" role="listbox" aria-label="Mention suggestions">
+                    <div id="mention-suggestions" className="mention-suggest-menu" role="listbox" aria-label="Mention suggestions">
                         {mentionSuggestions.map((member, index) => (
                             <button
                                 key={`${member.user_id}-${member.username}`}
                                 type="button"
                                 className={`mention-suggest-item ${index === mentionActiveIndex ? 'active' : ''}`}
+                                id={`mention-option-${index}`}
+                                role="option"
+                                aria-selected={index === mentionActiveIndex}
+                                tabIndex={-1}
                                 onMouseDown={(e) => {
                                     e.preventDefault()
                                     applyMention(member)
@@ -2515,7 +2563,10 @@ export default function ChatArea({
                     <textarea
                         ref={textareaRef}
                         className="message-input"
-                        aria-label={isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`}
+                        aria-label={isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`}
+                        aria-autocomplete="list"
+                        aria-controls={mentionOpen && mentionSuggestions.length > 0 ? 'mention-suggestions' : undefined}
+                        aria-activedescendant={mentionOpen && mentionSuggestions.length > 0 ? `mention-option-${mentionActiveIndex}` : undefined}
                         value={messageInput}
                         maxLength={messageBodyLimit(replyingTo) * 2}
                         disabled={!canSendMessages}
@@ -2533,13 +2584,18 @@ export default function ChatArea({
                         }}
                         onPaste={handlePaste}
                         placeholder={canSendMessages
-                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? `Message @${activeChannel.name}` : `Message #${activeChannel.name}`))
-                            : (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`)}
+                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`))
+                            : (composerBlockedMessage ?? (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`))}
                         rows={1}
                     />
                     {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (
-                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : ''}`} aria-label="Characters remaining">
+                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : remainingCharacters === 0 ? ' is-at-limit' : ''}`} aria-label="Characters remaining">
                             {remainingCharacters < 0 ? `${-remainingCharacters} over limit` : remainingCharacters}
+                        </span>
+                    )}
+                    {canSendMessages && inputWasShortened && (
+                        <span className="message-truncation-note" role="status">
+                            Shortened to {messageBodyLimit(replyingTo)} characters
                         </span>
                     )}
                     <div className="message-input-actions" aria-label="Message actions">

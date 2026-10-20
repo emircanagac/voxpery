@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { THEME_CHANGED_EVENT, ensureContrastColor, mixHexColors, normalizeHexColor } from '../theme'
+import { CARD_TEXT_CONTRAST, THEME_CHANGED_EVENT, ensureContrastColor, mixHexColors, normalizeHexColor } from '../theme'
 
 // Surfaces that user-chosen text colors (role colors) are drawn on.
 const TEXT_SURFACE_PROPERTIES = ['--bg-chat', '--bg-surface', '--bg-secondary', '--bg-popover'] as const
@@ -58,7 +58,7 @@ export function useReadableTextColor() {
     const context = readThemeTextContext(signature)
     if (!context.textPrimary || context.surfaces.length === 0) return normalized
     const base = options.dimmed && context.textMuted ? mixHexColors(normalized, context.textMuted, 0.5) : normalized
-    const readable = ensureContrastColor(base, context.surfaces, context.textPrimary)
+    const readable = ensureContrastColor(base, context.surfaces, context.textPrimary, CARD_TEXT_CONTRAST)
     colorCache.set(cacheKey, readable)
     return readable
   }, [signature])

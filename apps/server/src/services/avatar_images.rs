@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr};
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use reqwest::Url;
 
 use crate::errors::AppError;
@@ -176,9 +177,75 @@ pub fn is_allowed_avatar_content_type(content_type: &str) -> bool {
     )
 }
 
+const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+
+/// True when `bytes` start with the signature of `media_type`, so a stored image is only ever
+/// served as the type its content actually has.
+fn has_image_signature(media_type: &str, bytes: &[u8]) -> bool {
+    match media_type {
+        "image/png" => bytes.starts_with(PNG_SIGNATURE),
+        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+        _ => false,
+    }
+}
+
+/// Decodes a stored `data:` image URL into its media type and bytes. Anything that is not a
+/// base64 PNG, JPEG, GIF or WebP whose content matches its declared type is refused.
+pub fn decode_stored_image_data_url(raw: &str) -> Option<(&'static str, Vec<u8>)> {
+    let raw = raw.trim();
+    if raw.len() > MAX_STORED_IMAGE_DATA_URL_BYTES {
+        return None;
+    }
+    let (mime, encoded) = raw.strip_prefix("data:")?.split_once(";base64,")?;
+    let media_type = match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => "image/png",
+        "image/jpeg" | "image/jpg" => "image/jpeg",
+        "image/gif" => "image/gif",
+        "image/webp" => "image/webp",
+        _ => return None,
+    };
+    let bytes = BASE64.decode(encoded.trim().as_bytes()).ok()?;
+    has_image_signature(media_type, &bytes).then_some((media_type, bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_only_stored_images_whose_content_matches_their_type() {
+        let png = [PNG_SIGNATURE, b"rest"].concat();
+        let url = format!("data:image/png;base64,{}", BASE64.encode(&png));
+        assert_eq!(
+            decode_stored_image_data_url(&url),
+            Some(("image/png", png.clone()))
+        );
+
+        let webp = [b"RIFF".as_slice(), &[0, 0, 0, 0], b"WEBPVP8 "].concat();
+        let url = format!("data:image/webp;base64,{}", BASE64.encode(&webp));
+        assert_eq!(
+            decode_stored_image_data_url(&url).map(|(media_type, _)| media_type),
+            Some("image/webp")
+        );
+
+        // Declared type and content disagree, unsupported types and broken base64 are refused.
+        let mislabeled = format!("data:image/jpeg;base64,{}", BASE64.encode(&png));
+        assert_eq!(decode_stored_image_data_url(&mislabeled), None);
+        let html = format!("data:text/html;base64,{}", BASE64.encode(b"<script>"));
+        assert_eq!(decode_stored_image_data_url(&html), None);
+        let svg = format!("data:image/svg+xml;base64,{}", BASE64.encode(b"<svg/>"));
+        assert_eq!(decode_stored_image_data_url(&svg), None);
+        assert_eq!(
+            decode_stored_image_data_url("data:image/png;base64,***"),
+            None
+        );
+        assert_eq!(
+            decode_stored_image_data_url("https://example.com/a.png"),
+            None
+        );
+    }
 
     #[test]
     fn validates_external_https_avatar_urls() {

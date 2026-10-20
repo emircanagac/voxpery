@@ -106,7 +106,7 @@ export default function ServerSettingsSafety({
                         </p>
                     </div>
                     {reportEntriesError && (
-                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                        <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                             {reportEntriesError}
                         </div>
                     )}
@@ -210,6 +210,7 @@ export default function ServerSettingsSafety({
                                                     type="button"
                                                     className="btn btn-secondary btn-sm"
                                                     disabled={clearTimeoutInFlightUserId === entry.user_id}
+                                                    aria-label={`Clear timeout for ${entry.username}`}
                                                     onClick={() => onClearTimeout(entry.user_id)}
                                                 >
                                                     {clearTimeoutInFlightUserId === entry.user_id ? 'Clearing...' : 'Clear timeout'}
@@ -279,7 +280,7 @@ export default function ServerSettingsSafety({
                         </p>
                     </div>
                     {banEntriesError && (
-                        <div className="auth-error" style={{ marginBottom: 12 }}>
+                        <div className="auth-error" role="alert" style={{ marginBottom: 12 }}>
                             {banEntriesError}
                         </div>
                     )}
@@ -310,6 +311,7 @@ export default function ServerSettingsSafety({
                                         type="button"
                                         className="btn btn-secondary btn-sm"
                                         disabled={unbanInFlightUserId === entry.user_id}
+                                        aria-label={`Unban ${entry.username}`}
                                         onClick={() => onUnban(entry.user_id)}
                                     >
                                         {unbanInFlightUserId === entry.user_id ? 'Unbanning...' : 'Unban'}

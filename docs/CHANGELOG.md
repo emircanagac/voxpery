@@ -14,19 +14,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Friends: pending friend requests have their own Pending tab with a count badge; Add Friend now only holds the username form.
 - Voice channels you are not in show who is there (or that no one is) with a Join voice button instead of an empty page.
 - Unknown addresses show a "Page not found" screen with a link back, instead of silently opening another page.
+- Messages support basic formatting: `**bold**`, `*italic*`, `~~strikethrough~~`, `` `inline code` `` and code blocks.
+- Timed-out members are marked in the member list, and a timed-out member sees until when they cannot send messages instead of a failed message.
+- You are told when you are removed or banned from a server, or lose access to the channel you have open.
+- The browser tab title shows your unread count and the channel or conversation you have open, and new friend requests show a short notice.
+- When your session ends (for example after signing out in another tab), the sign-in page says so and takes you back to where you were.
+- Invite links to a server you already joined offer "Open server", and invalid invites offer a way back.
+- Deleting an AutoMod rule now asks for confirmation.
 
 ### Changed
 - The desktop layout now starts at 960px wide (the desktop app's minimum window size); between 960px and 1024px the channel and member sidebars get a little narrower so the chat keeps its room. Below 960px the mobile layout is used.
-- The About and Compare pages now follow your selected theme.
+- The appearance setting now only changes the app itself; sign-in, About, Compare, legal and invite pages always use the default Voxpery Blue look.
 - Long messages wrap at a comfortable line length on wide screens, member cards have more space between them, and the invite link is easier to read.
 - Direct messages show an @ icon (or a people icon for group messages) instead of #.
 - On tablets the message box shows the channel or conversation name again; only phone-width screens use the short "Message" placeholder.
+- Voice channels show cameras and screen shares in 16:9 tiles that fit the screen, instead of tall, heavily cropped boxes.
+- A message that fails to send keeps its text on the failed message and clears the message box, so retrying cannot send it twice; the error is written in plain words.
+- Server names are limited to 100 characters with a counter, and non-Latin letters count as one character each.
+- Member lists, direct messages, friends and chat history load faster: uploaded profile pictures are fetched once and cached instead of being repeated in every list.
+- On phones and tablets every Server Settings tab label is fully visible, and dialogs use one consistent width.
 
 ### Fixed
 - Light and custom light themes: sign-in fields, buttons, member list headers, labels and other text are readable again, and keyboard focus is clearly visible on sign-in and registration forms.
 - Dark themes: small labels, timestamps, links and error text have higher contrast, and role colors stay readable on every theme.
 - Screen readers announce the message box with the channel or conversation name, and sign-in pages expose a main landmark.
 - The error screen no longer shows technical details and offers a Reload button; sign-in availability errors use plain wording.
+- Fullscreen, focus view and the floating player show screen shares edge to edge without black side bars, and the desktop app's fullscreen no longer leaves a gap or colored border at the screen edge.
+- Light and custom light themes: status buttons in profile settings and pinned messages are readable; mobile panels such as the member list follow the selected theme instead of always using blue.
+- Screen readers: dialogs, permission switches, reactions, mention suggestions, the microphone level meter, form errors and app navigation are announced correctly, and context menus work with arrow keys.
+- Roles show "1 role" instead of "1 roles", and "Delete role" appears only for saved roles.
+- Deleting the only category explains that channels need another category first, instead of offering to move them into itself.
+- Search results show reply messages without the raw quote prefix, older messages load reliably from the top of the history, and upload errors are shown once.
 
 ## [0.4.6] - 2026-10-16
 

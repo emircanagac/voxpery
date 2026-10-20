@@ -125,7 +125,7 @@ export default function ChannelSidebar({
     const { ref: participantMenuRef, style: participantMenuStyle } = useViewportMenu(participantMenu)
     const participantMenuTriggerRef = useRef<HTMLDivElement | null>(null)
     const participantMenuKeyboardRef = useRef(false)
-    const sidebarRef = useRef<HTMLDivElement>(null)
+    const sidebarRef = useRef<HTMLElement>(null)
     const sendWs = useSocketStore((s) => s.send)
     const dragPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const suppressDragPreview = (e: DragEvent<HTMLElement>) => {
@@ -334,7 +334,7 @@ export default function ChannelSidebar({
     }, [])
 
     return (
-        <div className="channel-sidebar" ref={sidebarRef}>
+        <nav className="channel-sidebar" ref={sidebarRef} aria-label="Channels">
             <div className="channel-header">
                 {activeServer ? (
                     <ServerHeaderMenu
@@ -1128,6 +1128,6 @@ export default function ChannelSidebar({
                 />, document.body,
             )}
 
-        </div>
+        </nav>
     )
 }

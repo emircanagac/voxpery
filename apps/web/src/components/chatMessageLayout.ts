@@ -8,6 +8,7 @@ export type UiMessage = MessageWithAuthor & {
     clientId?: string
     clientStatus?: 'sending' | 'failed'
     clientError?: string
+    clientDraft?: string
 }
 
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000

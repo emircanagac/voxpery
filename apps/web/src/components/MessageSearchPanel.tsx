@@ -1,5 +1,11 @@
 import { ChevronRight, LoaderCircle, X } from 'lucide-react'
 import type { MessageWithAuthor } from '../api'
+import { parseReplyContent } from './chatMessageLayout'
+
+/** Search results show the reply text itself; the quoted message only appears as a short label. */
+function searchResultText(content: string): string {
+    return parseReplyContent(content)?.replyBody ?? content
+}
 
 function formatResultDate(value: string) {
     const date = new Date(value)
@@ -57,7 +63,10 @@ export default function MessageSearchPanel({
                                 )}
                             </div>
                             <p className="chat-search-panel-item-content">
-                                {message.content.slice(0, 280)}{message.content.length > 280 ? '…' : ''}
+                                {parseReplyContent(message.content) && (
+                                    <span className="chat-search-panel-item-reply">Reply to @{parseReplyContent(message.content)?.replyUsername} </span>
+                                )}
+                                {searchResultText(message.content).slice(0, 280)}{searchResultText(message.content).length > 280 ? '…' : ''}
                                 {!message.content.trim() && (message.attachments?.length ?? 0) > 0 && (
                                     <span className="chat-search-panel-item-attachment">Attachment</span>
                                 )}

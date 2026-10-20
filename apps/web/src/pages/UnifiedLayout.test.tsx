@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
+import { useToastStore } from '../stores/toast'
 import UnifiedLayout from './UnifiedLayout'
 
 const apiMocks = vi.hoisted(() => ({
@@ -89,5 +90,26 @@ describe('UnifiedLayout friend request synchronization', () => {
       useSocketStore.getState().reconnectListeners.forEach((listener) => listener())
     })
     await waitFor(() => expect(apiMocks.requests).toHaveBeenCalledTimes(3))
+  })
+
+  it('shows an in-app notice only for friend requests that arrive after the first load', async () => {
+    useToastStore.setState({ toasts: [] })
+    const request = (id: string) => ({ id, from_user_id: id, to_user_id: 'user-local', username: id })
+    apiMocks.requests.mockResolvedValueOnce({ incoming: [request('a')], outgoing: [] })
+    render(
+      <MemoryRouter initialEntries={['/servers']}>
+        <UnifiedLayout />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMocks.requests).toHaveBeenCalledTimes(1))
+    expect(useToastStore.getState().toasts).toHaveLength(0)
+
+    apiMocks.requests.mockResolvedValueOnce({ incoming: [request('a'), request('b')], outgoing: [] })
+    act(() => {
+      useSocketStore.getState().listeners.forEach((listener) => {
+        listener({ type: 'FriendUpdate', data: { user_id: 'user-local' } })
+      })
+    })
+    await waitFor(() => expect(useToastStore.getState().toasts.map((toast) => toast.title)).toEqual(['New friend request']))
   })
 })

@@ -5,6 +5,8 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { resolveServerIconUrl, serverApi } from '../api'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
+import ModalSurface from './ModalSurface'
+import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 
 interface ServerSidebarProps {
   onCreateServer: (trigger: HTMLElement) => void
@@ -108,6 +110,8 @@ export default function ServerSidebar({
     const effectiveActiveId = displayActiveServerId !== undefined ? displayActiveServerId : activeServerId
 
     const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+    const contextMenuRef = useRef<HTMLDivElement>(null)
+    const contextMenuTriggerRef = useRef<HTMLElement | null>(null)
     const [draggedServerId, setDraggedServerId] = useState<string | null>(null)
     const [dragOverState, setDragOverState] = useState<{ targetId: string; intent: DragIntent } | null>(null)
     const [orderedServerIds, setOrderedServerIds] = useState<string[]>([])
@@ -209,6 +213,11 @@ export default function ServerSidebar({
         queueMicrotask(() => setOrderedServerIds(merged))
         localStorage.setItem(orderStorageKey, JSON.stringify(merged))
     }, [orderStorageKey, servers])
+
+    // Keyboard users land on the first action; the trigger gets focus back when the menu closes with Escape.
+    useEffect(() => {
+        if (contextMenu) contextMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    }, [contextMenu])
 
     useEffect(() => {
         if (!contextMenu) return
@@ -330,7 +339,15 @@ export default function ServerSidebar({
                     onContextMenu={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
+                        contextMenuTriggerRef.current = e.currentTarget
                         setContextMenu({ id: server.id, x: e.clientX, y: e.clientY })
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return
+                        e.preventDefault()
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        contextMenuTriggerRef.current = e.currentTarget
+                        setContextMenu({ id: server.id, x: rect.right, y: rect.top })
                     }}
                     draggable
                     data-server-id={server.id}
@@ -462,14 +479,27 @@ export default function ServerSidebar({
                 if (!server) return null
                 return (
                     <div
+                        ref={contextMenuRef}
                         className="server-context-menu"
+                        role="menu"
+                        aria-label={`Actions for ${server.name}`}
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                                e.preventDefault()
+                                setContextMenu(null)
+                                contextMenuTriggerRef.current?.focus()
+                                return
+                            }
+                            handleMenuKeyboardNavigation(e)
+                        }}
                     >
                         {isOwner && onOpenServerSettings ? (
                             <button
                                 type="button"
                                 className="server-context-menu-item"
+                                role="menuitem"
                                 onClick={() => {
                                     setContextMenu(null)
                                     setActiveServer(contextMenu.id)
@@ -483,6 +513,7 @@ export default function ServerSidebar({
                         <button
                             type="button"
                             className="server-context-menu-item"
+                            role="menuitem"
                             onClick={() => handleToggleMuteServer(contextMenu.id)}
                         >
                             <Volume2 size={14} />
@@ -492,6 +523,7 @@ export default function ServerSidebar({
                             <button
                                 type="button"
                                 className="server-context-menu-item danger"
+                                role="menuitem"
                                 onClick={() => {
                                     setContextMenu(null)
                                     if (isOwner) {
@@ -511,7 +543,7 @@ export default function ServerSidebar({
 
             {leaveServerConfirmTarget && (
                 <div className="modal-overlay" onClick={() => setLeaveServerConfirmId(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Leave server" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setLeaveServerConfirmId(null)}>
                         <h2>Leave server</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                             Are you sure you want to leave <strong>{leaveServerConfirmTarget.name}</strong>?
@@ -535,12 +567,12 @@ export default function ServerSidebar({
                                 Leave Server
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
             {ownerLeaveGuardTarget && (
                 <div className="modal-overlay" onClick={() => setOwnerLeaveGuardServerId(null)}>
-                    <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+                    <ModalSurface name="Server owner action required" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setOwnerLeaveGuardServerId(null)}>
                         <h2>Server owner action required</h2>
                         <p style={{ marginBottom: 10, color: 'var(--text-secondary)' }}>
                             You are the owner of <strong>{ownerLeaveGuardTarget.name}</strong>. You cannot leave while you
@@ -571,7 +603,7 @@ export default function ServerSidebar({
                                 {onOpenServerSettings ? 'Open Server Settings' : 'Settings unavailable'}
                             </button>
                         </div>
-                    </div>
+                    </ModalSurface>
                 </div>
             )}
         </div>
