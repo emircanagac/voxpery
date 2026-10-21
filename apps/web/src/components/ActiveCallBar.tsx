@@ -1,4 +1,4 @@
-import { ChevronRight, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { isBrowserSupported } from 'livekit-client'
@@ -43,7 +43,7 @@ import {
 import { isTauri } from '../secureStorage'
 import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
-import { fitStageGrid, useStageBox } from './voiceStageLayout'
+import { THEATER_STRIP_TILE_HEIGHT, fitMediaFrame, fitStageGrid, useStageBox, useStageMediaAspects } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -325,7 +325,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const stageBox = useStageBox(stageElement)
+  const stageMediaAspects = useStageMediaAspects(stageElement)
   const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
+  const [theaterStripVisible, setTheaterStripVisible] = useState(true)
   const [dismissedMiniPlayerKeys, setDismissedMiniPlayerKeys] = useState<Set<string>>(() => new Set())
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
@@ -795,9 +797,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     }
     return count
   }, [state.remoteStreams])
+  // Voice membership comes from one place, the voice state store: a participant the server has
+  // already removed from this channel gets no media tile, even while LiveKit still holds their
+  // last frames. LiveKit media is joined onto that membership, never the other way round.
   const remoteVideoTrackEntries = useMemo(() => {
     const entries: Array<{ peerId: string; track: MediaStreamTrack; label: string; kind: RemoteMediaKind }> = []
     for (const [peerId, stream] of remoteEntries) {
+      if (!currentVoiceChannelId || voiceStates[resolvePeerVolumeKey(peerId)] !== currentVoiceChannelId) continue
       const tracks = stream
         .getVideoTracks()
         .filter((track) => track.readyState === 'live' && !track.muted)
@@ -821,7 +827,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
     }
     return entries
-  }, [remoteEntries, state.remoteScreenTrackIds])
+  }, [currentVoiceChannelId, remoteEntries, resolvePeerVolumeKey, state.remoteScreenTrackIds, voiceStates])
   const activeTheaterStreamKeys = useMemo(() => {
     const keys: string[] = []
     if (state.isScreenSharing && state.screenStream) keys.push('local-screen')
@@ -1491,14 +1497,40 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + visibleRemoteMediaEntries.length
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
+  const showTheaterStrip = hasTheaterFocus && theaterStripVisible
+  // Screen tiles are keyed 'screen' (local) or by track (remote); focus keys add a prefix.
+  const focusedMediaKey = theaterStreamKey === 'local-screen'
+    ? 'screen'
+    : theaterStreamKey?.startsWith('screen-') ? theaterStreamKey.slice('screen-'.length) : null
+  const focusedMediaAspect = focusedMediaKey ? stageMediaAspects[focusedMediaKey] : undefined
+  // Focus view keeps a strip of the other participants under the focused stream, like Discord,
+  // and frames the stream at its own aspect so a window or taskbar-less screen is not letterboxed.
   const stageFit = stageBox
-    ? fitStageGrid(hasTheaterFocus ? 1 : totalStageTiles, stageBox, isMobileViewport ? 140 : 180)
+    ? fitStageGrid(
+      hasTheaterFocus ? 1 : totalStageTiles,
+      showTheaterStrip
+        ? { ...stageBox, height: Math.max(0, stageBox.height - THEATER_STRIP_TILE_HEIGHT - stageBox.gap) }
+        : stageBox,
+      isMobileViewport ? 140 : 180,
+      hasTheaterFocus ? focusedMediaAspect : undefined,
+    )
     : null
+  // In the grid every cell stays 16:9; a screen share shrinks inside its cell to its own aspect.
+  const screenTileFrameStyle = (key: string): CSSProperties | undefined => {
+    const aspect = stageMediaAspects[key]
+    if (hasTheaterFocus || !stageFit || !aspect) return undefined
+    const frame = fitMediaFrame(aspect, stageFit.tileWidth, stageFit.tileHeight)
+    return { width: `${frame.width}px`, height: `${frame.height}px`, justifySelf: 'center', alignSelf: 'center' }
+  }
   const stageColumns = stageFit && !hasTheaterFocus ? stageFit.columns : getStageColumns(totalStageTiles)
   // Media tiles keep a 16:9 frame; before the stage is measured the grid falls back to equal cells.
   const stageStyle: CSSProperties | undefined = hasTheaterFocus
     ? stageFit
-      ? { '--stage-tile-width': `${stageFit.tileWidth}px`, '--stage-tile-height': `${stageFit.tileHeight}px` } as CSSProperties
+      ? {
+        '--stage-tile-width': `${stageFit.tileWidth}px`,
+        '--stage-tile-height': `${stageFit.tileHeight}px`,
+        '--stage-tile-aspect': `${stageFit.tileWidth} / ${stageFit.tileHeight}`,
+      } as CSSProperties
       : undefined
     : stageFit
       ? {
@@ -1685,7 +1717,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           {showVoiceStage && (
             <div
               ref={setStageElement}
-              className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}`}
+              className={`screen-share-stage${hasTheaterFocus ? ' screen-share-stage--theater' : ''}${showTheaterStrip ? ' screen-share-stage--strip' : ''}`}
               data-stage-density={stageDensity}
               data-stage-columns={stageColumns}
               data-participant-count={channelParticipants.length + (localParticipantMissing ? 1 : 0)}
@@ -1757,8 +1789,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </VoiceMediaPreview>
               )}
               {state.isScreenSharing && state.screenStream && (
-                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" style={screenTileFrameStyle('screen')} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
+                  {showTheaterStrip && theaterStreamKey !== 'local-screen' && (
+                    <button type="button" className="screen-share-strip-focus" aria-label="Focus your screen share" onClick={() => toggleTheaterStream('local-screen')} />
+                  )}
                   <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Screen share · You</span></div>
                   {user?.id && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(user.id)} members={members} />}
                   <div className="screen-share-controls-bar">
@@ -1840,8 +1875,11 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
                 if (kind === 'camera' && isHidden) return null
                 return (
-                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} style={kind === 'screen' ? screenTileFrameStyle(tileKey) : undefined} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
+                    {showTheaterStrip && theaterKey && theaterStreamKey !== theaterKey && (
+                      <button type="button" className="screen-share-strip-focus" aria-label={`Focus ${owner}'s screen share`} onClick={() => toggleTheaterStream(theaterKey)} />
+                    )}
                     <div className="screen-share-info-overlay">{mediaOwnerAvatar(peerId, true)}<span className="screen-share-info-text">{label} · {owner}</span></div>
                     {kind === 'screen' && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />}
                     <div className="screen-share-controls-bar">
@@ -1931,6 +1969,18 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </VoiceMediaPreview>
                 )
               })}
+              {hasTheaterFocus && (
+                <button
+                  type="button"
+                  className="screen-share-strip-toggle"
+                  aria-pressed={theaterStripVisible}
+                  aria-label={theaterStripVisible ? 'Hide participants' : 'Show participants'}
+                  title={theaterStripVisible ? 'Hide participants' : 'Show participants'}
+                  onClick={() => setTheaterStripVisible((visible) => !visible)}
+                >
+                  {theaterStripVisible ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
+                </button>
+              )}
             </div>
           )}
           <div className="callbar-wrap">

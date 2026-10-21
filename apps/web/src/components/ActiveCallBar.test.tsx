@@ -453,6 +453,23 @@ describe('ActiveCallBar regressions', () => {
     })
   })
 
+  it('drops a departed participant stream as soon as the voice state says they left', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    expect(container.querySelector('.remote-screen-preview')).not.toBeNull()
+
+    // The server reports the departure before LiveKit notices it; LiveKit still holds the track.
+    act(() => {
+      useAppStore.getState().setVoiceState('peer-1', null)
+    })
+
+    expect(container.querySelector('.remote-screen-preview')).toBeNull()
+  })
+
   it('requires an explicit action before subscribing to an available screen share', () => {
     useAppStore.getState().setVoiceControl('peer-1', false, false, true)
 
@@ -660,6 +677,10 @@ describe('ActiveCallBar regressions', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
       act(() => observers.forEach((measure) => measure()))
+      // The participant strip (90px) takes its row under the focused stream.
+      expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1070px')
+      expect(stage.style.getPropertyValue('--stage-tile-height')).toBe('602px')
+      fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
       expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1230px')
       expect(stage.style.getPropertyValue('--stage-tile-height')).toBe('692px')
     } finally {
@@ -667,6 +688,77 @@ describe('ActiveCallBar regressions', () => {
       height.mockRestore()
       vi.unstubAllGlobals()
     }
+  })
+
+  it('frames a screen share that is not 16:9 at its own aspect in the grid and focus view', () => {
+    const observers: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { observers.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('screen-share-stage') ? 1412 : 0
+    })
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('screen-share-stage') ? 692 : 0
+    })
+    try {
+      const screenTrack = mediaTrack('video', 'screen-track')
+      const { container } = renderActiveCallBar({
+        remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+        remoteScreenTrackIds: new Set(['screen-track']),
+        watchedRemoteScreenPeerIds: new Set(['peer-1']),
+      })
+      const stage = container.querySelector<HTMLElement>('.screen-share-stage')!
+      const tile = () => container.querySelector<HTMLElement>('.remote-screen-preview')!
+      act(() => observers.forEach((measure) => measure()))
+      const cellWidth = parseFloat(stage.style.gridTemplateColumns.match(/(\d+)px/)![1])
+      const cellHeight = parseFloat(stage.style.gridAutoRows)
+      expect(tile().style.width).toBe('')
+
+      // A browser window shared without the taskbar: 1920x1032 instead of 1920x1080.
+      const video = tile().querySelector('video')!
+      Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 })
+      Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1032 })
+      act(() => { video.dispatchEvent(new Event('loadedmetadata')) })
+      expect(parseFloat(tile().style.width)).toBe(cellWidth)
+      expect(parseFloat(tile().style.height)).toBe(Math.floor(cellWidth / 1.86))
+      expect(parseFloat(tile().style.height)).toBeLessThan(cellHeight)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
+      act(() => observers.forEach((measure) => measure()))
+      expect(tile().style.width).toBe('')
+      expect(stage.style.getPropertyValue('--stage-tile-width')).toBe('1287px')
+      expect(stage.style.getPropertyValue('--stage-tile-aspect')).toMatch(/^1287 \/ 69[12]$/)
+    } finally {
+      width.mockRestore()
+      height.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps a participant strip under the focused stream that can be hidden', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const stage = () => container.querySelector('.screen-share-stage')!
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+    expect(stage()).toHaveClass('screen-share-stage--theater', 'screen-share-stage--strip')
+    // The local participant stays visible in the strip under the focused stream.
+    expect(stage().querySelector('.voice-stage-tile')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
+    expect(stage()).not.toHaveClass('screen-share-stage--strip')
+    expect(screen.getByRole('button', { name: 'Show participants' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show participants' }))
+    expect(stage()).toHaveClass('screen-share-stage--strip')
   })
 
   it('switches directly from browser fullscreen to the in-app focus view', () => {

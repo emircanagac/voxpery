@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock3 } from 'lucide-react'
-import { formatVoiceChannelDuration } from '../voiceChannelDuration'
+import { describeVoiceChannelDuration, formatVoiceChannelDuration } from '../voiceChannelDuration'
 
 export default function VoiceChannelDuration({ startedAt }: { startedAt: number }) {
   const [now, setNow] = useState(() => Date.now())
@@ -23,8 +22,9 @@ export default function VoiceChannelDuration({ startedAt }: { startedAt: number 
   }, [])
 
   const duration = formatVoiceChannelDuration(now - startedAt)
-  const label = `Voice channel active for ${duration}`
+  const label = `Voice channel active for ${describeVoiceChannelDuration(now - startedAt)}`
   return <span className="channel-voice-duration" role="timer" aria-live="off" aria-label={label} title={label}>
-    <Clock3 size={12} aria-hidden="true" /><span>{duration}</span>
+    <span className="channel-voice-duration__wave" aria-hidden="true"><i /><i /><i /></span>
+    <span>{duration}</span>
   </span>
 }

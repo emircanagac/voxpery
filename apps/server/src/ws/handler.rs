@@ -1469,7 +1469,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         &recv_state,
                                         user_id,
                                     );
-                                    recv_state.voice_participant_sids.remove(&user_id);
+                                    let departed_sid = recv_state
+                                        .voice_participant_sids
+                                        .remove(&user_id)
+                                        .map(|(_, sid)| sid);
+                                    voice_revoke::schedule_departed_participant_removal(
+                                        recv_state.clone(),
+                                        previous_channel_id,
+                                        user_id,
+                                        departed_sid,
+                                        voice_revoke::DEPARTED_VOICE_LEAVE_DELAY,
+                                    );
                                     let previous_server_id =
                                         server_id_for_channel(&recv_state.db, previous_channel_id)
                                             .await;
@@ -2112,7 +2122,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
             clear_screen_share_viewer_entries_for_user(&state, user_id);
-            state.voice_participant_sids.remove(&user_id);
+            let departed_sid = state
+                .voice_participant_sids
+                .remove(&user_id)
+                .map(|(_, sid)| sid);
+            voice_revoke::schedule_departed_participant_removal(
+                state.clone(),
+                previous_channel_id,
+                user_id,
+                departed_sid,
+                voice_revoke::DEPARTED_VOICE_DISCONNECT_DELAY,
+            );
             let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
             let _ = state.voice_controls.remove(&user_id);
             cleanup_voice_channel_active_since_if_empty(&state, previous_channel_id);
