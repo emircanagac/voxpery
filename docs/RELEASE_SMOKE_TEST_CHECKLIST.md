@@ -26,13 +26,22 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.7 preparation (not release sign-off)
+### v0.4.8 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.7`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.8`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.7` and `voxpery/voxpery-web:v0.4.7`, the embedded web badge/build tag, desktop version `0.4.7`, the `Voxpery_0.4.7_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.8` and `voxpery/voxpery-web:v0.4.8`, the embedded web badge/build tag, desktop version `0.4.8`, the `Voxpery_0.4.8_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.8 checks
+
+- [ ] Two users in voice: when one closes their browser or tab, the other sees the stream tile, the leave sound and the channel list change together within a few seconds, and the leave sound plays once. A short network drop does not end the call.
+- [ ] A shared window or a screen without its taskbar (not 16:9) shows no black bars above and below it, in the voice grid or in focus view.
+- [ ] Desktop (Windows, installed release build): fullscreen from a maximized window on the screen with the taskbar covers the whole screen, and the window is maximized again afterwards.
+- [ ] Focus view: the strip of other participants sits under the focused stream, picking a tile there focuses it, and the strip can be hidden and shown (desktop and phone).
+- [ ] The voice channel timer shows three green bars and the time without shifting, and is readable in Voxpery Blue, Dark, Light and Custom.
+- [ ] Same account on two tabs or devices: the one not in voice offers "Join here"; joining there moves the call, the first shows "Voice moved", and other participants hear no leave or join sound. Closing the tab that is in voice removes the account from the channel while the other tab stays open.
 
 ### v0.4.7 checks
 
