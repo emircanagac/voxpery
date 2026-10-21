@@ -10889,11 +10889,11 @@ button.message-author {
   position: relative;
   top: auto;
   left: auto;
-  /* The stage measures the largest 16:9 frame that fits, so a 16:9 stream fills it edge to edge. */
+  /* The stage measures the largest frame with the stream's own aspect, so it fills edge to edge. */
   width: var(--stage-tile-width, min(100%, 1280px));
   height: var(--stage-tile-height, min(100%, 720px));
   min-height: 0;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--stage-tile-aspect, 16 / 9);
   margin: 0;
   transform: none;
 }

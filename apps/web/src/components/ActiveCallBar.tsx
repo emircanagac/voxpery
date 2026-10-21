@@ -43,7 +43,7 @@ import {
 import { isTauri } from '../secureStorage'
 import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
-import { THEATER_STRIP_TILE_HEIGHT, fitStageGrid, useStageBox } from './voiceStageLayout'
+import { THEATER_STRIP_TILE_HEIGHT, fitMediaFrame, fitStageGrid, useStageBox, useStageMediaAspects } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -325,6 +325,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const [fullscreenTileKey, setFullscreenTileKey] = useState<string | null>(null)
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const stageBox = useStageBox(stageElement)
+  const stageMediaAspects = useStageMediaAspects(stageElement)
   const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
   const [theaterStripVisible, setTheaterStripVisible] = useState(true)
   const [dismissedMiniPlayerKeys, setDismissedMiniPlayerKeys] = useState<Set<string>>(() => new Set())
@@ -1497,7 +1498,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
   const showTheaterStrip = hasTheaterFocus && theaterStripVisible
-  // Focus view keeps a strip of the other participants under the focused stream, like Discord.
+  // Screen tiles are keyed 'screen' (local) or by track (remote); focus keys add a prefix.
+  const focusedMediaKey = theaterStreamKey === 'local-screen'
+    ? 'screen'
+    : theaterStreamKey?.startsWith('screen-') ? theaterStreamKey.slice('screen-'.length) : null
+  const focusedMediaAspect = focusedMediaKey ? stageMediaAspects[focusedMediaKey] : undefined
+  // Focus view keeps a strip of the other participants under the focused stream, like Discord,
+  // and frames the stream at its own aspect so a window or taskbar-less screen is not letterboxed.
   const stageFit = stageBox
     ? fitStageGrid(
       hasTheaterFocus ? 1 : totalStageTiles,
@@ -1505,13 +1512,25 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         ? { ...stageBox, height: Math.max(0, stageBox.height - THEATER_STRIP_TILE_HEIGHT - stageBox.gap) }
         : stageBox,
       isMobileViewport ? 140 : 180,
+      hasTheaterFocus ? focusedMediaAspect : undefined,
     )
     : null
+  // In the grid every cell stays 16:9; a screen share shrinks inside its cell to its own aspect.
+  const screenTileFrameStyle = (key: string): CSSProperties | undefined => {
+    const aspect = stageMediaAspects[key]
+    if (hasTheaterFocus || !stageFit || !aspect) return undefined
+    const frame = fitMediaFrame(aspect, stageFit.tileWidth, stageFit.tileHeight)
+    return { width: `${frame.width}px`, height: `${frame.height}px`, justifySelf: 'center', alignSelf: 'center' }
+  }
   const stageColumns = stageFit && !hasTheaterFocus ? stageFit.columns : getStageColumns(totalStageTiles)
   // Media tiles keep a 16:9 frame; before the stage is measured the grid falls back to equal cells.
   const stageStyle: CSSProperties | undefined = hasTheaterFocus
     ? stageFit
-      ? { '--stage-tile-width': `${stageFit.tileWidth}px`, '--stage-tile-height': `${stageFit.tileHeight}px` } as CSSProperties
+      ? {
+        '--stage-tile-width': `${stageFit.tileWidth}px`,
+        '--stage-tile-height': `${stageFit.tileHeight}px`,
+        '--stage-tile-aspect': `${stageFit.tileWidth} / ${stageFit.tileHeight}`,
+      } as CSSProperties
       : undefined
     : stageFit
       ? {
@@ -1770,7 +1789,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </VoiceMediaPreview>
               )}
               {state.isScreenSharing && state.screenStream && (
-                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" style={screenTileFrameStyle('screen')} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   {showTheaterStrip && theaterStreamKey !== 'local-screen' && (
                     <button type="button" className="screen-share-strip-focus" aria-label="Focus your screen share" onClick={() => toggleTheaterStream('local-screen')} />
@@ -1856,7 +1875,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
                 if (kind === 'camera' && isHidden) return null
                 return (
-                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} style={kind === 'screen' ? screenTileFrameStyle(tileKey) : undefined} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
                     <RemoteVideoTrack track={track} />
                     {showTheaterStrip && theaterKey && theaterStreamKey !== theaterKey && (
                       <button type="button" className="screen-share-strip-focus" aria-label={`Focus ${owner}'s screen share`} onClick={() => toggleTheaterStream(theaterKey)} />
