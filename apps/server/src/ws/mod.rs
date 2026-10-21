@@ -94,6 +94,9 @@ pub enum WsEvent {
         screen_sharing: bool,
         camera_on: bool,
     },
+    /// Sent only to the connection whose voice session another tab or device of the same
+    /// account took over; that connection leaves voice without ending the session.
+    VoiceSessionMoved { channel_id: Uuid },
     /// A moderator requested that the current user join another voice channel.
     VoiceMemberMoveRequested {
         request_id: Uuid,

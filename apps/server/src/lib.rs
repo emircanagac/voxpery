@@ -52,6 +52,10 @@ pub struct AppState {
     pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::Sender<ws::WsEvent>>>,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
+    /// WebSocket connection that holds each user's voice session (connection id, sender). Only
+    /// that connection may end it, so another tab or device of the same account cannot.
+    pub voice_session_connections:
+        DashMap<uuid::Uuid, (uuid::Uuid, tokio::sync::mpsc::Sender<ws::WsEvent>)>,
     /// Active LiveKit participant SID per user, used to reject stale leave webhooks after rejoin.
     pub voice_participant_sids: DashMap<uuid::Uuid, String>,
     /// Moderator-requested voice moves keyed by target user and awaiting LiveKit verification.

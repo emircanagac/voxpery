@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The server menu and the invite panel stay inside the channel list instead of spilling over the chat.
 - When someone leaves a voice channel or closes their browser, their screen share, camera and leave sound go away together with their name in the channel list, instead of a frozen stream lingering for several seconds.
 - Screen shares that are not 16:9 (a single window, or a screen without its taskbar) are shown at their real shape instead of with black bars above and below.
+- With Voxpery open on two tabs or devices, joining voice on one no longer hides the Join button on the other: it says you are in voice on another device and offers "Join here", which moves the call. Closing the tab that is in voice now ends the call even when another tab stays open.
 - Desktop app on Windows: fullscreen from a maximized window covers the whole screen, including the taskbar area, and the window is maximized again afterwards.
 - Profile pictures in Friend Activity are cropped like everywhere else.
 - The Friends tabs fit on narrow desktop windows.

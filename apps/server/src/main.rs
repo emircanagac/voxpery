@@ -112,6 +112,7 @@ async fn main() {
         tx,
         sessions: dashmap::DashMap::new(),
         voice_sessions: dashmap::DashMap::new(),
+        voice_session_connections: dashmap::DashMap::new(),
         voice_participant_sids: dashmap::DashMap::new(),
         pending_voice_moves: dashmap::DashMap::new(),
         voice_channel_active_since_ms: dashmap::DashMap::new(),

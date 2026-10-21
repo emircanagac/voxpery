@@ -835,6 +835,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
 
     // Create a channel for sending events to this client
     let (tx, mut rx) = mpsc::channel::<WsEvent>(WS_SESSION_QUEUE_CAPACITY);
+    // Identifies this connection as the holder of a voice session.
+    let connection_id = Uuid::new_v4();
 
     // Register this session
     state.sessions.entry(user_id).or_default().push(tx.clone());
@@ -1039,7 +1041,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                             }
                         }
                         WsEvent::VoiceMemberMoveRequested { .. }
-                        | WsEvent::VoiceMemberMoveResult { .. } => false,
+                        | WsEvent::VoiceMemberMoveResult { .. }
+                        | WsEvent::VoiceSessionMoved { .. } => false,
                         WsEvent::Pong { .. } => false,
                     };
 
@@ -1353,6 +1356,34 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         );
                                         let previous_channel_id =
                                             recv_state.voice_sessions.insert(user_id, channel_id);
+                                        let previous_holder = recv_state
+                                            .voice_session_connections
+                                            .insert(user_id, (connection_id, client_tx.clone()));
+                                        let previous_sid = recv_state
+                                            .voice_participant_sids
+                                            .get(&user_id)
+                                            .map(|entry| entry.clone());
+                                        if let (Some((holder_id, holder_tx)), Some(previous)) =
+                                            (previous_holder, previous_channel_id)
+                                        {
+                                            if holder_id != connection_id {
+                                                // Another tab or device took the session over.
+                                                let _ = holder_tx.try_send(
+                                                    WsEvent::VoiceSessionMoved {
+                                                        channel_id: previous,
+                                                    },
+                                                );
+                                                if previous != channel_id {
+                                                    voice_revoke::schedule_departed_participant_removal(
+                                                        recv_state.clone(),
+                                                        previous,
+                                                        user_id,
+                                                        previous_sid,
+                                                        voice_revoke::DEPARTED_VOICE_LEAVE_DELAY,
+                                                    );
+                                                }
+                                            }
+                                        }
                                         if let Some(participant_sid) =
                                             participant_sid.filter(|sid| {
                                                 !sid.is_empty()
@@ -1462,6 +1493,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 }
                             }
                             WsClientMessage::LeaveVoice => {
+                                // Only the connection holding the session may end it.
+                                let holds_session = recv_state
+                                    .voice_session_connections
+                                    .get(&user_id)
+                                    .is_none_or(|holder| holder.0 == connection_id);
+                                if !holds_session {
+                                    continue;
+                                }
+                                recv_state.voice_session_connections.remove(&user_id);
                                 if let Some((_, previous_channel_id)) =
                                     recv_state.voice_sessions.remove(&user_id)
                                 {
@@ -2118,7 +2158,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
         .await;
     }
 
-    if last_session_gone {
+    // Voice ends with the connection that holds it, even while other tabs stay open; a client
+    // whose socket only dropped rejoins on reconnect before its LiveKit participant is removed.
+    let held_voice = state
+        .voice_session_connections
+        .remove_if(&user_id, |_, holder| holder.0 == connection_id)
+        .is_some();
+    let holder_missing = !state.voice_session_connections.contains_key(&user_id);
+    if held_voice || (last_session_gone && holder_missing) {
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
             clear_screen_share_viewer_entries_for_user(&state, user_id);

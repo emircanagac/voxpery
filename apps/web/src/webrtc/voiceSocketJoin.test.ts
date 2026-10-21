@@ -68,6 +68,18 @@ describe('voice join socket boundary', () => {
     expect(mocks.getAudioContext).toHaveBeenCalledOnce()
   })
 
+  it('leaves locally without ending a session that another device took over', () => {
+    const send = vi.fn()
+    useSocketStore.setState({ send })
+    const { result } = renderHook(() => useLiveKitVoice())
+
+    act(() => result.current.leaveVoice({ skipLeaveSound: true, skipServerLeave: true }))
+    expect(send).not.toHaveBeenCalledWith('LeaveVoice', null)
+
+    act(() => result.current.leaveVoice({ skipLeaveSound: true }))
+    expect(send).toHaveBeenCalledWith('LeaveVoice', null)
+  })
+
   it('rejects a disconnect that happened after the callback was captured', async () => {
     useSocketStore.setState({ isConnected: true })
     const { result } = renderHook(() => useLiveKitVoice())

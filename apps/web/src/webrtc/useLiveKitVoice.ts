@@ -23,6 +23,7 @@ import { webrtcApi } from '../api/webrtc'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useSocketStore } from '../stores/socket'
+import { useToastStore } from '../stores/toast'
 import { useFeatureStore } from '../stores/features'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
 import {
@@ -436,6 +437,7 @@ export function useLiveKitVoice() {
   const watchedRemoteScreenPeerIdsRef = useRef<Set<PeerId>>(new Set())
   const joinedChannelIdRef = useRef<string | null>(null)
   const finalMediaDisconnectReconciledRef = useRef(false)
+  const voiceSessionMovedHandlerRef = useRef<() => void>(() => {})
   const finalMediaDisconnectHandlerRef = useRef<(isCurrentRoom: boolean) => void>(() => undefined)
   const desiredMicMutedRef = useRef(false)
   const selfMutedRef = useRef(false)
@@ -1486,6 +1488,11 @@ export function useLiveKitVoice() {
           if (roomRef.current === room) {
             reportObservabilityEvent('livekit_disconnected')
           }
+          // LiveKit allows one participant per identity, so joining from another tab or device
+          // of the same account disconnects this one.
+          if (roomRef.current === room && reason === DisconnectReason.DUPLICATE_IDENTITY) {
+            voiceSessionMovedHandlerRef.current()
+          }
           if (!import.meta.env.PROD) {
             console.warn('[useLiveKitVoice] LiveKit Room disconnected, reason:', reason)
           }
@@ -1637,7 +1644,9 @@ export function useLiveKitVoice() {
     }
     }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
 
-  const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean }) => {
+  // `skipServerLeave` is for a session another tab or device took over: the account stays in
+  // voice there, so this device neither ends the session nor removes itself from the channel.
+  const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean; skipServerLeave?: boolean }) => {
     joinAttemptRef.current += 1
     isJoiningRef.current = false
     setIsJoining(false)
@@ -1646,7 +1655,7 @@ export function useLiveKitVoice() {
     const departingChannelId = joinedChannelIdRef.current
     if (departingChannelId && !options?.skipLeaveSound) playVoiceCue('leave')
     setLastError(null)
-    send('LeaveVoice', null)
+    if (!options?.skipServerLeave) send('LeaveVoice', null)
     joinedChannelIdRef.current = null
     remoteMediaStartCueReadyRef.current = false
     remoteMediaStartCueKeysRef.current.clear()
@@ -1659,7 +1668,7 @@ export function useLiveKitVoice() {
     setWatchedRemoteScreenPeerIds(new Set())
     setJoinedChannelId(null)
     useAppStore.getState().setJoinedVoiceChannelId(null)
-    if (userId) {
+    if (userId && !options?.skipServerLeave) {
       if (departingChannelId) reconcileLiveKitVoicePresence(userId, departingChannelId, false)
       useAppStore.getState().setVoiceCamera(userId, false)
     }
@@ -2096,6 +2105,24 @@ export function useLiveKitVoice() {
     if (syncedJoinedVoiceChannelId !== null) return
     leaveVoice({ skipLeaveSound: true })
   }, [leaveVoice, syncedJoinedVoiceChannelId])
+
+  // Another tab or device of the same account joined voice; the server tells only this one.
+  useEffect(() => {
+    voiceSessionMovedHandlerRef.current = () => {
+      if (!joinedChannelIdRef.current && !isJoiningRef.current && !roomRef.current) return
+      leaveVoice({ skipLeaveSound: true, skipServerLeave: true })
+      useToastStore.getState().pushToast({
+        level: 'info',
+        title: 'Voice moved',
+        message: 'You joined voice on another device.',
+      })
+    }
+  }, [leaveVoice])
+
+  useEffect(() => subscribe((evt: unknown) => {
+    const event = evt as { type?: string }
+    if (event?.type === 'VoiceSessionMoved') voiceSessionMovedHandlerRef.current()
+  }), [subscribe])
 
   // ── WS reconnect → re-sync voice state with backend ──
   // When the WebSocket drops and reconnects, the backend clears our voice_sessions

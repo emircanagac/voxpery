@@ -379,8 +379,10 @@ export default function AppShell() {
               ...state.voiceActivityConnectionIds, [user_id]: useSocketStore.getState().connectionId,
             } }))
             if (!channel_id) clearScreenShareViewerMembership(user_id)
-            if (user_id === userId) {
-              setJoinedVoiceChannelId(channel_id ?? null)
+            // Only a departure is mirrored: joining is recorded by the device that joined, so a
+            // session on another tab or device does not mark this one as connected.
+            if (user_id === userId && !channel_id) {
+              setJoinedVoiceChannelId(null)
             }
           }
         }
