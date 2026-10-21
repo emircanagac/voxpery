@@ -114,6 +114,10 @@ export interface WsEventDataMap {
         screen_sharing: boolean;
         camera_on: boolean;
     };
+    /** Sent only to the connection whose voice session another tab or device took over. */
+    VoiceSessionMoved: {
+        channel_id: string;
+    };
     VoiceMemberMoveRequested: {
         request_id: string;
         source_channel_id: string;
