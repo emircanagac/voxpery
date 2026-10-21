@@ -177,6 +177,7 @@ async fn setup_app_with_features_and_livekit(
         tx,
         sessions: DashMap::new(),
         voice_sessions: DashMap::new(),
+        voice_session_connections: DashMap::new(),
         voice_participant_sids: DashMap::new(),
         pending_voice_moves: DashMap::new(),
         voice_channel_active_since_ms: DashMap::new(),

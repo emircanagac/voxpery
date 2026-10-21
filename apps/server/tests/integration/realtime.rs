@@ -1398,6 +1398,79 @@ async fn websocket_subscribe_and_connections_are_bounded_per_user() {
 }
 
 #[tokio::test]
+async fn voice_session_belongs_to_the_connection_that_joined() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let addr = spawn_ws_app(&state).await;
+    let (auth, user_id, _) = register_named_user(&mut app, "twodevices").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Two Device Guild").await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let join = json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } });
+    let mut first = connect_ws(addr, &auth).await;
+    let mut second = connect_ws(addr, &auth).await;
+
+    ws_send(&mut first, join.clone()).await;
+    ws_barrier(&mut first).await;
+    assert_eq!(
+        state.voice_sessions.get(&user_id).map(|entry| *entry),
+        Some(voice_channel_id)
+    );
+
+    // Joining from the second device tells only the first one that its session moved.
+    ws_send(&mut second, join).await;
+    ws_barrier(&mut second).await;
+    let moved = receive_ws_event(&mut first, "VoiceSessionMoved").await;
+    assert_eq!(moved["data"]["channel_id"], voice_channel_id.to_string());
+    assert_no_ws_event_mentioning(
+        &mut second,
+        "VoiceSessionMoved",
+        &voice_channel_id.to_string(),
+        std::time::Duration::from_millis(300),
+    )
+    .await;
+
+    // The first device can no longer end the session the second one holds.
+    ws_send(&mut first, json!({ "type": "LeaveVoice", "data": null })).await;
+    ws_barrier(&mut first).await;
+    assert_eq!(
+        state.voice_sessions.get(&user_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "a leave from a connection that no longer holds voice ended the session"
+    );
+
+    // Closing the connection that holds voice ends it, although another tab stays open.
+    second.close(None).await.unwrap();
+    drop(second);
+    let mut ended = false;
+    for _ in 0..50 {
+        if !state.voice_sessions.contains_key(&user_id) {
+            ended = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(ended, "voice stayed after the connection holding it closed");
+    // Earlier join updates may still be queued; the departure is the one without a channel.
+    let mut saw_departure = false;
+    for _ in 0..5 {
+        let update = receive_ws_event(&mut first, "VoiceStateUpdate").await;
+        if update["data"]["channel_id"].is_null() {
+            saw_departure = true;
+            break;
+        }
+    }
+    assert!(saw_departure, "the other tab was not told that voice ended");
+    assert!(
+        state.sessions.contains_key(&user_id),
+        "the other tab must stay connected"
+    );
+}
+
+#[tokio::test]
 async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sessions() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

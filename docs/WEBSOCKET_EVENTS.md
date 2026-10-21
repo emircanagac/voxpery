@@ -93,6 +93,8 @@ Authorization:
 { "type": "LeaveVoice", "data": null }
 ```
 
+Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored.
+
 ### `SetVoiceControl`
 
 ```json
@@ -222,6 +224,9 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `VoiceMemberMoveResult`
   - Targeted to the moderator after destination LiveKit verification, failure, or timeout.
   - Includes `request_id`, `target_user_id`, `channel_id`, `success`, and a user-facing `message`.
+- `VoiceSessionMoved`
+  - Targeted event sent only to the connection whose voice session another tab or device of the same account took over with its own `JoinVoice`.
+  - Includes the `channel_id` that connection was in. The client leaves LiveKit locally without sending `LeaveVoice`, since the account is still in voice on the other device. If the new session is in another channel, the server also removes the old LiveKit participant from the previous room after 1.5 seconds.
 - `ScreenShareViewerUpdate`
   - Reports an opt-in viewer's current watch state for one active screen-share publisher.
   - Includes `viewer_id`, `publisher_id`, `channel_id`, `server_id`, and `watching`.
@@ -238,8 +243,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 3. Client sends `JoinVoice` over WS only after the media connection succeeds.
 4. Backend updates process-local `voice_sessions`, loads server voice restrictions from the membership row, and broadcasts voice state/control events. Explicit screen-share watch decisions also create short-lived viewer-presence entries so the stage can show who is watching without subscribing anyone else to media.
 5. LiveKit owns the reconnect grace window, so temporary `Reconnecting` state keeps sidebar presence intact.
-6. A final room `Disconnected` event sends `LeaveVoice` over the application WebSocket and clears local media state.
-7. The signed LiveKit `participant_left` webhook idempotently clears the same backend voice session for suspended or unreachable clients. The participant SID prevents a delayed leave event from removing a newer rejoin. Backend WebSocket cleanup remains the fallback when both connections are lost.
+6. A final room `Disconnected` event sends `LeaveVoice` over the application WebSocket and clears local media state. A `DUPLICATE_IDENTITY` disconnect (the same account joined the room from another tab or device) clears local media state without sending `LeaveVoice`.
+7. The signed LiveKit `participant_left` webhook idempotently clears the same backend voice session for suspended or unreachable clients. The participant SID prevents a delayed leave event from removing a newer rejoin. Backend WebSocket cleanup remains the fallback when both connections are lost: the voice session ends when the connection holding it closes, even if other tabs of the account stay connected.
 
 ## Security Notes
 

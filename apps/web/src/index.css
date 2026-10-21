@@ -8574,6 +8574,10 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin-top: 4px;
 }
 
+.voice-channel-idle-elsewhere {
+  color: var(--text-secondary);
+}
+
 /* Social layout: same column widths as server (channel | content | member) */
 .home-page {
   height: 100%;

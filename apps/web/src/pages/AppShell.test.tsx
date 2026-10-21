@@ -214,6 +214,27 @@ describe('AppShell social refresh', () => {
     expect(apiMocks.createWebSocket).toHaveBeenCalledTimes(2)
   })
 
+  it('leaves joining to the device that joined but mirrors a departure from any device', () => {
+    renderAppShell()
+    const emit = (channelId: string | null) => act(() => {
+      useSocketStore.getState().listeners.forEach((listener) => {
+        listener({
+          type: 'VoiceStateUpdate',
+          data: { user_id: localUser.id, channel_id: channelId, server_id: null, channel_active_since_ms: null },
+        })
+      })
+    })
+
+    // The account joined voice on another tab or device: this one is not connected.
+    emit('voice-1')
+    expect(useAppStore.getState().voiceStates[localUser.id]).toBe('voice-1')
+    expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
+
+    act(() => useAppStore.getState().setJoinedVoiceChannelId('voice-1'))
+    emit(null)
+    expect(useAppStore.getState().joinedVoiceChannelId).toBeNull()
+  })
+
   it('keeps social data fresh from events and reconnects instead of aggressive polling', async () => {
     const setIntervalSpy = vi.spyOn(window, 'setInterval')
 

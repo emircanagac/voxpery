@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import type { Channel } from '../api'
+import { useAppStore } from '../stores/app'
 import ChatArea from './ChatArea'
 
 const scrollToIndex = vi.fn()
@@ -185,6 +186,28 @@ describe('ChatArea regressions', () => {
     renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
     expect(screen.getByRole('heading', { name: 'No one is here yet' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
+  })
+
+  it('offers to move a call from another device instead of hiding the join button', () => {
+    useAppStore.setState({ voiceStates: { 'me': 'voice-1' }, joinedVoiceChannelId: null })
+    try {
+      const { unmount } = renderChatArea({
+        activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel,
+        currentUserId: 'me',
+      })
+      expect(screen.getByRole('status')).toHaveTextContent('You are in this channel on another device.')
+      expect(screen.getByRole('button', { name: 'Join here' })).toBeInTheDocument()
+      unmount()
+
+      renderChatArea({
+        activeChannel: { ...channel('voice-2', 'Studio'), channel_type: 'voice' } as Channel,
+        currentUserId: 'me',
+      })
+      expect(screen.getByRole('status')).toHaveTextContent('You are in voice on another device.')
+      expect(screen.getByRole('button', { name: 'Join here' })).toBeInTheDocument()
+    } finally {
+      useAppStore.setState({ voiceStates: {}, joinedVoiceChannelId: null })
+    }
   })
 
   it('tells the user when long text is shortened to the message limit', () => {

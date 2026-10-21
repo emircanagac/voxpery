@@ -223,6 +223,10 @@ export default function ChatArea({
     const readableTextColor = useReadableTextColor()
     const joinedVoiceChannelId = useAppStore((state) => state.joinedVoiceChannelId)
     const voiceParticipantCount = useAppStore((state) => Object.values(state.voiceStates).filter((channelId) => !!activeChannel && channelId === activeChannel.id).length)
+    // The account is in voice, but on another tab or device rather than this one.
+    const voiceElsewhereChannelId = useAppStore((state) => (
+        currentUserId && !state.joinedVoiceChannelId ? state.voiceStates[currentUserId] ?? null : null
+    ))
     const [useCompactMobileTimestamp, setUseCompactMobileTimestamp] = useState(
         () => typeof window !== 'undefined' ? window.innerWidth <= 520 : false
     )
@@ -1924,8 +1928,15 @@ export default function ChatArea({
                             <Volume2 size={36} aria-hidden="true" />
                             <h2>{voiceParticipantCount === 0 ? 'No one is here yet' : `${voiceParticipantCount} in voice`}</h2>
                             <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
+                            {voiceElsewhereChannelId && (
+                                <p className="voice-channel-idle-elsewhere" role="status">
+                                    {voiceElsewhereChannelId === activeChannel.id
+                                        ? 'You are in this channel on another device. Join here to move your call to this device.'
+                                        : 'You are in voice on another device. Joining here moves your call to this device.'}
+                                </p>
+                            )}
                             <button type="button" className="btn btn-primary" onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}>
-                                Join voice
+                                {voiceElsewhereChannelId ? 'Join here' : 'Join voice'}
                             </button>
                         </div>
                     )}

@@ -139,6 +139,7 @@ pub(crate) async fn clear_local_voice_session(
     }
 
     state.voice_participant_sids.remove(&user_id);
+    state.voice_session_connections.remove(&user_id);
     state
         .screen_share_viewers
         .retain(|(viewer_id, publisher_id), _| *viewer_id != user_id && *publisher_id != user_id);
@@ -298,7 +299,13 @@ pub(crate) fn schedule_departed_participant_removal(
 ) {
     tokio::spawn(async move {
         tokio::time::sleep(delay).await;
-        if state.voice_sessions.contains_key(&user_id) {
+        // A rejoin of the same room keeps its participant; a move to another room (for example
+        // from another device) still removes the one left behind.
+        if state
+            .voice_sessions
+            .get(&user_id)
+            .is_some_and(|entry| *entry == channel_id)
+        {
             return;
         }
         let current_sid = match livekit_participant_sid(&state, channel_id, user_id).await {
