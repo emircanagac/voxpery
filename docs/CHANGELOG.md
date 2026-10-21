@@ -10,8 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Security updates.
 
+### Changed
+- Focus view works like Discord's: the focused stream fills the stage above a strip of the other participants and streams; pick one in the strip to focus it, or hide the strip.
+- The voice channel timer shows three small green bars next to the time instead of a framed clock.
+
 ### Fixed
 - The server menu and the invite panel stay inside the channel list instead of spilling over the chat.
+- When someone leaves a voice channel or closes their browser, their screen share, camera and leave sound go away together with their name in the channel list, instead of a frozen stream lingering for several seconds.
+- Screen shares that are not 16:9 (a single window, or a screen without its taskbar) are shown at their real shape instead of with black bars above and below.
+- Desktop app on Windows: fullscreen from a maximized window covers the whole screen, including the taskbar area, and the window is maximized again afterwards.
 - Profile pictures in Friend Activity are cropped like everywhere else.
 - The Friends tabs fit on narrow desktop windows.
 - Members who can only view a server's settings no longer see editing wording or a name counter.
