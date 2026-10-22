@@ -23,6 +23,18 @@ describe('QuickSwitcher groups', () => {
     expect(onSelect).toHaveBeenCalledWith(items[1])
   })
 
+  it('lists voice channels with the channels and selects them like any channel', () => {
+    const onSelect = vi.fn()
+    const voice: QuickSwitcherItem = { id: 'voice', kind: 'channel', channelType: 'voice', label: 'Lounge', searchText: 'Lounge Guild voice' }
+    render(<QuickSwitcher items={[...items, voice]} onClose={vi.fn()} onSelect={onSelect} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'lounge' } })
+    const region = screen.getByRole('region', { name: 'Channels' })
+    expect(region).toHaveTextContent('Lounge')
+    expect(region).toHaveTextContent('Voice')
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledWith(voice)
+  })
+
   it('keeps the other groups discoverable with many direct messages', () => {
     const dms = Array.from({ length: 20 }, (_, index) => ({ ...items[2], id: `dm-${index}` }))
     render(<QuickSwitcher items={[...dms, ...items.slice(0, 2)]} onClose={vi.fn()} onSelect={vi.fn()} />)

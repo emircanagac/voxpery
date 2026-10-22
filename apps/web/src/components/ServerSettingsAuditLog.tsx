@@ -1,5 +1,6 @@
 import type { AuditLogEntry } from '../api'
 import { raidEventLabel, raidEventSummary, readableEventName } from '../moderationEventText'
+import { formatDateTime } from '../dateFormat'
 
 type ServerSettingsAuditLogProps = {
     entries: AuditLogEntry[]
@@ -188,7 +189,7 @@ export default function ServerSettingsAuditLog({
                                         )}
                                     </div>
                                     <time className="server-settings-audit-row__time" dateTime={entry.at}>
-                                        {new Date(entry.at).toLocaleString()}
+                                        {formatDateTime(entry.at)}
                                     </time>
                                 </div>
                                 {entry.reason && (

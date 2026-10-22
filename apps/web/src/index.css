@@ -4511,6 +4511,7 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 }
 
+/* Native selects look like the custom device pickers (.device-select-trigger) beside them. */
 .user-select {
   min-width: 240px;
   width: min(340px, 100%);
@@ -4518,10 +4519,19 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   height: 30px;
   border-radius: 7px;
   border: 1px solid rgba(var(--ui-contrast-rgb), 0.16);
-  background: var(--bg-input);
+  background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%238b95a7' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E") no-repeat right 10px center / 15px 15px;
   color: var(--text-primary);
-  padding: 0 8px;
+  padding: 0 35px 0 10px;
   color-scheme: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.user-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent-primary) 75%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 16%, transparent);
 }
 
 .device-select-trigger {
@@ -5494,12 +5504,12 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 @keyframes message-highlight-jump {
   0% {
-    background: rgba(233, 69, 96, 0.28);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.35);
+    background: var(--accent-soft-strong);
+    box-shadow: 0 0 0 2px var(--accent-border);
   }
   25% {
-    background: rgba(233, 69, 96, 0.2);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.25);
+    background: var(--accent-soft-hover);
+    box-shadow: 0 0 0 2px var(--accent-soft-strong);
   }
   100% {
     background: transparent;
@@ -7443,7 +7453,8 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   margin-bottom: 16px;
 }
 
-.form-group label {
+.form-group label,
+.form-group .form-label {
   display: block;
   font-size: 12px;
   font-weight: 700;
@@ -9014,6 +9025,17 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   white-space: nowrap;
   font: inherit;
   line-height: 1.2;
+}
+
+/* Clipped single-line labels with a tight line height cut off descenders ("g", "y") in Firefox;
+   pad the clip box without changing the layout. */
+.home-chip-label,
+.user-panel .user-name,
+.user-panel .user-status,
+.channel-description,
+.server-settings-nav__title {
+  padding-block: 2px;
+  margin-block: -2px;
 }
 
 .home-chip-badge {
@@ -11698,7 +11720,8 @@ button.message-author {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.18s ease;
+  /* Not `all`: animating size made controls overflow mid-resize. */
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
   position: relative;
   flex-shrink: 0;
 }
@@ -12694,6 +12717,22 @@ button.message-author {
 
 .server-overview-profile__form .form-group {
     margin-bottom: 0;
+}
+
+.server-overview-profile__details {
+    margin: 0;
+}
+
+.server-overview-profile__value {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.server-overview-profile__value.is-empty {
+    color: var(--text-muted);
 }
 
 .server-overview-profile__actions .btn,
@@ -16531,14 +16570,9 @@ textarea {
     border-radius: 8px;
   }
 
+  /* Every call control is a 44px touch target. */
   .callbar-control-btn,
   .callbar-control-btn.danger {
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-  }
-
-  .callbar-control-btn.audio-control {
     width: 44px;
     min-width: 44px;
     height: 44px;
@@ -17461,7 +17495,31 @@ textarea {
   }
 }
 
+/* Phones narrower than 430px cannot fit five 44px call controls and the ping: camera, screen
+   share and leave stay equal to each other, and microphone and deafen keep the full size. */
+@media (max-width: 430px) {
+  .callbar-control-btn,
+  .callbar-control-btn.danger {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .callbar-control-btn.audio-control {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
 @media (max-width: 360px) {
+  .callbar-control-btn:not(.audio-control),
+  .callbar-control-btn.danger {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+  }
+
   .callbar-ping-chip {
     min-width: 28px;
     width: 28px;

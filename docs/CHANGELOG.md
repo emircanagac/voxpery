@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Quick Search (Ctrl+K) also finds voice channels, shown with a speaker icon; picking one opens the channel without joining it.
+
+### Fixed
+- Profile pictures and server icons are checked when they are uploaded: an image whose file type was labeled wrongly is saved under its real type instead of showing as a broken image, and files that are not PNG, JPEG, GIF or WebP images are refused.
+- Dates in profile cards, message search, timeouts, the audit log and moderation lists use the same English format as chat instead of the browser's language.
+- A message opened from search ("Go to message") is highlighted in the theme's accent color instead of a fixed red that looked like an error.
+- The Pending tab in Friends is only as wide as its label, and labels such as "Pending" no longer lose the bottom of letters like "g" in Firefox.
+- Voice & Audio and other settings use the same select style everywhere instead of a mix of custom and browser menus.
+- Members who can only view a server's settings see its name and description as plain text instead of disabled fields that looked editable.
+- The 404, sign-in and sign-up pages have their own tab titles.
+- On phones, all call controls are larger and easier to tap: 44px from 431px wide, with camera, screen share and leave slightly smaller on the narrowest screens.
+
 ## [0.4.8] - 2026-10-21
 
 ### Security

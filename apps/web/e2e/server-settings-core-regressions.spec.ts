@@ -167,6 +167,10 @@ test.describe('mocked server settings UI regressions', () => {
     await expect(page.getByText('See this server’s name, description, and invite link.')).toBeVisible()
     await expect(page.getByText('Update your server identity, invite flow, and core presentation.')).toHaveCount(0)
     await expect(page.locator('#server-settings-modal-server-name-count')).toHaveCount(0)
+    // Name and description are plain text, not disabled inputs that look editable.
+    await expect(page.getByRole('textbox', { name: 'Server name' })).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: 'Description' })).toHaveCount(0)
+    await expect(page.getByText("What's this server about?")).toHaveCount(0)
   })
 
   test('copies the invite link from the server menu without opening settings', async ({ page, context }) => {

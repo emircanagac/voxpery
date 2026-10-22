@@ -184,6 +184,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.8` an
 - [ ] `Checks / Secret Scan`
 - [ ] `Checks / Backend`
 - [ ] `Checks / Frontend` (lint, unit tests, core UI smoke, build)
+- [ ] `Checks / Frontend (Firefox)` (core UI smoke in Firefox)
 - [ ] `Checks / Desktop` (Linux launcher validation, desktop `cargo check`/`cargo test`)
 
 ## 2) Security and Release Gates (mandatory)
@@ -294,6 +295,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.8` an
 - [ ] Run `npm run test:e2e:ui-smoke` for the required `@core` basic feature checks: auth/account, invite/join, permissions, channel and DM messages/actions, Friends/requests, server profile/roles and voice readiness. CI keeps one worker and the existing lint/unit/build gates; it does not run the full visual matrix.
 - [ ] Run `npm run test:e2e:mobile-smoke` for compact navigation, composer, member-sheet and Settings access. Detailed theme/media/layout regressions remain available on demand via `npm run test:e2e:ui-regressions`, not as an additional scheduled CI job.
 - [ ] Automated mobile web smoke completed for the release candidate or CI run, covering Social, DM, server chat, mobile composer actions, and the mobile member sheet.
+- [ ] Browsers: in Chrome, Firefox, Brave (Shields on) and Opera, sign in, send a channel and a DM message, join voice with another participant and hear each other, and share a screen that the other participant sees. In Firefox, screen sharing carries no audio; check that the UI does not promise it. In Brave, check that the CAPTCHA on sign-up and the voice connection work with Shields on.
 
 ## 5) Desktop Smoke Tests (mandatory)
 

@@ -59,7 +59,7 @@ Voxpery follows Semantic Versioning:
 
 ### Quality Gate Tiers
 
-- **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, `Checks / Frontend`, and `Checks / Desktop`. Keep these fast and deterministic so branch protection can require them on every PR.
+- **Required PR gates**: `Checks / Secret Scan`, `Checks / Backend`, `Checks / Frontend`, `Checks / Frontend (Firefox)`, and `Checks / Desktop`. Keep these fast and deterministic so branch protection can require them on every PR.
 - **Security monitoring gates**: CodeQL scans only the languages affected by a PR (web or CI-script JavaScript, and GitHub Actions workflows). Rust (server and desktop) takes about 15 minutes, so it is scanned only by the weekly and manual runs, which cover all languages. Before tagging a release, start the CodeQL workflow manually on `main` (Actions > Security / CodeQL > Run workflow) and review any new alerts. Dependency security audits run separately. Review their output before release; an upstream-blocked advisory needs an explicit release decision rather than being silently ignored.
 - **Pinned actions**: every remote GitHub Action is pinned to a full commit SHA with its version as a comment (`uses: owner/action@<sha> # v1.2.3`), because workflows hold deploy and signing secrets and a tag can be moved. `validate-security-policies.mjs` rejects unpinned actions; Dependabot updates the SHA and the comment together.
 - **Release smoke gates**: release metadata sync runs automatically before Docker publishing on `v*` tag builds. The manual `Release / Smoke` workflow can be run against release candidate API and web URLs for post-deploy confidence; it verifies public health endpoints, immutable image-tag format, and the deployed web version tag.

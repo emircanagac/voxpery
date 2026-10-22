@@ -14,6 +14,16 @@ const DEFAULT_TAG_VALUES = [
   DEFAULT_PROMO_DESCRIPTION,
 ]
 
+/** Sets the tab title of a page that has no public metadata of its own (sign-in, 404). */
+export function useDocumentTitle(title: string) {
+  useEffect(() => {
+    document.title = title
+    return () => {
+      document.title = DEFAULT_TITLE
+    }
+  }, [title])
+}
+
 export function usePublicPageMetadata(
   path: '/' | '/compare' | '/terms' | '/privacy' | '/kvkk',
   title: string,

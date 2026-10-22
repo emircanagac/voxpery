@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { MessageCircle, Settings, UserPlus, X } from 'lucide-react'
 import { resolveAvatarUrl } from '../api'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
+import { formatDate } from '../dateFormat'
 
 export interface MemberProfileMember {
   user_id: string
@@ -31,9 +32,7 @@ interface MemberProfileDialogProps {
 
 function formatProfileDate(value?: string | null) {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
+  return formatDate(value) || null
 }
 
 export default function MemberProfileDialog({ member, isServerOwner, onClose, actions, onEditProfile }: MemberProfileDialogProps) {

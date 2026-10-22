@@ -148,7 +148,7 @@ pub fn validate_stored_image_url(raw: &str, label: &str) -> Result<String, AppEr
         if trimmed.len() > MAX_STORED_IMAGE_DATA_URL_BYTES {
             return Err(AppError::Validation(format!("{label} image is too large")));
         }
-        return Ok(trimmed.to_string());
+        return normalize_stored_image_data_url(trimmed, label);
     }
 
     validate_external_image_url(trimmed, label)?;
@@ -189,6 +189,34 @@ fn has_image_signature(media_type: &str, bytes: &[u8]) -> bool {
         "image/webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
         _ => false,
     }
+}
+
+/// The supported image type whose signature `bytes` start with.
+fn sniff_image_type(bytes: &[u8]) -> Option<&'static str> {
+    ["image/png", "image/jpeg", "image/gif", "image/webp"]
+        .into_iter()
+        .find(|media_type| has_image_signature(media_type, bytes))
+}
+
+/// Checks an uploaded `data:` image with the rules the image route serves it by: a base64 PNG,
+/// JPEG, GIF or WebP. The stored type comes from the content, so a mislabeled upload is saved under
+/// its real type instead of becoming an image that can never be served.
+fn normalize_stored_image_data_url(raw: &str, label: &str) -> Result<String, AppError> {
+    let invalid =
+        || AppError::Validation(format!("{label} must be a PNG, JPEG, GIF or WebP image"));
+    let (_, encoded) = raw
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(";base64,"))
+        .ok_or_else(invalid)?;
+    let bytes = BASE64
+        .decode(encoded.trim().as_bytes())
+        .map_err(|_| invalid())?;
+    let media_type = sniff_image_type(&bytes).ok_or_else(invalid)?;
+    let normalized = format!("data:{media_type};base64,{}", BASE64.encode(&bytes));
+    if normalized.len() > MAX_STORED_IMAGE_DATA_URL_BYTES {
+        return Err(AppError::Validation(format!("{label} image is too large")));
+    }
+    Ok(normalized)
 }
 
 /// Decodes a stored `data:` image URL into its media type and bytes. Anything that is not a
@@ -295,8 +323,44 @@ mod tests {
 
     #[test]
     fn validates_profile_avatar_data_urls() {
-        assert!(validate_profile_avatar_url("data:image/png;base64,abc").is_ok());
+        let png = [PNG_SIGNATURE, b"rest"].concat();
+        let url = format!("data:image/png;base64,{}", BASE64.encode(&png));
+        assert_eq!(validate_profile_avatar_url(&url).unwrap(), url);
         assert!(validate_profile_avatar_url("data:image/svg+xml;base64,abc").is_err());
+    }
+
+    #[test]
+    fn stores_uploaded_images_under_their_real_type() {
+        // A JPEG labeled as PNG is stored as JPEG, so the image route can serve it.
+        let jpeg = [&[0xff, 0xd8, 0xff, 0xe0][..], b"JFIF"].concat();
+        let mislabeled = format!("data:image/png;base64,{}", BASE64.encode(&jpeg));
+        let stored = validate_profile_avatar_url(&mislabeled).unwrap();
+        assert_eq!(
+            stored,
+            format!("data:image/jpeg;base64,{}", BASE64.encode(&jpeg))
+        );
+        assert_eq!(
+            decode_stored_image_data_url(&stored),
+            Some(("image/jpeg", jpeg))
+        );
+
+        // Anything the image route could not serve is refused at upload.
+        for refused in [
+            "data:image/png;base64,abc".to_string(),
+            "data:image/png;base64,***".to_string(),
+            "data:image/png,rawbytes".to_string(),
+            format!("data:image/png;base64,{}", BASE64.encode(b"<html>")),
+            format!("data:image/gif;base64,{}", BASE64.encode(b"<svg/>")),
+        ] {
+            assert!(
+                validate_profile_avatar_url(&refused).is_err(),
+                "{refused} must be refused"
+            );
+            assert!(
+                validate_server_icon_image_url(&refused).is_err(),
+                "{refused} must be refused"
+            );
+        }
     }
 
     #[test]

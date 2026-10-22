@@ -2,6 +2,7 @@ import { Ban, Flag, ShieldAlert } from 'lucide-react'
 import ServerSettingsAutoMod from './ServerSettingsAutoMod'
 import type { AuthToken, RaidEventEntry, ServerBanEntry, ServerReportEntry, ServerTimeoutEntry } from '../api'
 import { raidEventLabel, raidEventSummary } from '../moderationEventText'
+import { formatDateTime } from '../dateFormat'
 
 export type SafetySettingsTab = 'reports' | 'automod' | 'bans'
 
@@ -134,7 +135,7 @@ export default function ServerSettingsSafety({
                                             </span>
                                         </div>
                                         <div className="server-report-subline">
-                                            Reported by {entry.reporter_username} on {new Date(entry.created_at).toLocaleString()}
+                                            Reported by {entry.reporter_username} on {formatDateTime(entry.created_at)}
                                         </div>
                                         <div className="server-report-tags">
                                             <span className="server-report-tag server-report-tag--reason">
@@ -158,7 +159,7 @@ export default function ServerSettingsSafety({
                                         )}
                                         {entry.resolved_at && entry.resolved_by_username && (
                                             <div className="server-report-subline">
-                                                Resolved by {entry.resolved_by_username} on {new Date(entry.resolved_at).toLocaleString()}
+                                                Resolved by {entry.resolved_by_username} on {formatDateTime(entry.resolved_at)}
                                             </div>
                                         )}
                                     </div>
@@ -196,7 +197,7 @@ export default function ServerSettingsSafety({
                                                     <span className="server-report-status is-open">Timed out</span>
                                                 </div>
                                                 <div className="server-report-subline">
-                                                    Until {new Date(entry.timed_out_until).toLocaleString()}
+                                                    Until {formatDateTime(entry.timed_out_until)}
                                                     {entry.timeout_by_username ? ` by ${entry.timeout_by_username}` : ''}
                                                 </div>
                                                 {entry.reason && (
@@ -237,7 +238,7 @@ export default function ServerSettingsSafety({
                                                     <span className="server-report-status is-open">Detected</span>
                                                 </div>
                                                 <div className="server-report-subline">
-                                                    {new Date(entry.created_at).toLocaleString()}
+                                                    {formatDateTime(entry.created_at)}
                                                     {entry.username ? ` by ${entry.username}` : ''}
                                                     {entry.channel_name ? ` in #${entry.channel_name}` : ''}
                                                 </div>
@@ -301,7 +302,7 @@ export default function ServerSettingsSafety({
                                     <div className="server-settings-ban-meta">
                                         <strong>{entry.username}</strong>
                                         <span>
-                                            Banned by {entry.banned_by_username} on {new Date(entry.created_at).toLocaleString()}
+                                            Banned by {entry.banned_by_username} on {formatDateTime(entry.created_at)}
                                         </span>
                                         {entry.reason && (
                                             <span className="server-settings-ban-reason">Reason: {entry.reason}</span>
