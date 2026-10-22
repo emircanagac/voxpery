@@ -7,6 +7,7 @@ import { useFeatureStore } from '../stores/features'
 import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
+import { useDocumentTitle } from './publicPageMetadata'
 import { setPersistedSocialView } from '../socialView'
 import { googleOAuthErrorMessage, resolvePostAuthRoute, takeExpiredSession } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
@@ -44,6 +45,7 @@ function safeRedirectPath(redirect: string | null): string | undefined {
 }
 
 export default function LoginPage() {
+    useDocumentTitle('Sign in | Voxpery')
     const location = useLocation()
     const [searchParams] = useSearchParams()
     const [expiredSession] = useState(() => takeExpiredSession())

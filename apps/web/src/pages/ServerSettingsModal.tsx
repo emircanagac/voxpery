@@ -458,36 +458,48 @@ export default function ServerSettingsModal({
                                                         />
                                                     )}
 
-                                                    <div className="server-overview-profile__form">
-                                                        <div className="form-group">
-                                                            <label htmlFor="server-settings-modal-server-name">Server name</label>
-                                                            <input id="server-settings-modal-server-name"
-                                                                type="text"
-                                                                value={serverSettingsName}
-                                                                onChange={(e) => setServerSettingsName(e.target.value)}
-                                                                placeholder="Server name"
-                                                                maxLength={SERVER_NAME_MAX}
-                                                                aria-describedby={isOwner ? 'server-settings-modal-server-name-count' : undefined}
-                                                                disabled={!isOwner}
-                                                            />
-                                                            {isOwner && (
+                                                    {isOwner ? (
+                                                        <div className="server-overview-profile__form">
+                                                            <div className="form-group">
+                                                                <label htmlFor="server-settings-modal-server-name">Server name</label>
+                                                                <input id="server-settings-modal-server-name"
+                                                                    type="text"
+                                                                    value={serverSettingsName}
+                                                                    onChange={(e) => setServerSettingsName(e.target.value)}
+                                                                    placeholder="Server name"
+                                                                    maxLength={SERVER_NAME_MAX}
+                                                                    aria-describedby="server-settings-modal-server-name-count"
+                                                                />
                                                                 <div id="server-settings-modal-server-name-count" className="form-field-counter">
                                                                     {Array.from(serverSettingsName).length}/{SERVER_NAME_MAX}
                                                                 </div>
-                                                            )}
+                                                            </div>
+                                                            <div className="form-group">
+                                                                <label htmlFor="server-settings-modal-description">Description</label>
+                                                                <input id="server-settings-modal-description"
+                                                                    type="text"
+                                                                    value={serverSettingsDescription}
+                                                                    onChange={(e) => setServerSettingsDescription(e.target.value)}
+                                                                    placeholder="What's this server about?"
+                                                                    maxLength={500}
+                                                                />
+                                                            </div>
                                                         </div>
-                                                        <div className="form-group">
-                                                            <label htmlFor="server-settings-modal-description">Description</label>
-                                                            <input id="server-settings-modal-description"
-                                                                type="text"
-                                                                value={serverSettingsDescription}
-                                                                onChange={(e) => setServerSettingsDescription(e.target.value)}
-                                                                placeholder="What's this server about?"
-                                                                maxLength={500}
-                                                                disabled={!isOwner}
-                                                            />
-                                                        </div>
-                                                    </div>
+                                                    ) : (
+                                                        // Members who can only view settings see plain text instead of disabled inputs that look editable.
+                                                        <dl className="server-overview-profile__form server-overview-profile__details">
+                                                            <div className="form-group">
+                                                                <dt className="form-label">Server name</dt>
+                                                                <dd className="server-overview-profile__value">{serverSettingsName}</dd>
+                                                            </div>
+                                                            <div className="form-group">
+                                                                <dt className="form-label">Description</dt>
+                                                                <dd className={`server-overview-profile__value${serverSettingsDescription.trim() ? '' : ' is-empty'}`}>
+                                                                    {serverSettingsDescription.trim() || 'No description yet.'}
+                                                                </dd>
+                                                            </div>
+                                                        </dl>
+                                                    )}
                                                 </section>
 
                                                 <aside className="server-overview-invite">

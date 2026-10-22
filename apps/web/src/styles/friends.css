@@ -18,7 +18,7 @@
 
 .friends-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }
 /* Tracks keep their widths when there is room and shrink to their content in narrow desktop columns. */
-.social-content--friends .home-chip-row { grid-template-columns: minmax(min-content, 90px) minmax(min-content, 72px) minmax(min-content, 132px) minmax(min-content, 120px); gap: 4px; margin: 0; flex: 0 1 auto; }
+.social-content--friends .home-chip-row { grid-template-columns: minmax(min-content, 90px) minmax(min-content, 72px) max-content minmax(min-content, 120px); gap: 4px; margin: 0; flex: 0 1 auto; }
 .social-content--friends .home-chip {
   min-height: 38px;
   padding: 6px 10px;

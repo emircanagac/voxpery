@@ -8,6 +8,7 @@ import { useFeatureStore } from '../stores/features'
 import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
+import { useDocumentTitle } from './publicPageMetadata'
 import { setPersistedSocialView } from '../socialView'
 import { resolvePostAuthRoute } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
@@ -36,6 +37,7 @@ function safeRedirectPath(redirect: string | null): string | undefined {
 }
 
 export default function RegisterPage() {
+    useDocumentTitle('Create an account | Voxpery')
     const [searchParams] = useSearchParams()
     const redirectTo = safeRedirectPath(searchParams.get('redirect'))
     const [username, setUsername] = useState('')
