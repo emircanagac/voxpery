@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Quick Search (Ctrl+K) also finds voice channels, shown with a speaker icon; picking one opens the channel without joining it.
 
+### Changed
+- The Terms of Service, Privacy Notice and KVKK notice are rewritten to match how the hosted service actually works: they now cover cookies and local storage, the minimum age (13), GIPHY and jsDelivr loading GIFs and stickers directly, desktop update checks through GitHub, what account deletion removes, and 14-day limits for server logs and backups. Everyone is asked to acknowledge the new version.
+- Self-hosting: `db_backup.sh` deletes backups older than 14 days after each successful backup (`BACKUP_RETENTION_DAYS`, `0` keeps all), and the new `prune_container_logs.sh` keeps container logs under 14 days.
+
 ### Fixed
 - Profile pictures and server icons are checked when they are uploaded: an image whose file type was labeled wrongly is saved under its real type instead of showing as a broken image, and files that are not PNG, JPEG, GIF or WebP images are refused.
 - Dates in profile cards, message search, timeouts, the audit log and moderation lists use the same English format as chat instead of the browser's language.

@@ -77,9 +77,9 @@ describe('auth notification permission behavior', () => {
     authApiMocks.register.mockResolvedValue({ token: 'register-token', user: authUser })
     authApiMocks.getLegalDocuments.mockResolvedValue({
       required: false,
-      current_terms_version: '2026-08-23',
-      current_privacy_notice_version: '2026-08-23',
-      current_kvkk_notice_version: '2026-08-23',
+      current_terms_version: '2026-10-23',
+      current_privacy_notice_version: '2026-10-23',
+      current_kvkk_notice_version: '2026-10-23',
     })
   })
 

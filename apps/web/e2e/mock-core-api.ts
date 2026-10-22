@@ -517,9 +517,9 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       user: state.user,
       legal_consent: {
         required: state.legalConsentRequired,
-        current_terms_version: '2026-08-23',
-        current_privacy_notice_version: '2026-08-23',
-        current_kvkk_notice_version: '2026-08-23',
+        current_terms_version: '2026-10-23',
+        current_privacy_notice_version: '2026-10-23',
+        current_kvkk_notice_version: '2026-10-23',
       },
     })
     return
@@ -528,9 +528,9 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   if ((pathname === '/api/auth/legal-consent' || pathname === '/api/auth/legal-documents') && method === 'GET') {
     await json(route, {
       required: state.legalConsentRequired,
-      current_terms_version: '2026-08-23',
-      current_privacy_notice_version: '2026-08-23',
-      current_kvkk_notice_version: '2026-08-23',
+      current_terms_version: '2026-10-23',
+      current_privacy_notice_version: '2026-10-23',
+      current_kvkk_notice_version: '2026-10-23',
     })
     return
   }
@@ -538,11 +538,11 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
   if (pathname === '/api/auth/legal-consent' && method === 'POST') {
     const body = parseJsonBody<Record<string, unknown>>(request)
     const current = body.terms_accepted === true
-      && body.terms_version === '2026-08-23'
+      && body.terms_version === '2026-10-23'
       && body.privacy_notice_acknowledged === true
-      && body.privacy_notice_version === '2026-08-23'
+      && body.privacy_notice_version === '2026-10-23'
       && body.kvkk_notice_acknowledged === true
-      && body.kvkk_notice_version === '2026-08-23'
+      && body.kvkk_notice_version === '2026-10-23'
     if (!current) {
       await json(route, { error: 'All current legal documents must be acknowledged' }, 400)
       return
@@ -551,9 +551,9 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     state.legalConsentRequired = false
     await json(route, {
       required: false,
-      current_terms_version: '2026-08-23',
-      current_privacy_notice_version: '2026-08-23',
-      current_kvkk_notice_version: '2026-08-23',
+      current_terms_version: '2026-10-23',
+      current_privacy_notice_version: '2026-10-23',
+      current_kvkk_notice_version: '2026-10-23',
     })
     return
   }

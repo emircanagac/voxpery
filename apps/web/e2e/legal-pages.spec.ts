@@ -4,7 +4,7 @@ import { createMockCoreState, installMockCoreApi } from './mock-core-api'
 const legalPages = [
   { path: '/privacy', lastHeading: 'Changes and incidents' },
   { path: '/terms', lastHeading: 'Contact' },
-  { path: '/kvkk', lastHeading: 'Saklama, mesaj gizliliği ve haklar' },
+  { path: '/kvkk', lastHeading: 'Değişiklikler' },
 ]
 
 test.describe('public landing and comparison', () => {

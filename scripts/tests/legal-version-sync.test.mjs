@@ -14,3 +14,31 @@ test('published legal pages show the version the server enforces', () => {
     assert.equal(version, published, `${name} must match the published legal pages`)
   }
 })
+
+// The docs copies are what reviewers and self-hosters read; they must say exactly what the page says.
+test('docs copies of the legal pages match the published text', () => {
+  const page = read('apps/web/src/pages/LegalPage.tsx')
+  const contact = page.match(/const CONTACT = '([^']+)'/)?.[1]
+  const plain = text => text
+    .replace(/<a href=\{`mailto:\$\{CONTACT\}`\}>\{CONTACT\}<\/a>/g, contact)
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  for (const [fn, doc] of [
+    ['EnglishPrivacyNotice', 'docs/PRIVACY_NOTICE.md'],
+    ['TermsOfService', 'docs/TERMS_OF_SERVICE.md'],
+    ['KvkkNotice', 'docs/KVKK_AYDINLATMA_METNI.md'],
+  ]) {
+    const start = page.indexOf(`function ${fn}() {`)
+    const body = start >= 0 ? page.slice(start, page.indexOf('\n}\n', start)) : ''
+    assert.ok(body, `${fn} is missing`)
+    const docText = plain(read(doc))
+    const blocks = [...body.matchAll(/<(h1|h2|p|li)>([\s\S]*?)<\/\1>/g)]
+      .map(match => plain(match[2]))
+      .filter(text => !text.includes('PUBLISHED_LEGAL_VERSION'))
+    assert.ok(blocks.length > 5, `${fn} has no text blocks`)
+    for (const block of blocks) assert.ok(docText.includes(block), `${doc} is missing: ${block.slice(0, 80)}`)
+  }
+})

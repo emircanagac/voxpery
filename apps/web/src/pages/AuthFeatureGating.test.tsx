@@ -45,7 +45,7 @@ afterEach(() => {
 describe('auth feature gating', () => {
   beforeEach(() => {
     vi.spyOn(authApi, 'getLegalDocuments').mockResolvedValue({ required: false,
-      current_terms_version: '2026-08-23', current_privacy_notice_version: '2026-08-23', current_kvkk_notice_version: '2026-08-23' })
+      current_terms_version: '2026-10-23', current_privacy_notice_version: '2026-10-23', current_kvkk_notice_version: '2026-10-23' })
   })
   it('hides Google and password reset actions on login when integrations are disabled', () => {
     renderWithFeatures(<LoginPage />)
@@ -148,7 +148,7 @@ describe('auth feature gating', () => {
     expect(openedUrl).toContain('terms_accepted=true')
     expect(openedUrl).toContain('privacy_notice_acknowledged=true')
     expect(openedUrl).toContain('kvkk_notice_acknowledged=true')
-    expect(openedUrl).toContain('kvkk_notice_version=2026-08-23')
+    expect(openedUrl).toContain('kvkk_notice_version=2026-10-23')
   })
 
   it('registers in the desktop app with the CAPTCHA solved in the API-hosted frame', async () => {

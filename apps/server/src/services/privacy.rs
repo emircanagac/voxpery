@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::errors::AppError;
 
-pub const CURRENT_TERMS_VERSION: &str = "2026-08-23";
-pub const CURRENT_PRIVACY_NOTICE_VERSION: &str = "2026-08-23";
-pub const CURRENT_KVKK_NOTICE_VERSION: &str = "2026-08-23";
+pub const CURRENT_TERMS_VERSION: &str = "2026-10-23";
+pub const CURRENT_PRIVACY_NOTICE_VERSION: &str = "2026-10-23";
+pub const CURRENT_KVKK_NOTICE_VERSION: &str = "2026-10-23";
 pub const DATA_EXPORT_MESSAGE_LIMIT: i64 = 20_000;
 pub const DATA_EXPORT_REAUTH_MAX_AGE_SECS: usize = 10 * 60;
 pub const DATA_EXPORT_MAX_ARCHIVE_BYTES: i64 = 256 * 1024 * 1024;
