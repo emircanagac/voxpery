@@ -19,9 +19,17 @@ test('published legal pages show the version the server enforces', () => {
 test('docs copies of the legal pages match the published text', () => {
   const page = read('apps/web/src/pages/LegalPage.tsx')
   const contact = page.match(/const CONTACT = '([^']+)'/)?.[1]
-  const plain = text => text
-    .replace(/<a href=\{`mailto:\$\{CONTACT\}`\}>\{CONTACT\}<\/a>/g, contact)
-    .replace(/<[^>]+>/g, '')
+  // Repeats until nothing changes, so removing one tag cannot join two fragments into a new one.
+  const stripTags = text => {
+    let previous
+    do {
+      previous = text
+      text = text.replace(/<[^<>]*>/g, '')
+    } while (text !== previous)
+    return text
+  }
+  const plain = text => stripTags(text
+    .replace(/<a href=\{`mailto:\$\{CONTACT\}`\}>\{CONTACT\}<\/a>/g, contact))
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/[*`]/g, '')
     .replace(/\s+/g, ' ')
