@@ -542,7 +542,7 @@ async fn lists_reference_uploaded_avatars_by_url_and_serve_them_with_a_grant() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, _) = setup_app().await;
+    let (mut app, state) = setup_app().await;
 
     let uid = Uuid::new_v4();
     let (token, user_id) = register_user(
@@ -649,6 +649,78 @@ async fn lists_reference_uploaded_avatars_by_url_and_serve_them_with_a_grant() {
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     let served = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(served.as_ref(), png.as_slice());
+
+    // Uploads are stored under the type their content has, so a JPEG labeled as PNG is served as
+    // JPEG instead of becoming a broken avatar, and content no browser could show is refused.
+    let jpeg = [&[0xff, 0xd8, 0xff, 0xe0][..], &[7u8; 512][..]].concat();
+    let mislabeled = format!("data:image/png;base64,{}", BASE64.encode(&jpeg));
+    let (status, body) = oneshot(
+        &mut app,
+        json_request(
+            "PATCH",
+            "/api/auth/profile".into(),
+            json!({ "avatar_url": mislabeled }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "mislabeled profile: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let stored: Option<String> = sqlx::query_scalar("SELECT avatar_url FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert!(
+        stored
+            .as_deref()
+            .is_some_and(|url| url.starts_with("data:image/jpeg;base64,")),
+        "mislabeled upload must be stored as JPEG"
+    );
+
+    let not_an_image = format!("data:image/png;base64,{}", BASE64.encode(b"<html></html>"));
+    let (status, _) = oneshot(
+        &mut app,
+        json_request(
+            "PATCH",
+            "/api/auth/profile".into(),
+            json!({ "avatar_url": not_an_image }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = oneshot(
+        &mut app,
+        json_request(
+            "POST",
+            "/api/servers".into(),
+            json!({ "name": "Broken Icon Guild", "icon_url": not_an_image }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = oneshot(
+        &mut app,
+        json_request(
+            "POST",
+            "/api/servers".into(),
+            json!({ "name": "Icon Guild", "icon_url": mislabeled }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "icon: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let icon_server: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(icon_server["icon_url"]
+        .as_str()
+        .is_some_and(|url| url.starts_with("data:image/jpeg;base64,")));
 
     let (status, _) = oneshot(
         &mut app,
