@@ -19,8 +19,8 @@ vi.mock('../api', async (original) => {
 
 const user: UserPublic = { id: 'u1', username: 'tester', email: 'tester@example.test', email_verified: true, status: 'online', dm_privacy: 'friends' }
 const consent = {
-  required: false, current_terms_version: '2026-08-23',
-  current_privacy_notice_version: '2026-08-23', current_kvkk_notice_version: '2026-08-23',
+  required: false, current_terms_version: '2026-10-23',
+  current_privacy_notice_version: '2026-10-23', current_kvkk_notice_version: '2026-10-23',
 }
 
 describe('auth store persistence', () => {

@@ -1,32 +1,66 @@
-# Voxpery Hosted Service Privacy Notice
+<!-- Generated from apps/web/src/pages/LegalPage.tsx; edit the page and keep this file identical. -->
 
-Version: `2026-08-23`  
-Last updated: 23 August 2026
+# Privacy Notice
 
-This notice applies only to the official service at `voxpery.com`. A self-hosted Voxpery operator is a separate controller and must publish its own notice; see [SELF_HOST_PRIVACY_TEMPLATE.md](SELF_HOST_PRIVACY_TEMPLATE.md).
+Version: `2026-10-23`  
+Last updated: 23 October 2026
+
+This notice applies only to the official hosted service at voxpery.com, on the web and in the desktop apps. Anyone who runs their own Voxpery server is a separate controller and must publish their own notice.
 
 ## Controller and contact
 
-The hosted service is operated by **Emircan Agac**, an individual open-source project operator in Türkiye. Privacy and data-subject requests: `voxpery@gmail.com`.
+The hosted service is operated by Emircan Agac, an individual open-source project operator in Türkiye. Send privacy questions and requests to `voxpery@gmail.com`.
 
-## Data and purposes
+## Data we process
 
-Voxpery processes account/profile data (including optional about-me text), server and relationship data, authored messages and direct messages, uploaded files, moderation records, authentication/security records, and bounded operational events. This data is used to provide and secure the service, prevent abuse, troubleshoot failures, comply with law, and establish or defend legal claims.
+- **Account and profile:** username, email address, password hash, profile picture, optional about-me text, online status, preferences such as who can send you direct messages, your Google account identifier if you sign in with Google, whether your email is verified, and which versions of these documents you accepted and when.
+- **Communities and messages:** servers, memberships and roles, friends and friend requests, messages and direct messages, reactions, pins, uploaded files, reports, bans, timeouts and server audit log entries. Location and camera metadata is removed from uploaded JPEG and PNG images.
+- **Security and operations:** your sign-in session, short-lived rate-limit counters that include your IP address, server logs, and a record of when your account was registered and when you exported your data. IP addresses are not stored in the database.
+- **Voice, video and screen sharing:** carried in real time through the LiveKit media server that the operator runs with the service. Calls, cameras and screen shares are not recorded.
 
-Messages, DMs, and attachments are **not end-to-end encrypted**. The hosted server stores and can technically access them for delivery, export, abuse handling, security, and lawful requests. Voice, camera, and screen-share media is routed through the self-hosted LiveKit service and is not intentionally recorded by Voxpery.
+## Messages are not end-to-end encrypted
 
-Depending on the processing, the legal basis is performance of the Terms, legitimate interests in operating a safe service, compliance with legal obligations, or consent only where the law specifically requires it.
+Messages, direct messages and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.
 
-## Processors and transfers
+## Purposes and legal bases
 
-The service uses hosting in Germany, Cloudflare for edge/security services, Google for optional sign-in and email delivery, and GIPHY when GIF search is enabled. PostgreSQL, Redis, and LiveKit are operated with the hosted stack. Provider DPAs, transfer safeguards, and any required KVKK Article 9 filings remain part of the operator compliance checklist.
+Data is used to create and secure accounts, provide communication features, prevent abuse, operate and troubleshoot the service, comply with the law, and establish or defend legal claims. Processing relies on performing the Terms of Service, legitimate interests in running a safe service, and legal obligations. Voxpery does not use your data for advertising or profiling.
 
-## Retention and rights
+## Cookies and local storage
 
-Account and content data remains while the account/content is active and is deleted or anonymised through the applicable workflow unless a limited legal hold is necessary. Privacy-safe observability logs are retained for no more than 14 days. Deleted data can remain in backups until the backup cycle expires.
+The web app uses one sign-in cookie, which keeps you signed in until you sign out or the session expires, and short-lived cookies during Google or desktop sign-up. The desktop app keeps its sign-in in your operating system's credential store. Your browser's local storage holds settings such as theme, notification and voice preferences, and unsent message drafts; this stays on your device. Cloudflare may set cookies needed to protect the service from attacks. Voxpery uses no advertising or analytics cookies.
 
-Applicable rights may include information, access, correction, deletion, restriction, objection, portability, and a complaint to the competent authority. The in-app ZIP is a bounded convenience export, not a complete legal access response. Follow [DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md) for a formal request.
+## Service providers and international transfers
 
-Material changes are versioned. Report suspected personal-data incidents to the same contact.
+- **Hosting:** the servers, database and media server run in Germany.
+- **Cloudflare:** network delivery, attack protection and the human check (Turnstile) at sign-up. Cloudflare sees your IP address and request data.
+- **Google:** optional Google sign-in, and delivery of account emails such as email verification and password reset.
+- **GIPHY and jsDelivr:** GIF search goes from your device directly to GIPHY, and GIPHY GIFs in chat load directly from GIPHY. Built-in stickers load from the jsDelivr network. Both see the IP address of everyone who searches or views them. Images from other websites shown in chat are loaded through Voxpery's server, so those websites do not see your IP address.
+- **GitHub:** the desktop apps check for and download updates from GitHub, which sees your device's IP address.
 
-Official references: [GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB right-of-access guidance](https://www.edpb.europa.eu/documents/guideline/guidelines-012022-on-data-subject-rights-right-of-access_en), [KVKK aydınlatma yükümlülüğü](https://www.kvkk.gov.tr/Icerik/2033/Aydinlatma-Yukumlulugu-), and [KVKK yurt dışına aktarım](https://www.kvkk.gov.tr/Icerik/2053/Yurtdisina-Aktarim).
+Data is therefore processed in Germany and, by these providers, in other countries including the United States. Transfers rely on the safeguards available under applicable law, such as the providers' data processing terms and standard contractual clauses.
+
+## Retention
+
+- Account data and content are kept until you delete them or your account.
+- Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships and uploaded files. Moderation and audit records you created are reassigned to a placeholder account, and servers you own pass to their highest-ranked member.
+- Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.
+- Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.
+
+## Your rights
+
+Depending on where you live, you may ask for access to, correction, deletion or portability of your data, restrict or object to processing, and complain to a data protection authority. Settings offer a ZIP export of your data (your latest 20,000 server messages and 20,000 direct messages, and your files); it is a convenience, not a complete answer to a formal access request. Send formal requests from the email address on your account to the contact above; you will get an answer within 30 days.
+
+## Children
+
+The hosted service is for people aged 13 or over. In countries where a higher age applies to consent for online services, you need that age or your parent's or guardian's consent.
+
+## Changes and incidents
+
+Changes are versioned. When a document changes, you are asked to acknowledge the new version the next time you use Voxpery. Report suspected personal data incidents to the contact above.
+
+## Related documents
+
+- Self-hosted operators: [SELF_HOST_PRIVACY_TEMPLATE.md](SELF_HOST_PRIVACY_TEMPLATE.md).
+- How formal requests are handled: [DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md).
+- Official references: [GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB right-of-access guidance](https://www.edpb.europa.eu/documents/guideline/guidelines-012022-on-data-subject-rights-right-of-access_en), [KVKK aydınlatma yükümlülüğü](https://www.kvkk.gov.tr/Icerik/2033/Aydinlatma-Yukumlulugu-) and [KVKK yurt dışına aktarım](https://www.kvkk.gov.tr/Icerik/2053/Yurtdisina-Aktarim).

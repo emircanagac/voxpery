@@ -95,6 +95,20 @@ Recommended cron (daily backup at 02:15 UTC):
 15 2 * * * cd /opt/voxpery && ./scripts/ops/db_backup.sh >> /var/log/voxpery-backup.log 2>&1
 ```
 
+After each successful backup, `db_backup.sh` deletes backups in `BACKUP_DIR` older than
+`BACKUP_RETENTION_DAYS` (default `14`, the period the hosted Privacy Notice states; `0`
+keeps every backup). Manual exports or copies kept elsewhere, such as a one-off SQL dump
+before a data fix, are not pruned: delete them as soon as they are no longer needed.
+
+Docker rotates container logs by size only. On the hosted service, run the log pruning
+script daily as root so no log line is kept longer than `LOG_RETENTION_DAYS` (default `14`):
+
+```cron
+30 3 * * * cd /opt/voxpery && ./scripts/ops/prune_container_logs.sh >> /var/log/voxpery-logs.log 2>&1
+```
+
+Check what it would remove first with `LOG_PRUNE_DRY_RUN=1 ./scripts/ops/prune_container_logs.sh`.
+
 ## 2) Restore Drill (Mandatory Before Public Releases)
 
 At least once per release cycle:
@@ -227,8 +241,8 @@ docker compose logs --since 24h server | grep 'voxpery_observability'
 
 These lines contain only an allowlisted `event_code` plus `client` or numeric HTTP
 `status`. They must not contain paths, request bodies, account identifiers, message
-content, IP addresses, error text, or stack traces. Keep hosted observability logs for
-at most 14 days, exclude them from long-lived backups, and aggregate counts before
+content, IP addresses, error text, or stack traces. Hosted observability logs are kept for
+at most 14 days by `prune_container_logs.sh` (see backups above); aggregate counts before
 sharing reports. Self-hosted deployments may leave the feature disabled.
 
 ## 6) Production Triage Commands

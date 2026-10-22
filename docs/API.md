@@ -71,6 +71,8 @@ Important behavior:
   - A username can be changed once every 7 days; the API is the authority for the cooldown.
 - `GET /api/auth/check-username?username=...`
 - `POST /api/auth/change-password`
+- `POST /api/auth/set-password` (auth required)
+  - Lets an account that signs in only with Google add its first local password. Rate limited per account.
 - `POST /api/auth/forgot-password`
 - `POST /api/auth/reset-password`
 - `POST /api/auth/email/request-verification` (auth required)
@@ -128,6 +130,8 @@ Notes:
   - Accepts only `{ "event": "<allowlisted_code>", "client": "web|desktop" }` and rejects unknown fields.
   - Returns an empty `204` when accepted, disabled, or unavailable so event delivery never affects product behavior.
   - Disabled by default; see [OBSERVABILITY.md](OBSERVABILITY.md) for the event list and privacy contract.
+- `GET /api/releases/latest`
+  - Public. The latest GitHub release with its download links, used by the landing page; cached on the server for 15 minutes so visitors' browsers never call GitHub.
 
 ## Server Endpoints
 
@@ -190,6 +194,10 @@ Notes:
 - `GET /api/servers/:server_id/raid-events` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
+- `POST /api/servers/:server_id/reports/user` (requires `VIEW_SERVER`)
+- `POST /api/servers/:server_id/reports/message` (requires `VIEW_SERVER` and access to the message's channel)
+- `GET /api/servers/:server_id/reports` (requires `VIEW_AUDIT_LOG`)
+  - See the report rules under Message Endpoints.
 - `GET /api/servers/:server_id/audit-log` (requires `VIEW_AUDIT_LOG`)
   - Message text quoted in entries (`before_preview`, `after_preview`, `content_preview`) is omitted, with `content_hidden: true`, for channels the caller cannot view.
   - Optional exact filters: `action`, `actor_id`, `target_id`, and `channel_id`.
@@ -367,6 +375,8 @@ Attachment note:
 - `GET /api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
   - Requires effective voice access (`VIEW_SERVER` + `CONNECT_VOICE` on the target channel).
   - Returns `503` with `FEATURE_DISABLED` when the voice media service is not configured.
+- `POST /api/webrtc/livekit-webhook`
+  - Called only by the LiveKit server. Requests must carry LiveKit's signed `Authorization` header for the configured API key; anything else gets `401`.
 
 ## Health
 

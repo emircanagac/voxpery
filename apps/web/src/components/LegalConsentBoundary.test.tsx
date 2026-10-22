@@ -25,9 +25,9 @@ vi.mock('../api', async (importOriginal) => {
 
 const requiredStatus = {
   required: true,
-  current_terms_version: '2026-08-23',
-  current_privacy_notice_version: '2026-08-23',
-  current_kvkk_notice_version: '2026-08-23',
+  current_terms_version: '2026-10-23',
+  current_privacy_notice_version: '2026-10-23',
+  current_kvkk_notice_version: '2026-10-23',
 }
 
 function renderBoundary() {
@@ -81,11 +81,11 @@ describe('LegalConsentBoundary', () => {
 
     await waitFor(() => expect(authApiMocks.acknowledgeLegalConsent).toHaveBeenCalledWith({
       terms_accepted: true,
-      terms_version: '2026-08-23',
+      terms_version: '2026-10-23',
       privacy_notice_acknowledged: true,
-      privacy_notice_version: '2026-08-23',
+      privacy_notice_version: '2026-10-23',
       kvkk_notice_acknowledged: true,
-      kvkk_notice_version: '2026-08-23',
+      kvkk_notice_version: '2026-10-23',
     }, 'desktop-token'))
     expect(await screen.findByText('Protected application')).toBeInTheDocument()
   })

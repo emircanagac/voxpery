@@ -231,8 +231,8 @@ test.describe('mocked auth and account regressions', () => {
     expect(oauthUrl.searchParams.get('intent')).toBe('register')
     expect(oauthUrl.searchParams.get('terms_accepted')).toBe('true')
     expect(oauthUrl.searchParams.get('privacy_notice_acknowledged')).toBe('true')
-    expect(oauthUrl.searchParams.get('terms_version')).toBe('2026-08-23')
-    expect(oauthUrl.searchParams.get('privacy_notice_version')).toBe('2026-08-23')
+    expect(oauthUrl.searchParams.get('terms_version')).toBe('2026-10-23')
+    expect(oauthUrl.searchParams.get('privacy_notice_version')).toBe('2026-10-23')
   })
 
   test('keeps configured Google sign-in visible and preserves the post-auth route', { tag: '@core' }, async ({ page }) => {

@@ -380,6 +380,10 @@ Dry-run backup preflight:
 BACKUP_DRY_RUN=1 ./scripts/ops/db_backup.sh
 ```
 
+After each successful backup, backups older than `BACKUP_RETENTION_DAYS` (default `14`) are
+deleted. Container logs are kept under 14 days with `scripts/ops/prune_container_logs.sh`; see
+[OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) for both cron lines.
+
 Restore (explicit confirmation required):
 
 ```bash

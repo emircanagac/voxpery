@@ -56,51 +56,45 @@ Self-hosters should be able to operate Voxpery with confidence:
 ## Recently Completed
 
 - Core text, server, channel, DM, role, permission, and attachment flows.
-- LiveKit voice integration, noise suppression improvements, screen sharing, and desktop voice smoke guidance.
-- Desktop release hardening for metadata, icons, updater signing, OAuth deep links, release network scope, and Turnstile CAPTCHA rendering.
-- PWA support with manifest, icons, and service worker cache.
-- Horizontal scaling readiness for app instance identity, Redis-backed coordination, and operational notes.
-- Release and CI quality gates with frontend lint, tests, build, manual release smoke, and branch protection guidance.
-- Realtime workload performance review and load smoke script for channel activity, reconnect storms, and attachment-heavy rooms.
-- Frontend API surface refactor for smaller API modules.
+- Community safety: reports, bans, timeouts, AutoMod (blocked keywords, invite and link filters, mention spam, exempt roles and channels), raid protection for join, message, and invite bursts, and a filterable audit log.
+- Onboarding: invite previews for visitors, server rules, and an onboarding guide for new members.
+- Daily UX: unread and mention badges, per-channel mute, direct-message read state shared across your sessions, a message search panel with author and attachment filters, and "New messages" dividers.
+- Voice: LiveKit voice with noise suppression, screen shares at their real aspect ratio, a Discord-style focus view, and one voice session per device with "Join here" to move a call.
+- Desktop: Tauri 3 apps for Windows, macOS, and Linux (including Flatpak), signed updates, OAuth deep links, keyring sessions, and voice on Linux through Chromium.
+- Hosted service: legal notices checked against the code, a self-service data export, and 14-day retention for logs and backups.
+- Quality gates: lint, unit tests, core UI smoke in Chromium and Firefox, mobile smoke, server integration tests, desktop checks, CodeQL, and dependency audits on every PR.
 
 ## Current Priorities
 
-1. **Desktop media permission recovery**
-   - Help users recover when microphone/camera permissions are denied in the desktop app.
-   - Add clear error copy, retry guidance, and desktop-specific smoke coverage.
+1. **Voice stage and focus view**
+   - Show a clear joining state, keep the focus view inside one screen, and finish its improvements: focusing a camera, remembering the participant strip, leaving with Esc, speaking rings, and a scrollable strip for large calls.
 
-2. **Community safety foundations**
-   - Add AutoMod basics for blocked keywords, links/invites, mention spam, and moderation events.
-   - Add temporary timeout/mute actions and simple raid protection.
+2. **Desktop reliability**
+   - Make fullscreen from a maximized window cover the whole screen on Windows, and reopen the window in front after an in-app update.
 
-3. **Unread, mention, and notification polish**
-   - Improve per-channel mute, persistent read state, cross-session correctness, and desktop/PWA notification behavior.
+3. **Browser coverage**
+   - Keep Chrome, Firefox, Brave, Opera, and the desktop apps working equally well, with Firefox in CI and a manual browser pass before each release.
 
-4. **Onboarding improvements**
-   - Add invite landing, optional rules screen, welcome guide, and suggested channels.
+4. **Self-host admin visibility**
+   - Expose health and configuration status for the database, Redis, LiveKit, storage, optional integrations, CAPTCHA, and release-critical settings.
 
-5. **Search and large-community UX**
-   - Improve search filters before heavier indexing rewrites.
+5. **Large-community UX**
    - Decide between lightweight threads and forum-style channels.
-
-6. **Self-host admin visibility**
-   - Expose health/config status for DB, Redis, LiveKit, storage, optional integrations, CAPTCHA, and release-critical settings.
 
 ## Later Exploration
 
-- Native mobile or mobile-wrapped PWA strategy.
-- Server-backed push notifications for offline/mobile clients.
-- Incoming webhooks, scoped bot tokens, and a future extension/plugin ecosystem.
-- End-to-end encryption design.
-- Recording/transcription/video-meeting expansion.
-- Marketplace for themes, bots, templates, and extensions.
+- Native mobile apps, or a store-packaged version of the installable web app.
+- Server-backed push notifications for offline and mobile clients.
+- Incoming webhooks, scoped bot tokens, and a future extension or plugin ecosystem.
+- End-to-end encryption, revisited once direct-message calls exist.
+- Recording, transcription, and larger video meetings.
+- A marketplace for themes, bots, templates, and extensions.
 
 ## Non-Goals for the Near Term
 
 - Enterprise omnichannel support.
 - Full Slack replacement workflows.
-- Heavy all-browser E2E as a required PR gate.
+- Running the full visual E2E matrix on every PR; PRs run the core smoke in Chromium and Firefox and the detailed suites run before releases.
 - Speculative large rewrites before measurement shows a bottleneck.
 
 ## Community Input
@@ -113,6 +107,6 @@ We value community feedback:
 
 ---
 
-Last updated: May 10, 2026.
+Last updated: October 23, 2026.
 
 This roadmap is directional and may change based on user reports, security priorities, maintainer capacity, and production feedback.

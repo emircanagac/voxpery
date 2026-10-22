@@ -13,6 +13,9 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DB_NAME="${POSTGRES_DB:-voxpery}"
 DB_USER="${POSTGRES_USER:-voxpery}"
 BACKUP_LABEL="${BACKUP_LABEL:-}"
+# The hosted Privacy Notice promises that deleted data leaves backups within 14 days.
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+[[ "$BACKUP_RETENTION_DAYS" =~ ^[0-9]+$ ]] || die "BACKUP_RETENTION_DAYS must be a whole number of days (0 keeps every backup)"
 SAFE_LABEL=""
 if [[ -n "$BACKUP_LABEL" ]]; then
   SAFE_LABEL="_$(tr -cd '[:alnum:]_.-' <<<"$BACKUP_LABEL" | cut -c1-48)"
@@ -48,3 +51,8 @@ gzip -t "$TMP_FILE"
 mv "$TMP_FILE" "$OUT_FILE"
 
 echo "Backup created: $OUT_FILE"
+
+# Prune only after a verified new backup exists, so a failing backup never leaves none.
+if (( BACKUP_RETENTION_DAYS > 0 )); then
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name "${DB_NAME}_*.sql.gz"     -mmin "+$(( BACKUP_RETENTION_DAYS * 24 * 60 ))" -print -delete     | sed 's/^/Expired backup removed: /'
+fi
