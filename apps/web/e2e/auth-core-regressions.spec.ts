@@ -92,8 +92,11 @@ test.describe('mocked auth and account regressions', () => {
     await installMockCoreApi(page)
     await page.goto('/servers')
     await expect(page.getByRole('link', { name: 'Social' })).toBeVisible()
+    // End the session only for requests made on the Social page, so a background request that
+    // races the click (slower browsers) cannot end it on /servers first.
     await page.route('**/api/**', (route) => {
       if (new URL(route.request().url()).pathname === '/api/auth/session') return route.fallback()
+      if (!new URL(page.url()).pathname.startsWith('/social')) return route.fallback()
       return route.fulfill({ status: 401, json: { error: 'Authentication required' } })
     })
     await page.getByRole('link', { name: 'Social' }).click()
